@@ -64,6 +64,19 @@
 - cost-aware routing;
 - strict schema и fallback policy.
 
+### Стратегия верхнего project orchestrator-а
+
+- [`../plan/project-orchestrator-strategy.md`](../plan/project-orchestrator-strategy.md)
+
+Этот документ фиксирует отдельную стратегическую ветку:
+
+- верхний orchestrator проектов;
+- intake пользовательской цели;
+- milestones и batches;
+- human approval gates;
+- делегирование в `ai-multi-agents`;
+- local-first project state.
+
 ## Как этим пользоваться
 
 Правильный порядок чтения и использования:
@@ -73,6 +86,7 @@
 3. При необходимости уточнять детали через:
    - [`../plan/agent-core-architecture.md`](../plan/agent-core-architecture.md)
    - [`../plan/agent-core-provider-strategy.md`](../plan/agent-core-provider-strategy.md)
+   - [`../plan/project-orchestrator-strategy.md`](../plan/project-orchestrator-strategy.md) для верхнеуровневой стратегической ветки
 
 ## Какой workflow сейчас считается правильным
 
