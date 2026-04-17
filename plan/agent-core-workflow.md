@@ -1,859 +1,890 @@
-# Workflow: переход `ai-multi-agents` на собственный Agent Core
+# Workflow: построение локальной AI-agent platform поверх `ai-multi-agents`
 
 ## Цель
 
-Подготовить исполнимый roadmap, по которому `ai-multi-agents` сможет отказаться от зависимости на внешний runtime Cursor/Claude Code как на вычислительное ядро и перейти на собственный `agent core`, сохранив:
+Построить не просто замену внешнего runtime, а локальную или server-local AI-agent platform, которая:
+
+- работает с проектным `context/*` как с каноническим знанием;
+- хранит runtime state, events и episodic данные локально;
+- визуализирует исполнение workflow и агентов;
+- минимизирует token cost через shortlist, compaction и governance;
+- поддерживает динамически расширяемые agents и workflows под конкретный проект;
+- постепенно уходит от обязательной зависимости на Cursor/Claude Code.
+
+## Режим исполнения на текущем этапе
+
+На текущем этапе этот workflow должен исполняться так:
+
+1. `ai-multi-agents` продолжает работать через текущий Cursor runtime.
+2. `ai-multi-agents` используется как workflow shell для разработки нового runtime.
+3. Реализация выполняется в репозитории `ailit-agent`.
+4. Текущий рабочий путь `ai-multi-agents` нельзя деградировать или ломать.
+5. Каждая задача ниже должна запускаться как отдельная маленькая feature-итерация.
+
+Это означает:
+
+- не делать big-bang migration;
+- не заменять рабочий runtime сразу;
+- не переписывать весь orchestration слой за один проход;
+- развивать новый runtime отдельно, но совместимо с будущей интеграцией.
+
+## Как использовать этот документ в `ai-multi-agents`
+
+Этот workflow предназначен для практического режима:
+
+1. выбрать одну задачу из этапа;
+2. передать ее мультиагентной системе как отдельную feature-задачу;
+3. ограничить scope только этой задачей;
+4. после выполнения пройти критерии приемки;
+5. затем пройти проверки из раздела `Тесты`;
+6. только после этого переходить к следующей задаче.
+
+Правильная единица работы:
+
+- `одна задача workflow = одна итерация разработки`
+
+## Главная продуктовая формула
+
+Целевая система должна быть:
+
+- `knowledge-aware`;
+- `workflow-aware`;
+- `low-infra`;
+- `locally observable`;
+- `project-configurable`;
+- `provider-agnostic`.
+
+Важно: задача проекта не в том, чтобы сделать еще один универсальный coding runtime "как у всех", а в том, чтобы сделать сильную платформу AI-агентов для реальных проектных workflow.
+
+## Три слоя целевой архитектуры
+
+### 1. `core runtime`
+
+Отвечает за:
+
+- provider abstraction;
+- session loop;
+- tools;
+- permissions;
+- approvals;
+- streaming;
+- retries;
+- runtime state hooks;
+- cost/token accounting.
+
+### 2. `workflow layer`
+
+Отвечает за:
+
+- execution graph;
+- роли агентов;
+- machine-readable orchestration;
+- stage transitions;
+- blocked/resume semantics;
+- artifacts lifecycle;
+- visualization-friendly event flow.
+
+### 3. `project layer`
+
+Отвечает за:
 
 - `rules/*` как policy layer;
-- `context/*` как canonical knowledge layer;
-- installer-first подход;
-- low-infra профиль;
-- совместимость с текущим `status.md`, runtime state и knowledge refresh;
-- возможность сначала подключить `Kimi K2`, а затем `DeepSeek` и другие провайдеры.
+- `context/*` как canonical knowledge;
+- project-specific workflows;
+- project-specific agents;
+- project config;
+- project memory boundaries.
 
-## Основания для плана
+## Что это значит для `orchestrator*.md`
 
-### Текущее состояние `ai-multi-agents`
+Новый runtime не должен слепо поглотить `orchestrator*.md`.
 
-Сейчас система держится на трех слоях:
+Нужно разделить:
 
-1. `templates/cursor/.cursor/rules/system/main/runtime-cli.mdc` задает transport к внешнему CLI.
-2. `templates/cursor/.cursor/rules/system/main/orchestrator-duties.mdc` и соседние `orchestrator-stage-*.mdc` держат orchestration semantics в markdown.
-3. `tools/runtime/*` и `tools/knowledge_refresh/*` дают локальный runtime/state/knowledge слой, но не заменяют внешнее агентное ядро.
+- **machine logic** уходит в код:
+  - stage graph;
+  - transitions;
+  - retries;
+  - blocked/resume;
+  - routing между агентами;
+  - lifecycle events;
+  - проверяемые runtime rules;
+- **policy logic** остается в `rules/*`:
+  - роль агента;
+  - инженерная дисциплина;
+  - требования к review;
+  - project-specific conventions;
+  - narrative semantics.
 
-Это дает переносимость, но создает ограничения:
+Итоговая модель:
 
-- поведение зависит от внешнего CLI и его флагов;
-- orchestration сильно завязан на natural-language policy;
-- tool execution, retries, streaming и permissions не контролируются собственным кодом;
-- подключение новой модели требует обходных путей вместо штатного provider layer.
+- `runtime` решает, **что и когда исполнять**;
+- `rules/*` решают, **как агент должен себя вести внутри роли**.
 
-### Что берем из референсов
+## Что сохраняем из текущего `ai-multi-agents`
 
-#### Из `claude-code`
+1. `rules/*` как главное отличие от обычных agent CLI.
+2. `context/*` как source of truth.
+3. `knowledge_refresh` и shortlist-подход.
+4. `tools/runtime/*` как основу observability/state.
+5. installer-first и low-infra раскладку.
 
-- явный `query loop` с кодовым `state`;
-- строгий контракт инструмента: schema, destructive/read-only/concurrency-safe;
-- централизованный streaming reducer;
-- context compaction до вызова модели;
-- permission/safety слой отдельно от логики провайдера;
-- детерминированное resume/retry поведение.
+## Что берем из референсов
 
-#### Из `opencode`
+### Из `claude-code`
 
-- provider abstraction и message transforms;
-- session processor как единый центр исполнения;
-- typed event bus и run/session state;
-- approval flow через асинхронное ожидание ответа оператора;
-- явные runtime/addon boundaries;
-- compaction и snapshot-first observability.
+- явный agent loop;
+- зрелый tool runtime;
+- permission/safety model;
+- streaming reducer;
+- context compaction;
+- recovery semantics.
 
-#### Из текущего `ai-multi-agents`
+### Из `opencode`
 
-- `rules/*` нельзя терять: это конкурентное преимущество как policy layer;
-- `context/*` должно остаться источником правды;
-- installer и helper layer уже задают хороший low-infra deployment contract;
-- `tools/runtime/*` нужно переиспользовать как observability и state foundation;
-- knowledge refresh нельзя смешивать с runtime state.
+- provider abstraction;
+- session runtime;
+- typed events/state;
+- extensibility;
+- clear runtime boundaries;
+- transport normalization.
 
-#### Из внешних API-практик
+## Честная постановка задачи
 
-- `Kimi K2`: tool calling в OpenAI-compatible потоке, поддержка streaming tool calls и parser fallback при необходимости ручного разбора;
-- `DeepSeek`: OpenAI-compatible function calling, `strict` mode как важный режим для schema-driven tool execution.
+Нельзя выиграть у `claude-code` или `opencode`, просто переписав transport.
 
-## Глобальные инварианты
+Выигрыш может появиться только если собрать систему, которая сильнее в том, что у вас уже является преимуществом:
 
-Каждая задача ниже обязана соблюдать следующее:
-
-1. Новый `agent core` не подменяет `context/*`.
-2. Новый `agent core` не ломает существующий installer-first rollout.
-3. Migration path должен быть обратимым до финального cutover.
-4. Любое новое ядро должно работать без тяжелой внешней инфраструктуры.
-5. Provider layer должен быть capability-based, а не привязанным к бренду модели.
-6. Orchestrator compatibility сначала обеспечивается адаптером, а не мгновенной полной переписью правил.
+- knowledge discipline;
+- project workflows;
+- visual observability;
+- cost control;
+- local-first execution;
+- project-configurable multi-agent behavior.
 
 ## Порядок этапов
 
-1. Этап 1. Нормализация целевой модели Agent Core
-2. Этап 2. Provider abstraction и transport foundation
-3. Этап 3. Tool system, permissions и safety
-4. Этап 4. Session loop, streaming и context management
-5. Этап 5. Совместимый adapter для `ai-multi-agents`
-6. Этап 6. Code-first orchestration runtime
-7. Этап 7. Memory и context integration
-8. Этап 8. Hardening, observability и governance
-9. Этап 9. Rollout и отключение зависимости от Cursor/Claude Code
+1. Этап 1. Нормализация целевой платформы и границ трех слоев
+2. Этап 2. Local state, event model и visual-first observability foundation
+3. Этап 3. Provider abstraction и transport foundation
+4. Этап 4. Tool runtime, permissions и safety
+5. Этап 5. Session loop, streaming и token-cost management
+6. Этап 6. Workflow engine и перенос machine logic из `orchestrator*.md`
+7. Этап 7. Project layer, canonical context и dynamic agent/workflow config
+8. Этап 8. Совместимый adapter для существующего `ai-multi-agents`
+9. Этап 9. Hardening, packaging и controlled rollout
 
-## Почему именно такой порядок
+## Почему такой порядок
 
-- без явных границ ядра легко смешать runtime, memory и policy;
-- без provider abstraction любой Kimi/DeepSeek rollout станет vendor-locked;
-- без tool/safety слоя свой агент быстро потеряет управляемость;
-- без session loop невозможно стабильно поддержать streaming, retries и compaction;
-- без compatibility adapter нельзя безопасно встроиться в `ai-multi-agents`;
-- только после этого имеет смысл переносить orchestration semantics из markdown в код;
-- hardening и cutover нужно делать только после появления совместимого ядра.
+- без четких трех слоев проект легко расползется;
+- без local state и events нельзя сделать честную визуализацию;
+- без provider abstraction нельзя безопасно подключать Kimi/DeepSeek;
+- без tool runtime и session loop не получится контролировать cost и поведение;
+- без workflow engine вы останетесь просто надстройкой;
+- без project layer вы потеряете главное преимущество `ai-multi-agents`;
+- adapter и rollout нужно делать после появления полноценного substrate, а не до него.
 
 ---
 
-## Этап 1. Нормализация целевой модели Agent Core
+## Этап 1. Нормализация целевой платформы и границ трех слоев
 
-Цель этапа: зафиксировать границы нового ядра и исключить архитектурную двусмысленность до начала кодовой реализации.
+Цель этапа: перестать мыслить задачей как "заменой чужого рантайма" и зафиксировать ее как построение собственной платформы.
 
-### Задача 1.1. Зафиксировать boundaries нового ядра
-
-**Что сделать**
-
-- Описать, что именно входит в `agent core`, а что остается в `rules/*`, `tools/runtime/*` и `tools/knowledge_refresh/*`.
-- Отдельно зафиксировать границы между:
-  - provider layer;
-  - tool executor;
-  - session loop;
-  - orchestration bridge;
-  - memory/context integration;
-  - observability/state.
-
-**Критерии приемки**
-
-- есть единый boundary document;
-- нет пересечения ответственности между `agent core` и `knowledge_refresh`;
-- зафиксировано, что `rules/*` остаются policy layer, а не переезжают полностью в runtime.
-
-**Тесты**
-
-- перечитать архитектурный документ и проверить, что каждый модуль отнесен только к одному слою;
-- проверить, что для каждой текущей подсистемы `ai-multi-agents` есть решение: сохранить, адаптировать или заменить.
-
-### Задача 1.2. Зафиксировать capability model для моделей и инструментов
+### Задача 1.1. Зафиксировать трехслойную архитектуру
 
 **Что сделать**
 
-- Описать capability matrix для провайдеров:
-  - tool calling;
-  - streaming;
-  - structured output;
-  - strict schema support;
-  - reasoning mode;
-  - retries/timeouts;
-  - usage/cost telemetry.
-- Отдельно описать capability matrix для инструментов:
-  - read-only;
-  - write;
-  - destructive;
-  - concurrency-safe;
-  - approval-required.
+- Описать `core runtime`, `workflow layer`, `project layer`.
+- Зафиксировать границы между ними.
+- Явно указать, какие подсистемы текущего `ai-multi-agents` остаются, а какие эволюционируют.
 
 **Критерии приемки**
 
-- capability model описана без привязки к одному провайдеру;
-- Kimi K2 и DeepSeek помещаются в одну общую модель;
-- decisions по routing можно принимать на основе capabilities, а не hardcode-веток.
+- любой ключевой модуль можно отнести к одному слою;
+- нет смешения runtime, workflow и project semantics;
+- placement будущих модулей понятен заранее.
 
 **Тесты**
 
-- проверить, что один и тот же tool contract можно выполнить через Kimi и DeepSeek adapter;
-- пройтись по capability matrix и убедиться, что для неизвестного провайдера можно добавить новый adapter без переписывания session loop.
+- сделать mapping всех текущих ключевых подсистем;
+- проверить, что для каждой есть решение: сохранить, вынести, переписать или обернуть.
 
-### Задача 1.3. Зафиксировать migration path
+### Задача 1.2. Зафиксировать продуктовые приоритеты
 
 **Что сделать**
 
-- Описать поэтапную замену внешнего CLI на внутренний adapter.
-- Разделить миграцию на:
-  - adapter-compatible phase;
-  - hybrid phase;
-  - native-core phase;
-  - full cutover phase.
+- Явно определить, что для проекта важнее всего:
+  - local storage;
+  - visual monitoring;
+  - token/cost minimization;
+  - dynamic workflows;
+  - project configuration;
+  - controlled agent behavior.
 
 **Критерии приемки**
 
-- миграция не требует одномоментного отказа от текущих `runtime-cli.mdc`;
-- rollback path понятен;
-- installer impact описан заранее.
+- приоритеты зафиксированы документально;
+- roadmap больше не выглядит как "делаем просто свой chat runtime";
+- optimization решений можно проверять против продуктовых целей.
 
 **Тесты**
 
-- проверить, что для каждого этапа миграции есть вход, выход и обратимый rollback;
-- убедиться, что ни один шаг не требует одновременной переписи `rules/*`, `runtime/*` и provider layer.
+- проверить, что каждый следующий этап напрямую поддерживает хотя бы один продуктовый приоритет;
+- убедиться, что нет крупных этапов "ради красивой архитектуры без пользы продукту".
+
+### Задача 1.3. Зафиксировать судьбу `orchestrator*.md`
+
+**Что сделать**
+
+- Явно описать, какая логика уходит в код, а какая остается в policy docs.
+- Разделить `machine logic` и `policy logic`.
+
+**Критерии приемки**
+
+- больше нет двусмысленности, что будет происходить с `orchestrator*.md`;
+- понятно, что runtime переезжает только воспроизводимая исполняемая логика;
+- `rules/*` сохраняют ценность как policy layer.
+
+**Тесты**
+
+- составить список минимум из 10 orchestration responsibilities и разнести их по двум категориям;
+- проверить, что ни один критичный runtime transition не остается только в narrative markdown.
 
 ### Критерий этапа 1
 
-- архитектура ядра нормализована;
-- capability-based модель зафиксирована;
-- migration path понятен и обратим;
-- дальнейшие этапы можно выполнять без повторного спора о placement и boundaries.
+- целевая платформа описана точно;
+- трехслойная модель зафиксирована;
+- судьба `orchestrator*.md` понятна;
+- roadmap синхронизирован с реальной целью проекта.
 
 **Тест этапа**
 
-- провести архитектурный review документов и убедиться, что новый участник команды может объяснить placement всех ключевых подсистем без дополнительных устных договоренностей.
+- провести review документов и убедиться, что новый участник команды может объяснить архитектуру и продуктовую цель без устных уточнений.
 
 ---
 
-## Этап 2. Provider abstraction и transport foundation
+## Этап 2. Local state, event model и visual-first observability foundation
 
-Цель этапа: построить единый провайдерный слой, через который можно сначала подключить `Kimi K2`, затем `DeepSeek`, не ломая остальной runtime.
+Цель этапа: сделать визуализацию и локальное хранение ядром системы, а не поздним дополнением.
 
-### Задача 2.1. Ввести provider interface
+### Задача 2.1. Зафиксировать локальную модель хранения
 
 **Что сделать**
 
-- Описать единый интерфейс провайдера:
-  - `send_messages`;
-  - `stream_messages`;
-  - `normalize_tool_calls`;
-  - `normalize_usage`;
-  - `supports_capability`.
-- Отделить transport, message normalization и provider-specific compatibility.
+- Определить, что хранится локально:
+  - runtime state;
+  - event log;
+  - snapshots;
+  - episodic summaries;
+  - usage/cost telemetry;
+  - workflow definitions.
 
 **Критерии приемки**
 
-- кодовый контракт провайдера не зависит от конкретного SDK;
-- transport и message transforms отделены;
-- session loop не знает о бренд-специфичных деталях.
+- storage model local-first;
+- не требуется тяжелая внешняя БД;
+- state пригоден для UI и resume.
+
+**Тесты**
+
+- пройтись по каждому типу данных и проверить формат хранения;
+- проверить, что storage не подменяет `context/*`.
+
+### Задача 2.2. Зафиксировать единый event contract
+
+**Что сделать**
+
+- Определить обязательные события для runtime, workflow и project layer.
+- Сделать их пригодными для UI, state store и debugging.
+
+**Критерии приемки**
+
+- из событий можно восстановить выполнение;
+- UI не зависит от ad-hoc логов;
+- события не привязаны к одному провайдеру.
+
+**Тесты**
+
+- смоделировать типовой run и проверить полноту event mapping;
+- проверить, что из event stream собирается snapshot.
+
+### Задача 2.3. Зафиксировать visual-first модель мониторинга
+
+**Что сделать**
+
+- Описать, что UI должен уметь показывать:
+  - активные workflows;
+  - stages;
+  - agents;
+  - blocked states;
+  - cost/tokens;
+  - context usage;
+  - последние key artifacts.
+
+**Критерии приемки**
+
+- visualization признана core feature;
+- UI requirements формализованы до кодирования runtime;
+- observability уже ориентирована на operator workflow.
+
+**Тесты**
+
+- составить экранную карту UI;
+- проверить, что для каждого блока есть источник данных в event/state модели.
+
+### Критерий этапа 2
+
+- локальное хранение описано;
+- event model зафиксирована;
+- визуализация встроена в архитектуру как core capability.
+
+**Тест этапа**
+
+- проверить, что по документам можно спроектировать минимальный local monitor без дополнительных архитектурных допущений.
+
+---
+
+## Этап 3. Provider abstraction и transport foundation
+
+Цель этапа: построить универсальный провайдерный слой для Kimi K2, DeepSeek и следующих моделей.
+
+### Задача 3.1. Ввести capability-based provider interface
+
+**Что сделать**
+
+- Зафиксировать провайдерный интерфейс и capability matrix.
+- Убрать vendor-specific логику из будущего session loop.
+
+**Критерии приемки**
+
+- новый провайдер можно добавить через adapter;
+- capabilities описаны явно;
+- runtime не знает бренд-специфичных деталей.
 
 **Тесты**
 
 - contract test на mock-provider;
-- smoke test на сериализацию запроса и нормализацию ответа;
-- проверка, что provider-specific поля не уходят выше adapter layer.
+- capability mapping test для Kimi и DeepSeek.
 
-### Задача 2.2. Реализовать OpenAI-compatible transport foundation
+### Задача 3.2. Реализовать shared transport foundation
 
 **Что сделать**
 
-- Зафиксировать transport, совместимый с OpenAI-style chat completions.
-- Поддержать:
-  - обычные ответы;
+- Подготовить общий transport для:
+  - chat completions;
   - streaming;
-  - tool calls;
-  - tool call results;
-  - базовые retry/timeout правила.
+  - tool calling;
+  - usage normalization;
+  - timeout/retry hooks.
 
 **Критерии приемки**
 
-- transport подходит и для Kimi, и для DeepSeek;
-- transport не тянет тяжелую vendor-specific инфраструктуру;
-- tool calls и stream events приводятся к единому внутреннему виду.
+- transport единый для Kimi и DeepSeek;
+- shared request/response format зафиксирован;
+- fallback paths определены.
 
 **Тесты**
 
-- golden tests на нормализацию text/tool/finish_reason;
-- fault-injection tests на timeout, пустой ответ и malformed tool payload;
-- smoke test на повторный запрос после retryable failure.
+- golden tests на text/tool/usage normalization;
+- timeout и malformed response tests.
 
-### Задача 2.3. Подключить `Kimi K2` как first provider
+### Задача 3.3. Подключить Kimi K2 и DeepSeek как первые штатные провайдеры
 
 **Что сделать**
 
-- Реализовать Kimi adapter через общий transport.
-- Отдельно описать parser fallback на случай raw tool call parsing.
-- Зафиксировать рекомендуемый режим использования для агентных задач.
+- Реализовать Kimi adapter и DeepSeek adapter.
+- Поддержать parser fallback и strict schema там, где нужно.
 
 **Критерии приемки**
 
-- Kimi работает через общий provider contract;
-- tool calling и streaming покрыты;
-- parser fallback не ломает основной путь.
+- оба провайдера работают через единый runtime contract;
+- provider switch делается конфигом;
+- future providers можно добавлять без изменения session loop.
 
 **Тесты**
 
-- tool calling smoke test;
-- streaming tool call assembly test;
-- negative test с неполным tool chunk и проверкой корректной сборки/ошибки;
-- manual parser fallback test на сыром tool response.
+- tool calling smoke tests;
+- streaming tests;
+- provider switch regression test.
 
-### Задача 2.4. Подключить `DeepSeek` как second provider
+### Критерий этапа 3
 
-**Что сделать**
-
-- Реализовать DeepSeek adapter через тот же transport.
-- Поддержать `strict` mode для schema-driven tools там, где это уместно.
-- Зафиксировать отличия от Kimi на уровне capabilities, а не логики ядра.
-
-**Критерии приемки**
-
-- DeepSeek adapter не требует отдельного session loop;
-- strict schema path описан и протестирован;
-- routing между Kimi и DeepSeek может быть выбран конфигом.
-
-**Тесты**
-
-- function calling smoke test;
-- strict mode schema validation test;
-- provider switch test без изменения tool executor и session loop.
-
-### Критерий этапа 2
-
-- есть единый provider abstraction layer;
-- Kimi подключен как основной провайдер;
-- DeepSeek подключен как альтернативный провайдер;
-- provider switching возможен без переписывания остального ядра.
+- provider layer работает как отдельная зрелая подсистема;
+- Kimi и DeepSeek подключаются без vendor lock-in;
+- транспорт готов для product runtime.
 
 **Тест этапа**
 
-- запустить одинаковый сценарий через mock, Kimi и DeepSeek adapters и проверить единый внутренний формат событий, tool calls и usage.
+- прогнать одинаковый сценарий через mock, Kimi и DeepSeek и сравнить внутренний нормализованный результат.
 
 ---
 
-## Этап 3. Tool system, permissions и safety
+## Этап 4. Tool runtime, permissions и safety
 
-Цель этапа: построить управляемую execution-модель инструментов до переноса orchestration в собственное ядро.
+Цель этапа: сделать tools first-class частью платформы.
 
-### Задача 3.1. Ввести единый tool contract
+### Задача 4.1. Ввести единый tool contract
 
 **Что сделать**
 
-- Зафиксировать структуру инструмента:
-  - имя;
-  - schema;
-  - описание;
-  - side-effect class;
-  - concurrency policy;
-  - approval policy;
-  - output normalization.
+- Зафиксировать schema, side effects, approval, concurrency и result normalization.
 
 **Критерии приемки**
 
-- все инструменты описываются единым контрактом;
-- tool metadata достаточно для routing, permissions и UI;
-- контракт не зависит от конкретной модели.
+- инструменты описываются одинаково;
+- tool metadata достаточно для runtime, UI и governance;
+- контракт не зависит от модели.
 
 **Тесты**
 
 - schema validation tests;
-- contract serialization test;
-- test на то, что один и тот же contract может быть отдан разным provider adapters.
+- contract serialization tests.
 
-### Задача 3.2. Реализовать permission и approval flow
-
-**Что сделать**
-
-- Разделить auto-allow, ask, deny и session-scoped approvals.
-- Описать поведение для destructive tools и write tools.
-- Сделать совместимость с human-in-the-loop паузами.
-
-**Критерии приемки**
-
-- permission decisions отделены от исполнения tool-а;
-- destructive actions не проходят без политики;
-- approval flow совместим с pause/resume semantics.
-
-**Тесты**
-
-- tests на allow/ask/deny режимы;
-- test на pending approval и возобновление выполнения;
-- negative test на попытку вызова запрещенного инструмента.
-
-### Задача 3.3. Реализовать tool executor с контролем конкуренции
+### Задача 4.2. Реализовать permission и approval subsystem
 
 **Что сделать**
 
-- Ввести исполнитель, который различает serial и concurrency-safe tools.
-- Поддержать ordered result delivery.
-- Отдельно описать отмену соседних вызовов при критической ошибке.
+- Разделить allow, ask, deny и session-scoped approvals.
+- Связать approvals с pause/resume и UI.
 
 **Критерии приемки**
 
-- executor воспроизводимо исполняет safe и unsafe инструменты;
-- параллельность ограничена policy;
-- порядок результатов стабилен.
+- destructive paths контролируемы;
+- approval flow совместим с visual runtime;
+- решения по permission не размазаны по промптам.
 
 **Тесты**
 
-- test на пакет из concurrency-safe tools;
-- test на смешанный пакет safe/unsafe;
-- cancellation test при ошибке shell/write tool;
-- deterministic ordering test.
+- allow/ask/deny tests;
+- pending approval resume tests.
 
-### Критерий этапа 3
+### Задача 4.3. Реализовать tool executor
 
-- появился единый tool system;
-- permission layer отделен от provider layer;
-- tool execution управляется политиками, а не ad-hoc промптом.
+**Что сделать**
+
+- Поддержать serial/safe-parallel execution, ordered results и cancellation behavior.
+
+**Критерии приемки**
+
+- tool execution предсказуемо;
+- concurrency контролируется;
+- failures обрабатываются воспроизводимо.
+
+**Тесты**
+
+- mixed batch tests;
+- cancellation tests;
+- deterministic ordering tests.
+
+### Критерий этапа 4
+
+- tools стали отдельным runtime-слоем;
+- permission и safety больше не зависят только от поведения модели;
+- платформа готова к управляемому агентному исполнению.
 
 **Тест этапа**
 
-- запустить сценарий с read-only, write и destructive tools и проверить правильность approval, ordering и error handling.
+- выполнить сценарий с read-only, write и approval-required tools и проверить корректность исполнения.
 
 ---
 
-## Этап 4. Session loop, streaming и context management
+## Этап 5. Session loop, streaming и token-cost management
 
-Цель этапа: сделать собственное ядро предсказуемым на длинных агентных итерациях.
+Цель этапа: сделать runtime управляемым по состоянию и стоимости.
 
-### Задача 4.1. Реализовать явный session loop
+### Задача 5.1. Реализовать явный session loop
 
 **Что сделать**
 
-- Ввести главный цикл с явным состоянием:
-  - messages;
-  - pending tool calls;
-  - retries;
-  - pause state;
-  - compaction state;
-  - finish reason.
+- Ввести loop с явным состоянием, finish reasons, retries и pause semantics.
 
 **Критерии приемки**
 
-- runtime loop существует как first-class кодовая сущность;
-- continue/retry/pause причины определяются явно;
-- loop можно тестировать без реального провайдера.
+- runtime loop отделен от provider logic;
+- поведение воспроизводимо;
+- loop тестируется независимо.
 
 **Тесты**
 
 - state transition tests;
-- retry limit tests;
-- pause/resume tests;
-- terminal reason tests.
+- retry tests;
+- pause/resume tests.
 
-### Задача 4.2. Реализовать streaming reducer
+### Задача 5.2. Реализовать streaming reducer
 
 **Что сделать**
 
-- Централизовать обработку text deltas, tool deltas, reasoning deltas и finish events.
-- Поддержать сборку tool calls из streaming chunks.
+- Централизовать сбор text deltas, tool deltas и finish events.
 
 **Критерии приемки**
 
-- stream processing не размазан по коду;
-- reducer умеет собирать финальное message state;
-- частичные tool chunks не ломают loop.
+- stream собирается в стабильное внутреннее состояние;
+- tool chunks не ломают run;
+- код stream-обработки централизован.
 
 **Тесты**
 
-- text streaming reconstruction test;
-- tool delta assembly test;
-- malformed chunk recovery test.
+- text reconstruction tests;
+- tool delta assembly tests;
+- malformed chunk tests.
 
-### Задача 4.3. Реализовать context compaction и budget control
-
-**Что сделать**
-
-- Описать budget policy для:
-  - message history;
-  - tool outputs;
-  - summaries;
-  - canonical context excerpts.
-- Сначала ввести предсказуемый базовый compaction path, затем расширения.
-
-**Критерии приемки**
-
-- есть единый budget-aware compaction policy;
-- compact не подменяет canonical docs;
-- long-running session не деградирует в хаотичный history dump.
-
-**Тесты**
-
-- tests на превышение message budget;
-- tests на усечение больших tool outputs;
-- regression test, что после compaction критичные facts остаются доступны loop-у.
-
-### Критерий этапа 4
-
-- session loop работает детерминированно;
-- streaming и tool deltas централизованы;
-- context budget контролируется кодом, а не только качеством промпта.
-
-**Тест этапа**
-
-- прогнать длинную симулированную агентную сессию с несколькими tool calls, pause/resume и compaction, затем проверить конечное состояние loop и сохранность ключевых данных.
-
----
-
-## Этап 5. Совместимый adapter для `ai-multi-agents`
-
-Цель этапа: встроить собственный `agent core` в текущий pipeline без немедленной поломки `rules/*`.
-
-### Задача 5.1. Ввести runtime adapter вместо прямого CLI transport
+### Задача 5.3. Реализовать shortlist и context compaction
 
 **Что сделать**
 
-- Спроектировать adapter, который принимает:
-  - роль агента;
-  - входные данные шага;
-  - model selection;
-  - repo root;
-  - policy hints.
-- Adapter должен отдавать stdout-compatible результат для существующего pipeline либо совместимый артефактный ответ.
+- Подключить shortlist-подход к session loop.
+- Реализовать compaction для history, tool outputs и summaries.
 
 **Критерии приемки**
 
-- текущий orchestrator может вызвать новый runtime через совместимую точку входа;
-- роли и stage prompts продолжают работать;
-- внешний формат результата остается пригодным для текущего artifact parsing.
-
-**Тесты**
-
-- compatibility test на одной роли;
-- end-to-end smoke test `роль -> adapter -> provider -> tool -> ответ`;
-- regression test на существующий artifact parser.
-
-### Задача 5.2. Интегрировать adapter в `runtime-cli.mdc` migration path
-
-**Что сделать**
-
-- Описать новый transport path рядом с существующими Cursor/Claude блоками.
-- Ввести controlled switch между внешним CLI и внутренним agent core.
-
-**Критерии приемки**
-
-- migration path не ломает текущие установки;
-- проект может выбрать старый или новый runtime конфигом;
-- fallback на старый transport остается доступным.
-
-**Тесты**
-
-- config switch test;
-- fallback test при недоступности нового runtime;
-- installer smoke test на оба режима.
-
-### Задача 5.3. Подключить runtime events и state к новому adapter
-
-**Что сделать**
-
-- Сделать так, чтобы вызов нового ядра публиковал те же ключевые lifecycle signals, что нужны `tools/runtime/*`.
-- Сохранить совместимость с `status.md` как projection.
-
-**Критерии приемки**
-
-- новый adapter не выпадает из существующего observability/state слоя;
-- snapshot и `status.md` продолжают быть согласованными;
-- monitor/UI future path не ломается.
-
-**Тесты**
-
-- runtime event mapping test;
-- snapshot consistency test;
-- test на согласованность `run_state` и `status.md`.
-
-### Критерий этапа 5
-
-- собственный `agent core` можно вызвать из `ai-multi-agents` без отказа от существующего pipeline;
-- transport к модели больше не зависит только от Cursor/Claude CLI;
-- observability и artifact contracts не сломаны.
-
-**Тест этапа**
-
-- выполнить маленький сценарий feature-stage через новый adapter и убедиться, что артефакты, runtime events и status projection корректны.
-
----
-
-## Этап 6. Code-first orchestration runtime
-
-Цель этапа: постепенно перенести основные orchestration semantics из markdown-only режима в кодовый runtime, не теряя policy layer.
-
-### Задача 6.1. Выделить machine-readable stage graph
-
-**Что сделать**
-
-- Формализовать stages, transitions, retry rules, blocked reasons и escalation points.
-- Отделить machine contract от narrative-инструкций в markdown.
-
-**Критерии приемки**
-
-- stage graph можно обработать кодом;
-- blocking, retry и review paths заданы явно;
-- markdown остается policy layer, а не единственным runtime semantics source.
-
-**Тесты**
-
-- transition table tests;
-- blocked path tests;
-- retry budget tests.
-
-### Задача 6.2. Перенести stage execution в orchestrator runtime
-
-**Что сделать**
-
-- Реализовать кодовый runtime, который исполняет:
-  - analysis;
-  - architecture;
-  - planning;
-  - development;
-  - review;
-  - verification;
-  - writer/update steps.
-
-**Критерии приемки**
-
-- последовательность этапов определяется кодом и конфигом;
-- роли и prompts продолжают браться из policy layer;
-- поведение воспроизводимо и логируется через runtime state.
-
-**Тесты**
-
-- stage order tests;
-- blocked/escalation tests;
-- end-to-end dry run на типовой feature flow.
-
-### Задача 6.3. Сохранить hybrid режим
-
-**Что сделать**
-
-- Оставить возможность, при необходимости, использовать часть старого orchestration flow.
-- Зафиксировать условия, когда используется hybrid, а когда native runtime.
-
-**Критерии приемки**
-
-- переход на code-first runtime не является all-or-nothing;
-- rollout можно делать поэтапно;
-- есть понятные rollback conditions.
-
-**Тесты**
-
-- hybrid mode test;
-- rollback test;
-- compatibility test на старые правила и новые runtime hooks.
-
-### Критерий этапа 6
-
-- orchestration semantics частично или полностью формализованы в коде;
-- `rules/*` остаются policy layer;
-- hybrid и native режимы описаны и воспроизводимы.
-
-**Тест этапа**
-
-- выполнить один и тот же stage flow в hybrid и native режиме и сравнить: stage transitions, artifact outputs и runtime events.
-
----
-
-## Этап 7. Memory и context integration
-
-Цель этапа: связать новый `agent core` с knowledge/memory системой `ai-multi-agents`, не разрушая границы между canonical knowledge и runtime memory.
-
-### Задача 7.1. Зафиксировать memory boundaries для нового ядра
-
-**Что сделать**
-
-- Разделить:
-  - canonical project memory;
-  - retrieval memory;
-  - episodic runtime memory;
-  - procedural memory;
-  - session working memory.
-
-**Критерии приемки**
-
-- нет смешения `context/*` и runtime state;
-- session memory не объявляется источником правды;
-- retrieval и episodic слои используются осознанно.
-
-**Тесты**
-
-- boundary review test;
-- test на то, что один и тот же факт не пишется бесконтрольно в несколько слоев;
-- regression test на корректность knowledge_refresh сценариев.
-
-### Задача 7.2. Встроить knowledge shortlist в session loop
-
-**Что сделать**
-
-- Использовать существующий knowledge refresh shortlisting path как источник компактного контекста.
-- Передавать в session loop только релевантный subset canonical knowledge.
-
-**Критерии приемки**
-
-- session loop не тянет весь `context/*`;
-- сохраняется index-first reading;
-- knowledge shortlist совместим с task/stage context.
+- в loop попадает только релевантный context;
+- cost/token profile контролируется;
+- canonical docs не подменяются working memory.
 
 **Тесты**
 
 - shortlist selection tests;
-- token budget comparison before/after shortlist;
-- test на fallback path при пустом shortlist.
+- budget exceed tests;
+- compaction regression tests.
 
-### Задача 7.3. Добавить episodic summaries для будущего retrieval
+### Задача 5.4. Ввести cost/token governance
 
 **Что сделать**
 
-- Сохранять summary-first эпизоды выполнения:
-  - retries;
-  - blocked states;
-  - successful resolutions;
-  - integration outcomes.
+- Нормализовать usage/cost.
+- Добавить budget signals, лимиты и стратегию снижения token cost.
 
 **Критерии приемки**
 
-- episodic layer пригоден для future retrieval;
-- архив не раздувается сырыми логами;
-- summaries привязаны к run/stage/task identifiers.
+- cost становится first-class runtime concern;
+- decisions можно принимать по budget данным;
+- token minimization встроена в архитектуру, а не вынесена в конец.
 
 **Тесты**
 
-- episode creation tests;
-- retrieval readiness test;
-- test на ограничение размера episode payload.
+- usage normalization tests;
+- budget threshold tests;
+- provider comparison tests.
+
+### Критерий этапа 5
+
+- runtime умеет стабильно исполнять длинные сессии;
+- token cost контролируется архитектурно;
+- shortlist и compaction реально уменьшают контекст.
+
+**Тест этапа**
+
+- прогнать длинный агентный сценарий с tools, shortlist и compaction и сравнить token profile до и после оптимизаций.
+
+---
+
+## Этап 6. Workflow engine и перенос machine logic из `orchestrator*.md`
+
+Цель этапа: превратить платформу из просто runtime в engine проектных workflow.
+
+### Задача 6.1. Формализовать workflow graph
+
+**Что сделать**
+
+- Описать сущности:
+  - workflow;
+  - stage;
+  - task;
+  - transition;
+  - barrier;
+  - blocked reason;
+  - human gate.
+
+**Критерии приемки**
+
+- workflow engine существует как first-class подсистема;
+- orchestration больше не живет только в markdown;
+- graph пригоден для UI и state store.
+
+**Тесты**
+
+- transition table tests;
+- blocked/review path tests.
+
+### Задача 6.2. Перенести machine logic из `orchestrator*.md` в runtime
+
+**Что сделать**
+
+- Вынести в код:
+  - stage transitions;
+  - retries;
+  - resume;
+  - escalation;
+  - lifecycle events;
+  - artifact checkpoints.
+
+**Критерии приемки**
+
+- критичная orchestration logic исполняется кодом;
+- `rules/*` остаются policy layer;
+- поведение можно тестировать без интерпретации большого markdown.
+
+**Тесты**
+
+- dry run tests на feature workflow;
+- blocked/resume tests;
+- artifact lifecycle tests.
+
+### Задача 6.3. Сохранить policy-driven роли и hybrid режим
+
+**Что сделать**
+
+- Оставить role behavior и project-specific policy в markdown.
+- Сохранить переходный hybrid режим.
+
+**Критерии приемки**
+
+- проект не теряет свою текущую силу в policy layer;
+- migration можно делать поэтапно;
+- rollback path остается понятным.
+
+**Тесты**
+
+- hybrid mode tests;
+- rollback tests;
+- compatibility tests со старыми правилами.
+
+### Критерий этапа 6
+
+- у платформы есть workflow engine;
+- machine logic больше не зависит от narrative orchestration;
+- policy layer сохранен.
+
+**Тест этапа**
+
+- исполнить один и тот же workflow в hybrid и native режимах и сравнить transitions, artifacts и events.
+
+---
+
+## Этап 7. Project layer, canonical context и dynamic agent/workflow config
+
+Цель этапа: сделать платформу по-настоящему настраиваемой под проект.
+
+### Задача 7.1. Зафиксировать boundaries project layer
+
+**Что сделать**
+
+- Описать, где живут:
+  - project rules;
+  - canonical context;
+  - project workflows;
+  - project agents;
+  - project-specific memory hints.
+
+**Критерии приемки**
+
+- project semantics отделены от core runtime;
+- `context/*` остается source of truth;
+- workflows можно адаптировать под проект без форка ядра.
+
+**Тесты**
+
+- boundary review test;
+- test на отсутствие смешения project config и runtime internals.
+
+### Задача 7.2. Ввести dynamic registration для agents и workflows
+
+**Что сделать**
+
+- Определить формат регистрации агентов и workflow под проект.
+- Поддержать расширение без переписывания core runtime.
+
+**Критерии приемки**
+
+- новый агент можно добавить конфигурационно;
+- новый workflow можно подключить без архитектурного взлома;
+- проектная кастомизация становится штатной возможностью.
+
+**Тесты**
+
+- agent registration smoke test;
+- workflow registration smoke test;
+- override/fallback config tests.
+
+### Задача 7.3. Встроить canonical context в execution path
+
+**Что сделать**
+
+- Использовать `knowledge_refresh` и shortlist как штатный контекстный слой.
+- Сохранить разделение между canonical, working и episodic memory.
+
+**Критерии приемки**
+
+- platform использует `context/*` правильно;
+- runtime не превращает knowledge layer в мусорный dump;
+- project knowledge и workflow execution связаны осознанно.
+
+**Тесты**
+
+- shortlist tests;
+- context selection regression tests;
+- memory boundary tests.
 
 ### Критерий этапа 7
 
-- новый `agent core` корректно интегрирован с knowledge/memory boundaries;
-- `context/*` осталось canonical project memory;
-- session context стал компактнее и управляемее.
+- project layer стал полноценным уровнем платформы;
+- система поддерживает dynamic agents/workflows;
+- canonical context встроен в execution path.
 
 **Тест этапа**
 
-- выполнить сценарий с реальным shortlist, blocked episode и successful completion, затем проверить корректность canonical docs, episodic summaries и runtime state.
+- подключить test workflow и test agent в конфиге проекта и убедиться, что они исполняются через общий runtime без изменений в core.
 
 ---
 
-## Этап 8. Hardening, observability и governance
+## Этап 8. Совместимый adapter для существующего `ai-multi-agents`
 
-Цель этапа: довести ядро до эксплуатационной зрелости.
+Цель этапа: встроить новую платформу в текущий pipeline без резкого разрыва.
 
-### Задача 8.1. Ввести retry, timeout и provider failure policy
-
-**Что сделать**
-
-- Описать retryable и non-retryable ошибки.
-- Зафиксировать правила для:
-  - provider timeout;
-  - malformed model output;
-  - tool execution failure;
-  - approval timeout;
-  - network instability.
-
-**Критерии приемки**
-
-- recovery policy детерминирована;
-- silent failure paths отсутствуют;
-- эскалация пользователю формализована.
-
-**Тесты**
-
-- failure injection tests;
-- retry budget tests;
-- escalation path tests.
-
-### Задача 8.2. Нормализовать usage/cost telemetry
+### Задача 8.1. Ввести compatibility adapter
 
 **Что сделать**
 
-- Собрать usage/cost в единую модель на run/stage/task/agent уровне.
-- Подготовить данные для routing и budget governance.
+- Подготовить adapter между текущими entrypoints и новым runtime/workflow engine.
 
 **Критерии приемки**
 
-- usage нормализуется независимо от провайдера;
-- cost telemetry не протекает vendor-specific полями наружу;
-- budget signals можно использовать в runtime decisions.
+- существующий pipeline может вызывать новый runtime;
+- artifact contracts сохраняются;
+- migration path остается обратимым.
 
 **Тесты**
 
-- provider usage normalization tests;
-- budget threshold tests;
-- test на неполные usage данные.
+- compatibility tests на ролях;
+- artifact parser regression tests.
 
-### Задача 8.3. Расширить observability и debug bundle
+### Задача 8.2. Связать adapter с state, events и UI
 
 **Что сделать**
 
-- Сделать snapshots, raw events и debug summary достаточными для диагностики сбоя.
-- Поддержать human-readable и machine-readable views.
+- Подключить compatibility path к runtime state, events и visual monitoring.
 
 **Критерии приемки**
 
-- по debug bundle можно понять, что произошло, без чтения разрозненных логов;
-- snapshots и события согласованы;
-- UI/monitor future path поддержан.
+- старый pipeline становится наблюдаемым через новый runtime;
+- `status.md`, snapshots и UI остаются согласованными;
+- local monitor может показывать реальные project runs.
 
 **Тесты**
 
-- snapshot regression tests;
-- debug bundle completeness test;
-- test на blocked, retry и success сценарии.
+- snapshot consistency tests;
+- UI integration smoke tests.
+
+### Задача 8.3. Ввести controlled runtime switch
+
+**Что сделать**
+
+- Позволить проекту выбрать старый или новый runtime конфигом.
+
+**Критерии приемки**
+
+- rollback path жив;
+- installer и docs поддерживают оба режима;
+- cutover можно делать постепенно.
+
+**Тесты**
+
+- config switch tests;
+- fallback tests;
+- install smoke tests.
 
 ### Критерий этапа 8
 
-- ядро устойчиво к типовым отказам;
-- usage/cost и observability доведены до рабочего уровня;
-- debug path воспроизводим.
+- новая платформа встроена в текущий `ai-multi-agents`;
+- migration path безопасен;
+- старый и новый режимы могут сосуществовать.
 
 **Тест этапа**
 
-- провести fault-injection run с таймаутом, retry и финальной эскалацией, затем проверить события, snapshots, cost/usage и debug bundle.
+- выполнить малый реальный workflow через compatibility adapter и проверить artifacts, events, UI и status projection.
 
 ---
 
-## Этап 9. Rollout и отключение зависимости от Cursor/Claude Code
+## Этап 9. Hardening, packaging и controlled rollout
 
-Цель этапа: перевести `ai-multi-agents` на собственное ядро как основной runtime, сохранив контролируемый rollback.
+Цель этапа: довести платформу до состояния реального продукта.
 
-### Задача 9.1. Подготовить installer и packaging для нового ядра
+### Задача 9.1. Подготовить packaging и installer
 
 **Что сделать**
 
-- Определить, как новый `agent core` раскладывается через installer.
-- Согласовать это с существующими `runtime` и `knowledge_refresh` helper layers.
+- Зафиксировать, как раскладываются `core runtime`, `workflow layer` и project-facing части.
 
 **Критерии приемки**
 
-- installer умеет ставить новый runtime;
-- старые пути не ломаются;
-- selective rollout поддержан.
+- installer умеет ставить новые слои;
+- low-infra модель не ломается;
+- selective rollout возможен.
 
 **Тесты**
 
-- clean install test;
-- update install test;
-- selective runtime profile test.
+- clean install tests;
+- update install tests.
 
-### Задача 9.2. Провести staged rollout
+### Задача 9.2. Довести observability и debug bundle
 
 **Что сделать**
 
-- Зафиксировать rollout по фазам:
+- Подготовить operator-friendly debug path:
+  - snapshots;
+  - raw events;
+  - workflow trace;
+  - token/cost trace;
+  - blocked reasons.
+
+**Критерии приемки**
+
+- по debug bundle можно диагностировать runtime issue;
+- данные пригодны для локальной эксплуатации;
+- визуализация и диагностика опираются на одни и те же данные.
+
+**Тесты**
+
+- debug completeness tests;
+- blocked/retry/success scenario tests.
+
+### Задача 9.3. Провести staged rollout
+
+**Что сделать**
+
+- Разделить rollout на:
   - internal alpha;
   - hybrid beta;
-  - default-on for new installs;
-  - full cutover.
+  - default-on;
+  - optional legacy fallback.
 
 **Критерии приемки**
 
-- у каждой rollout-фазы есть exit criteria;
-- rollback и fallback paths описаны;
-- cutover делается по фактам, а не по желанию.
+- у каждой фазы есть exit criteria;
+- cutover идет по фактам;
+- внешние CLI становятся fallback, а не ядром.
 
 **Тесты**
 
-- phase gate checklist;
-- rollback drill;
-- side-by-side comparison test старого и нового runtime.
-
-### Задача 9.3. Убрать критическую зависимость от внешнего CLI
-
-**Что сделать**
-
-- Перевести внешний CLI transport в optional fallback.
-- Зафиксировать, какие сценарии еще допустимо держать на старом runtime временно.
-
-**Критерии приемки**
-
-- собственный `agent core` является основным runtime;
-- Cursor/Claude CLI больше не нужны как обязательное ядро;
-- fallback остается только как временная или аварийная опция.
-
-**Тесты**
-
-- default runtime test без Cursor/Claude CLI;
-- fallback-only test;
-- documentation validation test по сценарию "чистая установка и первый запуск".
+- rollout checklist tests;
+- rollback drills;
+- side-by-side comparisons.
 
 ### Критерий этапа 9
 
-- `ai-multi-agents` может работать на собственном `agent core` как на основном ядре;
-- внешний CLI перестал быть обязательной вычислительной зависимостью;
-- rollout и rollback задокументированы и проверяемы.
+- платформа готова к реальному использованию;
+- новый runtime и workflow engine стали основным substrate;
+- внешние CLI больше не являются обязательным вычислительным ядром.
 
 **Тест этапа**
 
-- выполнить сценарий "чистая установка -> запуск feature flow -> tool execution -> runtime events -> completion" без обязательного использования Cursor/Claude CLI.
+- выполнить сценарий "чистая установка -> проектный workflow -> tools -> UI -> completion" без обязательной зависимости от Cursor/Claude CLI.
 
 ---
 
-## Рекомендуемый боевой порядок
+## Боевой порядок выполнения
 
-Строгий порядок исполнения:
+Строго сверху вниз:
 
 1. Этап 1
 2. Этап 2
@@ -865,17 +896,17 @@
 8. Этап 8
 9. Этап 9
 
-## Ожидаемый результат после прохождения workflow
+## Ожидаемый итог
 
-После прохождения всех этапов `ai-multi-agents` должен получить:
+После прохождения workflow проект должен получить:
 
-1. собственный `agent core` с явным runtime loop;
-2. capability-based provider abstraction;
-3. Kimi K2 как первый штатный провайдер;
-4. DeepSeek как второй штатный провайдер;
-5. управляемый tool system с permission и safety layer;
-6. совместимый adapter для текущего pipeline;
-7. постепенный перенос orchestration semantics из markdown-only в code-first runtime;
-8. интеграцию с canonical knowledge без подмены `context/*`;
-9. устойчивый observability, retry и governance слой;
-10. возможность работать без обязательной зависимости от Cursor/Claude Code.
+1. собственный `core runtime`;
+2. собственный `workflow engine`;
+3. полноценный `project layer` поверх них;
+4. local state и local monitor UI;
+5. Kimi K2 и DeepSeek через общий provider layer;
+6. token/cost governance как core capability;
+7. dynamic agents и workflows под проект;
+8. использование `context/*` как canonical context layer;
+9. controlled migration off Cursor/Claude Code;
+10. платформу AI-агентов, а не просто надстройку над чужим runtime.

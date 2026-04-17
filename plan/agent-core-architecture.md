@@ -1,387 +1,409 @@
-# Архитектура собственного Agent Core для `ai-multi-agents`
+# Архитектура локальной AI-agent platform для `ai-multi-agents`
 
 ## Цель документа
 
-Зафиксировать целевую архитектуру собственного `agent core`, который можно встроить в `ai-multi-agents` как новое вычислительное ядро без потери сильных сторон текущей системы.
+Зафиксировать целевую архитектуру не просто собственного `agent core`, а полной локальной AI-agent platform, где:
+
+- есть собственный runtime;
+- есть workflow engine;
+- есть project-aware слой с `rules/*` и `context/*`;
+- есть визуализация и local storage;
+- есть token/cost governance;
+- есть динамически расширяемые agents и workflows.
+
+## Главный тезис
+
+Будущее проекта не в том, чтобы остаться только надстройкой над чужим агентом, и не в том, чтобы в лоб делать еще один универсальный `claude-code`.
+
+Правильная форма для проекта:
+
+- **собственный runtime substrate снизу**;
+- **workflow engine посередине**;
+- **project-aware policy and knowledge layer сверху**.
+
+Именно это даст контроль над исполнением, не уничтожая вашу сильную сторону как knowledge-aware workflow system.
 
 ## Текущее положение дел
 
-Сейчас `ai-multi-agents` уже имеет зрелую оболочку вокруг исполнения, но само исполнение агентов остается внешним:
+Сейчас `ai-multi-agents` уже силен как process and knowledge system:
 
-- `templates/cursor/.cursor/rules/system/main/runtime-cli.mdc` описывает запуск `agent` или `claude`;
-- `templates/cursor/.cursor/rules/system/main/orchestrator-duties.mdc` и `orchestrator-stage-*.mdc` держат orchestration semantics в markdown;
-- `tools/runtime/*` отвечает за event/state/status/snapshots;
-- `tools/knowledge_refresh/*` отвечает за canonical knowledge shortlist и derived retrieval слой.
+- `templates/cursor/.cursor/rules/system/main/runtime-cli.mdc` задает transport к внешнему CLI;
+- `orchestrator-duties.mdc` и `orchestrator-stage-*.mdc` описывают orchestration semantics;
+- `tools/runtime/*` дает local state, events и status projection;
+- `tools/knowledge_refresh/*` дает shortlist и derived retrieval слой;
+- `rules/*` и `context/*` уже работают как мощный project-aware слой.
 
-Проблема не в отсутствии архитектуры, а в том, что главное runtime-ядро находится вне репозитория и вне полного кодового контроля.
+Проблема в том, что вычислительное ядро и значимая machine logic находятся вне полного кодового контроля.
 
-## Основные выводы из референсов
-
-### Что берем из `claude-code`
-
-1. Один явный runtime loop с детерминированным `state`.
-2. Строгий инструментальный контракт вместо "модель сама разберется".
-3. Разделение provider layer, tool executor и permission layer.
-4. Централизованный streaming reducer.
-5. Context compaction как кодовая политика.
-6. Явные retry/stop reasons.
-
-### Что берем из `opencode`
-
-1. Provider abstraction поверх единого transport shape.
-2. Session processor как центральную точку исполнения.
-3. Typed event/state модель.
-4. Approval flow как отдельную асинхронную подсистему.
-5. Addon boundaries и extensibility.
-6. Snapshot-first observability.
-
-### Что сохраняем из `ai-multi-agents`
-
-1. `rules/*` как policy layer.
-2. `context/*` как canonical project memory.
-3. `tools/runtime/*` как local-first observability/runtime state foundation.
-4. `tools/knowledge_refresh/*` как canonical-aware shortlist/retrieval helper.
-5. Installer-first раскладку и low-infra deployment.
-
-## Главный архитектурный тезис
-
-Новый `agent core` не должен заменять всю систему. Он должен стать кодовым execution layer под уже сильной оболочкой `ai-multi-agents`.
-
-Итоговая модель:
-
-- `rules/*` задают policy и role semantics;
-- `agent core` исполняет LLM loop, tools, permissions, streaming и provider integration;
-- `tools/runtime/*` держит run state, events, snapshots и status projection;
-- `tools/knowledge_refresh/*` подает компактный canonical context;
-- orchestration постепенно переезжает из markdown-only в hybrid, а затем в code-first runtime.
-
-## Целевые архитектурные слои
+## Три слоя целевой системы
 
 ```mermaid
 flowchart TD
-    PolicyLayer["Policy Layer: rules, roles, stage semantics"] --> OrchestratorBridge["Orchestrator Bridge"]
-    OrchestratorBridge --> AgentCore["Agent Core Runtime"]
-    AgentCore --> ProviderLayer["Provider Layer"]
-    AgentCore --> ToolLayer["Tool System"]
-    AgentCore --> ContextLayer["Context And Memory Layer"]
-    OrchestratorBridge --> RuntimeState["Runtime State And Events"]
-    ContextLayer --> KnowledgeLayer["Knowledge Refresh And Canonical Context"]
-    ProviderLayer --> KimiProvider["Kimi Adapter"]
-    ProviderLayer --> DeepSeekProvider["DeepSeek Adapter"]
+    ProjectLayer["Project Layer"] --> WorkflowLayer["Workflow Layer"]
+    WorkflowLayer --> CoreRuntime["Core Runtime"]
+    CoreRuntime --> ProviderLayer["Provider Layer"]
+    CoreRuntime --> ToolLayer["Tool Layer"]
+    CoreRuntime --> StateLayer["State And Events"]
+    ProjectLayer --> ContextLayer["Canonical Context"]
+    WorkflowLayer --> VisualLayer["Visual Monitoring"]
 ```
 
-### 1. Policy Layer
+### 1. `core runtime`
 
-Состав:
+Это нижний исполняющий слой. Его задача не знать особенности проекта, а стабильно исполнять агентный цикл.
 
-- `templates/cursor/.cursor/agents/*.md`
-- `templates/cursor/.cursor/rules/system/**/*.mdc`
-- project-specific rules
+Внутри него должны жить:
 
-Роль слоя:
-
-- описывает, какие роли существуют;
-- задает policy и человечески читаемую дисциплину;
-- определяет этапы, review expectations и knowledge semantics.
-
-Чего здесь не должно быть в целевой архитектуре:
-
-- provider-specific transport logic;
-- детерминированная machine execution logic как единственный источник истины;
-- скрытые runtime-invariants, которые невозможно проверить кодом.
-
-### 2. Orchestrator Bridge
-
-Это переходный и затем постоянный слой совместимости между policy и новым ядром.
-
-Он отвечает за:
-
-- сбор `role prompt + step input`;
-- выбор runtime mode;
-- передачу task/stage metadata;
-- публикацию runtime lifecycle hooks;
-- адаптацию результата под artifact contracts.
-
-Ключевой принцип:
-
-`Orchestrator Bridge` сначала должен быть совместим с текущими `runtime-cli.mdc` и artifact contracts, а уже затем брать на себя часть orchestration semantics.
-
-### 3. Agent Core Runtime
-
-Это новое кодовое ядро.
-
-Состав:
-
+- provider abstraction;
+- transport normalization;
 - session loop;
 - streaming reducer;
-- tool orchestration;
-- permission/approval manager;
-- context budget manager;
-- provider router;
-- retry/recovery logic.
+- tool runtime;
+- permissions and approvals;
+- retries and recovery;
+- token/cost accounting;
+- runtime hooks в state/events.
 
-Его инварианты:
+### 2. `workflow layer`
 
-1. Работает без привязки к одному SDK.
-2. Не читает весь `context/*` без shortlist.
-3. Не исполняет destructive tools без политики.
-4. Публикует runtime events в совместимом формате.
-5. Может быть протестирован на mock-provider без реального LLM.
+Это средний слой, который превращает runtime в систему AI-агентов, а не просто в одного агента с тулзами.
 
-### 4. Provider Layer
+Внутри него должны жить:
 
-Provider layer должен быть capability-based.
+- workflow graph;
+- stage graph;
+- task graph;
+- machine-readable orchestration;
+- blocked/resume semantics;
+- escalation points;
+- artifact lifecycle;
+- compatibility bridge со старым pipeline;
+- UI-friendly execution model.
 
-Вместо вопроса "это Kimi или DeepSeek?" слой должен отвечать на вопрос:
+### 3. `project layer`
 
-- поддерживает ли провайдер streaming;
-- поддерживает ли tool calling;
-- умеет ли strict schema;
-- как нормализуются usage/cost;
-- какой parsing fallback нужен.
+Это верхний слой, где проявляется ваша текущая сильная сторона.
 
-Рекомендуемая внутренняя структура:
+Внутри него должны жить:
 
-- `provider/base.py` или эквивалентный модуль интерфейсов;
-- `provider/transport.py`;
-- `provider/normalization.py`;
-- `provider/kimi.py`;
-- `provider/deepseek.py`;
-- `provider/router.py`.
+- `rules/*` как policy layer;
+- `context/*` как canonical source of truth;
+- project-specific workflows;
+- project-specific agents;
+- project config;
+- project memory conventions;
+- project review conventions.
 
-### 5. Tool System
+## Что происходит с `orchestrator*.md`
 
-Tool system должен быть отдельной подсистемой, а не частью provider logic.
+Это ключевой момент.
 
-Минимальный состав контракта инструмента:
+Неправильный путь:
 
-- `name`;
-- `description`;
-- `input_schema`;
-- `read_only`;
-- `destructive`;
-- `concurrency_safe`;
-- `requires_approval`;
-- `result_normalizer`.
+- оставить всю orchestration logic в markdown;
+- или наоборот унести весь смысл и policy в код.
 
-Ключевые решения:
+Правильный путь:
 
-- tool execution и approval разделены;
-- batch execution допускается только для concurrency-safe tools;
-- результат инструмента должен приводиться к стабильному внутреннему формату;
-- side-effect class должен быть известен до вызова модели.
+### В код runtime/workflow должны переехать
 
-### 6. Context And Memory Layer
+- transitions;
+- retry rules;
+- pause/resume;
+- blocked reasons;
+- routing между агентами;
+- lifecycle events;
+- stage machine;
+- artifact checkpoints;
+- machine-readable execution constraints.
 
-Здесь нельзя смешивать project knowledge и runtime memory.
+### В `rules/*` должны остаться
 
-Нужно разделить:
+- роли агентов;
+- поведенческие инструкции;
+- инженерная дисциплина;
+- review expectations;
+- project-specific constraints;
+- policy semantics.
 
-1. `canonical project memory`  
-   Это `context/*`. Источник правды.
+То есть:
 
-2. `retrieval memory`  
-   Derived hints, shortlist, ranking, локальный индекс.
+- `workflow/runtime` отвечает за **что, когда и по каким переходам исполняется**;
+- `rules/*` отвечают за **как агент должен действовать в своей роли**.
 
-3. `episodic runtime memory`  
-   Summary-first эпизоды выполнения: retries, blocked states, successful resolutions.
+## Как эта архитектура отвечает цели проекта
 
-4. `working session memory`  
-   Текущее окно сообщений, summaries и active context.
+### Визуализация
 
-5. `procedural memory`  
-   Правила, role policies, orchestration hints.
+Визуализация должна быть не "опциональной надстройкой позже", а прямым следствием event/state модели.
 
-Главный запрет:
+UI должен питаться из:
 
-`working session memory` и `episodic runtime memory` не должны становиться "альтернативным источником правды" вместо `context/*`.
+- runtime events;
+- workflow state;
+- snapshots;
+- usage/cost telemetry;
+- blocked and approval states.
 
-### 7. Runtime State And Events
+### Локальное хранение
 
-`tools/runtime/*` уже задает сильную основу. Ее нужно сохранить и расширить, а не заменить.
+Хранить локально нужно:
 
-Слой должен продолжать держать:
-
-- `run identity`;
-- `stage/task/agent lifecycle`;
-- `run_state.json`;
+- `run_state`;
 - event log;
 - snapshots;
-- `status.md` как human-readable projection.
+- episodic summaries;
+- usage/cost traces;
+- workflow definitions;
+- project config cache, если он нужен.
 
-Новый `agent core` обязан публиковать совместимые lifecycle events, иначе существующий observability слой потеряет ценность.
+Важное ограничение:
 
-## Предлагаемое размещение в `ai-multi-agents`
+это хранилище не заменяет `context/*`, а работает рядом с ним.
 
-Рекомендуемая раскладка исходников:
+### Минимизация token cost
+
+Token cost должен быть заложен в саму архитектуру:
+
+- shortlist вместо полного `context/*`;
+- compaction вместо бесконечного history;
+- usage normalization;
+- budget thresholds;
+- routing по capabilities и cost;
+- локальные episodic summaries вместо сырых логов.
+
+### Динамически пополняемые agents и workflows
+
+Платформа должна поддерживать:
+
+- регистрацию новых agents;
+- регистрацию новых workflows;
+- project-specific overrides;
+- безопасное расширение без переписывания runtime core.
+
+Именно workflow layer делает эту задачу решаемой архитектурно.
+
+## Что берем из референсов
+
+### Из `claude-code`
+
+- явный loop и state machine;
+- зрелый tool runtime;
+- permission/safety слой;
+- compaction;
+- streaming semantics;
+- recovery discipline.
+
+### Из `opencode`
+
+- provider abstraction;
+- session/runtime model;
+- typed state/events;
+- extensibility boundaries;
+- transport normalization;
+- execution model, пригодную для UI.
+
+### Что НЕ нужно копировать буквально
+
+- vendor-specific монолитные API-слои;
+- framework-specific архитектуру ради самой архитектуры;
+- продуктовые ветки, завязанные на чужой UX;
+- тяжеловесные решения, которые ломают ваш low-infra профиль.
+
+## Предлагаемое размещение модулей
+
+Рекомендуемая логика размещения в исходном репозитории:
 
 ```text
 tools/
   agent_core/
-    __init__.py
-    session/
+    runtime/
     providers/
     tools/
     permissions/
-    context/
-    bridge/
-    config/
+    session/
+    telemetry/
+  workflow_engine/
+    graph/
+    executor/
+    compatibility/
+    artifacts/
+  runtime/
+  knowledge_refresh/
 ```
 
-Причина такого placement:
+### Почему так
 
-- `tools/runtime/*` уже перегружен runtime-state и monitor semantics;
-- `agent core` логически шире runtime observability;
-- отдельный пакет проще устанавливать в целевой проект как `context/tools/agent_core/`;
-- installer можно расширить без смешения `agent core` и `knowledge_refresh`.
+- `tools/runtime/*` уже занято state, events и monitor semantics;
+- `agent_core` и `workflow_engine` логически шире и не должны раствориться в existing runtime helpers;
+- `knowledge_refresh` должен остаться отдельным canonical-aware слоем;
+- installer потом сможет раскладывать эти части в target repo без смешения обязанностей.
 
-### Что остается на старом месте
+## Ключевые подсистемы
 
-- `tools/runtime/*` остается runtime state/observability/helper layer;
-- `tools/knowledge_refresh/*` остается canonical-aware retrieval/helper layer;
-- `templates/*` остается policy/template source tree;
-- `scripts/install-multiagent.sh` расширяется для установки `agent_core`.
+### Provider layer
+
+Обязан быть capability-based.
+
+Он должен отвечать на вопросы:
+
+- есть ли streaming;
+- есть ли tool calling;
+- есть ли strict schema;
+- как нормализовать usage;
+- есть ли fallback parser path;
+- какие лимиты и timeouts по умолчанию.
+
+### Tool layer
+
+Должен быть отдельным от провайдера и от workflow.
+
+Минимальный контракт инструмента:
+
+- `name`;
+- `description`;
+- `input_schema`;
+- `side_effect_class`;
+- `requires_approval`;
+- `concurrency_policy`;
+- `result_normalizer`.
+
+### Session layer
+
+Нужен для:
+
+- message state;
+- pending tools;
+- retries;
+- pause/resume;
+- compaction;
+- finish reasons;
+- token budget control.
+
+### Workflow layer
+
+Нужен для:
+
+- stages;
+- tasks;
+- transitions;
+- barriers;
+- blocked/review conditions;
+- agent routing;
+- artifact lifecycle.
+
+### State and events layer
+
+Нужен для:
+
+- machine-readable execution trace;
+- snapshots;
+- status projection;
+- UI feeds;
+- debug bundle;
+- resume.
+
+### Context and memory layer
+
+Нельзя смешивать:
+
+1. `canonical project memory`  
+   Это `context/*`.
+
+2. `retrieval memory`  
+   Shortlist, index, ranking.
+
+3. `episodic runtime memory`  
+   Summary-first episodes.
+
+4. `working session memory`  
+   Active context окна выполнения.
+
+5. `procedural memory`  
+   Policy, rules, workflow behavior.
+
+Главное правило:
+
+`context/*` всегда остается главным источником правды о проекте.
 
 ## Целевой поток исполнения
 
 ```mermaid
 flowchart TD
-    StartInput["Stage Input"] --> RolePrompt["Role Prompt And Step Context"]
-    RolePrompt --> Bridge["Orchestrator Bridge"]
-    Bridge --> SessionLoop["Session Loop"]
-    SessionLoop --> ContextShortlist["Context Shortlist"]
-    SessionLoop --> ProviderRouter["Provider Router"]
-    ProviderRouter --> ProviderResponse["Normalized Provider Response"]
-    ProviderResponse --> StreamReducer["Streaming Reducer"]
-    StreamReducer --> ToolPlanner["Tool Planner"]
-    ToolPlanner --> ToolExecutor["Tool Executor"]
-    ToolExecutor --> ApprovalFlow["Approval Flow"]
-    ToolExecutor --> SessionLoop
-    SessionLoop --> ArtifactOutput["Artifact Compatible Output"]
-    ArtifactOutput --> RuntimeEvents["Runtime Events And State"]
+    ProjectInput["Project Task"] --> ProjectPolicy["Rules And Project Config"]
+    ProjectInput --> ContextShortlist["Canonical Context Shortlist"]
+    ProjectPolicy --> WorkflowExecutor["Workflow Executor"]
+    ContextShortlist --> WorkflowExecutor
+    WorkflowExecutor --> AgentSession["Agent Session Loop"]
+    AgentSession --> ProviderRouter["Provider Router"]
+    ProviderRouter --> NormalizedResponse["Normalized Response"]
+    NormalizedResponse --> ToolRuntime["Tool Runtime"]
+    ToolRuntime --> ApprovalFlow["Approval Flow"]
+    ToolRuntime --> AgentSession
+    WorkflowExecutor --> RuntimeEvents["Events And State"]
+    RuntimeEvents --> VisualMonitor["Local Monitor UI"]
     RuntimeEvents --> StatusProjection["Status Projection"]
 ```
 
-## Ключевые интерфейсы
+## Архитектурные приоритеты
 
-### Provider interface
+Приоритеты должны быть именно такими:
 
-Минимальные методы:
+1. `local-first state and events`
+2. `visual observability`
+3. `provider abstraction`
+4. `tool runtime and safety`
+5. `token/cost minimization`
+6. `workflow engine`
+7. `project-configurable agents and workflows`
+8. `compatibility and rollout`
 
-- `complete(messages, config) -> response`
-- `stream(messages, config) -> iterator[event]`
-- `normalize_tool_calls(response) -> list[ToolCall]`
-- `normalize_usage(response) -> UsageInfo`
-- `supports(capability) -> bool`
+Это важнее, чем ранняя гонка за "самым мощным универсальным agent runtime".
 
-### Tool interface
+## Риски
 
-Минимальные методы и данные:
+### Риск 1. Сделать просто свою обертку над провайдером
 
-- `describe() -> ToolSpec`
-- `validate_input(payload) -> ToolInput`
-- `execute(input, context) -> ToolResult`
-- `approval_policy() -> ApprovalPolicy`
+Итог: вы потратите силы, но не получите platform moat.
 
-### Session interface
+### Риск 2. Слишком рано переписать все `rules/*`
 
-Минимальная модель:
+Итог: потеряете сильную сторону проекта как policy-first system.
 
-- `SessionState`
-- `LoopStepResult`
-- `PauseReason`
-- `TerminalReason`
-- `CompactionPolicy`
+### Риск 3. Смешать workflow layer и project layer
 
-### Bridge interface
+Итог: конфигурация под проект станет хрупкой и нерасширяемой.
 
-Минимальный вход:
+### Риск 4. Оставить token/cost governance "на потом"
 
-- role file;
-- step input;
-- repo root;
-- selected provider/model;
-- stage/task metadata;
-- policy flags.
+Итог: система будет функциональной, но неоперабельной по стоимости.
 
-Минимальный выход:
+### Риск 5. Сделать UI вторичным
 
-- artifact-compatible text;
-- normalized runtime metadata;
-- usage info;
-- lifecycle events.
+Итог: многоагентная платформа будет трудной для отладки и операционного использования.
 
-## Что переносить не нужно
+## Признаки правильной реализации
 
-### Не переносить из `claude-code` один в один
-
-- тяжелые vendor-specific ветки API;
-- монолитный объект контекста со слишком большим числом обязанностей;
-- продуктово-специфичный UI/runtime код.
-
-### Не переносить из `opencode` один в один
-
-- сильную зависимость на конкретный effect/runtime framework;
-- двойную event bus модель без явной необходимости;
-- эвристику выбора patch/edit по строке имени модели.
-
-## Архитектурные принципы реализации
-
-1. Сначала совместимость, потом полная нативность.
-2. Сначала capability contract, потом конкретные adapters.
-3. Сначала safety, потом агрессивный autonomy.
-4. Сначала shortlist и compaction, потом большие context windows.
-5. Сначала typed state/events, потом UI и optimization.
-6. Сначала summary-first episodic memory, потом advanced retrieval.
-
-## Риски и как их нейтрализовать
-
-### Риск 1. Повторить логику внешнего CLI, но не выиграть в контроле
-
-Снижение риска:
-
-- начинать не с обертки над shell, а с собственного provider layer;
-- тестировать session loop отдельно от orchestrator bridge.
-
-### Риск 2. Смешать `context/*` и runtime memory
-
-Снижение риска:
-
-- явно запретить записи agent core в canonical docs вне writer/update pipeline;
-- сделать memory boundaries кодовыми и документированными.
-
-### Риск 3. Потерять совместимость с текущим pipeline
-
-Снижение риска:
-
-- держать artifact-compatible adapter;
-- сохранять hybrid режим до завершения rollout.
-
-### Риск 4. Слишком рано перенести всю orchestration semantics в код
-
-Снижение риска:
-
-- сначала формализовать machine-readable stage graph;
-- оставить `rules/*` как policy layer и источник narrative semantics.
-
-## Признаки, что архитектура реализована правильно
-
-1. Новый провайдер подключается через новый adapter, а не через переписывание session loop.
-2. Новый инструмент добавляется через tool contract, а не через prompt hacks.
-3. Kimi и DeepSeek дают единый внутренний формат tool calls и usage.
-4. `ai-multi-agents` может вызывать новый runtime без обязательного Cursor/Claude CLI.
-5. `status.md`, event log и snapshots продолжают быть согласованными.
-6. `context/*` остается canonical source of truth.
+1. Новый provider добавляется через adapter, а не через изменение session loop.
+2. Новый agent добавляется через project/workflow config, а не через переписывание ядра.
+3. Новый workflow подключается как first-class сущность.
+4. `context/*` используется через shortlist и не подменяется runtime memory.
+5. UI строится на тех же events и state, что и debug/runtime.
+6. Machine logic больше не зависит от narrative markdown.
+7. Внешний CLI со временем становится fallback, а не вычислительным ядром.
 
 ## Итоговое решение
 
-Целевая архитектура для `ai-multi-agents` должна быть гибридной:
+Целевая архитектура для проекта должна быть такой:
 
-- policy-first снаружи;
-- code-first внутри runtime;
-- canonical-first для knowledge;
-- capability-first для provider layer;
-- event-first для observability;
-- gradual-first для migration и rollout.
+- `core runtime` как исполнительный substrate;
+- `workflow layer` как engine AI-агентов;
+- `project layer` как knowledge-aware и policy-aware настройка под репозиторий.
 
-Именно такая форма позволяет забрать лучшие практики из `claude-code` и `opencode`, не потеряв сильные стороны текущего `ai-multi-agents`.
+Это лучший путь для проекта, потому что он:
+
+- сохраняет ваши реальные преимущества;
+- убирает критическую зависимость от чужого runtime;
+- делает визуализацию и локальное хранение частью ядра;
+- позволяет системно контролировать token cost;
+- дает платформе возможность расти новыми агентами и workflow без архитектурного хаоса.

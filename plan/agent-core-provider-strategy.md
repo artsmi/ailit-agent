@@ -1,87 +1,118 @@
-# Стратегия подключения Kimi K2 и DeepSeek к собственному Agent Core
+# Стратегия провайдеров для `core runtime`: Kimi K2, DeepSeek и следующие модели
 
-## Цель
+## Цель документа
 
-Описать провайдерную стратегию для нового `agent core`, в которой:
+Зафиксировать, как provider layer должен работать внутри будущего `core runtime`, чтобы:
 
-- первым штатным провайдером становится `Kimi K2`;
-- вторым штатным провайдером становится `DeepSeek`;
-- оба провайдера работают через единый capability-based adapter layer;
-- дальнейшее подключение новых OpenAI-compatible моделей не требует переписывания runtime loop.
+- `Kimi K2` стал первым штатным провайдером;
+- `DeepSeek` стал вторым штатным провайдером;
+- future providers подключались через те же контракты;
+- token cost, reliability и capabilities учитывались системно;
+- provider layer был частью платформы, а не ее центром.
 
-## Почему стратегия должна быть отдельным документом
+## Роль provider layer в общей платформе
 
-Для `ai-multi-agents` провайдерный слой нельзя считать мелкой технической деталью. Сейчас transport жестко описывается через внешний CLI. После перехода на собственное ядро именно provider layer станет новой точкой:
+Provider layer отвечает только за доступ к моделям и нормализацию ответов. Он не должен подменять собой:
 
-- vendor lock-in или vendor neutrality;
-- стабильности tool calling;
-- качества streaming;
-- предсказуемости cost/usage;
-- future routing и fallback.
+- workflow engine;
+- tool runtime;
+- project layer;
+- policy layer;
+- visual monitoring;
+- local state store.
+
+Это важно, потому что целевая система выигрывает не за счет "особенного доступа к модели", а за счет сочетания:
+
+- local runtime;
+- workflow execution;
+- canonical context;
+- observability;
+- token governance;
+- project configurability.
 
 ## Базовые принципы
 
-1. Использовать общий внутренний message/tool contract.
-2. Держать transport OpenAI-compatible там, где это возможно.
-3. Все vendor-specific особенности замыкать внутри adapter layer.
-4. Выбирать провайдера по capability profile, а не по имени модели в business logic.
-5. Поддерживать parser fallback только как контролируемый резервный путь.
+1. Провайдер выбирается по capabilities, а не по бренду.
+2. Внутренний runtime использует единый message/tool contract.
+3. Все vendor-specific особенности остаются внутри adapter layer.
+4. Parser fallback допустим только как резерв.
+5. Usage/cost normalization обязательна.
+6. Provider logic не должна протекать в workflow или project layer.
 
-## Почему `Kimi K2` первым
+## Почему сначала `Kimi K2`
 
-`Kimi K2` подходит как первый провайдер по следующим причинам:
+`Kimi K2` разумно брать первым, потому что:
 
-1. Поддерживает tool calling и streaming в форме, близкой к OpenAI-compatible workflow.
-2. Подходит для агентных сценариев, где модель должна многократно вызывать инструменты.
-3. Имеет понятный fallback path для ручного parsing tool calls, что полезно на раннем rollout.
-4. Хорошо ложится на стратегию "сначала transport и tools, потом advanced routing".
+1. он подходит для агентных tool-calling сценариев;
+2. у него есть streaming path;
+3. у него есть fallback path для ручного разбора tool calls;
+4. он хорошо подходит для раннего вывода собственного runtime из зависимости на Cursor/Claude Code.
 
-При этом важно не зашивать Kimi-специфику в session loop.
+Но важно: `Kimi K2` не должен становиться архитектурным центром системы.
 
-## Почему `DeepSeek` вторым
+## Почему затем `DeepSeek`
 
-`DeepSeek` удобен как второй штатный провайдер, потому что:
+`DeepSeek` нужен не только как запасной провайдер, но и как архитектурный тест на vendor-neutrality.
 
-1. Имеет OpenAI-compatible API модель интеграции.
-2. Поддерживает function/tool calling.
-3. Имеет `strict` mode, полезный для schema-driven tool execution.
-4. Хорошо подходит как cross-provider проверка того, что ваш `agent core` действительно vendor-neutral.
+Он полезен потому что:
+
+1. поддерживает OpenAI-compatible integration style;
+2. поддерживает function/tool calling;
+3. поддерживает strict schema path;
+4. позволяет проверить, что runtime не зашит под Kimi.
+
+## Что должно уметь provider layer
+
+### Обязательные capabilities
+
+- chat completion style requests;
+- streaming;
+- tool or function calling;
+- finish reason normalization;
+- usage normalization;
+- timeout and retry metadata;
+- capability discovery;
+- provider diagnostics.
+
+### Желательные capabilities
+
+- strict schema support;
+- parser fallback support;
+- richer reasoning metadata;
+- cache-related telemetry, если доступно.
 
 ## Capability matrix
 
-Ниже приведена не маркетинговая, а архитектурная матрица возможностей.
-
-| Capability | Kimi K2 | DeepSeek | Требование к agent core |
+| Capability | Kimi K2 | DeepSeek | Что должен делать runtime |
 |---|---|---|---|
-| Chat completions style API | Да | Да | Держать общий transport layer |
-| Streaming | Да | Да | Нужен единый streaming reducer |
-| Tool / function calling | Да | Да | Нужен единый internal tool call format |
-| Provider-specific parsing особенности | Да | Да | Нужен normalization layer |
-| Strict schema path | Ограниченно / зависит от runtime | Да | Нужен capability flag |
-| Parser fallback | Да, особенно полезен для raw path | Возможен, но менее центральный | Нужен резервный parser layer |
-| Usage normalization | Нужно нормализовать | Нужно нормализовать | Нужен общий usage contract |
-| Timeout / retry policy | Нужна | Нужна | Нужен общий recovery policy |
+| Streaming | Да | Да | Использовать единый streaming reducer |
+| Tool calling | Да | Да | Нормализовать в единый ToolCall формат |
+| Strict schema | Ограниченно | Да | Включать через capability flag |
+| Parser fallback | Да | Возможен | Держать как резервный путь |
+| Usage normalization | Нужно | Нужно | Собирать в общий telemetry contract |
+| Timeout metadata | Нужно | Нужно | Поддерживать общую recovery policy |
+| Provider-specific quirks | Есть | Есть | Изолировать в adapters |
 
-## Целевой provider stack
+## Место provider layer в `core runtime`
 
 ```mermaid
 flowchart TD
     SessionLoop["Session Loop"] --> ProviderRouter["Provider Router"]
     ProviderRouter --> CapabilityCheck["Capability Check"]
-    CapabilityCheck --> SharedTransport["Shared OpenAI-Compatible Transport"]
+    CapabilityCheck --> SharedTransport["Shared Transport"]
     SharedTransport --> KimiAdapter["Kimi Adapter"]
     SharedTransport --> DeepSeekAdapter["DeepSeek Adapter"]
-    KimiAdapter --> ResponseNormalizer["Response Normalizer"]
-    DeepSeekAdapter --> ResponseNormalizer
-    ResponseNormalizer --> InternalEvents["Internal Response Events"]
-    InternalEvents --> StreamReducer["Streaming Reducer"]
+    KimiAdapter --> ResponseNormalization["Response Normalization"]
+    DeepSeekAdapter --> ResponseNormalization
+    ResponseNormalization --> StreamReducer["Streaming Reducer"]
+    ResponseNormalization --> UsageTelemetry["Usage Telemetry"]
 ```
 
 ## Что должно быть общим для всех провайдеров
 
-### Общий request shape
+### Общий request contract
 
-Внутренний runtime должен собирать единый request object:
+Внутренний runtime должен уметь собрать единый запрос:
 
 - `messages`;
 - `tools`;
@@ -89,23 +120,23 @@ flowchart TD
 - `temperature`;
 - `max_output_tokens`;
 - `stream`;
-- `provider_hints`;
-- `timeout_policy`.
+- `timeout_policy`;
+- `provider_hints`.
 
-### Общий response shape
+### Общий response contract
 
-Нужно нормализовать:
+Все провайдеры должны приводиться к виду:
 
-- text content;
-- reasoning или аналогичные промежуточные данные;
-- tool calls;
-- finish reason;
-- usage;
-- provider diagnostics.
+- `text_parts`;
+- `tool_calls`;
+- `finish_reason`;
+- `usage`;
+- `provider_metadata`;
+- `raw_debug_payload`.
 
 ### Общая модель tool call
 
-Внутренний формат должен хранить:
+Внутренний формат должен содержать:
 
 - `call_id`;
 - `tool_name`;
@@ -114,222 +145,220 @@ flowchart TD
 - `provider_name`;
 - `is_complete`.
 
-Это позволит одинаково собирать tool calls и из полноценных ответов, и из stream chunks.
-
-## Provider-specific responsibilities
+## Ответственность adapter-ов
 
 ### Kimi adapter
 
-Должен отвечать за:
+Отвечает за:
 
-- стандартный chat-completions вызов;
-- сбор streaming tool call chunks;
-- parser fallback для raw tool-call section path;
-- нормализацию finish reasons;
-- нормализацию usage.
+- обычный completion path;
+- streaming assembly;
+- parser fallback;
+- usage normalization;
+- finish reason normalization.
 
-Kimi adapter не должен:
+Не отвечает за:
 
-- самостоятельно исполнять инструменты;
-- решать approval/policy;
-- менять global session semantics.
+- tool execution;
+- approval logic;
+- workflow decisions;
+- project-specific policy.
 
 ### DeepSeek adapter
 
-Должен отвечать за:
+Отвечает за:
 
-- стандартный function calling path;
-- поддержку `strict` mode там, где schema этого требует;
-- нормализацию response/tool/usage;
-- обработку beta-path для strict schema, если используется.
+- function calling path;
+- strict schema path;
+- usage normalization;
+- finish reason normalization;
+- provider quirks encapsulation.
 
-DeepSeek adapter не должен:
+Не отвечает за:
 
-- дублировать tool contract;
-- определять orchestration поведение;
-- внедрять отдельный session loop.
+- orchestration;
+- tool registry;
+- workflow routing;
+- UI behavior.
 
 ## Стратегия конфигурации
 
-Рекомендуемая конфигурационная модель:
+Рекомендуемая модель:
 
 1. `default_provider = kimi`
 2. `fallback_provider = deepseek`
-3. `provider_capabilities` задаются явно
-4. `model_profile` хранит:
-   - provider name;
-   - model id;
-   - supports_streaming;
-   - supports_tools;
-   - supports_strict_schema;
-   - timeout defaults;
-   - retry defaults.
+3. `model_profiles` описывают model-level capabilities
+4. `provider_policies` задают timeouts, retries и fallback rules
 
-Ключевой принцип:
+В `model_profile` должны жить:
 
-`model_profile` не должен жить в нескольких несогласованных местах одновременно.
+- `provider_name`;
+- `model_id`;
+- `supports_streaming`;
+- `supports_tools`;
+- `supports_strict_schema`;
+- `timeout_defaults`;
+- `retry_defaults`;
+- `cost_profile`, если доступен.
 
 ## Стратегия маршрутизации
 
-На первом этапе routing должен быть простым и предсказуемым.
+### Фаза 1. Явный выбор
 
-### Этап 1. Явный выбор провайдера
+- проект выбирает Kimi или DeepSeek явно;
+- runtime не делает умный routing без данных.
 
-- пользователь или конфиг проекта выбирает Kimi либо DeepSeek;
-- runtime не пытается динамически "умничать".
+### Фаза 2. Capability-aware fallback
 
-### Этап 2. Capability-aware fallback
+- если провайдер не поддерживает нужную capability, используется fallback;
+- это делается до вызова модели.
 
-- если провайдер не поддерживает нужную capability, выбирается fallback;
-- fallback определяется до вызова модели, а не после хаотичной ошибки.
+### Фаза 3. Cost/reliability-aware routing
 
-### Этап 3. Governance-aware routing
+- routing начинает учитывать:
+  - budget;
+  - reliability;
+  - task class;
+  - schema strictness;
+  - expected context size.
 
-- использовать cost/usage/budget signals;
-- использовать reliability score;
-- использовать task class, если это даст реальную пользу.
+Важно: этот этап нельзя внедрять раньше, чем готова usage telemetry.
 
-До прохождения первых двух этапов advanced routing включать не стоит.
+## Стратегия token/cost governance
 
-## Стратегия strict schema
+Provider layer обязан отдавать данные, пригодные для cost-aware runtime.
 
-Strict schema особенно важна для write/destructive tools и для артефактов с жестким форматом.
-
-Рекомендуемое правило:
-
-1. Если провайдер поддерживает строгую схему стабильно, использовать strict path для критичных tool-ов.
-2. Если strict path недоступен, использовать обычную schema validation + retry policy.
-3. Если schema нарушена дважды, не продолжать молча, а переходить в controlled failure path.
-
-## Parser fallback strategy
-
-Fallback нужен, но только как резерв:
-
-1. основной путь: нормальный tool/function calling API;
-2. резервный путь: parser fallback на сырой ответ;
-3. аварийный путь: controlled failure с логированием и эскалацией.
-
-Почему нельзя строить систему на fallback:
-
-- это повышает хрупкость;
-- переносит сложность в текстовый parsing;
-- ухудшает воспроизводимость.
-
-Но для Kimi наличие fallback полезно как страховка раннего запуска.
-
-## Нормализация usage и telemetry
-
-Каждый adapter должен приводить usage к единой модели:
+Нужно нормализовать:
 
 - input tokens;
 - output tokens;
 - reasoning tokens, если доступны;
 - cached tokens, если доступны;
 - estimated cost;
-- provider metadata.
+- provider latency;
+- retry count.
 
-Наружу runtime должны выходить только нормализованные поля. Vendor-specific сырые данные можно хранить только в debug payload.
+Эти данные потом используются не только для статистики, но и для:
+
+- routing;
+- budget cutoffs;
+- UI;
+- optimization решений.
+
+## Strict schema policy
+
+Strict schema должна применяться:
+
+- для write/destructive tools;
+- для артефактов с жестким форматом;
+- для опасных операций, где нужен высокий контроль.
+
+Правило:
+
+1. Если strict schema доступна, использовать ее для критичных paths.
+2. Если strict schema недоступна, использовать обычную schema validation и recovery policy.
+3. Если нарушение схемы повторяется, переходить в controlled failure, а не продолжать молча.
+
+## Parser fallback policy
+
+Fallback нужен, но он вторичен.
+
+Порядок путей:
+
+1. основной путь: штатный tool/function calling API;
+2. резервный путь: parser fallback;
+3. аварийный путь: controlled failure + logging + escalation.
+
+Почему нельзя строить архитектуру на fallback:
+
+- это хрупко;
+- это дороже в сопровождении;
+- это хуже тестируется;
+- это ухудшает воспроизводимость.
+
+## Что нельзя делать
+
+1. Нельзя зашивать имя модели в session loop.
+2. Нельзя смешивать provider normalization и business logic workflow.
+3. Нельзя держать отдельный runtime path под каждого провайдера.
+4. Нельзя считать provider layer заменой tool/runtime layer.
+5. Нельзя откладывать usage normalization на конец проекта.
 
 ## Порядок внедрения
 
 ### Фаза 1. Shared transport и mock provider
 
-**Цель**
-
-Проверить контракт без реального вендора.
-
 **Критерии приемки**
 
-- mock provider проходит session loop и tools;
-- transport и normalization отделены от runtime.
+- provider contract стабилен;
+- mock provider проходит session loop;
+- transport отделен от runtime logic.
 
 **Тесты**
 
 - contract tests;
+- usage normalization tests;
+- streaming reconstruction tests.
+
+### Фаза 2. `Kimi K2` как первый штатный провайдер
+
+**Критерии приемки**
+
+- Kimi работает через общий adapter layer;
+- tool calling и streaming поддержаны;
+- parser fallback реализован как резерв.
+
+**Тесты**
+
+- Kimi smoke test;
+- tool calling tests;
 - streaming assembly tests;
-- usage normalization tests.
+- fallback parser tests.
 
-### Фаза 2. `Kimi K2` как основной provider
-
-**Цель**
-
-Подключить первый реальный провайдер без архитектурного долга.
+### Фаза 3. `DeepSeek` как второй штатный провайдер
 
 **Критерии приемки**
 
-- Kimi выполняет tool calling и streaming path;
-- parser fallback реализован, но не является основным путем;
-- runtime loop не содержит Kimi-specific ветвлений.
+- DeepSeek подключен через тот же contract;
+- strict schema path работает;
+- provider switch не меняет session loop.
 
 **Тесты**
 
-- live smoke test;
-- tool calling test;
-- streaming tool chunks test;
-- fallback parser test.
+- DeepSeek smoke test;
+- strict schema tests;
+- provider switch tests.
 
-### Фаза 3. `DeepSeek` как второй provider
-
-**Цель**
-
-Подтвердить vendor-neutrality ядра.
+### Фаза 4. Capability and cost-aware routing
 
 **Критерии приемки**
 
-- DeepSeek работает через тот же transport contract;
-- strict schema path проверен;
-- provider switch не требует изменения tools и session loop.
+- routing использует telemetry и capabilities;
+- fallback предсказуем;
+- бюджет и надежность можно учитывать автоматически.
 
 **Тесты**
 
-- live smoke test;
-- strict schema test;
-- provider switch regression test.
+- budget-aware routing simulations;
+- fallback drills;
+- timeout/retry tests.
 
-### Фаза 4. Routing и fallback
+## Признаки зрелого provider layer
 
-**Цель**
-
-Сделать multi-provider режим эксплуатационно полезным.
-
-**Критерии приемки**
-
-- fallback работает предсказуемо;
-- usage/cost telemetry пригодна для выбора маршрута;
-- failures одного провайдера не ломают весь runtime бесконтрольно.
-
-**Тесты**
-
-- fallback drill;
-- timeout retry test;
-- budget-aware routing simulation.
-
-## Что нельзя делать
-
-1. Нельзя зашивать имя модели в tool executor.
-2. Нельзя делать отдельный session loop под Kimi и отдельный под DeepSeek.
-3. Нельзя смешивать provider normalization и business logic.
-4. Нельзя делать parser fallback основным путем.
-5. Нельзя полагаться на "модель сама будет всегда соблюдать схему".
-
-## Минимальный чеклист готовности provider layer
-
-Provider layer считается зрелым, если:
-
-1. новый provider подключается через новый adapter;
-2. tools работают через единый contract;
-3. usage нормализуется в общий вид;
-4. stream events проходят через общий reducer;
-5. strict/fallback поддерживаются как capability, а не как хаки в session loop;
-6. failure paths диагностируемы и покрыты тестами.
+1. Новый провайдер добавляется через adapter и profile.
+2. Usage/cost данные одинаково собираются у разных провайдеров.
+3. Streaming проходит через единый reducer.
+4. Tool calls приводятся к одному формату.
+5. Workflow и project layers не знают vendor-specific деталей.
+6. Provider layer помогает экономить токены, а не только "отправляет запрос".
 
 ## Итоговая рекомендация
 
-Оптимальная стратегия для `ai-multi-agents`:
+Правильная стратегия для проекта такая:
 
-1. сначала реализовать shared provider layer и mock provider;
-2. затем подключить `Kimi K2` как основной провайдер;
-3. потом подключить `DeepSeek` как второй провайдер и валидатор vendor-neutrality;
-4. только после этого добавлять routing, cost governance и advanced fallback.
+1. сначала стабилизировать shared provider layer;
+2. затем подключить `Kimi K2` как первый production path;
+3. затем подключить `DeepSeek` как второй production path и валидатор vendor-neutrality;
+4. после этого вводить capability-aware и cost-aware routing.
 
-Такой порядок даст реальный контроль над execution layer и не повторит главную слабость текущей схемы: зависимость от внешнего CLI вместо собственного управляемого runtime.
+Такой путь соответствует судьбе проекта как локальной AI-agent platform: провайдеры становятся важной, но подчиненной частью `core runtime`, а не новой точкой архитектурной зависимости.
