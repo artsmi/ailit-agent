@@ -51,6 +51,19 @@
 - token/cost governance;
 - dynamic agents/workflows.
 
+### Canonical context
+
+- [`../context/INDEX.md`](../context/INDEX.md)
+
+Фиксирует канонические артефакты текущего состояния:
+
+- `context/arch/*`
+- `context/proto/*`
+- трехслойную модель;
+- границы state and persistence;
+- внешний workflow shell;
+- roadmap интерфейсов.
+
 ### Стратегия провайдеров
 
 - [`../plan/agent-core-provider-strategy.md`](../plan/agent-core-provider-strategy.md)
