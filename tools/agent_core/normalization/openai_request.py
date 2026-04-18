@@ -9,11 +9,27 @@ from agent_core.models import ChatMessage, ChatRequest, MessageRole, ToolDefinit
 
 def _message_to_openai_dict(message: ChatMessage) -> dict[str, Any]:
     """Преобразовать одно сообщение в dict OpenAI API."""
-    out: dict[str, Any] = {"role": message.role.value, "content": message.content}
+    out: dict[str, Any] = {"role": message.role.value}
+    if message.tool_calls and not message.content:
+        out["content"] = None
+    else:
+        out["content"] = message.content
     if message.name:
         out["name"] = message.name
     if message.tool_call_id:
         out["tool_call_id"] = message.tool_call_id
+    if message.tool_calls:
+        out["tool_calls"] = [
+            {
+                "id": tc.call_id,
+                "type": "function",
+                "function": {
+                    "name": tc.tool_name,
+                    "arguments": tc.arguments_json,
+                },
+            }
+            for tc in message.tool_calls
+        ]
     return out
 
 

@@ -28,6 +28,18 @@ class FinishReason(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class ToolCallNormalized:
+    """Единый формат tool call после нормализации."""
+
+    call_id: str
+    tool_name: str
+    arguments_json: str
+    stream_index: int
+    provider_name: str
+    is_complete: bool = True
+
+
+@dataclass(frozen=True, slots=True)
 class ChatMessage:
     """Одно сообщение в формате runtime."""
 
@@ -35,6 +47,7 @@ class ChatMessage:
     content: str
     name: str | None = None
     tool_call_id: str | None = None
+    tool_calls: tuple[ToolCallNormalized, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,18 +111,6 @@ class NormalizedUsage:
     reasoning_tokens: int | None = None
     cached_tokens: int | None = None
     usage_missing: bool = False
-
-
-@dataclass(frozen=True, slots=True)
-class ToolCallNormalized:
-    """Единый формат tool call после нормализации."""
-
-    call_id: str
-    tool_name: str
-    arguments_json: str
-    stream_index: int
-    provider_name: str
-    is_complete: bool = True
 
 
 @dataclass(frozen=True, slots=True)

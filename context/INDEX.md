@@ -25,6 +25,8 @@
 
 На `Этапе 4` добавлен слой **tool runtime** (`tools/agent_core/tool_runtime/`): контракт инструмента, permissions, approvals, исполнитель.
 
+На `Этапе 5` добавлен **session loop** (`tools/agent_core/session/`): `SessionRunner`, бюджет, compaction, keyword shortlist, `StreamReducer`.
+
 ## Разделы
 
 ### `arch/`

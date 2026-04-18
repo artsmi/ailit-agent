@@ -183,7 +183,7 @@
 2. Этап 2. Local state, event model и visual-first observability foundation [выполнено]
 3. Этап 3. Provider abstraction и transport foundation [выполнено]
 4. Этап 4. Tool runtime, permissions и safety [выполнено]
-5. Этап 5. Session loop, streaming и token-cost management
+5. Этап 5. Session loop, streaming и token-cost management [выполнено]
 6. Этап 6. Workflow engine и перенос machine logic из `orchestrator*.md`
 7. Этап 7. Project layer, canonical context и dynamic agent/workflow config
 8. Этап 8. Совместимый adapter для существующего `ai-multi-agents`
@@ -533,11 +533,11 @@
 
 ---
 
-## Этап 5. Session loop, streaming и token-cost management
+## Этап 5. Session loop, streaming и token-cost management [выполнено]
 
 Цель этапа: сделать runtime управляемым по состоянию и стоимости.
 
-### Задача 5.1. Реализовать явный session loop
+### Задача 5.1. Реализовать явный session loop [выполнено]
 
 **Что сделать**
 
@@ -555,7 +555,7 @@
 - retry tests;
 - pause/resume tests.
 
-### Задача 5.2. Реализовать streaming reducer
+### Задача 5.2. Реализовать streaming reducer [выполнено]
 
 **Что сделать**
 
@@ -573,7 +573,7 @@
 - tool delta assembly tests;
 - malformed chunk tests.
 
-### Задача 5.3. Реализовать shortlist и context compaction
+### Задача 5.3. Реализовать shortlist и context compaction [выполнено]
 
 **Что сделать**
 
@@ -592,7 +592,7 @@
 - budget exceed tests;
 - compaction regression tests.
 
-### Задача 5.4. Ввести cost/token governance
+### Задача 5.4. Ввести cost/token governance [выполнено]
 
 **Что сделать**
 
@@ -611,7 +611,7 @@
 - budget threshold tests;
 - provider comparison tests.
 
-### Критерий этапа 5
+### Критерий этапа 5 [выполнено]
 
 - runtime умеет стабильно исполнять длинные сессии;
 - token cost контролируется архитектурно;
@@ -620,6 +620,12 @@
 **Тест этапа**
 
 - прогнать длинный агентный сценарий с tools, shortlist и compaction и сравнить token profile до и после оптимизаций.
+
+### Артефакты этапа 5
+
+- `tools/agent_core/session/` — `SessionState`, `SessionRunner`, `SessionSettings`, `SessionOutcome`, `BudgetGovernance`, `compact_messages`, `apply_keyword_shortlist`, `StreamReducer`, мост `tool_definitions_from_registry`;
+- расширение `ChatMessage.tool_calls` и сериализация в [openai_request.py](tools/agent_core/normalization/openai_request.py);
+- `tests/test_session_*.py`, `tests/test_openai_request_tool_calls.py`.
 
 ---
 
