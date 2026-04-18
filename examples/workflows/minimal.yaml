@@ -1,0 +1,10 @@
+# Пример workflow для `ailit agent run` (контракт workflow_run_events_v1).
+workflow_id: minimal_example
+hybrid: true
+policy_ref: context/INDEX.md
+stages:
+  - id: main
+    tasks:
+      - id: greet
+        system_prompt: "You are a terse assistant. Reply in one short sentence."
+        user_text: "Say hello in English."

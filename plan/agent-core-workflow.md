@@ -184,7 +184,7 @@
 3. Этап 3. Provider abstraction и transport foundation [выполнено]
 4. Этап 4. Tool runtime, permissions и safety [выполнено]
 5. Этап 5. Session loop, streaming и token-cost management [выполнено]
-6. Этап 6. Workflow engine и перенос machine logic из `orchestrator*.md`
+6. Этап 6. Workflow engine и перенос machine logic из `orchestrator*.md` [выполнено]
 7. Этап 7. Project layer, canonical context и dynamic agent/workflow config
 8. Этап 8. Совместимый adapter для существующего `ai-multi-agents`
 9. Этап 9. Hardening, packaging и controlled rollout
@@ -629,11 +629,11 @@
 
 ---
 
-## Этап 6. Workflow engine и перенос machine logic из `orchestrator*.md`
+## Этап 6. Workflow engine и перенос machine logic из `orchestrator*.md` [выполнено]
 
 Цель этапа: превратить платформу из просто runtime в engine проектных workflow.
 
-### Задача 6.1. Формализовать workflow graph
+### Задача 6.1. Формализовать workflow graph [выполнено]
 
 **Что сделать**
 
@@ -657,7 +657,7 @@
 - transition table tests;
 - blocked/review path tests.
 
-### Задача 6.2. Перенести machine logic из `orchestrator*.md` в runtime
+### Задача 6.2. Перенести machine logic из `orchestrator*.md` в runtime [выполнено]
 
 **Что сделать**
 
@@ -681,7 +681,7 @@
 - blocked/resume tests;
 - artifact lifecycle tests.
 
-### Задача 6.3. Сохранить policy-driven роли и hybrid режим
+### Задача 6.3. Сохранить policy-driven роли и hybrid режим [выполнено]
 
 **Что сделать**
 
@@ -700,7 +700,7 @@
 - rollback tests;
 - compatibility tests со старыми правилами.
 
-### Критерий этапа 6
+### Критерий этапа 6 [выполнено]
 
 - у платформы есть workflow engine;
 - machine logic больше не зависит от narrative orchestration;
@@ -709,6 +709,15 @@
 **Тест этапа**
 
 - исполнить один и тот же workflow в hybrid и native режимах и сравнить transitions, artifacts и events.
+
+### Артефакты этапа 6
+
+- `tools/workflow_engine/` — `Workflow`, `Stage`, `Task`, `Transition`, `Barrier`, `HumanGate`, `BlockedReason`, загрузка YAML, `WorkflowEngine` с контрактом **`workflow_run_events_v1`** (JSONL в stdout);
+- `tools/ailit/` — CLI `ailit` (`ailit chat` → Streamlit, `ailit agent run` → workflow);
+- [user-test.md](user-test.md) — ручная проверка DeepSeek и CLI;
+- [examples/workflows/minimal.yaml](examples/workflows/minimal.yaml);
+- `pyproject.toml` — `project.scripts.ailit`, optional `[chat]`, пакеты `workflow_engine`, `ailit`;
+- `tests/test_workflow_engine.py`.
 
 ---
 

@@ -27,6 +27,8 @@
 
 На `Этапе 5` добавлен **session loop** (`tools/agent_core/session/`): `SessionRunner`, бюджет, compaction, keyword shortlist, `StreamReducer`.
 
+На `Этапе 6` добавлены **workflow_engine**, CLI **`ailit`**, пример [`examples/workflows/minimal.yaml`](../examples/workflows/minimal.yaml) и руководство [`user-test.md`](../user-test.md).
+
 ## Разделы
 
 ### `arch/`

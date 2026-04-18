@@ -15,8 +15,11 @@ context/
 tools/
   agent_core/
   workflow_engine/
+  ailit/
   runtime/
   knowledge_refresh/
+examples/
+  workflows/
 ```
 
 ## Обязанности каталогов
@@ -51,19 +54,24 @@ Roadmap и стратегические документы:
 
 ### `tools/agent_core/`
 
-Нижний runtime слой (после `Этапа 3` — провайдеры и транспорт):
+Нижний runtime слой:
 
-- `providers`, `transport`, нормализация OpenAI-совместимых ответов;
-- session, tools, permissions, telemetry — следующие этапы roadmap.
+- `providers`, `transport`, нормализация;
+- `session` — session loop, бюджет, compaction, shortlist;
+- `tool_runtime` — инструменты, permissions, approvals;
+- telemetry и пр. — следующие этапы roadmap.
 
 ### `tools/workflow_engine/`
 
-Будущий средний слой:
+Средний слой (этап 6): YAML workflow, `WorkflowEngine`, JSONL события `workflow_run_events_v1`.
 
-- graph;
-- executor;
-- compatibility;
-- artifact lifecycle.
+### `tools/ailit/`
+
+CLI (`ailit chat`, `ailit agent run`) и Streamlit `chat_app.py`.
+
+### `examples/workflows/`
+
+Примеры workflow для ручного и интеграционного запуска.
 
 ### `tools/runtime/`
 

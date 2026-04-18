@@ -59,6 +59,11 @@
 
 - реализация: каталог [`../tools/agent_core/`](../tools/agent_core/) (pytest: `python3 -m pytest` из корня репозитория).
 
+### Ручная проверка и CLI (этапы 4–6)
+
+- инструкция: [`../user-test.md`](../user-test.md) (`ailit chat`, `ailit agent run`, DeepSeek);
+- workflow engine: [`../tools/workflow_engine/`](../tools/workflow_engine/).
+
 Фиксирует канонические артефакты текущего состояния:
 
 - `context/arch/*`
