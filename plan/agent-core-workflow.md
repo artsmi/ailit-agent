@@ -28,6 +28,21 @@
 - не переписывать весь orchestration слой за один проход;
 - развивать новый runtime отдельно, но совместимо с будущей интеграцией.
 
+## Сквозной контракт live интеграционных тестов (DeepSeek)
+
+Начиная с `Этапа 3` и далее, любые новые интеграционные тесты, которые требуют реального LLM вызова, выполняются через **DeepSeek** как единый live baseline provider.
+
+Правила:
+
+- секрет задается только через окружение (`DEEPSEEK_API_KEY`) или CI secrets;
+- ключ **не** кладется в репозиторий и не фиксируется в markdown;
+- без ключа live тесты должны **пропускаться**, а не ломать локальный прогон;
+- для контроля квоты в CI рекомендуется дополнительный guard `AILIT_RUN_LIVE=1`.
+
+Каноническое описание сценариев `small smoke` и `large scenario`:
+
+- `context/proto/deepseek-integration-test-contract.md`
+
 ## Как использовать этот документ в `ai-multi-agents`
 
 Этот workflow предназначен для практического режима:
@@ -164,8 +179,8 @@
 
 ## Порядок этапов
 
-1. Этап 1. Нормализация целевой платформы и границ трех слоев
-2. Этап 2. Local state, event model и visual-first observability foundation
+1. Этап 1. Нормализация целевой платформы и границ трех слоев [выполнено]
+2. Этап 2. Local state, event model и visual-first observability foundation [выполнено]
 3. Этап 3. Provider abstraction и transport foundation
 4. Этап 4. Tool runtime, permissions и safety
 5. Этап 5. Session loop, streaming и token-cost management
@@ -272,11 +287,11 @@
 
 ---
 
-## Этап 2. Local state, event model и visual-first observability foundation
+## Этап 2. Local state, event model и visual-first observability foundation [выполнено]
 
 Цель этапа: сделать визуализацию и локальное хранение ядром системы, а не поздним дополнением.
 
-### Задача 2.1. Зафиксировать локальную модель хранения
+### Задача 2.1. Зафиксировать локальную модель хранения [выполнено]
 
 **Что сделать**
 
@@ -299,7 +314,7 @@
 - пройтись по каждому типу данных и проверить формат хранения;
 - проверить, что storage не подменяет `context/*`.
 
-### Задача 2.2. Зафиксировать единый event contract
+### Задача 2.2. Зафиксировать единый event contract [выполнено]
 
 **Что сделать**
 
@@ -317,7 +332,7 @@
 - смоделировать типовой run и проверить полноту event mapping;
 - проверить, что из event stream собирается snapshot.
 
-### Задача 2.3. Зафиксировать visual-first модель мониторинга
+### Задача 2.3. Зафиксировать visual-first модель мониторинга [выполнено]
 
 **Что сделать**
 
@@ -341,7 +356,7 @@
 - составить экранную карту UI;
 - проверить, что для каждого блока есть источник данных в event/state модели.
 
-### Критерий этапа 2
+### Критерий этапа 2 [выполнено]
 
 - локальное хранение описано;
 - event model зафиксирована;
@@ -350,6 +365,13 @@
 **Тест этапа**
 
 - проверить, что по документам можно спроектировать минимальный local monitor без дополнительных архитектурных допущений.
+
+### Артефакты этапа 2
+
+- `context/arch/runtime-local-storage-model.md`
+- `context/proto/runtime-event-contract.md`
+- `context/arch/visual-monitoring-ui-map.md`
+- `context/proto/deepseek-integration-test-contract.md` (сквозной контракт для этапов `3+`)
 
 ---
 

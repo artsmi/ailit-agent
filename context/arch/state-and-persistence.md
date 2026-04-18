@@ -50,3 +50,10 @@ Runtime state, event log и snapshots существуют рядом с ним,
 - runtime state не становится новой заменой `context/*`;
 - `knowledge_refresh` использует `context/*`, а не runtime snapshots как source of truth;
 - будущая визуализация должна питаться из runtime events и snapshots, а не из ad-hoc логов.
+
+## Практический вывод для `Этапа 2`
+
+Детальная модель локального хранения и событий вынесена в отдельные документы:
+
+- [`runtime-local-storage-model.md`](runtime-local-storage-model.md)
+- [`../proto/runtime-event-contract.md`](../proto/runtime-event-contract.md)

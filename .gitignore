@@ -1,0 +1,19 @@
+# Secrets and local operator state
+.env
+.env.*
+*.key
+*.pem
+
+# Local runtime store (default contract: project-local)
+.ailit/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/

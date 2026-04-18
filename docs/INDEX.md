@@ -61,6 +61,8 @@
 - `context/proto/*`
 - трехслойную модель;
 - границы state and persistence;
+- local-first storage model и event contract для UI/resume;
+- сквозной контракт live интеграционных тестов DeepSeek (`DEEPSEEK_API_KEY`, без секретов в git);
 - внешний workflow shell;
 - roadmap интерфейсов.
 
