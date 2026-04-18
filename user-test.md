@@ -49,6 +49,23 @@ ailit chat
 
 **mock** — без API, детерминированный ответ (удобно проверить UI).
 
+### Если в логе Streamlit: `inotify instance limit reached`
+
+`ailit chat` уже запускает Streamlit с **`--server.fileWatcherType none`**, чтобы не создавать лишние inotify-наблюдатели (типичная причина `OSError: [Errno 24]`).
+
+Если вы запускаете UI вручную без CLI, добавьте то же самое:
+
+```bash
+python3 -m streamlit run tools/ailit/chat_app.py --server.fileWatcherType none
+```
+
+Долгосрочно на Linux можно поднять лимиты (до перезагрузки — `sudo sysctl`, постоянно — в `/etc/sysctl.d/`):
+
+```text
+fs.inotify.max_user_instances=1024
+fs.inotify.max_user_watches=524288
+```
+
 ---
 
 ## 2. Workflow: `ailit agent run`

@@ -21,7 +21,18 @@ def _cmd_chat(_args: argparse.Namespace) -> int:
         sys.stderr.write("Установите UI-зависимости: pip install -e '.[chat]'\n")
         return 1
     app = Path(__file__).resolve().parent / "chat_app.py"
-    cmd = [sys.executable, "-m", "streamlit", "run", str(app), "--server.headless", "false"]
+    # Без watcher на inotify: иначе на Linux часто EMFILE «inotify instance limit reached».
+    cmd = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(app),
+        "--server.headless",
+        "false",
+        "--server.fileWatcherType",
+        "none",
+    ]
     return subprocess.call(cmd)
 
 
