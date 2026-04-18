@@ -51,13 +51,10 @@ Roadmap и стратегические документы:
 
 ### `tools/agent_core/`
 
-Будущий нижний runtime слой:
+Нижний runtime слой (после `Этапа 3` — провайдеры и транспорт):
 
-- providers;
-- session;
-- tools;
-- permissions;
-- telemetry.
+- `providers`, `transport`, нормализация OpenAI-совместимых ответов;
+- session, tools, permissions, telemetry — следующие этапы roadmap.
 
 ### `tools/workflow_engine/`
 

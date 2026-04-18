@@ -55,6 +55,10 @@
 
 - [`../context/INDEX.md`](../context/INDEX.md)
 
+### Provider layer (код, этап 3)
+
+- реализация: каталог [`../tools/agent_core/`](../tools/agent_core/) (pytest: `python3 -m pytest` из корня репозитория).
+
 Фиксирует канонические артефакты текущего состояния:
 
 - `context/arch/*`

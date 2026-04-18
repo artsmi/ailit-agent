@@ -16,8 +16,13 @@ live:
 
 deepseek:
   api_key: ""
-  base_url: "https://api.deepseek.com"
+  base_url: "https://api.deepseek.com/v1"
   model: "deepseek-chat"
+
+kimi:
+  api_key: ""
+  base_url: "https://api.moonshot.cn/v1"
+  model: "kimi-k2-0711-preview"
 
 tests:
   smoke:

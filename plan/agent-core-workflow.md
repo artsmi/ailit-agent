@@ -181,7 +181,7 @@
 
 1. Этап 1. Нормализация целевой платформы и границ трех слоев [выполнено]
 2. Этап 2. Local state, event model и visual-first observability foundation [выполнено]
-3. Этап 3. Provider abstraction и transport foundation
+3. Этап 3. Provider abstraction и transport foundation [выполнено]
 4. Этап 4. Tool runtime, permissions и safety
 5. Этап 5. Session loop, streaming и token-cost management
 6. Этап 6. Workflow engine и перенос machine logic из `orchestrator*.md`
@@ -375,11 +375,11 @@
 
 ---
 
-## Этап 3. Provider abstraction и transport foundation
+## Этап 3. Provider abstraction и transport foundation [выполнено]
 
 Цель этапа: построить универсальный провайдерный слой для Kimi K2, DeepSeek и следующих моделей.
 
-### Задача 3.1. Ввести capability-based provider interface
+### Задача 3.1. Ввести capability-based provider interface [выполнено]
 
 **Что сделать**
 
@@ -397,7 +397,7 @@
 - contract test на mock-provider;
 - capability mapping test для Kimi и DeepSeek.
 
-### Задача 3.2. Реализовать shared transport foundation
+### Задача 3.2. Реализовать shared transport foundation [выполнено]
 
 **Что сделать**
 
@@ -419,7 +419,7 @@
 - golden tests на text/tool/usage normalization;
 - timeout и malformed response tests.
 
-### Задача 3.3. Подключить Kimi K2 и DeepSeek как первые штатные провайдеры
+### Задача 3.3. Подключить Kimi K2 и DeepSeek как первые штатные провайдеры [выполнено]
 
 **Что сделать**
 
@@ -438,7 +438,7 @@
 - streaming tests;
 - provider switch regression test.
 
-### Критерий этапа 3
+### Критерий этапа 3 [выполнено]
 
 - provider layer работает как отдельная зрелая подсистема;
 - Kimi и DeepSeek подключаются без vendor lock-in;
@@ -447,6 +447,14 @@
 **Тест этапа**
 
 - прогнать одинаковый сценарий через mock, Kimi и DeepSeek и сравнить внутренний нормализованный результат.
+
+### Артефакты этапа 3
+
+- `tools/agent_core/` — пакет: `Capability`, модели запроса/ответа, `HttpxJsonTransport`, retry, нормализация OpenAI-формата, streaming assembler, parser fallback;
+- `tools/agent_core/providers/` — `ChatProvider`, `MockProvider`, `OpenAICompatProvider`, `KimiAdapter`, `DeepSeekAdapter`, `ProviderFactory`;
+- `tools/agent_core/config_loader.py` — чтение `config/test.local.yaml` и ключей;
+- `tests/test_*.py` — contract, capability matrix, golden normalization, transport errors, streaming, factory, gate parity Kimi/DeepSeek, live DeepSeek smoke (`@pytest.mark.integration`);
+- `pyproject.toml` — зависимости `httpx`, `pyyaml`, pytest.
 
 ---
 

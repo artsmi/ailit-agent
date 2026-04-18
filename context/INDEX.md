@@ -19,6 +19,10 @@
 - operator-first UI map;
 - сквозной контракт live интеграционных тестов DeepSeek (без хранения секретов в git).
 
+На `Этапе 3` в репозитории появилась реализация provider layer:
+
+- Python-пакет `tools/agent_core` (см. `context/arch/repository-layout.md`).
+
 ## Разделы
 
 ### `arch/`
