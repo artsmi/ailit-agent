@@ -69,6 +69,8 @@ class _ChatPageState:
 
     MESSAGES = "messages"
     SNAPSHOT_CACHE = "context_snapshot_cache"
+    PENDING_LLM = "ailit_pending_llm"
+    LLM_WIDGET_SNAPSHOT = "ailit_llm_widget_snapshot"
 
 
 def _init_messages() -> None:
@@ -212,6 +214,62 @@ def _render_burger_menu(
                 )
 
 
+def _render_dialogue_messages(messages: list[ChatMessage]) -> None:
+    """Отрисовать user/assistant/tool (без system)."""
+    for m in messages:
+        if m.role is MessageRole.SYSTEM:
+            continue
+        with st.chat_message(m.role.value):
+            st.markdown(m.content if m.content else " ")
+
+
+def _execute_llm_turn(
+    *,
+    cfg: dict,
+    snap: dict[str, object],
+) -> None:
+    """Второй проход: SessionRunner (настройки из снимка отправки)."""
+    choice = str(snap["choice"])
+    max_turns = int(snap["max_turns"])
+    file_tools = bool(snap["file_tools"])
+    use_project = bool(snap["use_project"])
+    agent_id = str(snap["agent_id"])
+    project_root = Path(str(snap["project_root"]))
+
+    fac_local = ProjectSessionFactory(project_root)
+    plr = fac_local.load()
+    loaded_local = plr.loaded
+    base_system = "You are a helpful concise assistant."
+    msgs_src = st.session_state[_ChatPageState.MESSAGES]
+    tuning = None
+    prefix_len = 0
+    if use_project and loaded_local is not None:
+        ctx_snap = st.session_state.get(_ChatPageState.SNAPSHOT_CACHE)
+        tuning = fac_local.tuning_for_chat(loaded_local, agent_id.strip() or "default", ctx_snap)
+        suffix = strip_system_messages(list(msgs_src))
+        runner_msgs = attach_runner_suffix(base_system, tuning, suffix)
+        prefix_len = len(runner_msgs) - len(suffix)
+    else:
+        runner_msgs = list(msgs_src)
+
+    provider, model = _make_provider(choice, cfg)
+    settings = SessionSettings(
+        model=model,
+        max_turns=tuning.max_turns if tuning and tuning.max_turns is not None else max_turns,
+        temperature=tuning.temperature if tuning and tuning.temperature is not None else 0.3,
+        shortlist_keywords=tuning.shortlist_keywords if tuning else None,
+    )
+    runner = SessionRunner(provider, _registry_for_chat(file_tools))
+    out = runner.run(runner_msgs, ApprovalSession(), settings)
+
+    if use_project and loaded_local is not None and tuning is not None:
+        st.session_state[_ChatPageState.MESSAGES] = store_after_run(base_system, prefix_len, runner_msgs)
+    else:
+        st.session_state[_ChatPageState.MESSAGES] = runner_msgs
+
+    st.caption(f"state={out.state.value} reason={out.reason!r}")
+
+
 def main() -> None:
     """Точка входа Streamlit."""
     st.set_page_config(page_title="ailit chat", layout="wide", initial_sidebar_state="collapsed")
@@ -238,11 +296,28 @@ def main() -> None:
         load_error=load_error,
     )
 
-    for m in st.session_state[_ChatPageState.MESSAGES]:
-        if m.role is MessageRole.SYSTEM:
-            continue
-        with st.chat_message(m.role.value):
-            st.markdown(m.content if m.content else " ")
+    msgs = st.session_state[_ChatPageState.MESSAGES]
+    pending = bool(st.session_state.get(_ChatPageState.PENDING_LLM, False))
+
+    if pending:
+        snap_raw = st.session_state.get(_ChatPageState.LLM_WIDGET_SNAPSHOT)
+        if not isinstance(snap_raw, dict):
+            st.session_state[_ChatPageState.PENDING_LLM] = False
+            st.rerun()
+            return
+        _render_dialogue_messages(msgs)
+        with st.chat_message("assistant"):
+            wait_ph = st.empty()
+            wait_ph.markdown("_Ожидание ответа…_")
+            with st.spinner("Запрос к модели…"):
+                _execute_llm_turn(cfg=cfg, snap=snap_raw)
+            wait_ph.empty()
+        st.session_state[_ChatPageState.PENDING_LLM] = False
+        st.session_state.pop(_ChatPageState.LLM_WIDGET_SNAPSHOT, None)
+        st.rerun()
+        return
+
+    _render_dialogue_messages(msgs)
 
     prompt = st.chat_input("Сообщение…")
     if not prompt:
@@ -251,35 +326,15 @@ def main() -> None:
     st.session_state[_ChatPageState.MESSAGES].append(
         ChatMessage(role=MessageRole.USER, content=prompt),
     )
-    provider, model = _make_provider(choice, cfg)
-    base_system = "You are a helpful concise assistant."
-    msgs_src = st.session_state[_ChatPageState.MESSAGES]
-    if use_project and loaded is not None:
-        snap = st.session_state.get(_ChatPageState.SNAPSHOT_CACHE)
-        tuning = fac.tuning_for_chat(loaded, agent_id.strip() or "default", snap)
-        suffix = strip_system_messages(list(msgs_src))
-        runner_msgs = attach_runner_suffix(base_system, tuning, suffix)
-        prefix_len = len(runner_msgs) - len(suffix)
-    else:
-        runner_msgs = list(msgs_src)
-        prefix_len = 0
-        tuning = None
-
-    settings = SessionSettings(
-        model=model,
-        max_turns=tuning.max_turns if tuning and tuning.max_turns is not None else max_turns,
-        temperature=tuning.temperature if tuning and tuning.temperature is not None else 0.3,
-        shortlist_keywords=tuning.shortlist_keywords if tuning else None,
-    )
-    runner = SessionRunner(provider, _registry_for_chat(file_tools))
-    out = runner.run(runner_msgs, ApprovalSession(), settings)
-
-    if use_project and loaded is not None and tuning is not None:
-        st.session_state[_ChatPageState.MESSAGES] = store_after_run(base_system, prefix_len, runner_msgs)
-    else:
-        st.session_state[_ChatPageState.MESSAGES] = runner_msgs
-
-    st.caption(f"state={out.state.value} reason={out.reason!r}")
+    st.session_state[_ChatPageState.LLM_WIDGET_SNAPSHOT] = {
+        "choice": choice,
+        "max_turns": max_turns,
+        "file_tools": file_tools,
+        "use_project": use_project,
+        "agent_id": agent_id,
+        "project_root": str(project_root),
+    }
+    st.session_state[_ChatPageState.PENDING_LLM] = True
     st.rerun()
 
 
