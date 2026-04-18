@@ -9,7 +9,7 @@ from agent_core.tool_runtime.executor import (
     ToolRunResult,
 )
 from agent_core.tool_runtime.permission import PermissionDecision, PermissionEngine, SideEffectClass
-from agent_core.tool_runtime.registry import ToolRegistry, default_builtin_registry
+from agent_core.tool_runtime.registry import ToolRegistry, default_builtin_registry, empty_tool_registry
 from agent_core.tool_runtime.spec import ToolSpec
 
 __all__ = [
@@ -26,4 +26,5 @@ __all__ = [
     "ToolRunResult",
     "ToolSpec",
     "default_builtin_registry",
+    "empty_tool_registry",
 ]

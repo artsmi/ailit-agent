@@ -38,3 +38,8 @@ def default_builtin_registry() -> ToolRegistry:
     specs = builtin_tool_specs()
     handlers: dict[str, ToolHandler] = {k: BUILTIN_HANDLERS[k] for k in specs if k in BUILTIN_HANDLERS}
     return ToolRegistry(specs=specs, handlers=handlers)
+
+
+def empty_tool_registry() -> ToolRegistry:
+    """Реестр без инструментов (обычный чат без tool calling)."""
+    return ToolRegistry(specs={}, handlers={})
