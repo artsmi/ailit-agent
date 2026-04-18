@@ -19,6 +19,7 @@ from agent_core.providers.deepseek import DeepSeekAdapter
 from agent_core.providers.mock_provider import MockProvider
 from agent_core.session.loop import SessionRunner, SessionSettings
 from agent_core.tool_runtime.approval import ApprovalSession
+from agent_core.tool_runtime.permission import PermissionDecision, PermissionEngine
 from agent_core.tool_runtime.registry import ToolRegistry, default_builtin_registry, empty_tool_registry
 from ailit.chat_handlers import (
     ProjectSessionFactory,
@@ -260,6 +261,26 @@ def _render_dialogue_messages(messages: list[ChatMessage]) -> None:
             st.markdown(m.content if m.content else " ")
 
 
+_FILE_TOOLS_SYSTEM_HINT = (
+    "Когда пользователь просит создать или записать файл, обязательно вызови инструмент "
+    "write_file с относительным путём внутри рабочего корня и содержимым файла. "
+    "Не утверждай, что файл создан, если инструмент не был вызван."
+)
+
+
+def _inject_file_tools_system_hint(runner_msgs: list[ChatMessage], file_tools: bool) -> None:
+    """Подсказка модели (DeepSeek и др.): не обходить write_file текстом."""
+    if not file_tools:
+        return
+    for i, m in enumerate(runner_msgs):
+        if m.role is MessageRole.USER:
+            runner_msgs.insert(
+                i,
+                ChatMessage(role=MessageRole.SYSTEM, content=_FILE_TOOLS_SYSTEM_HINT),
+            )
+            return
+
+
 def _execute_llm_turn(
     *,
     cfg: dict,
@@ -289,6 +310,8 @@ def _execute_llm_turn(
     else:
         runner_msgs = list(msgs_src)
 
+    _inject_file_tools_system_hint(runner_msgs, file_tools)
+
     provider, model = _make_provider(choice, cfg)
     settings = SessionSettings(
         model=model,
@@ -296,7 +319,16 @@ def _execute_llm_turn(
         temperature=tuning.temperature if tuning and tuning.temperature is not None else 0.3,
         shortlist_keywords=tuning.shortlist_keywords if tuning else None,
     )
-    runner = SessionRunner(provider, _registry_for_chat(file_tools, project_root))
+    perm = (
+        PermissionEngine(write_default=PermissionDecision.ALLOW)
+        if file_tools
+        else None
+    )
+    runner = SessionRunner(
+        provider,
+        _registry_for_chat(file_tools, project_root),
+        permission_engine=perm,
+    )
     out = runner.run(runner_msgs, ApprovalSession(), settings)
 
     if use_project and loaded_local is not None and tuning is not None:
