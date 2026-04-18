@@ -26,6 +26,7 @@ from ailit.chat_handlers import (
     store_after_run,
     strip_system_messages,
 )
+from ailit.chat_workflow_runner import run_workflow_capture_jsonl
 from ailit.compat_adapter import read_status, run_compat_workflow
 from ailit.debug_bundle import build_debug_bundle, default_rollout_phase
 from project_layer.bootstrap import format_agent_run_command
@@ -56,11 +57,12 @@ def _make_provider(choice: str, cfg: dict) -> tuple[object, str]:
     raise ValueError(choice)
 
 
-def _registry_for_chat(file_tools: bool) -> ToolRegistry:
-    """По умолчанию без file tools."""
+def _registry_for_chat(file_tools: bool, work_root: Path | None = None) -> ToolRegistry:
+    """File tools: песочница = корень проекта (или репозиторий по умолчанию)."""
     if not file_tools:
         return empty_tool_registry()
-    os.environ.setdefault("AILIT_WORK_ROOT", str(_REPO))
+    root = (work_root or _REPO).resolve()
+    os.environ["AILIT_WORK_ROOT"] = str(root)
     return default_builtin_registry()
 
 
@@ -89,7 +91,7 @@ def _render_header_bar() -> tuple[str, int, bool, str, bool]:
     with c_left:
         choice = st.selectbox("Провайдер", ("deepseek", "mock"), index=0, label_visibility="collapsed")
         max_turns = st.slider("max_turns", 1, 32, 8)
-        file_tools = st.checkbox("Файловые tools", value=False)
+        file_tools = st.checkbox("Файловые tools", value=True)
     with c_right:
         use_project = st.toggle("Проект", value=True)
         agent_id = st.text_input("agent_id", value="default", label_visibility="visible")
@@ -104,12 +106,12 @@ def _render_burger_menu(
     loaded: LoadedProject | None,
     load_error: str | None,
 ) -> None:
-    """Правое бургер-меню: проект, контекст, Adapter, Debug, команда."""
+    """Правое бургер-меню: проект, контекст, workflow, Adapter, Debug, команда."""
     _, col_burger = st.columns([6, 1])
     with col_burger:
         with st.popover("☰", use_container_width=True):
-            tab_p, tab_c, tab_a, tab_d, tab_cmd = st.tabs(
-                ["Проект", "Контекст", "Adapter", "Debug", "Команда"],
+            tab_p, tab_c, tab_w, tab_a, tab_d, tab_cmd = st.tabs(
+                ["Проект", "Контекст", "Workflow", "Adapter", "Debug", "Команда"],
             )
             with tab_p:
                 st.text_input("Корень проекта", key="ailit_project_root")
@@ -147,6 +149,41 @@ def _render_burger_menu(
                         if snap.warnings:
                             st.warning("\n".join(snap.warnings))
                         st.text_area("preview", snap.preview_text[:12000], height=220)
+            with tab_w:
+                st.caption("Запуск workflow YAML (как `ailit agent run`)")
+                root = Path(st.session_state.get("ailit_project_root", project_root))
+                st.text_input(
+                    "workflow_ref",
+                    key="ailit_wf_ref",
+                    help="Id из project.yaml или путь *.yaml относительно корня проекта",
+                )
+                st.text_input("model", key="ailit_wf_model")
+                st.number_input("max_turns (workflow)", min_value=1, max_value=64, key="ailit_wf_max_turns")
+                st.checkbox("dry_run", key="ailit_wf_dry_run")
+                if st.button("Запустить workflow", key="ailit_wf_run"):
+                    try:
+                        ref = str(st.session_state.get("ailit_wf_ref", "minimal")).strip()
+                        wf_model = str(st.session_state.get("ailit_wf_model", "deepseek-chat")).strip()
+                        wf_mt = int(st.session_state.get("ailit_wf_max_turns", 8))
+                        wf_dry = bool(st.session_state.get("ailit_wf_dry_run", True))
+                        prov = "mock" if choice == "mock" else "deepseek"
+                        if prov == "deepseek" and wf_dry is False:
+                            st.warning("Live DeepSeek: нужен ключ в config/test.local.yaml или DEEPSEEK_API_KEY.")
+                        text = run_workflow_capture_jsonl(
+                            repo_root=_REPO,
+                            project_root=root,
+                            workflow_ref=ref,
+                            provider=prov,
+                            model=wf_model if prov == "deepseek" else "mock",
+                            max_turns=wf_mt,
+                            dry_run=wf_dry,
+                        )
+                        st.session_state["ailit_wf_last_jsonl"] = text
+                    except (OSError, ValueError, TypeError, KeyError, FileNotFoundError) as exc:
+                        st.session_state["ailit_wf_last_jsonl"] = f"# error\n{type(exc).__name__}: {exc}\n"
+                wfj = st.session_state.get("ailit_wf_last_jsonl")
+                if wfj:
+                    st.code(str(wfj)[:50000], language="json")
             with tab_a:
                 st.caption("Compat adapter (этап 8)")
                 root = Path(st.session_state.get("ailit_project_root", project_root))
@@ -259,7 +296,7 @@ def _execute_llm_turn(
         temperature=tuning.temperature if tuning and tuning.temperature is not None else 0.3,
         shortlist_keywords=tuning.shortlist_keywords if tuning else None,
     )
-    runner = SessionRunner(provider, _registry_for_chat(file_tools))
+    runner = SessionRunner(provider, _registry_for_chat(file_tools, project_root))
     out = runner.run(runner_msgs, ApprovalSession(), settings)
 
     if use_project and loaded_local is not None and tuning is not None:
@@ -282,6 +319,10 @@ def main() -> None:
     if "ailit_project_root" not in st.session_state:
         st.session_state["ailit_project_root"] = str(root_default)
     project_root = Path(str(st.session_state.get("ailit_project_root", root_default)))
+    st.session_state.setdefault("ailit_wf_ref", "minimal")
+    st.session_state.setdefault("ailit_wf_model", "deepseek-chat")
+    st.session_state.setdefault("ailit_wf_max_turns", 8)
+    st.session_state.setdefault("ailit_wf_dry_run", True)
 
     fac = ProjectSessionFactory(project_root)
     plr = fac.load()
