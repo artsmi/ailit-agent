@@ -23,6 +23,8 @@
 
 - Python-пакет `tools/agent_core` (см. `context/arch/repository-layout.md`).
 
+На `Этапе 4` добавлен слой **tool runtime** (`tools/agent_core/tool_runtime/`): контракт инструмента, permissions, approvals, исполнитель.
+
 ## Разделы
 
 ### `arch/`

@@ -182,7 +182,7 @@
 1. Этап 1. Нормализация целевой платформы и границ трех слоев [выполнено]
 2. Этап 2. Local state, event model и visual-first observability foundation [выполнено]
 3. Этап 3. Provider abstraction и transport foundation [выполнено]
-4. Этап 4. Tool runtime, permissions и safety
+4. Этап 4. Tool runtime, permissions и safety [выполнено]
 5. Этап 5. Session loop, streaming и token-cost management
 6. Этап 6. Workflow engine и перенос machine logic из `orchestrator*.md`
 7. Этап 7. Project layer, canonical context и dynamic agent/workflow config
@@ -458,11 +458,11 @@
 
 ---
 
-## Этап 4. Tool runtime, permissions и safety
+## Этап 4. Tool runtime, permissions и safety [выполнено]
 
 Цель этапа: сделать tools first-class частью платформы.
 
-### Задача 4.1. Ввести единый tool contract
+### Задача 4.1. Ввести единый tool contract [выполнено]
 
 **Что сделать**
 
@@ -479,7 +479,7 @@
 - schema validation tests;
 - contract serialization tests.
 
-### Задача 4.2. Реализовать permission и approval subsystem
+### Задача 4.2. Реализовать permission и approval subsystem [выполнено]
 
 **Что сделать**
 
@@ -497,7 +497,7 @@
 - allow/ask/deny tests;
 - pending approval resume tests.
 
-### Задача 4.3. Реализовать tool executor
+### Задача 4.3. Реализовать tool executor [выполнено]
 
 **Что сделать**
 
@@ -515,7 +515,7 @@
 - cancellation tests;
 - deterministic ordering tests.
 
-### Критерий этапа 4
+### Критерий этапа 4 [выполнено]
 
 - tools стали отдельным runtime-слоем;
 - permission и safety больше не зависят только от поведения модели;
@@ -524,6 +524,12 @@
 **Тест этапа**
 
 - выполнить сценарий с read-only, write и approval-required tools и проверить корректность исполнения.
+
+### Артефакты этапа 4
+
+- `tools/agent_core/tool_runtime/` — `ToolSpec`, `SideEffectClass`, JSON Schema валидация, `PermissionEngine`, `ApprovalSession`, `ToolExecutor`, `ToolRegistry`, встроенные `echo` / `read_file` / `write_file` (песочница `AILIT_WORK_ROOT`);
+- `tests/test_tool_runtime_*.py` — схема, permissions, executor, gate-сценарий этапа 4;
+- зависимость `jsonschema` в `pyproject.toml`.
 
 ---
 
