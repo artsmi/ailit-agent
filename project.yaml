@@ -1,0 +1,24 @@
+# Локальный project layer для репозитория ailit-agent (этап 7).
+project_id: ailit_agent
+runtime: ailit
+paths:
+  context_root: context
+  rules: context/arch/repository-layout.md
+agents:
+  default:
+    system_append: "Отвечай кратко; если пользователь пишет по-русски — отвечай по-русски."
+workflows:
+  minimal:
+    path: examples/workflows/minimal.yaml
+context:
+  canonical_globs:
+    - "context/**/*.md"
+  knowledge_refresh:
+    mode: filesystem
+    max_files: 8
+    max_chars_per_file: 1500
+    max_keywords: 28
+memory_hints:
+  - "Структура репозитория описана в context/arch/repository-layout.md"
+rollout:
+  phase: internal_alpha

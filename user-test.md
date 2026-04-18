@@ -111,4 +111,32 @@ export AILIT_WORK_ROOT=/tmp/ailit-sandbox
 
 ## 4. Связь с ai-multi-agents
 
-Команда **`ailit agent run`** выводит машинные события в формате, готовом для будущего adapter-а к [ai-multi-agents](file:///home/artem/reps/ai-multi-agents); полная совместимость с Cursor pipeline (`start-feature` и т.д.) — отдельный этап roadmap (adapter), не входит в минимальный MVP этапа 6.
+Команда **`ailit agent run`** выводит JSONL (`workflow_run_events_v1`), готовый для adapter-а к внешнему pipeline; project layer (этап 7) добавляет `--project-root` и `project.yaml`.
+
+---
+
+## 5. Этап 7: `project.yaml`, `--project-root`, чат
+
+В корне репозитория есть пример **[project.yaml](project.yaml)** с реестром `workflows.minimal`, `agents`, canonical context (`context/**/*.md`).
+
+### 5.1 CLI: workflow по id из проекта
+
+```bash
+cd /path/to/ailit-agent
+ailit agent run minimal --project-root . --provider mock --dry-run
+```
+
+Параметры:
+
+- `--project-root` — корень проекта (ожидается `project.yaml` внутри, если не задан `--project-file`);
+- `--project-file` — явный путь к YAML проекта (родитель файла должен совпадать с ожидаемым корнем путей в реестре).
+
+### 5.2 Чат: правое меню «☰»
+
+Запустите **`ailit chat`**. В шапке: провайдер, `max_turns`, переключатель **Проект**, `agent_id`. В меню **☰** вкладки:
+
+- **Проект** — корень, превью `project_id`, списки workflows/agents, `rollout.phase`;
+- **Контекст** — кнопка «Обновить shortlist / context», превью canonical файлов и keywords;
+- **Команда** — готовые строки CLI и скачивание `.sh`.
+
+Сообщения в чате при включённом **Проект** используют tuning из `project.yaml` (rules, memory_hints, knowledge_refresh).

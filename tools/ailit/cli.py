@@ -39,14 +39,37 @@ def _cmd_chat(_args: argparse.Namespace) -> int:
 def _cmd_agent_run(args: argparse.Namespace) -> int:
     """Исполнить workflow YAML, печать JSONL в stdout."""
     from agent_core.config_loader import load_test_local_yaml
-    from agent_core.providers.deepseek import DeepSeekAdapter
     from agent_core.providers.factory import ProviderFactory, ProviderKind
     from agent_core.providers.mock_provider import MockProvider
     from agent_core.tool_runtime.registry import default_builtin_registry
+    from project_layer.bootstrap import compute_workflow_augmentation
+    from project_layer.loader import default_project_yaml_path, load_project
+    from project_layer.registry import ProjectRegistries
     from workflow_engine.engine import WorkflowEngine, WorkflowRunConfig
     from workflow_engine.loader import load_workflow_from_path
 
-    wf_path = Path(args.workflow_yaml).resolve()
+    wf_ref = str(args.workflow_ref)
+    aug_extra: tuple[str, ...] = ()
+    aug_keys: frozenset[str] | None = None
+    aug_temp = 0.0
+    if args.project_root:
+        root = Path(args.project_root).resolve()
+        cfg_path = Path(args.project_file).resolve() if args.project_file else default_project_yaml_path(root)
+        loaded = load_project(cfg_path)
+        reg = ProjectRegistries(loaded)
+        wf_path = reg.workflow_path(wf_ref)
+        aug = compute_workflow_augmentation(loaded)
+        aug_extra = aug.extra_system_messages
+        aug_keys = aug.shortlist_keywords
+        aug_temp = aug.temperature
+    else:
+        wf_path = Path(wf_ref).resolve()
+        if not wf_path.is_file():
+            sys.stderr.write(
+                "Файл workflow не найден. Укажите путь к .yaml или задайте --project-root "
+                "и id workflow из project.yaml.\n",
+            )
+            return 2
     wf = load_workflow_from_path(wf_path)
     cfg = dict(load_test_local_yaml(_repo_root() / "config" / "test.local.yaml"))
     if args.provider == "mock":
@@ -57,7 +80,15 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
         sys.stderr.write(f"Неизвестный провайдер: {args.provider}\n")
         return 2
     eng = WorkflowEngine(wf, provider, default_builtin_registry())  # type: ignore[arg-type]
-    list(eng.iter_run_events(WorkflowRunConfig(model=args.model, dry_run=args.dry_run, max_turns=args.max_turns)))
+    run_cfg = WorkflowRunConfig(
+        model=args.model,
+        dry_run=args.dry_run,
+        max_turns=args.max_turns,
+        extra_system_messages=aug_extra,
+        shortlist_keywords=aug_keys,
+        temperature=aug_temp,
+    )
+    list(eng.iter_run_events(run_cfg))
     return 0
 
 
@@ -72,7 +103,23 @@ def main(argv: list[str] | None = None) -> int:
     p_agent = sub.add_parser("agent", help="Запуск workflow")
     agent_sub = p_agent.add_subparsers(dest="agent_cmd", required=True)
     p_run = agent_sub.add_parser("run", help="Выполнить YAML workflow")
-    p_run.add_argument("workflow_yaml", type=str, help="Путь к workflow YAML")
+    p_run.add_argument(
+        "workflow_ref",
+        type=str,
+        help="Путь к workflow YAML или id из project.yaml (с --project-root)",
+    )
+    p_run.add_argument(
+        "--project-root",
+        type=str,
+        default=None,
+        help="Корень проекта: загрузка project.yaml и реестр workflows",
+    )
+    p_run.add_argument(
+        "--project-file",
+        type=str,
+        default=None,
+        help="Явный путь к project.yaml (иначе <project-root>/project.yaml)",
+    )
     p_run.add_argument("--dry-run", action="store_true", help="Только события, без вызова модели")
     p_run.add_argument("--model", default="deepseek-chat", help="Идентификатор модели")
     p_run.add_argument("--max-turns", type=int, default=8, dest="max_turns")

@@ -27,7 +27,7 @@ ailit = "ailit.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["tools"]
-include = ["agent_core*", "workflow_engine*", "ailit*"]
+include = ["agent_core*", "workflow_engine*", "ailit*", "project_layer*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["tools"]

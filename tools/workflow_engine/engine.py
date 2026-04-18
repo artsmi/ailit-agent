@@ -24,6 +24,9 @@ class WorkflowRunConfig:
     model: str = "deepseek-chat"
     max_turns: int = 6
     dry_run: bool = False
+    extra_system_messages: tuple[str, ...] = ()
+    shortlist_keywords: frozenset[str] | None = None
+    temperature: float = 0.0
 
 
 class WorkflowEngine:
@@ -77,6 +80,8 @@ class WorkflowEngine:
         settings = SessionSettings(
             model=run_config.model,
             max_turns=run_config.max_turns,
+            shortlist_keywords=run_config.shortlist_keywords,
+            temperature=run_config.temperature,
         )
         runner = SessionRunner(self._provider, self._registry)
         approvals = ApprovalSession()
@@ -118,10 +123,16 @@ class WorkflowEngine:
                         },
                     )
                     continue
-                messages = [
-                    ChatMessage(role=MessageRole.SYSTEM, content=task.system_prompt),
-                    ChatMessage(role=MessageRole.USER, content=task.user_text),
+                messages: list[ChatMessage] = [
+                    ChatMessage(role=MessageRole.SYSTEM, content=body)
+                    for body in run_config.extra_system_messages
                 ]
+                messages.extend(
+                    [
+                        ChatMessage(role=MessageRole.SYSTEM, content=task.system_prompt),
+                        ChatMessage(role=MessageRole.USER, content=task.user_text),
+                    ]
+                )
                 session_out = runner.run(messages, approvals, settings)
                 yield self._emit(
                     out,
