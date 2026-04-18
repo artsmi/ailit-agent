@@ -92,6 +92,24 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_compat_run(args: argparse.Namespace) -> int:
+    """Compat: JSONL в stdout + status.md в .ailit/."""
+    from ailit.compat_adapter import run_compat_workflow
+
+    root = Path(args.project_root).resolve()
+    run_compat_workflow(
+        project_root=root,
+        workflow_ref=str(args.workflow_ref),
+        provider=str(args.provider),
+        model=str(args.model),
+        max_turns=int(args.max_turns),
+        dry_run=bool(args.dry_run),
+        sink=sys.stdout,
+        repo_root=_repo_root(),
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Точка входа `ailit`."""
     parser = argparse.ArgumentParser(prog="ailit", description="ailit-agent CLI")
@@ -130,6 +148,17 @@ def main(argv: list[str] | None = None) -> int:
         help="Провайдер для задач workflow (mock не требует ключа)",
     )
     p_run.set_defaults(func=_cmd_agent_run)
+
+    p_compat = sub.add_parser("compat", help="Adapter: runtime из project.yaml + status.md")
+    compat_sub = p_compat.add_subparsers(dest="compat_cmd", required=True)
+    p_compat_run = compat_sub.add_parser("run", help="Прогон через compat adapter")
+    p_compat_run.add_argument("workflow_ref", type=str, help="Id workflow из project.yaml")
+    p_compat_run.add_argument("--project-root", type=str, required=True, help="Корень проекта")
+    p_compat_run.add_argument("--dry-run", action="store_true")
+    p_compat_run.add_argument("--model", default="deepseek-chat")
+    p_compat_run.add_argument("--max-turns", type=int, default=8, dest="max_turns")
+    p_compat_run.add_argument("--provider", choices=("deepseek", "mock"), default="mock")
+    p_compat_run.set_defaults(func=_cmd_compat_run)
 
     args = parser.parse_args(argv)
     func = getattr(args, "func", None)

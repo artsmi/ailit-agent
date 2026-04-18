@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+from io import StringIO
 from pathlib import Path
 
 import streamlit as st
@@ -25,6 +26,7 @@ from ailit.chat_handlers import (
     store_after_run,
     strip_system_messages,
 )
+from ailit.compat_adapter import read_status, run_compat_workflow
 from project_layer.bootstrap import format_agent_run_command
 from project_layer.loader import LoadedProject
 
@@ -103,7 +105,7 @@ def _render_burger_menu(
     _, col_burger = st.columns([6, 1])
     with col_burger:
         with st.popover("☰", use_container_width=True):
-            tab_p, tab_c, tab_cmd = st.tabs(["Проект", "Контекст", "Команда"])
+            tab_p, tab_c, tab_a, tab_cmd = st.tabs(["Проект", "Контекст", "Adapter", "Команда"])
             with tab_p:
                 st.text_input("Корень проекта", key="ailit_project_root")
                 if load_error:
@@ -140,6 +142,31 @@ def _render_burger_menu(
                         if snap.warnings:
                             st.warning("\n".join(snap.warnings))
                         st.text_area("preview", snap.preview_text[:12000], height=220)
+            with tab_a:
+                st.caption("Compat adapter (этап 8)")
+                root = Path(st.session_state.get("ailit_project_root", project_root))
+                if loaded is None:
+                    st.info("Нужен project.yaml")
+                else:
+                    st.text(f"runtime={loaded.config.runtime.value}")
+                    if st.button("Смок compat (mock, dry-run)", key="ailit_compat_smoke"):
+                        buf = StringIO()
+                        run_compat_workflow(
+                            project_root=root,
+                            workflow_ref="minimal",
+                            provider="mock",
+                            model="deepseek-chat",
+                            max_turns=6,
+                            dry_run=True,
+                            sink=buf,
+                            repo_root=_REPO,
+                        )
+                        st.session_state["compat_last_jsonl"] = buf.getvalue()
+                    lj = st.session_state.get("compat_last_jsonl")
+                    if lj:
+                        st.code(str(lj)[:20000], language="json")
+                    st.markdown("**status.md**")
+                    st.code(read_status(root) or "(нет)", language="markdown")
             with tab_cmd:
                 root = Path(st.session_state.get("ailit_project_root", project_root))
                 cmd = format_agent_run_command(
@@ -153,6 +180,12 @@ def _render_burger_menu(
                 st.code(cmd, language="bash")
                 st.caption("Скопируйте для проверки CLI")
                 st.download_button("Скачать .sh", data=cmd + "\n", file_name="ailit-run.sh", key="ailit_dl_sh")
+                st.caption("Compat CLI")
+                st.code(
+                    f"ailit compat run minimal --project-root {root} "
+                    f"--provider mock --dry-run --max-turns {max_turns}",
+                    language="bash",
+                )
 
 
 def main() -> None:

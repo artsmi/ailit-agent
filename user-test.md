@@ -111,7 +111,7 @@ export AILIT_WORK_ROOT=/tmp/ailit-sandbox
 
 ## 4. Связь с ai-multi-agents
 
-Команда **`ailit agent run`** выводит JSONL (`workflow_run_events_v1`), готовый для adapter-а к внешнему pipeline; project layer (этап 7) добавляет `--project-root` и `project.yaml`.
+Команда **`ailit agent run`** выводит JSONL (`workflow_run_events_v1`); project layer (этап 7) добавляет `--project-root` и `project.yaml`. Этап 8: **`ailit compat run`** пишет JSONL и **`.ailit/status.md`**.
 
 ---
 
@@ -140,3 +140,19 @@ ailit agent run minimal --project-root . --provider mock --dry-run
 - **Команда** — готовые строки CLI и скачивание `.sh`.
 
 Сообщения в чате при включённом **Проект** используют tuning из `project.yaml` (rules, memory_hints, knowledge_refresh).
+
+---
+
+## 6. Этап 8: compat adapter
+
+### 6.1 CLI
+
+```bash
+ailit compat run minimal --project-root /path/to/ailit-agent --provider mock --dry-run
+```
+
+В stdout — JSONL; в **`<project-root>/.ailit/status.md`** — markdown-статус. При **`runtime: legacy`** в `project.yaml` движок workflow не вызывается, в JSONL — `adapter.legacy_skip`.
+
+### 6.2 Чат
+
+В меню «☰» вкладка **Adapter**: смок mock + dry-run, просмотр JSONL и `status.md`.
