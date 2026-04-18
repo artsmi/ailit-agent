@@ -110,6 +110,17 @@ def _cmd_compat_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_debug_bundle(args: argparse.Namespace) -> int:
+    """Упаковать debug bundle в zip."""
+    from ailit.debug_bundle import build_debug_bundle
+
+    root = Path(args.project_root).resolve()
+    out = Path(args.out).resolve()
+    build_debug_bundle(project_root=root, dest_zip=out)
+    sys.stdout.write(f"Wrote {out}\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Точка входа `ailit`."""
     parser = argparse.ArgumentParser(prog="ailit", description="ailit-agent CLI")
@@ -159,6 +170,13 @@ def main(argv: list[str] | None = None) -> int:
     p_compat_run.add_argument("--max-turns", type=int, default=8, dest="max_turns")
     p_compat_run.add_argument("--provider", choices=("deepseek", "mock"), default="mock")
     p_compat_run.set_defaults(func=_cmd_compat_run)
+
+    p_debug = sub.add_parser("debug", help="Операторские утилиты")
+    dbg_sub = p_debug.add_subparsers(dest="debug_cmd", required=True)
+    p_dbg_bundle = dbg_sub.add_parser("bundle", help="Собрать zip debug bundle")
+    p_dbg_bundle.add_argument("--project-root", type=str, required=True)
+    p_dbg_bundle.add_argument("--out", type=str, required=True, help="Путь к .zip")
+    p_dbg_bundle.set_defaults(func=_cmd_debug_bundle)
 
     args = parser.parse_args(argv)
     func = getattr(args, "func", None)

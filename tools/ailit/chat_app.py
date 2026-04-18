@@ -27,6 +27,7 @@ from ailit.chat_handlers import (
     strip_system_messages,
 )
 from ailit.compat_adapter import read_status, run_compat_workflow
+from ailit.debug_bundle import build_debug_bundle, default_rollout_phase
 from project_layer.bootstrap import format_agent_run_command
 from project_layer.loader import LoadedProject
 
@@ -101,11 +102,13 @@ def _render_burger_menu(
     loaded: LoadedProject | None,
     load_error: str | None,
 ) -> None:
-    """Правое бургер-меню: проект, контекст, adapter, debug, команда."""
+    """Правое бургер-меню: проект, контекст, Adapter, Debug, команда."""
     _, col_burger = st.columns([6, 1])
     with col_burger:
         with st.popover("☰", use_container_width=True):
-            tab_p, tab_c, tab_a, tab_cmd = st.tabs(["Проект", "Контекст", "Adapter", "Команда"])
+            tab_p, tab_c, tab_a, tab_d, tab_cmd = st.tabs(
+                ["Проект", "Контекст", "Adapter", "Debug", "Команда"],
+            )
             with tab_p:
                 st.text_input("Корень проекта", key="ailit_project_root")
                 if load_error:
@@ -167,6 +170,22 @@ def _render_burger_menu(
                         st.code(str(lj)[:20000], language="json")
                     st.markdown("**status.md**")
                     st.code(read_status(root) or "(нет)", language="markdown")
+            with tab_d:
+                st.caption("Debug bundle / rollout (этап 9)")
+                root = Path(st.session_state.get("ailit_project_root", project_root))
+                st.text(f"rollout.phase={default_rollout_phase(root)}")
+                if st.button("Собрать debug bundle", key="ailit_debug_bundle"):
+                    out_zip = root / ".ailit" / "debug-bundle.zip"
+                    res = build_debug_bundle(project_root=root, dest_zip=out_zip)
+                    st.session_state["debug_bundle_path"] = str(res.zip_path)
+                bp = st.session_state.get("debug_bundle_path")
+                if bp and Path(bp).is_file():
+                    st.download_button(
+                        "Скачать bundle",
+                        data=Path(bp).read_bytes(),
+                        file_name="debug-bundle.zip",
+                        key="ailit_dl_bundle",
+                    )
             with tab_cmd:
                 root = Path(st.session_state.get("ailit_project_root", project_root))
                 cmd = format_agent_run_command(
@@ -184,6 +203,11 @@ def _render_burger_menu(
                 st.code(
                     f"ailit compat run minimal --project-root {root} "
                     f"--provider mock --dry-run --max-turns {max_turns}",
+                    language="bash",
+                )
+                st.caption("Debug bundle CLI")
+                st.code(
+                    f"ailit debug bundle --project-root {root} --out {root / '.ailit' / 'debug-bundle.zip'}",
                     language="bash",
                 )
 

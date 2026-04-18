@@ -111,7 +111,7 @@ export AILIT_WORK_ROOT=/tmp/ailit-sandbox
 
 ## 4. Связь с ai-multi-agents
 
-Команда **`ailit agent run`** выводит JSONL (`workflow_run_events_v1`); project layer (этап 7) добавляет `--project-root` и `project.yaml`. Этап 8: **`ailit compat run`** пишет JSONL и **`.ailit/status.md`**.
+Команда **`ailit agent run`** выводит JSONL (`workflow_run_events_v1`); project layer (этап 7) — `--project-root` и `project.yaml`. Этап 8 — **`ailit compat run`** (JSONL + **`.ailit/status.md`**). Этап 9 — **`ailit debug bundle`**.
 
 ---
 
@@ -156,3 +156,19 @@ ailit compat run minimal --project-root /path/to/ailit-agent --provider mock --d
 ### 6.2 Чат
 
 В меню «☰» вкладка **Adapter**: смок mock + dry-run, просмотр JSONL и `status.md`.
+
+---
+
+## 7. Этап 9: debug bundle и rollout
+
+### 7.1 CLI
+
+```bash
+ailit debug bundle --project-root /path/to/ailit-agent --out /tmp/ailit-debug.zip
+```
+
+В zip: `manifest.json`, `project.yaml` (если есть), дерево **`.ailit/`**.
+
+### 7.2 Чат
+
+Вкладка **Debug**: `rollout.phase`, сборка `.ailit/debug-bundle.zip`, скачивание; во вкладке **Команда** — пример CLI для bundle.
