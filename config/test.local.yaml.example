@@ -1,0 +1,28 @@
+# Локальная тестовая конфигурация для live-интеграции (DeepSeek и др.).
+#
+# Как использовать:
+#   cp config/test.local.yaml.example config/test.local.yaml
+#   # отредактируйте test.local.yaml; этот файл в .gitignore и не попадёт в git
+#
+# Приоритет секрета: переменная окружения DEEPSEEK_API_KEY, иначе поле
+# deepseek.api_key ниже (только в gitignored копии).
+
+schema_version: "1"
+
+live:
+  # Смысл близок к AILIT_RUN_LIVE=1: явное согласие на сетевые вызовы в тестах.
+  run: false
+  provider: deepseek
+
+deepseek:
+  api_key: ""
+  base_url: "https://api.deepseek.com"
+  model: "deepseek-chat"
+
+tests:
+  smoke:
+    max_tokens: 64
+    timeout_seconds: 60
+  large:
+    max_tokens: 2048
+    timeout_seconds: 300
