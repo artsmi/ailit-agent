@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ailit.config_cli import register_config_parser
+
 
 def _repo_root() -> Path:
     """Корень репозитория (…/ailit-agent)."""
@@ -143,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
         description="ailit-agent CLI",
     )
     sub = parser.add_subparsers(dest="command", required=True)
+    register_config_parser(sub)
 
     p_chat = sub.add_parser(
         "chat",
