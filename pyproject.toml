@@ -21,6 +21,9 @@ dev = [
 chat = [
     "streamlit>=1.30",
 ]
+tui = [
+    "textual>=0.47.0",
+]
 
 [project.scripts]
 ailit = "ailit.cli:main"

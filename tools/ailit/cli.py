@@ -18,6 +18,19 @@ def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def _cmd_tui(args: argparse.Namespace) -> int:
+    """Терминальный чат (Textual)."""
+    try:
+        import textual  # noqa: F401, PLC0415
+    except ImportError:
+        sys.stderr.write("Установите TUI: pip install -e '.[tui]'\n")
+        return 1
+    from ailit.tui_app import run_ailit_tui
+
+    run_ailit_tui(args, repo_root=_repo_root())
+    return 0
+
+
 def _cmd_chat(_args: argparse.Namespace) -> int:
     """Запустить Streamlit UI (браузер)."""
     try:
@@ -212,6 +225,37 @@ def main(argv: list[str] | None = None) -> int:
         help="Интерактивный чат в браузере (Streamlit)",
     )
     p_chat.set_defaults(func=_cmd_chat)
+
+    p_tui = sub.add_parser(
+        "tui",
+        help="Чат в терминале (Textual); зависимость: pip install -e '.[tui]'",
+    )
+    p_tui.add_argument(
+        "--project-root",
+        type=str,
+        default=None,
+        help="Корень проекта (по умолчанию текущий каталог)",
+    )
+    p_tui.add_argument(
+        "--provider",
+        choices=("mock", "deepseek"),
+        default="mock",
+        help="Провайдер LLM",
+    )
+    p_tui.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Имя модели (по умолчанию: mock / deepseek-chat)",
+    )
+    p_tui.add_argument(
+        "--max-turns",
+        type=int,
+        default=8,
+        dest="max_turns",
+        help="Лимит итераций session loop (как в ailit chat)",
+    )
+    p_tui.set_defaults(func=_cmd_tui)
 
     p_agent = sub.add_parser("agent", help="Запуск workflow")
     agent_sub = p_agent.add_subparsers(dest="agent_cmd", required=True)
