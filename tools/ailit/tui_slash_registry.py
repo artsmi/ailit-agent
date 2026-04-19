@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ailit.tui_app_state import TuiAppState
+from ailit.tui_context_persistence import default_state_path, save_app_state
 from ailit.tui_context_stats import CtxUsageMarkdownTable
 
 
@@ -36,7 +37,7 @@ class HelpSlashHandler:
         return (
             "Команды: /help | /model | /max_turns | /project | /quit | /ctx …",
             "/ctx list | /ctx new NAME [ROOT] | /ctx switch NAME | "
-            "/ctx rename NAME | /ctx stats",
+            "/ctx rename NAME | /ctx stats | /ctx save [PATH]",
             "Горячие клавиши: Ctrl+Shift+Right/Left — смена контекста "
             "(черновик в строке ввода сохраняется).",
             (
@@ -120,7 +121,8 @@ class SlashCommandRegistry:
         if not tokens:
             return (
                 "Использование: /ctx list | /ctx new NAME [ROOT] | "
-                "/ctx switch NAME | /ctx rename NAME | /ctx stats",
+                "/ctx switch NAME | /ctx rename NAME | /ctx stats | "
+                "/ctx save [PATH]",
             )
         sub = tokens[0].lower()
         mgr = app_state.contexts
@@ -132,6 +134,17 @@ class SlashCommandRegistry:
             return tuple(lines)
         if sub == "stats":
             return CtxUsageMarkdownTable().render_lines(mgr)
+        if sub == "save":
+            if len(tokens) > 1:
+                path = Path(tokens[1]).expanduser()
+            else:
+                path = default_state_path()
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                save_app_state(path, app_state)
+            except OSError as exc:
+                return (f"Не удалось сохранить: {exc}",)
+            return (f"Состояние TUI записано: {path}",)
         if sub == "new":
             if len(tokens) < 2:
                 return ("Нужно имя: /ctx new NAME [ROOT]",)

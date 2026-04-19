@@ -12,6 +12,11 @@ from textual.widgets import Footer, Header, Input, RichLog
 from ailit.process_log import ensure_process_log, ProcessLogHandle
 from ailit.tui_app_state import TuiAppState
 from ailit.tui_context_manager import TuiContextManager
+from ailit.tui_context_persistence import (
+    default_state_path,
+    load_app_state,
+    save_app_state,
+)
 from ailit.tui_context_stats import TuiSubtitleUsageFormatter
 from ailit.tui_slash_registry import SlashCommandRegistry
 
@@ -42,6 +47,7 @@ class AilitTuiApp(App[None]):
         prov = str(getattr(args, "provider", "mock"))
         model = resolve_model(prov, getattr(args, "model", None))
         mt = int(getattr(args, "max_turns", 8))
+        self._project_root = project_root
         mgr = TuiContextManager(
             default_root=project_root,
             default_name="default",
@@ -69,10 +75,29 @@ class AilitTuiApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        """Лог процесса, фокус, подзаголовок."""
+        """Лог, фокус, подзаголовок; восстановление снимка TUI (Q.3)."""
         self._log_handle = ensure_process_log("chat")
+        bundle = load_app_state(
+            default_state_path(),
+            default_root=self._project_root,
+        )
+        if bundle is not None:
+            mgr, _sp, _sm, _mt = bundle
+            self._app_state = TuiAppState(
+                provider=self._app_state.provider,
+                model=self._app_state.model,
+                max_turns=self._app_state.max_turns,
+                contexts=mgr,
+            )
         self._refresh_subtitle()
         self.query_one("#chat_input", Input).focus()
+
+    def on_unmount(self) -> None:
+        """Сохранить контексты и usage перед выходом."""
+        try:
+            save_app_state(default_state_path(), self._app_state)
+        except OSError:
+            pass
 
     def _refresh_subtitle(self) -> None:
         """Активный контекст, Σ по контексту и параметры провайдера (Q.2)."""
