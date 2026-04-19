@@ -1,6 +1,6 @@
 # Рабочий workflow проекта `ailit-agent`
 
-Документ задаёт **обязательный** порядок работы агента и людей по этому репозиторию. Детальная стратегия этапов G–Q и далее — в [`../plan/ailit-global-agent-teams-strategy.md`](../plan/ailit-global-agent-teams-strategy.md). Краткий статус и входная точка — в [`../README.md`](../README.md).
+Документ задаёт **обязательный** порядок работы агента и людей по этому репозиторию. Стратегия этапов **G–Q** — в [`../plan/ailit-global-agent-teams-strategy.md`](../plan/ailit-global-agent-teams-strategy.md) (на 2026-04 ветка **закрыта** в коде, см. §13 плана). Краткий статус — в [`../README.md`](../README.md).
 
 ## 1. Всегда вести работу по workflow в Markdown
 
