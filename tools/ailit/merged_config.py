@@ -10,6 +10,7 @@ from typing import Any
 
 import yaml
 
+from ailit.project_config_discovery import ProjectAilitConfigDiscovery
 from ailit.user_paths import GlobalDirResolver
 
 GLOBAL_USER_CONFIG_FILENAME = "config.yaml"
@@ -57,10 +58,6 @@ def _default_ailit_config() -> dict[str, Any]:
         "kimi": {},
         "tests": {},
     }
-
-
-def _project_config_path(project_root: Path) -> Path:
-    return (project_root / ".ailit" / "config.yaml").resolve()
 
 
 class ProviderEnvOverlay:
@@ -113,25 +110,30 @@ class AilitConfigMerger:
         return self._paths.global_config_dir() / GLOBAL_USER_CONFIG_FILENAME
 
     def load(self, project_root: Path | None) -> dict[str, Any]:
-        """Собрать эффективный конфиг по правилам этапа G.2."""
+        """Собрать конфиг: defaults, global, проектный слой (G.2 + G.3)."""
         merged = _deep_merge({}, _default_ailit_config())
         merged = _deep_merge(merged, _load_mapping_file(self.global_config_file()))
         if project_root is not None:
-            proj = _project_config_path(Path(project_root))
-            merged = _deep_merge(merged, _load_mapping_file(proj))
+            discovered = ProjectAilitConfigDiscovery.collect_deepest_first(
+                Path(project_root),
+            )
+            for proj_file in reversed(discovered):
+                merged = _deep_merge(merged, _load_mapping_file(proj_file))
         return self._env_overlay.apply(merged)
 
 
-def load_merged_ailit_config(project_root: Path | None = None) -> Mapping[str, Any]:
-    """Эффективный merge конфигурации (defaults → global → project → env).
+def load_merged_ailit_config(
+    project_root: Path | None = None,
+) -> Mapping[str, Any]:
+    """Merge: defaults, global, проектные ``.ailit/config.yaml`` (G.3), env.
+
+    Проект: от ``project_root`` к корню ФС; ниже по дереву перекрывает выше.
 
     Args:
-        project_root: Корень пользовательского проекта; если ``None``, проектный слой
-            пропускается.
+        project_root: Корень проекта или ``None`` (без проектного слоя).
 
     Returns:
-        Неизменяемое представление не требуется — возвращается новый ``dict``,
-        совместимый с :class:`typing.Mapping`.
+        Новый ``dict``, совместимый с :class:`typing.Mapping`.
     """
     return AilitConfigMerger().load(project_root)
 
@@ -140,5 +142,5 @@ def deep_merge_config_mappings(
     base: Mapping[str, Any],
     overlay: Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Публичный merge: значения ``overlay`` перекрывают ``base`` (рекурсивно)."""
+    """Публичный рекурсивный merge: ``overlay`` перекрывает ``base``."""
     return _deep_merge(dict(base), dict(overlay))
