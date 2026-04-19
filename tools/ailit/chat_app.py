@@ -35,6 +35,7 @@ from ailit.chat_presenters import (
     summarize_workflow_jsonl_for_user,
     tool_message_should_offer_raw_json,
 )
+from ailit.session_outcome_user_copy import OutcomeReasonHumanizer, SessionErrorAssistantMessageComposer
 from ailit.teams_panel_presenter import TeamMailboxPanelPresenter
 from ailit.teams_tools import teammate_tool_registry
 from ailit.chat_workflow_runner import run_workflow_capture_jsonl
@@ -126,7 +127,19 @@ def _render_header_and_menu(
     col_left, col_mid, col_menu = st.columns([5, 3, 3])
     with col_left:
         choice = st.selectbox("Провайдер", ("deepseek", "mock"), index=0, label_visibility="collapsed")
-        max_turns = st.slider("max_turns", 1, 32, 8)
+        _mt_help = (
+            "Сколько раз агент может повторить цикл "
+            "«модель → инструменты → снова модель». "
+            "Это не лимит длины ответа API (max_tokens у провайдера — "
+            "отдельно в конфиге)."
+        )
+        max_turns = st.slider(
+            "Лимит итераций сессии (max_turns)",
+            1,
+            32,
+            8,
+            help=_mt_help,
+        )
         file_tools = st.checkbox("Файловые tools", value=True)
     with col_mid:
         use_project = st.toggle("Проект", value=True)
@@ -446,14 +459,17 @@ def _execute_llm_turn(
         diag_sink=ensure_process_log("chat").sink,
     )
 
+    log_handle = ensure_process_log("chat")
+    log_path = str(log_handle.path)
+    composer = SessionErrorAssistantMessageComposer()
     if out.state is SessionState.ERROR:
-        detail = out.reason or "unknown_error"
         runner_msgs.append(
             ChatMessage(
                 role=MessageRole.ASSISTANT,
-                content=(
-                    "Не удалось получить ответ модели. "
-                    f"Подробности: {detail}. См. JSONL-лог процесса."
+                content=composer.compose(
+                    reason=out.reason,
+                    log_path=log_path,
+                    effective_max_turns=settings.max_turns,
                 ),
             ),
         )
@@ -463,10 +479,15 @@ def _execute_llm_turn(
     else:
         st.session_state[_ChatPageState.MESSAGES] = runner_msgs
 
-    st.caption(
-        f"state={out.state.value} reason={out.reason!r} | "
-        f"log={ensure_process_log('chat').path}",
-    )
+    hz = OutcomeReasonHumanizer()
+    hint = hz.humanize(out.reason)
+    cap_parts: list[str] = [f"state={out.state.value}"]
+    if hint:
+        cap_parts.append(hint)
+    elif out.reason:
+        cap_parts.append(f"reason={out.reason!r}")
+    cap_parts.append(f"log=`{log_path}`")
+    st.caption(" | ".join(cap_parts))
 
 
 def main() -> None:

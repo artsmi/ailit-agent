@@ -8,6 +8,8 @@ from typing import Any, Protocol
 
 from agent_core.normalization.content_sanitize import AssistantContentSanitizer
 
+from ailit.session_outcome_user_copy import MAX_TURNS_EXCEEDED_REASON
+
 
 class EventPresenter(Protocol):
     """Стратегия: событие → короткая markdown-строка для пользователя."""
@@ -84,7 +86,15 @@ class TaskFinishedPresenter:
         tid = event.get("task_id", "?")
         state = event.get("session_state", "?")
         reason = event.get("reason")
-        extra = f" Причина: `{reason}`." if reason else ""
+        reason_s = str(reason) if reason not in (None, "") else ""
+        if reason_s == MAX_TURNS_EXCEEDED_REASON:
+            extra = (
+                " Исчерпан лимит итераций сессии (**max_turns**, оркестратор). "
+                "Увеличьте лимит в форме workflow или в пресете агента — "
+                "это не `max_tokens` API."
+            )
+        else:
+            extra = f" Причина: `{reason_s}`." if reason_s else ""
         return f"Задача **`{tid}`** завершена: состояние **{state}**.{extra}"
 
 
