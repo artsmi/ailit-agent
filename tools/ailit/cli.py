@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ailit.agent_provider_config import AgentRunProviderConfigBuilder
 from ailit.config_cli import register_config_parser
+from ailit.task_spec import RunTaskArtifactWriter, TaskSpecResolver
 
 
 def _repo_root() -> Path:
@@ -98,6 +99,28 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
         return 2
     reg = default_builtin_registry()
     eng = WorkflowEngine(wf, provider, reg)  # type: ignore[arg-type]
+    try:
+        task_spec = TaskSpecResolver.resolve(args)
+    except (OSError, ValueError, UnicodeError) as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
+    artifact_root = (
+        Path(args.project_root).resolve()
+        if args.project_root
+        else Path.cwd().resolve()
+    )
+    run_id: str | None = None
+    task_artifact_rel: str | None = None
+    cli_task_body: str | None = None
+    if task_spec is not None:
+        run_id = RunTaskArtifactWriter.allocate_run_id()
+        paths = RunTaskArtifactWriter.write(
+            project_root=artifact_root,
+            run_id=run_id,
+            spec=task_spec,
+        )
+        task_artifact_rel = paths.task_rel_posix
+        cli_task_body = task_spec.body
     run_cfg = WorkflowRunConfig(
         model=args.model,
         dry_run=args.dry_run,
@@ -105,6 +128,9 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
         extra_system_messages=aug_extra,
         shortlist_keywords=aug_keys,
         temperature=aug_temp,
+        run_id=run_id,
+        cli_task_body=cli_task_body,
+        task_artifact_rel=task_artifact_rel,
     )
     diag_sink = ensure_process_log("agent").sink
     list(eng.iter_run_events(run_cfg, diag_sink=diag_sink))
@@ -202,6 +228,20 @@ def main(argv: list[str] | None = None) -> int:
             "Не подмешивать config/test.local.yaml из дерева ailit-agent "
             "(только глобальный и проектный merge)"
         ),
+    )
+    task_group = p_run.add_mutually_exclusive_group()
+    task_group.add_argument(
+        "--task",
+        default=None,
+        metavar="TEXT",
+        help="Текст задачи для первой исполняемой задачи workflow (см. также --task-file, stdin)",
+    )
+    task_group.add_argument(
+        "--task-file",
+        default=None,
+        metavar="PATH",
+        dest="task_file",
+        help="Путь к файлу с задачей (UTF-8); взаимоисключение с --task",
     )
     p_run.set_defaults(func=_cmd_agent_run)
 

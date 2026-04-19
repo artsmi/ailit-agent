@@ -26,6 +26,17 @@ class WorkflowLoadedPresenter:
         return f"Загружен workflow **`{wid}`**."
 
 
+class RunStartedPresenter:
+    """Событие ``run.started`` (артефакт CLI-задачи K.1)."""
+
+    def present(self, event: Mapping[str, Any]) -> str:
+        """Кратко о каталоге прогона."""
+        rid = str(event.get("run_id", "?"))
+        art = event.get("task_artifact")
+        tail = f"; артефакт `{art}`" if art else ""
+        return f"Старт прогона **`{rid}`**{tail}."
+
+
 class WorkflowFinishedPresenter:
     """Событие ``workflow.finished``."""
 
@@ -135,6 +146,7 @@ class ChatEventPresenterRegistry:
         fb = FallbackEventPresenter()
         mapping: dict[str, EventPresenter] = {
             "workflow.loaded": WorkflowLoadedPresenter(),
+            "run.started": RunStartedPresenter(),
             "workflow.finished": WorkflowFinishedPresenter(),
             "stage.entered": StageEnteredPresenter(),
             "stage.exited": StageExitedPresenter(),

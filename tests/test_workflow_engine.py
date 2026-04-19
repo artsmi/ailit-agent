@@ -9,6 +9,8 @@ from pathlib import Path
 from agent_core.capabilities import Capability
 from agent_core.models import FinishReason, NormalizedChatResponse, NormalizedUsage
 from agent_core.tool_runtime.registry import default_builtin_registry
+from agent_core.models import ChatRequest, MessageRole
+
 from workflow_engine.engine import WorkflowEngine, WorkflowRunConfig
 from workflow_engine.loader import load_workflow_from_mapping, load_workflow_from_path
 
@@ -65,6 +67,81 @@ def test_dry_run_emits_linear_events() -> None:
     assert "workflow.loaded" in types
     assert "task.skipped_dry_run" in types
     assert "workflow.finished" in types
+
+
+class CaptureUserProvider(OneShotProvider):
+    """Фиксирует последнее user-сообщение перед ответом."""
+
+    def __init__(self) -> None:
+        """Инициализировать список захватов."""
+        super().__init__()
+        self.user_contents: list[str] = []
+
+    def complete(self, request: object) -> NormalizedChatResponse:
+        """Запомнить user-текст и вернуть ответ как у родителя."""
+        assert isinstance(request, ChatRequest)
+        users = [m.content for m in request.messages if m.role is MessageRole.USER]
+        if users:
+            self.user_contents.append(users[-1])
+        return super().complete(request)
+
+
+def test_cli_task_applied_only_to_first_executed_task() -> None:
+    """``cli_task_body`` подмешивается только в первую не dry-run задачу."""
+    data = {
+        "workflow_id": "w2",
+        "stages": [
+            {
+                "id": "s1",
+                "tasks": [
+                    {"id": "t1", "system_prompt": "s", "user_text": "u1"},
+                    {"id": "t2", "system_prompt": "s", "user_text": "u2"},
+                ],
+            }
+        ],
+    }
+    wf = load_workflow_from_mapping(data)
+    cap = CaptureUserProvider()
+    eng = WorkflowEngine(wf, cap, default_builtin_registry())
+    list(
+        eng.iter_run_events(
+            WorkflowRunConfig(
+                dry_run=False,
+                cli_task_body="CLI",
+                run_id="abc",
+                task_artifact_rel=".ailit/run/abc/task.md",
+            ),
+            sink=StringIO(),
+        ),
+    )
+    assert len(cap.user_contents) == 2
+    assert cap.user_contents[0].startswith("CLI")
+    assert "u1" in cap.user_contents[0]
+    assert cap.user_contents[1] == "u2"
+
+
+def test_run_started_event_when_run_id_set() -> None:
+    """Событие ``run.started`` при переданном ``run_id``."""
+    data = {
+        "workflow_id": "wr",
+        "stages": [
+            {"id": "s", "tasks": [{"id": "t", "system_prompt": "x", "user_text": "y"}]},
+        ],
+    }
+    wf = load_workflow_from_mapping(data)
+    eng = WorkflowEngine(wf, OneShotProvider(), default_builtin_registry())
+    sink = StringIO()
+    list(
+        eng.iter_run_events(
+            WorkflowRunConfig(dry_run=True, run_id="r1", task_artifact_rel=".ailit/run/r1/task.md"),
+            sink=sink,
+        ),
+    )
+    lines = [json.loads(l) for l in sink.getvalue().strip().splitlines() if l]
+    started = [x for x in lines if x["event_type"] == "run.started"]
+    assert len(started) == 1
+    assert started[0]["run_id"] == "r1"
+    assert started[0]["task_artifact"] == ".ailit/run/r1/task.md"
 
 
 def test_hybrid_vs_native_policy_event() -> None:

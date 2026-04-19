@@ -15,6 +15,7 @@ from agent_core.tool_runtime.approval import ApprovalSession
 from agent_core.tool_runtime.registry import ToolRegistry
 from .graph import Workflow
 from .hybrid import hybrid_event_payload
+from .user_task_merge import merge_cli_task_into_first_user_message
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +28,12 @@ class WorkflowRunConfig:
     extra_system_messages: tuple[str, ...] = ()
     shortlist_keywords: frozenset[str] | None = None
     temperature: float = 0.0
+    """Идентификатор прогона (артефакты ``.ailit/run/<run_id>/``)."""
+    run_id: str | None = None
+    """Текст CLI-задачи; подмешивается только в **первую** исполняемую задачу."""
+    cli_task_body: str | None = None
+    """Относительный путь к ``task.md`` для события ``run.started``."""
+    task_artifact_rel: str | None = None
 
 
 class WorkflowEngine:
@@ -77,6 +84,21 @@ class WorkflowEngine:
             out,
             "project.policy.ref",
             hybrid_event_payload(self._workflow),
+        )
+        if run_config.run_id is not None:
+            yield self._emit(
+                out,
+                "run.started",
+                {
+                    "workflow_id": self._workflow.workflow_id,
+                    "run_id": run_config.run_id,
+                    "task_artifact": run_config.task_artifact_rel,
+                },
+            )
+        cli_task_pending: str | None = (
+            run_config.cli_task_body.strip()
+            if run_config.cli_task_body and run_config.cli_task_body.strip()
+            else None
         )
         settings = SessionSettings(
             model=run_config.model,
@@ -131,6 +153,13 @@ class WorkflowEngine:
                     ChatMessage(role=MessageRole.SYSTEM, content=body)
                     for body in run_config.extra_system_messages
                 ]
+                user_text = task.user_text
+                if cli_task_pending is not None:
+                    user_text = merge_cli_task_into_first_user_message(
+                        workflow_user_text=task.user_text,
+                        cli_body=cli_task_pending,
+                    )
+                    cli_task_pending = None
                 messages.extend(
                     [
                         ChatMessage(
@@ -139,7 +168,7 @@ class WorkflowEngine:
                         ),
                         ChatMessage(
                             role=MessageRole.USER,
-                            content=task.user_text,
+                            content=user_text,
                         ),
                     ]
                 )

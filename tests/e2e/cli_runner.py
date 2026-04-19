@@ -50,6 +50,9 @@ class AilitCliRunner:
         cwd: Path | None = None,
         extra_env: dict[str, str] | None = None,
         no_dev_repo_config: bool = False,
+        task: str | None = None,
+        task_file: str | None = None,
+        input_text: str | None = None,
     ) -> AilitCliResult:
         """Выполнить `python -m ailit.cli agent run …`."""
         cmd: list[str] = [
@@ -72,6 +75,10 @@ class AilitCliRunner:
             cmd.append("--dry-run")
         if no_dev_repo_config:
             cmd.append("--no-dev-repo-config")
+        if task is not None:
+            cmd.extend(["--task", task])
+        elif task_file is not None:
+            cmd.extend(["--task-file", task_file])
         env = self._env(extra=extra_env)
         proc = subprocess.run(
             cmd,
@@ -81,6 +88,7 @@ class AilitCliRunner:
             text=True,
             timeout=120,
             check=False,
+            input=input_text,
         )
         return AilitCliResult(
             returncode=int(proc.returncode),

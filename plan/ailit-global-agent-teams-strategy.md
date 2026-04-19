@@ -645,6 +645,8 @@ def test_cli_agent_run_dry_run_emits_finished(
 Критерии: help обновлён; ошибки понятны.
 ```
 
+**Статус:** выполнено (`tools/ailit/task_spec.py`, `tools/ailit/cli.py`, `workflow_engine/engine.py`, `workflow_engine/user_task_merge.py`; событие `run.started`; тесты `tests/test_task_spec.py`, `tests/test_workflow_engine.py`, `tests/e2e/test_agent_task_k1.py`).
+
 **Чекпоинт для проверки (после K.1):**
 
 - `--task`, `--task-file` и сценарий stdin (где применимо) дают один и тот же внутренний `TaskSpec` или артефакт в каноническом месте `.ailit/run/…`.
@@ -968,7 +970,7 @@ ailit --help
 
 ## 13. Следующий шаг для команды
 
-Взять **задачу K.1** — ввод задачи в `ailit agent run` (`--task` / `--task-file` / stdin, `TaskSpec`, см. этап K). **G.1–G.2**, **H.1–H.2**, **I.1–I.2** и **J.1** закрыты.
+Взять **задачу K.2** — e2e: материализация внешнего проекта + `ailit agent` + pytest (см. этап K). **K.1** закрыт: `ailit agent run` принимает `--task` / `--task-file` / stdin, материализует `.ailit/run/<run_id>/task.md`, подмешивает текст в первую исполняемую задачу, эмитит `run.started`. **G.1–G.2**, **H.1–H.2**, **I.1–I.2** и **J.1** закрыты.
 
 Опционально позже: подзадача **G.3** (поиск конфигурации вверх по дереву каталогов), если вынесена из merge. Каждая следующая задача — с промптом из этого файла и ссылками на референсы из §3.
 
