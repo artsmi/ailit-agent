@@ -5,9 +5,12 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, Input, RichLog
 
+from ailit.process_log import ensure_process_log, ProcessLogHandle
+from ailit.tui_chat_controller import TuiChatController
 from ailit.tui_slash_registry import SlashCommandRegistry, TuiSessionState
 
 
@@ -19,7 +22,7 @@ def resolve_model(provider: str, model: str | None) -> str:
 
 
 class AilitTuiApp(App[None]):
-    """TUI: slash-команды (P.2) и session loop (P.3)."""
+    """TUI: slash-команды и ``SessionRunner``."""
 
     BINDINGS = [("ctrl+q", "quit", "Выход")]
 
@@ -42,6 +45,8 @@ class AilitTuiApp(App[None]):
             max_turns=mt,
         )
         self._slash = SlashCommandRegistry()
+        self._chat = TuiChatController()
+        self._log_handle: ProcessLogHandle | None = None
         self.title = "ailit tui"
         self.sub_title = str(self._project_root)
 
@@ -56,7 +61,8 @@ class AilitTuiApp(App[None]):
         yield Footer()
 
     def on_mount(self) -> None:
-        """Фокус и подзаголовок."""
+        """Лог процесса, фокус, подзаголовок."""
+        self._log_handle = ensure_process_log("chat")
         self._refresh_subtitle()
         self.query_one("#chat_input", Input).focus()
 
@@ -66,7 +72,7 @@ class AilitTuiApp(App[None]):
         self.sub_title = f"{s.provider} | {s.model} | mt={s.max_turns}"
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Slash-команды не уходят в LLM."""
+        """Slash не уходит в LLM; обычный текст — SessionRunner."""
         line = event.value.strip()
         self.query_one("#chat_input", Input).value = ""
         if not line:
@@ -81,7 +87,24 @@ class AilitTuiApp(App[None]):
                 self.exit()
             return
         log.write(f"[dim]user>[/dim] {line}")
-        log.write("[yellow]Обычный текст: этап P.3 — SessionRunner[/yellow]")
+        handle = self._log_handle
+        if handle is None:
+            log.write(escape("Лог процесса не инициализирован."))
+            return
+        try:
+            text, st = self._chat.run_user_turn(
+                line,
+                state=self._session,
+                diag_sink=handle.sink,
+                log_path=str(handle.path),
+            )
+            log.write(escape(text))
+            if st:
+                self.sub_title = st[:200]
+            else:
+                self._refresh_subtitle()
+        except (OSError, RuntimeError, ValueError, TypeError) as exc:
+            log.write(escape(f"{type(exc).__name__}: {exc}"))
 
 
 def run_ailit_tui(args: argparse.Namespace, *, repo_root: Path) -> None:

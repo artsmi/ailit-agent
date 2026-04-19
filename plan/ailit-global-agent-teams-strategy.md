@@ -850,6 +850,8 @@ def test_cli_agent_run_dry_run_emits_finished(
 - Документ «какие поля чего значат» на 1 страницу в существующем плане или в `docs/` по решению команды (без обязательного нового README в корне).
 - Чат и CLI согласованы по подписи метрик.
 
+**Статус в репозитории (2026-04):** закрыты O.1–O.3 — `NormalizedUsage` + нормализация/cache, панель токенов в `ailit chat`, `ailit agent usage last`, `docs/usage-fields.md`.
+
 ---
 
 ### Этап P. TUI-режим `ailit` / `ailit agent` (чат в терминале, slash-команды)
