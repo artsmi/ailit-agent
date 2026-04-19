@@ -1,15 +1,24 @@
 #!/usr/bin/env bash
-# Установка dev-зависимостей в локальный .venv репозитория.
+# Полное обновление editable-установки ailit-agent из корня репозитория:
+#   pip install -e .  →  pip install -e '.[dev]'  →  pip install -e '.[chat]'
+# Создаёт/использует локальный .venv в репозитории.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${REPO_ROOT}"
+
 VENV="${REPO_ROOT}/.venv"
 if [[ ! -d "${VENV}" ]]; then
   python3 -m venv "${VENV}"
 fi
 # shellcheck disable=SC1091
 source "${VENV}/bin/activate"
-python3 -m pip install -U pip
-python3 -m pip install -e ".[dev]"
-echo "Готово: venv ${VENV}. Для UI: pip install -e '.[chat]'"
+
+python3 -m pip install -U pip setuptools wheel
+python3 -m pip install -e .
+python3 -m pip install -e '.[dev]'
+python3 -m pip install -e '.[chat]'
+
+echo "Готово: ailit-agent обновлён в ${VENV}"
+echo "Активируйте окружение:  source ${REPO_ROOT}/.venv/bin/activate"
+echo "Проверка:             ailit --help"
