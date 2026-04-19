@@ -1,4 +1,4 @@
-"""Терминальный чат ailit на Textual (этап P)."""
+"""Терминальный чат ailit на Textual (этап P + Q)."""
 
 from __future__ import annotations
 
@@ -10,8 +10,9 @@ from textual.app import App, ComposeResult
 from textual.widgets import Footer, Header, Input, RichLog
 
 from ailit.process_log import ensure_process_log, ProcessLogHandle
-from ailit.tui_chat_controller import TuiChatController
-from ailit.tui_slash_registry import SlashCommandRegistry, TuiSessionState
+from ailit.tui_app_state import TuiAppState
+from ailit.tui_context_manager import TuiContextManager
+from ailit.tui_slash_registry import SlashCommandRegistry
 
 
 def resolve_model(provider: str, model: str | None) -> str:
@@ -22,9 +23,13 @@ def resolve_model(provider: str, model: str | None) -> str:
 
 
 class AilitTuiApp(App[None]):
-    """TUI: slash-команды и ``SessionRunner``."""
+    """TUI: slash-команды, мульти-контекст (Q), ``SessionRunner``."""
 
-    BINDINGS = [("ctrl+q", "quit", "Выход")]
+    BINDINGS = [
+        ("ctrl+q", "quit", "Выход"),
+        ("ctrl+shift+right", "ctx_next", "След.контекст"),
+        ("ctrl+shift+left", "ctx_prev", "Пред.контекст"),
+    ]
 
     def __init__(self, *, args: argparse.Namespace, repo_root: Path) -> None:
         """Сохранить аргументы CLI и корень репозитория ailit-agent."""
@@ -32,23 +37,24 @@ class AilitTuiApp(App[None]):
         self._args = args
         self._repo_root = repo_root
         pr = getattr(args, "project_root", None)
-        self._project_root = (
-            Path(str(pr)).resolve() if pr else Path.cwd().resolve()
-        )
+        project_root = Path(str(pr)).resolve() if pr else Path.cwd().resolve()
         prov = str(getattr(args, "provider", "mock"))
         model = resolve_model(prov, getattr(args, "model", None))
         mt = int(getattr(args, "max_turns", 8))
-        self._session = TuiSessionState(
-            project_root=self._project_root,
+        mgr = TuiContextManager(
+            default_root=project_root,
+            default_name="default",
+        )
+        self._app_state = TuiAppState(
             provider=prov,
             model=model,
             max_turns=mt,
+            contexts=mgr,
         )
         self._slash = SlashCommandRegistry()
-        self._chat = TuiChatController()
         self._log_handle: ProcessLogHandle | None = None
         self.title = "ailit tui"
-        self.sub_title = str(self._project_root)
+        self.sub_title = str(project_root)
 
     def compose(self) -> ComposeResult:
         """Шапка, журнал, ввод, подвал."""
@@ -67,19 +73,43 @@ class AilitTuiApp(App[None]):
         self.query_one("#chat_input", Input).focus()
 
     def _refresh_subtitle(self) -> None:
-        """Краткий статус: провайдер, модель, max_turns."""
-        s = self._session
-        self.sub_title = f"{s.provider} | {s.model} | mt={s.max_turns}"
+        """Активный контекст и параметры провайдера."""
+        s = self._app_state.session_view()
+        self.sub_title = (
+            f"{self._app_state.contexts.active_name()} | {s.provider} | "
+            f"{s.model} | mt={s.max_turns}"
+        )
+
+    def action_ctx_next(self) -> None:
+        """Следующий контекст; сохранить черновик ввода."""
+        self._cycle_context(delta=1)
+
+    def action_ctx_prev(self) -> None:
+        """Предыдущий контекст; сохранить черновик ввода."""
+        self._cycle_context(delta=-1)
+
+    def _cycle_context(self, *, delta: int) -> None:
+        """Переключить контекст с сохранением строки ввода (Q.1)."""
+        inp = self.query_one("#chat_input", Input)
+        draft = inp.value
+        mgr = self._app_state.contexts
+        mgr.save_draft(mgr.active_name(), draft)
+        if delta > 0:
+            mgr.activate_next()
+        else:
+            mgr.activate_prev()
+        inp.value = mgr.peek_draft(mgr.active_name())
+        self._refresh_subtitle()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        """Slash не уходит в LLM; обычный текст — SessionRunner."""
+        """Slash не уходит в LLM; обычный текст — ``SessionRunner``."""
         line = event.value.strip()
         self.query_one("#chat_input", Input).value = ""
         if not line:
             return
         log = self.query_one("#chat_log", RichLog)
         if line.startswith("/"):
-            res = self._slash.dispatch(line, self._session)
+            res = self._slash.dispatch(line, self._app_state)
             for ln in res.reply_lines:
                 log.write(ln)
             self._refresh_subtitle()
@@ -91,16 +121,20 @@ class AilitTuiApp(App[None]):
         if handle is None:
             log.write(escape("Лог процесса не инициализирован."))
             return
+        chat = self._app_state.contexts.active_chat()
         try:
-            text, st = self._chat.run_user_turn(
+            text, st, usage = chat.run_user_turn(
                 line,
-                state=self._session,
+                state=self._app_state.session_view(),
                 diag_sink=handle.sink,
                 log_path=str(handle.path),
             )
+            if usage is not None:
+                self._app_state.contexts.record_turn_usage(usage)
             log.write(escape(text))
             if st:
-                self.sub_title = st[:200]
+                an = self._app_state.contexts.active_name()
+                self.sub_title = f"{an} | {st}"[:220]
             else:
                 self._refresh_subtitle()
         except (OSError, RuntimeError, ValueError, TypeError) as exc:

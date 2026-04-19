@@ -1,4 +1,4 @@
-"""Реестр slash-команд для ``ailit tui`` (этап P.2)."""
+"""Реестр slash-команд для ``ailit tui`` (P.2 + Q.1)."""
 
 from __future__ import annotations
 
@@ -6,15 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
-
-@dataclass
-class TuiSessionState:
-    """Изменяемое состояние сессии TUI (модель, лимиты, корень)."""
-
-    project_root: Path
-    provider: str
-    model: str
-    max_turns: int
+from ailit.tui_app_state import TuiAppState
+from ailit.tui_context_manager import TuiContextManager
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,7 +22,7 @@ class SlashDispatchResult:
 class SlashCommandHandler(Protocol):
     """Обработчик одной команды (без ведущего ``/``)."""
 
-    def run(self, arg: str, state: TuiSessionState) -> tuple[str, ...]:
+    def run(self, arg: str, app_state: TuiAppState) -> tuple[str, ...]:
         """Строки ответа в журнал."""
         ...
 
@@ -37,68 +30,73 @@ class SlashCommandHandler(Protocol):
 class HelpSlashHandler:
     """Справка по slash-командам."""
 
-    def run(self, arg: str, state: TuiSessionState) -> tuple[str, ...]:
+    def run(self, arg: str, app_state: TuiAppState) -> tuple[str, ...]:
         """Перечень команд и текущие значения."""
+        sv = app_state.session_view()
         return (
-            "Команды: /help | /model [имя] | /max_turns N | "
-            "/project [путь] | /quit",
+            "Команды: /help | /model | /max_turns | /project | /quit | /ctx …",
+            "/ctx list | /ctx new NAME [ROOT] | /ctx switch NAME | "
+            "/ctx rename NAME | /ctx stats",
+            "Горячие клавиши: Ctrl+Shift+Right/Left — смена контекста "
+            "(черновик в строке ввода сохраняется).",
             (
-                f"provider={state.provider} model={state.model} "
-                f"max_turns={state.max_turns}"
+                f"provider={sv.provider} model={sv.model} "
+                f"max_turns={sv.max_turns}"
             ),
-            f"project_root={state.project_root}",
+            f"active_ctx={app_state.contexts.active_name()} "
+            f"project_root={sv.project_root}",
         )
 
 
 class ModelSlashHandler:
-    """Показать или задать имя модели (локально для сессии)."""
+    """Показать или задать имя модели."""
 
-    def run(self, arg: str, state: TuiSessionState) -> tuple[str, ...]:
-        """Обновить ``state.model`` при непустом аргументе."""
+    def run(self, arg: str, app_state: TuiAppState) -> tuple[str, ...]:
+        """Обновить ``app_state.model`` при непустом аргументе."""
         name = arg.strip()
         if not name:
-            return (f"model={state.model}",)
-        state.model = name
-        return (f"model={state.model} (сессия)",)
+            return (f"model={app_state.model}",)
+        app_state.model = name
+        return (f"model={app_state.model} (сессия)",)
 
 
 class MaxTurnsSlashHandler:
     """Показать или задать ``max_turns``."""
 
-    def run(self, arg: str, state: TuiSessionState) -> tuple[str, ...]:
+    def run(self, arg: str, app_state: TuiAppState) -> tuple[str, ...]:
         """Парсинг целого N."""
         raw = arg.strip()
         if not raw:
-            return (f"max_turns={state.max_turns}",)
+            return (f"max_turns={app_state.max_turns}",)
         try:
             n = int(raw)
         except ValueError:
             return (f"Ожидалось целое число, получено: {raw!r}",)
         if n < 1:
             return ("max_turns должен быть >= 1",)
-        state.max_turns = n
-        return (f"max_turns={state.max_turns}",)
+        app_state.max_turns = n
+        return (f"max_turns={app_state.max_turns}",)
 
 
 class ProjectSlashHandler:
-    """Показать или сменить корень проекта."""
+    """Показать или сменить корень проекта активного контекста."""
 
-    def run(self, arg: str, state: TuiSessionState) -> tuple[str, ...]:
+    def run(self, arg: str, app_state: TuiAppState) -> tuple[str, ...]:
         """Путь существующего каталога."""
         raw = arg.strip()
         if not raw:
-            return (f"project_root={state.project_root}",)
+            return (f"project_root={app_state.session_view().project_root}",)
         path = Path(raw).expanduser().resolve()
         if not path.is_dir():
             return (f"Не каталог: {path}",)
-        state.project_root = path
-        return (f"project_root={state.project_root}",)
+        app_state.contexts.set_active_project_root(path)
+        return (f"project_root={app_state.session_view().project_root}",)
 
 
 class QuitSlashHandler:
     """Выход из TUI."""
 
-    def run(self, arg: str, state: TuiSessionState) -> tuple[str, ...]:
+    def run(self, arg: str, app_state: TuiAppState) -> tuple[str, ...]:
         """Сигнал обрабатывается в приложении."""
         return ("Выход…",)
 
@@ -116,12 +114,57 @@ class SlashCommandRegistry:
             "quit": QuitSlashHandler(),
         }
 
+    def _handle_ctx(self, arg: str, app_state: TuiAppState) -> tuple[str, ...]:
+        """Подкоманды ``/ctx`` (Q.1)."""
+        tokens = arg.strip().split()
+        if not tokens:
+            return (
+                "Использование: /ctx list | /ctx new NAME [ROOT] | "
+                "/ctx switch NAME | /ctx rename NAME | /ctx stats",
+            )
+        sub = tokens[0].lower()
+        mgr = app_state.contexts
+        if sub == "list":
+            lines = [f"Активный: {mgr.active_name()}", "Контексты:"]
+            for n, pr, is_act in mgr.describe_contexts():
+                mark = " (активен)" if is_act else ""
+                lines.append(f"  - {n}{mark} → {pr}")
+            return tuple(lines)
+        if sub == "stats":
+            return _format_ctx_stats_lines(mgr)
+        if sub == "new":
+            if len(tokens) < 2:
+                return ("Нужно имя: /ctx new NAME [ROOT]",)
+            name = tokens[1]
+            root: Path | None = None
+            if len(tokens) > 2:
+                root = Path(tokens[2]).expanduser().resolve()
+            err = mgr.new_context(name, project_root=root)
+            if err:
+                return (err,)
+            return (f"Создан контекст `{name}`.",)
+        if sub == "switch":
+            if len(tokens) < 2:
+                return ("Нужно имя: /ctx switch NAME",)
+            err = mgr.switch(tokens[1])
+            if err:
+                return (err,)
+            return (f"Активен контекст `{mgr.active_name()}`.",)
+        if sub == "rename":
+            if len(tokens) < 2:
+                return ("Нужно новое имя: /ctx rename NAME",)
+            err = mgr.rename_active(tokens[1])
+            if err:
+                return (err,)
+            return (f"Контекст переименован в `{mgr.active_name()}`.",)
+        return (f"Неизвестная подкоманда ctx: {sub}. См. /ctx",)
+
     def dispatch(
         self,
         line: str,
-        state: TuiSessionState,
+        app_state: TuiAppState,
     ) -> SlashDispatchResult:
-        """Разобрать строку, начинающуюся с ``/``."""
+        """Разобрать строку со слешем."""
         trimmed = line.strip()
         if not trimmed.startswith("/"):
             return SlashDispatchResult(
@@ -139,6 +182,13 @@ class SlashCommandRegistry:
         parts = body.split(maxsplit=1)
         name = parts[0].lower()
         arg = parts[1] if len(parts) > 1 else ""
+        if name == "ctx":
+            lines = self._handle_ctx(arg, app_state)
+            return SlashDispatchResult(
+                consumed=True,
+                reply_lines=lines,
+                exit_app=False,
+            )
         handler = self._handlers.get(name)
         if handler is None:
             return SlashDispatchResult(
@@ -148,10 +198,26 @@ class SlashCommandRegistry:
                 ),
                 exit_app=False,
             )
-        lines = handler.run(arg, state)
+        lines = handler.run(arg, app_state)
         exit_app = name == "quit"
         return SlashDispatchResult(
             consumed=True,
             reply_lines=tuple(lines),
             exit_app=exit_app,
         )
+
+
+def _format_ctx_stats_lines(mgr: TuiContextManager) -> tuple[str, ...]:
+    """Текстовая сводка токенов по контекстам (расширяется в Q.2)."""
+    rows = mgr.all_usage_rows()
+    if not rows:
+        return ("Нет контекстов.",)
+    lines: list[str] = ["Токены по контекстам (накопленно):"]
+    for name, d in rows:
+        cr = d["cache_read_tokens"]
+        cw = d["cache_write_tokens"]
+        lines.append(
+            f"  - {name}: in={d['input_tokens']} out={d['output_tokens']} "
+            f"reason={d['reasoning_tokens']} cache_r={cr} cache_w={cw}",
+        )
+    return tuple(lines)

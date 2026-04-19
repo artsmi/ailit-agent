@@ -29,7 +29,7 @@ from ailit.session_outcome_user_copy import (
     MAX_TURNS_EXCEEDED_REASON,
     SessionErrorAssistantMessageComposer,
 )
-from ailit.tui_slash_registry import TuiSessionState
+from ailit.tui_session_types import TuiSessionState
 
 DiagSink = Callable[[dict[str, Any]], None]
 
@@ -72,14 +72,29 @@ class TuiProviderAssembler:
 class TuiChatController:
     """История сообщений и вызов ``SessionRunner``."""
 
-    def __init__(self) -> None:
-        """Начать с системного сообщения."""
-        self._messages: list[ChatMessage] = [
-            ChatMessage(
-                role=MessageRole.SYSTEM,
-                content="You are a helpful concise assistant.",
-            ),
-        ]
+    def __init__(
+        self,
+        *,
+        seed_messages: list[ChatMessage] | None = None,
+    ) -> None:
+        """Начать с системного сообщения или с восстановленного снимка."""
+        if seed_messages:
+            self._messages = list(seed_messages)
+        else:
+            self._messages = [
+                ChatMessage(
+                    role=MessageRole.SYSTEM,
+                    content="You are a helpful concise assistant.",
+                ),
+            ]
+
+    def snapshot_messages(self) -> list[ChatMessage]:
+        """Копия истории для сериализации."""
+        return list(self._messages)
+
+    def replace_messages(self, messages: list[ChatMessage]) -> None:
+        """Восстановить историю (после загрузки с диска)."""
+        self._messages = list(messages)
 
     def run_user_turn(
         self,
@@ -88,8 +103,8 @@ class TuiChatController:
         state: TuiSessionState,
         diag_sink: DiagSink,
         log_path: str,
-    ) -> tuple[str, str]:
-        """User-сообщение, прогон цикла, текст ассистента и статус."""
+    ) -> tuple[str, str, dict[str, Any] | None]:
+        """Прогон цикла: текст, статус, usage последнего ответа (или None)."""
         self._messages.append(ChatMessage(role=MessageRole.USER, content=text))
         provider_obj, model_eff = TuiProviderAssembler().build(
             provider=state.provider,
@@ -114,11 +129,12 @@ class TuiChatController:
         )
         self._messages = list(out.messages)
         status = _last_diag_status_line(out)
+        usage_payload = _last_usage_payload(out)
         if out.state is SessionState.FINISHED:
             last = self._messages[-1]
             if last.role is MessageRole.ASSISTANT:
-                return (last.content or "(пусто)", status)
-            return ("(нет ответа ассистента)", status)
+                return (last.content or "(пусто)", status, usage_payload)
+            return ("(нет ответа ассистента)", status, usage_payload)
         if out.state is SessionState.ERROR:
             comp = SessionErrorAssistantMessageComposer()
             detail = comp.compose(
@@ -127,9 +143,10 @@ class TuiChatController:
                 effective_max_turns=state.max_turns,
             )
             if out.reason == MAX_TURNS_EXCEEDED_REASON:
-                return (detail, status)
-            return (detail, status)
-        return (f"Состояние: {out.state.value} ({out.reason!r})", status)
+                return (detail, status, usage_payload)
+            return (detail, status, usage_payload)
+        msg = f"Состояние: {out.state.value} ({out.reason!r})"
+        return (msg, status, usage_payload)
 
 
 def _last_diag_status_line(out: SessionOutcome) -> str:
@@ -141,5 +158,18 @@ def _last_diag_status_line(out: SessionOutcome) -> str:
         if isinstance(totals, dict):
             i = totals.get("input_tokens")
             o = totals.get("output_tokens")
-            return f"usage Σ in={i} out={o}"
+            cr = totals.get("cache_read_tokens")
+            cw = totals.get("cache_write_tokens")
+            return f"ctx | usage Σ in={i} out={o} cache_r={cr} cache_w={cw}"
     return ""
+
+
+def _last_usage_payload(out: SessionOutcome) -> dict[str, Any] | None:
+    """Блок ``usage`` последнего ``model.response``."""
+    for row in reversed(out.events):
+        if row.get("event_type") != "model.response":
+            continue
+        u = row.get("usage")
+        if isinstance(u, dict):
+            return dict(u)
+    return None
