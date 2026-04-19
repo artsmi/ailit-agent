@@ -696,6 +696,8 @@ def test_cli_agent_run_dry_run_emits_finished(
 Не интегрируй LLM на этом шаге.
 ```
 
+**Статус:** выполнено (`tools/ailit/teams/mailbox.py`, `tools/ailit/teams/__init__.py`): `TeamSession`, `TeamRootSelector.for_project` → `<project>/.ailit/teams/<team_id>/inboxes/<agent>.json`, `for_global_state` → `<AILIT_STATE_DIR|XDG state>/teams/...`; блокировка sidecar `*.lock` + `flock` на POSIX, атомарная запись inbox; тесты `tests/test_teams_mailbox.py`.
+
 **Чекпоинт для проверки (после L.1):**
 
 - Два тестовых «агента» обмениваются сообщениями через ФС под управляемым `tmp_path`; файлы inbox читаемы и атомарны с точки зрения теста (нет порчи JSON при конкуренции в сценарии теста).
@@ -972,7 +974,7 @@ ailit --help
 
 ## 13. Следующий шаг для команды
 
-Взять **задачу L.1** — MVP межагентной почты (`TeamSession`, FS mailbox, см. этап L). **K.1–K.2** закрыты (ввод задачи в CLI + e2e «вне репы» + agent mock + pytest). **G.1–G.2**, **H.1–H.2**, **I.1–I.2** и **J.1** закрыты.
+Взять **задачу L.2** — инструмент `send_teammate_message` + system addendum для teammate-ролей (см. этап L). **L.1** закрыт (FS mailbox, `TeamSession`). **K.1–K.2** закрыты. **G.1–G.2**, **H.1–H.2**, **I.1–I.2** и **J.1** закрыты.
 
 Опционально позже: подзадача **G.3** (поиск конфигурации вверх по дереву каталогов), если вынесена из merge. Каждая следующая задача — с промптом из этого файла и ссылками на референсы из §3.
 
