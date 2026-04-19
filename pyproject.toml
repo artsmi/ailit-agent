@@ -30,11 +30,12 @@ where = ["tools"]
 include = ["agent_core*", "workflow_engine*", "ailit*", "project_layer*"]
 
 [tool.pytest.ini_options]
-pythonpath = ["tools"]
+pythonpath = ["tools", "tests/e2e"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 markers = [
     "integration: сетевые live-тесты (ключ и явное согласие)",
+    "e2e: CLI и сгенерированное приложение в .ailit (subprocess)",
 ]
 
 [tool.ruff]

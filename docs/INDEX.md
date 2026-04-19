@@ -88,6 +88,18 @@
 - cost-aware routing;
 - strict schema и fallback policy.
 
+### Глобальный CLI, Agent Teams, плагины и human-readable chat
+
+- [`../plan/ailit-global-agent-teams-strategy.md`](../plan/ailit-global-agent-teams-strategy.md)
+
+Фиксирует:
+
+- отвязку `ailit` от клона репозитория (глобальный конфиг, XDG, merge слоёв);
+- режимы `ailit chat` / `ailit agent` и требования к UX;
+- e2e на материализованных проектах и произвольный ввод задачи;
+- этапы G–M с промптами, тестами и критериями приёмки;
+- точные ссылки на строки в `claude-code`, `opencode`, `ailit-agent` и образец в `reps-research`.
+
 ### Стратегия верхнего project orchestrator-а
 
 - [`../plan/project-orchestrator-strategy.md`](../plan/project-orchestrator-strategy.md)
@@ -110,6 +122,7 @@
 3. При необходимости уточнять детали через:
    - [`../plan/agent-core-architecture.md`](../plan/agent-core-architecture.md)
    - [`../plan/agent-core-provider-strategy.md`](../plan/agent-core-provider-strategy.md)
+   - [`../plan/ailit-global-agent-teams-strategy.md`](../plan/ailit-global-agent-teams-strategy.md) для глобального CLI, команд агентов и UX chat
    - [`../plan/project-orchestrator-strategy.md`](../plan/project-orchestrator-strategy.md) для верхнеуровневой стратегической ветки
 
 ## Какой workflow сейчас считается правильным
@@ -154,6 +167,12 @@
 - typed event/state patterns;
 - extensibility boundaries;
 - UI-friendly execution patterns.
+
+### Образец плагинов (исследование)
+
+Путь на диске:
+
+- каталог `claude-code-plugins-sample` в локальном клоне `reps-research` (shallow clone коллекции плагинов; структура каталогов для MVP совместимости)
 
 ## Текущая стратегическая формула
 
