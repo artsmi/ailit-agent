@@ -883,6 +883,8 @@ def test_cli_agent_run_dry_run_emits_finished(
 
 - Инженер может пройти типовой сценарий «спросить модель + вызвать list_dir» только из TUI.
 
+**Статус в репозитории (2026-04):** закрыты P.1–P.3 — `ailit tui` на **Textual** (`pip install -e '.[tui]'`), slash-реестр, тот же `SessionRunner` + `ensure_process_log("chat")` и строка usage в подзаголовке.
+
 ---
 
 ### Этап Q. Мульти-контекст в TUI (killer feature) + токены по контексту
