@@ -110,6 +110,9 @@ class NormalizedUsage:
     total_tokens: int | None
     reasoning_tokens: int | None = None
     cached_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    usage_unknown: tuple[tuple[str, Any], ...] = ()
     usage_missing: bool = False
 
 

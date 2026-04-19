@@ -16,11 +16,17 @@ class BudgetGovernance:
     max_context_units: int | None = None
     _acc_input: int = field(default=0, init=False, repr=False)
     _acc_output: int = field(default=0, init=False, repr=False)
+    _acc_reasoning: int = field(default=0, init=False, repr=False)
+    _acc_cache_read: int = field(default=0, init=False, repr=False)
+    _acc_cache_write: int = field(default=0, init=False, repr=False)
 
     def reset(self) -> None:
         """Сбросить накопленный usage."""
         self._acc_input = 0
         self._acc_output = 0
+        self._acc_reasoning = 0
+        self._acc_cache_read = 0
+        self._acc_cache_write = 0
 
     def record_usage(self, usage: NormalizedUsage) -> None:
         """Добавить usage одного ответа модели."""
@@ -28,10 +34,24 @@ class BudgetGovernance:
             return
         self._acc_input += int(usage.input_tokens or 0)
         self._acc_output += int(usage.output_tokens or 0)
+        self._acc_reasoning += int(usage.reasoning_tokens or 0)
+        self._acc_cache_read += int(usage.cache_read_tokens or 0)
+        self._acc_cache_write += int(usage.cache_write_tokens or 0)
 
     def total_recorded(self) -> int:
         """Сумма зарегистрированных input+output."""
         return self._acc_input + self._acc_output
+
+    def diag_totals_dict(self) -> dict[str, int]:
+        """Агрегаты за сессию для JSONL / CLI (целые, без None)."""
+        return {
+            "input_tokens": self._acc_input,
+            "output_tokens": self._acc_output,
+            "reasoning_tokens": self._acc_reasoning,
+            "cache_read_tokens": self._acc_cache_read,
+            "cache_write_tokens": self._acc_cache_write,
+            "total_tokens": self._acc_input + self._acc_output,
+        }
 
     @staticmethod
     def estimate_context_units(messages: Sequence[ChatMessage]) -> int:

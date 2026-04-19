@@ -36,6 +36,7 @@ from agent_core.tool_runtime.executor import (
     ToolRunResult,
 )
 from agent_core.tool_runtime.permission import PermissionEngine
+from agent_core.normalization.usage_fields import usage_to_diag_dict
 from agent_core.tool_runtime.registry import ToolRegistry
 
 
@@ -322,6 +323,8 @@ class SessionRunner:
                     "finish": fin,
                     "tool_calls_count": len(resp.tool_calls),
                     "tool_names": resp_tool_names,
+                    "usage": usage_to_diag_dict(resp.usage),
+                    "usage_session_totals": bud.diag_totals_dict(),
                 },
                 diag_sink,
             )

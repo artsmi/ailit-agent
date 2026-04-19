@@ -8,11 +8,11 @@ from typing import Any, Mapping
 from agent_core.models import (
     FinishReason,
     NormalizedChatResponse,
-    NormalizedUsage,
     ToolCallNormalized,
 )
 from agent_core.normalization.content_sanitize import AssistantContentSanitizer
 from agent_core.normalization.tool_fallback import try_parse_tool_calls_from_text
+from agent_core.normalization.usage_fields import normalize_usage_payload
 
 
 def _map_finish_reason(raw: str | None) -> FinishReason:
@@ -25,29 +25,6 @@ def _map_finish_reason(raw: str | None) -> FinishReason:
         "content_filter": FinishReason.CONTENT_FILTER,
     }
     return mapping.get(raw, FinishReason.UNKNOWN)
-
-
-def _normalize_usage(data: Mapping[str, Any] | None) -> NormalizedUsage:
-    if not data:
-        return NormalizedUsage(
-            input_tokens=None,
-            output_tokens=None,
-            total_tokens=None,
-            usage_missing=True,
-        )
-    inp = data.get("prompt_tokens")
-    out = data.get("completion_tokens")
-    tot = data.get("total_tokens")
-    reasoning = data.get("reasoning_tokens")
-    cached = data.get("cached_tokens") or data.get("cache_creation_input_tokens")
-    return NormalizedUsage(
-        input_tokens=int(inp) if inp is not None else None,
-        output_tokens=int(out) if out is not None else None,
-        total_tokens=int(tot) if tot is not None else None,
-        reasoning_tokens=int(reasoning) if reasoning is not None else None,
-        cached_tokens=int(cached) if cached is not None else None,
-        usage_missing=False,
-    )
 
 
 def normalize_chat_completion(
@@ -114,13 +91,15 @@ def normalize_chat_completion(
     usage_mapping: Mapping[str, Any] | None = (
         usage_obj if isinstance(usage_obj, dict) else None
     )
-    usage = _normalize_usage(usage_mapping)
+    usage = normalize_usage_payload(usage_mapping)
 
     meta: dict[str, Any] = {
         "provider_id": provider_id,
         "model": payload.get("model"),
         "id": payload.get("id"),
     }
+    if usage.usage_unknown:
+        meta["usage_unknown_tail"] = dict(usage.usage_unknown)
     return NormalizedChatResponse(
         text_parts=tuple(text_parts),
         tool_calls=tuple(tool_calls),
