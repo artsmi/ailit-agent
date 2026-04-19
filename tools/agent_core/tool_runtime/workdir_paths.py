@@ -97,6 +97,33 @@ def _path_has_vcs_component(path: Path, root: Path) -> bool:
     return any(part in VCS_DIRECTORY_NAMES for part in rel.parts)
 
 
+def _any_path_part_is_vcs(rel: Path) -> bool:
+    """Есть ли среди частей относительного пути имя из ``VCS_DIRECTORY_NAMES``."""
+    return any(part in VCS_DIRECTORY_NAMES for part in rel.parts)
+
+
+def list_dir_should_skip_entry(path: Path, *, list_base: Path, root: Path) -> bool:
+    """Скрывать VCS-метаданные при обычном обходе; не пустить явный ``list_dir .git``.
+
+    Сопоставимо с практикой Claude Code / OpenCode: поиск и glob не заходят в
+    ``.git`` (см. ``glob_file`` / ``grep``), но если модель явно запрашивает
+    листинг каталога ``.git`` или внутри него — показываем одноуровневое
+    содержимое, а не пустой список из-за фильтра по сегменту ``.git`` в пути.
+    """
+    root_r = root.resolve()
+    base_r = list_base.resolve()
+    path_r = path.resolve()
+    try:
+        rel_base = base_r.relative_to(root_r)
+    except ValueError:
+        return True
+    if _any_path_part_is_vcs(rel_base):
+        return False
+    if not path_r.is_dir():
+        return False
+    return path_r.name in VCS_DIRECTORY_NAMES
+
+
 def suggest_for_missing_file(root: Path, rel: str, *, limit: int = 8) -> str:
     """Подсказка при отсутствии файла: имена в корне с похожим префиксом."""
     prefix = normalize_relative(rel).split("/")[0].lower()

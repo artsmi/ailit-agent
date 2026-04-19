@@ -19,6 +19,7 @@ from agent_core.tool_runtime.workdir_paths import (
     resolve_dir_under_root,
     resolve_file_under_root,
     resolve_under_root,
+    list_dir_should_skip_entry,
     suggest_for_missing_file,
     work_root,
     _path_has_vcs_component,
@@ -125,7 +126,7 @@ def builtin_list_dir(arguments: Mapping[str, Any]) -> str:
         msg = f"list_dir failed: {exc}"
         raise OSError(msg) from exc
     for p in it[:LIST_DIR_MAX_ENTRIES]:
-        if _path_has_vcs_component(p, root):
+        if list_dir_should_skip_entry(p, list_base=base, root=root):
             continue
         kind = "dir" if p.is_dir() else "file"
         rows.append({"name": p.name, "type": kind})
