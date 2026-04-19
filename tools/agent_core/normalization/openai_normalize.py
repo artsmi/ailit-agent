@@ -11,6 +11,7 @@ from agent_core.models import (
     NormalizedUsage,
     ToolCallNormalized,
 )
+from agent_core.normalization.content_sanitize import AssistantContentSanitizer
 from agent_core.normalization.tool_fallback import try_parse_tool_calls_from_text
 
 
@@ -98,6 +99,13 @@ def normalize_chat_completion(
     if not tool_calls and enable_parser_fallback and text_parts:
         fallback = try_parse_tool_calls_from_text(text_parts[0], provider_id=provider_id)
         tool_calls.extend(fallback)
+
+    has_tools = bool(tool_calls)
+    text_parts = [
+        AssistantContentSanitizer.sanitize(part, aggressive_trailing=has_tools)
+        for part in text_parts
+    ]
+    text_parts = [part for part in text_parts if part]
 
     finish_raw = first.get("finish_reason")
     finish_reason = _map_finish_reason(finish_raw if isinstance(finish_raw, str) else None)

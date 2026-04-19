@@ -6,6 +6,8 @@ import json
 from collections.abc import Mapping
 from typing import Any, Protocol
 
+from agent_core.normalization.content_sanitize import AssistantContentSanitizer
+
 
 class EventPresenter(Protocol):
     """Стратегия: событие → короткая markdown-строка для пользователя."""
@@ -284,7 +286,12 @@ def format_assistant_chat_block_markdown(
             arg_show = arg if len(arg) <= 160 else f"{arg[:157]}…"
             items.append(f"- `{name}` — `{arg_show}`")
         parts.append("**Вызовы инструментов**\n" + "\n".join(items))
-    body = content.strip()
+    stripped = content.strip()
+    aggressive_tail = bool(tool_calls) or ("dsml" in stripped.lower())
+    body = AssistantContentSanitizer.sanitize(
+        stripped,
+        aggressive_trailing=aggressive_tail,
+    )
     if body:
         parts.append(body)
     return "\n\n".join(parts) if parts else " "
