@@ -6,9 +6,8 @@
 
 | Область | Состояние |
 |---------|-----------|
-| Глобальный CLI, merge конфигов, chat / agent | см. `plan/ailit-global-agent-teams-strategy.md` (этапы G–P закрыты в тексте плана по мере реализации) |
-| **Этап Q** — мульти-контекст TUI, usage по контексту, снимок сессии | **Готово:** Q.1 (менеджер контекстов, `/ctx`, горячие клавиши), Q.2 (подзаголовок last/Σ, `/ctx stats` markdown), Q.3 (`~/.ailit/tui-sessions/state.json`, автосохранение при выходе, `/ctx save`) |
-| Дальнейшие этапы | по документу стратегии в `plan/` |
+| Стратегия §9 [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md) | Этапы **G–Q** закрыты в репозитории (в т.ч. **G.3** — поиск `.ailit/config.yaml` вверх от `project_root`; **N.1–N.3**; **O–Q**). Детали — строки «Статус» в плане, §13 «Следующий шаг». |
+| Новая работа по продукту | Не следует из §9; нужны **research** и **постановка** следующих целей — см. [`docs/project-workflow.md`](docs/project-workflow.md). |
 
 ## Как работать по проекту
 
