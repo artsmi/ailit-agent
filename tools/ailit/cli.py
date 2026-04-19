@@ -9,6 +9,7 @@ from pathlib import Path
 
 from ailit.agent_provider_config import AgentRunProviderConfigBuilder
 from ailit.config_cli import register_config_parser
+from ailit.plugin_install import PluginInstaller
 from ailit.task_spec import RunTaskArtifactWriter, TaskSpecResolver
 
 
@@ -169,6 +170,24 @@ def _cmd_debug_bundle(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_plugin_install(args: argparse.Namespace) -> int:
+    """Скопировать или git clone плагин в ``.ailit/plugins``."""
+    import subprocess
+
+    root = Path(args.project_root).resolve()
+    try:
+        res = PluginInstaller.install(str(args.source), project_root=root)
+    except subprocess.CalledProcessError as exc:
+        err = (exc.stderr or exc.stdout or str(exc)).strip()
+        sys.stderr.write(f"git clone failed: {err}\n")
+        return 2
+    except (OSError, ValueError, TypeError) as exc:
+        sys.stderr.write(f"{type(exc).__name__}: {exc}\n")
+        return 2
+    sys.stdout.write(f"Installed plugin `{res.manifest_name}` → {res.dest_dir}\n")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Точка входа `ailit`."""
     parser = argparse.ArgumentParser(
@@ -301,6 +320,25 @@ def main(argv: list[str] | None = None) -> int:
         help="Путь к .zip",
     )
     p_dbg_bundle.set_defaults(func=_cmd_debug_bundle)
+
+    p_plugin = sub.add_parser("plugin", help="Плагины проекта (MVP)")
+    plugin_sub = p_plugin.add_subparsers(dest="plugin_cmd", required=True)
+    p_pin = plugin_sub.add_parser(
+        "install",
+        help="Установить плагин из локального каталога или git URL в .ailit/plugins/",
+    )
+    p_pin.add_argument(
+        "source",
+        type=str,
+        help="Путь к каталогу с ailit-plugin.yaml или URL (github/gitlab/… .git)",
+    )
+    p_pin.add_argument(
+        "--project-root",
+        type=str,
+        required=True,
+        help="Корень проекта (создаётся .ailit/plugins)",
+    )
+    p_pin.set_defaults(func=_cmd_plugin_install)
 
     args = parser.parse_args(argv)
     func = getattr(args, "func", None)
