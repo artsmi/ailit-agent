@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from ailit.agent_provider_config import AgentRunProviderConfigBuilder
 from ailit.config_cli import register_config_parser
 
 
@@ -42,7 +43,6 @@ def _cmd_chat(_args: argparse.Namespace) -> int:
 def _cmd_agent_run(args: argparse.Namespace) -> int:
     """Исполнить workflow YAML, печать JSONL в stdout."""
     from ailit.process_log import ensure_process_log
-    from agent_core.config_loader import load_test_local_yaml
     from agent_core.providers.factory import ProviderFactory, ProviderKind
     from agent_core.providers.mock_provider import MockProvider
     from agent_core.tool_runtime.registry import default_builtin_registry
@@ -79,8 +79,13 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
             sys.stderr.write(msg)
             return 2
     wf = load_workflow_from_path(wf_path)
-    cfg_path_yaml = _repo_root() / "config" / "test.local.yaml"
-    cfg = dict(load_test_local_yaml(cfg_path_yaml))
+    proj_for_cfg: Path | None = None
+    if args.project_root:
+        proj_for_cfg = Path(args.project_root).resolve()
+    cfg = AgentRunProviderConfigBuilder().build(
+        proj_for_cfg,
+        use_dev_repo_yaml=not bool(args.no_dev_repo_config),
+    )
     if args.provider == "mock":
         provider: object = MockProvider()
     elif args.provider == "deepseek":
@@ -189,6 +194,14 @@ def main(argv: list[str] | None = None) -> int:
         choices=("deepseek", "mock"),
         default="mock",
         help="Провайдер для задач workflow (mock не требует ключа)",
+    )
+    p_run.add_argument(
+        "--no-dev-repo-config",
+        action="store_true",
+        help=(
+            "Не подмешивать config/test.local.yaml из дерева ailit-agent "
+            "(только глобальный и проектный merge)"
+        ),
     )
     p_run.set_defaults(func=_cmd_agent_run)
 

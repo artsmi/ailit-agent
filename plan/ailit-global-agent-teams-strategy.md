@@ -578,6 +578,8 @@ def test_cli_agent_run_dry_run_emits_finished(
 Опора: текущие строки cli.py 76–78 и chat_app.py 39–41.
 ```
 
+**Статус:** выполнено (`tools/ailit/agent_provider_config.py`, `AgentRunProviderConfigBuilder`, флаг `--no-dev-repo-config` в `ailit agent run`).
+
 **Чекпоинт для проверки (после I.1):**
 
 - `ailit agent run` с mock-провайдером в временном проекте подхватывает ключи из merge, без обязательного `repo_root()/config/test.local.yaml`.
@@ -586,6 +588,8 @@ def test_cli_agent_run_dry_run_emits_finished(
 #### Задача I.2 — `chat_app` использует тот же resolver
 
 **Критерии:** один источник правды для ключей DeepSeek и т.д.
+
+**Статус:** выполнено (`chat_app.py`: `_load_merged_chat_cfg` через `AgentRunProviderConfigBuilder`).
 
 **Чекпоинт для проверки (после I.2):**
 
@@ -809,7 +813,7 @@ ailit --help
 
 ## 13. Следующий шаг для команды
 
-Взять **задачу I.1** — перевести `ailit agent run` на `load_merged_ailit_config` с fallback для клона разработки (см. промпт этапа I). **G.1**, **G.2**, **H.1** и **H.2** закрыты.
+Взять **задачу J.1** — human-readable слой в `ailit chat` (presenter / view-model над событиями, см. этап J). **G.1–G.2**, **H.1–H.2** и **I.1–I.2** закрыты.
 
 Опционально позже: подзадача **G.3** (поиск конфигурации вверх по дереву каталогов), если вынесена из merge. Каждая следующая задача — с промптом из этого файла и ссылками на референсы из §3.
 

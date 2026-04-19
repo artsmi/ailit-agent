@@ -11,6 +11,33 @@ from cli_runner import AilitCliRunner
 
 
 @pytest.mark.e2e
+def test_cli_agent_run_dry_run_without_repo_test_local(
+    mini_app_root: Path,
+    e2e_workspace: Path,
+) -> None:
+    """С ``--no-dev-repo-config`` и отдельным ``AILIT_CONFIG_DIR`` достаточно merge."""
+    cfg_dir = e2e_workspace / "global_ailit"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "config.yaml").write_text(
+        "live:\n  run: false\n",
+        encoding="utf-8",
+    )
+    repo = Path(__file__).resolve().parents[2]
+    runner = AilitCliRunner(repo)
+    res = runner.agent_run(
+        workflow_ref="smoke",
+        project_root=mini_app_root,
+        provider="mock",
+        dry_run=True,
+        max_turns=4,
+        no_dev_repo_config=True,
+        extra_env={"AILIT_CONFIG_DIR": str(cfg_dir)},
+    )
+    assert res.returncode == 0, res.stderr
+    assert "workflow.finished" in res.stdout
+
+
+@pytest.mark.e2e
 def test_cli_agent_run_dry_run_emits_finished(
     mini_app_root: Path,
 ) -> None:

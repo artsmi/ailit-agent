@@ -13,7 +13,7 @@ _REPO = Path(__file__).resolve().parents[2]
 if str(_REPO / "tools") not in sys.path:
     sys.path.insert(0, str(_REPO / "tools"))
 
-from agent_core.config_loader import deepseek_api_key_from_env_or_config, load_test_local_yaml
+from agent_core.config_loader import deepseek_api_key_from_env_or_config
 from agent_core.models import ChatMessage, MessageRole
 from agent_core.providers.deepseek import DeepSeekAdapter
 from agent_core.providers.mock_provider import MockProvider
@@ -22,6 +22,7 @@ from agent_core.session.state import SessionState
 from agent_core.tool_runtime.approval import ApprovalSession
 from agent_core.tool_runtime.permission import PermissionDecision, PermissionEngine
 from agent_core.tool_runtime.registry import ToolRegistry, default_builtin_registry, empty_tool_registry
+from ailit.agent_provider_config import AgentRunProviderConfigBuilder
 from ailit.chat_handlers import (
     ProjectSessionFactory,
     attach_runner_suffix,
@@ -36,9 +37,12 @@ from project_layer.bootstrap import format_agent_run_command
 from project_layer.loader import LoadedProject
 
 
-def _load_cfg() -> dict:
-    p = _REPO / "config" / "test.local.yaml"
-    return dict(load_test_local_yaml(p)) if p.is_file() else {}
+def _load_merged_chat_cfg(project_root: Path) -> dict:
+    """Тот же merge, что и в ``ailit agent run`` (включая dev ``test.local.yaml``)."""
+    return AgentRunProviderConfigBuilder().build(
+        project_root.resolve(),
+        use_dev_repo_yaml=True,
+    )
 
 
 def _make_provider(choice: str, cfg: dict) -> tuple[object, str]:
@@ -48,7 +52,10 @@ def _make_provider(choice: str, cfg: dict) -> tuple[object, str]:
     if choice == "deepseek":
         key = deepseek_api_key_from_env_or_config(cfg)
         if not key:
-            st.error("Нет ключа: DEEPSEEK_API_KEY или `deepseek.api_key` в config/test.local.yaml")
+            st.error(
+                "Нет ключа: задайте DEEPSEEK_API_KEY или `deepseek.api_key` "
+                "в глобальном/проектном merge (см. `ailit config show`).",
+            )
             st.stop()
         ds = cfg.get("deepseek")
         root = "https://api.deepseek.com/v1"
@@ -378,14 +385,15 @@ def main() -> None:
     ensure_process_log("chat")
     st.set_page_config(page_title="ailit chat", layout="wide", initial_sidebar_state="collapsed")
     _init_messages()
-    cfg = _load_cfg()
     st.markdown("### ailit chat")
-    choice, max_turns, file_tools, agent_id, use_project = _render_header_bar()
-
     root_default = _REPO
     if "ailit_project_root" not in st.session_state:
         st.session_state["ailit_project_root"] = str(root_default)
     project_root = Path(str(st.session_state.get("ailit_project_root", root_default)))
+    cfg = _load_merged_chat_cfg(project_root)
+
+    choice, max_turns, file_tools, agent_id, use_project = _render_header_bar()
+
     st.session_state.setdefault("ailit_wf_ref", "minimal")
     st.session_state.setdefault("ailit_wf_model", "deepseek-chat")
     st.session_state.setdefault("ailit_wf_max_turns", 8)

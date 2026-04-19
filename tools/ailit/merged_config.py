@@ -134,3 +134,11 @@ def load_merged_ailit_config(project_root: Path | None = None) -> Mapping[str, A
         совместимый с :class:`typing.Mapping`.
     """
     return AilitConfigMerger().load(project_root)
+
+
+def deep_merge_config_mappings(
+    base: Mapping[str, Any],
+    overlay: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Публичный merge: значения ``overlay`` перекрывают ``base`` (рекурсивно)."""
+    return _deep_merge(dict(base), dict(overlay))
