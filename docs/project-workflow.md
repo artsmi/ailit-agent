@@ -36,3 +36,4 @@
 
 - Оглавление каталога `docs/`: [`INDEX.md`](INDEX.md).
 - Контекст и канон артефактов: [`../context/INDEX.md`](../context/INDEX.md).
+- Правило для агента Cursor (краткая выжимка этого файла): [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc).
