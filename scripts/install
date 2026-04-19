@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Полное обновление editable-установки ailit-agent из корня репозитория:
-#   pip install -e .  →  pip install -e '.[dev]'  →  pip install -e '.[chat]'
+#   pip install -e .  →  '.[dev]'  →  '.[chat]'  →  '.[tui]'
 # Создаёт/использует локальный .venv; затем симлинк ~/.local/bin/ailit → .venv/bin/ailit,
 # чтобы вызывать `ailit` из любого каталога без `source` (нужен ~/.local/bin в PATH).
 #
@@ -21,6 +21,7 @@ python3 -m pip install -U pip setuptools wheel
 python3 -m pip install -e .
 python3 -m pip install -e '.[dev]'
 python3 -m pip install -e '.[chat]'
+python3 -m pip install -e '.[tui]'
 
 echo "Готово: пакет в ${VENV}"
 
