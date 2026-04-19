@@ -665,6 +665,8 @@ def test_cli_agent_run_dry_run_emits_finished(
 Опора: tests/e2e/test_cli_agent_e2e.py строки 13–51.
 ```
 
+**Статус:** выполнено (`tests/e2e/test_cli_agent_e2e.py::test_k2_external_temp_materialize_agent_mock_then_pytest`: каталог под `tempfile.gettempdir()`, `materialize_demo_app`, изолированный `HOME` + `AILIT_CONFIG_DIR`, `ailit agent run` mock без dry-run, затем `pytest` на сгенерированном приложении).
+
 **Чекпоинт для проверки (после K.2):**
 
 - e2e в CI/локально проходит без реальных API-ключей; каталог проекта создаётся вне репозитория `ailit-agent`.
@@ -970,7 +972,7 @@ ailit --help
 
 ## 13. Следующий шаг для команды
 
-Взять **задачу K.2** — e2e: материализация внешнего проекта + `ailit agent` + pytest (см. этап K). **K.1** закрыт: `ailit agent run` принимает `--task` / `--task-file` / stdin, материализует `.ailit/run/<run_id>/task.md`, подмешивает текст в первую исполняемую задачу, эмитит `run.started`. **G.1–G.2**, **H.1–H.2**, **I.1–I.2** и **J.1** закрыты.
+Взять **задачу L.1** — MVP межагентной почты (`TeamSession`, FS mailbox, см. этап L). **K.1–K.2** закрыты (ввод задачи в CLI + e2e «вне репы» + agent mock + pytest). **G.1–G.2**, **H.1–H.2**, **I.1–I.2** и **J.1** закрыты.
 
 Опционально позже: подзадача **G.3** (поиск конфигурации вверх по дереву каталогов), если вынесена из merge. Каждая следующая задача — с промптом из этого файла и ссылками на референсы из §3.
 
