@@ -10,6 +10,7 @@ from typing import Any
 import yaml
 
 from ailit.config_secrets import ConfigSecretRedactor
+from ailit.config_store import apply_config_set
 from ailit.merged_config import AilitConfigMerger, load_merged_ailit_config
 from ailit.project_root_hint import ProjectRootDetector
 from ailit.user_paths import global_config_dir, global_state_dir
@@ -32,6 +33,19 @@ def cmd_config_path(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_config_set(args: argparse.Namespace) -> int:
+    """Записать значение в глобальный ``config.yaml`` (только allowlist-ключи)."""
+    key = str(args.key).strip()
+    value = str(args.value).strip()
+    try:
+        written = apply_config_set(key, value)
+    except ValueError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
+    sys.stdout.write(f"Записано в {written}\n")
+    return 0
+
+
 def cmd_config_show(args: argparse.Namespace) -> int:
     """Эффективный merge-конфиг в YAML без секретов."""
     start = Path(args.project_root).resolve() if args.project_root else None
@@ -43,7 +57,7 @@ def cmd_config_show(args: argparse.Namespace) -> int:
 
 
 def register_config_parser(sub: Any) -> None:
-    """Добавить ``config`` с подкомандами ``path`` и ``show``."""
+    """Добавить ``config`` с подкомандами ``path``, ``show``, ``set``."""
     p_cfg = sub.add_parser(
         "config",
         help="Пути и эффективная конфигурация (без секретов в show)",
@@ -52,6 +66,20 @@ def register_config_parser(sub: Any) -> None:
 
     p_path = cfg_sub.add_parser("path", help="Каталоги конфигурации и корень проекта")
     p_path.set_defaults(func=cmd_config_path)
+
+    p_set = cfg_sub.add_parser(
+        "set",
+        help="Записать ключ в глобальный config.yaml (allowlist)",
+    )
+    p_set.add_argument(
+        "key",
+        help="Ключ с точками, например deepseek.model",
+    )
+    p_set.add_argument(
+        "value",
+        help="Значение (для live.run: true/false/1/0)",
+    )
+    p_set.set_defaults(func=cmd_config_set)
 
     p_show = cfg_sub.add_parser(
         "show",
