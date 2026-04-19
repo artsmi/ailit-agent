@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from typing import Any, TextIO
 
@@ -64,6 +64,7 @@ class WorkflowEngine:
         run_config: WorkflowRunConfig,
         *,
         sink: TextIO | None = None,
+        diag_sink: Callable[[dict[str, Any]], None] | None = None,
     ) -> Iterator[dict[str, Any]]:
         """Итерировать события исполнения (и дублировать в sink как JSONL)."""
         out = sink or sys.stdout
@@ -90,7 +91,10 @@ class WorkflowEngine:
             yield self._emit(
                 out,
                 "stage.entered",
-                {"workflow_id": self._workflow.workflow_id, "stage_id": stage.stage_id},
+                {
+                    "workflow_id": self._workflow.workflow_id,
+                    "stage_id": stage.stage_id,
+                },
             )
             if stage.human_gate:
                 yield self._emit(
@@ -129,11 +133,22 @@ class WorkflowEngine:
                 ]
                 messages.extend(
                     [
-                        ChatMessage(role=MessageRole.SYSTEM, content=task.system_prompt),
-                        ChatMessage(role=MessageRole.USER, content=task.user_text),
+                        ChatMessage(
+                            role=MessageRole.SYSTEM,
+                            content=task.system_prompt,
+                        ),
+                        ChatMessage(
+                            role=MessageRole.USER,
+                            content=task.user_text,
+                        ),
                     ]
                 )
-                session_out = runner.run(messages, approvals, settings)
+                session_out = runner.run(
+                    messages,
+                    approvals,
+                    settings,
+                    diag_sink=diag_sink,
+                )
                 yield self._emit(
                     out,
                     "task.finished",
@@ -148,7 +163,10 @@ class WorkflowEngine:
             yield self._emit(
                 out,
                 "stage.exited",
-                {"workflow_id": self._workflow.workflow_id, "stage_id": stage.stage_id},
+                {
+                    "workflow_id": self._workflow.workflow_id,
+                    "stage_id": stage.stage_id,
+                },
             )
 
         yield self._emit(

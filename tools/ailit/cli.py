@@ -18,10 +18,11 @@ def _cmd_chat(_args: argparse.Namespace) -> int:
     try:
         import streamlit  # noqa: F401, PLC0415
     except ImportError:
-        sys.stderr.write("Установите UI-зависимости: pip install -e '.[chat]'\n")
+        msg = "Установите UI-зависимости: pip install -e '.[chat]'\n"
+        sys.stderr.write(msg)
         return 1
     app = Path(__file__).resolve().parent / "chat_app.py"
-    # Без watcher на inotify: иначе на Linux часто EMFILE «inotify instance limit reached».
+    # Без watcher inotify: иначе EMFILE «inotify instance limit reached».
     cmd = [
         sys.executable,
         "-m",
@@ -38,6 +39,7 @@ def _cmd_chat(_args: argparse.Namespace) -> int:
 
 def _cmd_agent_run(args: argparse.Namespace) -> int:
     """Исполнить workflow YAML, печать JSONL в stdout."""
+    from ailit.process_log import ensure_process_log
     from agent_core.config_loader import load_test_local_yaml
     from agent_core.providers.factory import ProviderFactory, ProviderKind
     from agent_core.providers.mock_provider import MockProvider
@@ -54,7 +56,10 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
     aug_temp = 0.0
     if args.project_root:
         root = Path(args.project_root).resolve()
-        cfg_path = Path(args.project_file).resolve() if args.project_file else default_project_yaml_path(root)
+        if args.project_file:
+            cfg_path = Path(args.project_file).resolve()
+        else:
+            cfg_path = default_project_yaml_path(root)
         loaded = load_project(cfg_path)
         reg = ProjectRegistries(loaded)
         wf_path = reg.workflow_path(wf_ref)
@@ -65,21 +70,27 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
     else:
         wf_path = Path(wf_ref).resolve()
         if not wf_path.is_file():
-            sys.stderr.write(
-                "Файл workflow не найден. Укажите путь к .yaml или задайте --project-root "
-                "и id workflow из project.yaml.\n",
+            msg = (
+                "Файл workflow не найден. Укажите путь к .yaml или задайте "
+                "--project-root и id workflow из project.yaml.\n"
             )
+            sys.stderr.write(msg)
             return 2
     wf = load_workflow_from_path(wf_path)
-    cfg = dict(load_test_local_yaml(_repo_root() / "config" / "test.local.yaml"))
+    cfg_path_yaml = _repo_root() / "config" / "test.local.yaml"
+    cfg = dict(load_test_local_yaml(cfg_path_yaml))
     if args.provider == "mock":
         provider: object = MockProvider()
     elif args.provider == "deepseek":
-        provider = ProviderFactory.create(ProviderKind.DEEPSEEK, config=cfg)
+        provider = ProviderFactory.create(
+            ProviderKind.DEEPSEEK,
+            config=cfg,
+        )
     else:
         sys.stderr.write(f"Неизвестный провайдер: {args.provider}\n")
         return 2
-    eng = WorkflowEngine(wf, provider, default_builtin_registry())  # type: ignore[arg-type]
+    reg = default_builtin_registry()
+    eng = WorkflowEngine(wf, provider, reg)  # type: ignore[arg-type]
     run_cfg = WorkflowRunConfig(
         model=args.model,
         dry_run=args.dry_run,
@@ -88,15 +99,18 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
         shortlist_keywords=aug_keys,
         temperature=aug_temp,
     )
-    list(eng.iter_run_events(run_cfg))
+    diag_sink = ensure_process_log("agent").sink
+    list(eng.iter_run_events(run_cfg, diag_sink=diag_sink))
     return 0
 
 
 def _cmd_compat_run(args: argparse.Namespace) -> int:
     """Compat: JSONL в stdout + status.md в .ailit/."""
     from ailit.compat_adapter import run_compat_workflow
+    from ailit.process_log import ensure_process_log
 
     root = Path(args.project_root).resolve()
+    diag_sink = ensure_process_log("agent").sink
     run_compat_workflow(
         project_root=root,
         workflow_ref=str(args.workflow_ref),
@@ -106,6 +120,7 @@ def _cmd_compat_run(args: argparse.Namespace) -> int:
         dry_run=bool(args.dry_run),
         sink=sys.stdout,
         repo_root=_repo_root(),
+        diag_sink=diag_sink,
     )
     return 0
 
@@ -123,10 +138,16 @@ def _cmd_debug_bundle(args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Точка входа `ailit`."""
-    parser = argparse.ArgumentParser(prog="ailit", description="ailit-agent CLI")
+    parser = argparse.ArgumentParser(
+        prog="ailit",
+        description="ailit-agent CLI",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_chat = sub.add_parser("chat", help="Интерактивный чат в браузере (Streamlit)")
+    p_chat = sub.add_parser(
+        "chat",
+        help="Интерактивный чат в браузере (Streamlit)",
+    )
     p_chat.set_defaults(func=_cmd_chat)
 
     p_agent = sub.add_parser("agent", help="Запуск workflow")
@@ -149,8 +170,16 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Явный путь к project.yaml (иначе <project-root>/project.yaml)",
     )
-    p_run.add_argument("--dry-run", action="store_true", help="Только события, без вызова модели")
-    p_run.add_argument("--model", default="deepseek-chat", help="Идентификатор модели")
+    p_run.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Только события, без вызова модели",
+    )
+    p_run.add_argument(
+        "--model",
+        default="deepseek-chat",
+        help="Идентификатор модели",
+    )
     p_run.add_argument("--max-turns", type=int, default=8, dest="max_turns")
     p_run.add_argument(
         "--provider",
@@ -160,22 +189,61 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_run.set_defaults(func=_cmd_agent_run)
 
-    p_compat = sub.add_parser("compat", help="Adapter: runtime из project.yaml + status.md")
+    p_compat = sub.add_parser(
+        "compat",
+        help="Adapter: runtime из project.yaml + status.md",
+    )
     compat_sub = p_compat.add_subparsers(dest="compat_cmd", required=True)
-    p_compat_run = compat_sub.add_parser("run", help="Прогон через compat adapter")
-    p_compat_run.add_argument("workflow_ref", type=str, help="Id workflow из project.yaml")
-    p_compat_run.add_argument("--project-root", type=str, required=True, help="Корень проекта")
+    p_compat_run = compat_sub.add_parser(
+        "run",
+        help="Прогон через compat adapter",
+    )
+    p_compat_run.add_argument(
+        "workflow_ref",
+        type=str,
+        help="Id workflow из project.yaml",
+    )
+    p_compat_run.add_argument(
+        "--project-root",
+        type=str,
+        required=True,
+        help="Корень проекта",
+    )
     p_compat_run.add_argument("--dry-run", action="store_true")
     p_compat_run.add_argument("--model", default="deepseek-chat")
-    p_compat_run.add_argument("--max-turns", type=int, default=8, dest="max_turns")
-    p_compat_run.add_argument("--provider", choices=("deepseek", "mock"), default="mock")
+    p_compat_run.add_argument(
+        "--max-turns",
+        type=int,
+        default=8,
+        dest="max_turns",
+    )
+    p_compat_run.add_argument(
+        "--provider",
+        choices=("deepseek", "mock"),
+        default="mock",
+    )
     p_compat_run.set_defaults(func=_cmd_compat_run)
 
-    p_debug = sub.add_parser("debug", help="Операторские утилиты")
+    p_debug = sub.add_parser(
+        "debug",
+        help="Операторские утилиты",
+    )
     dbg_sub = p_debug.add_subparsers(dest="debug_cmd", required=True)
-    p_dbg_bundle = dbg_sub.add_parser("bundle", help="Собрать zip debug bundle")
-    p_dbg_bundle.add_argument("--project-root", type=str, required=True)
-    p_dbg_bundle.add_argument("--out", type=str, required=True, help="Путь к .zip")
+    p_dbg_bundle = dbg_sub.add_parser(
+        "bundle",
+        help="Собрать zip debug bundle",
+    )
+    p_dbg_bundle.add_argument(
+        "--project-root",
+        type=str,
+        required=True,
+    )
+    p_dbg_bundle.add_argument(
+        "--out",
+        type=str,
+        required=True,
+        help="Путь к .zip",
+    )
     p_dbg_bundle.set_defaults(func=_cmd_debug_bundle)
 
     args = parser.parse_args(argv)

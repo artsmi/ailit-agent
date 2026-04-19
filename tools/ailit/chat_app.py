@@ -18,6 +18,7 @@ from agent_core.models import ChatMessage, MessageRole
 from agent_core.providers.deepseek import DeepSeekAdapter
 from agent_core.providers.mock_provider import MockProvider
 from agent_core.session.loop import SessionRunner, SessionSettings
+from agent_core.session.state import SessionState
 from agent_core.tool_runtime.approval import ApprovalSession
 from agent_core.tool_runtime.permission import PermissionDecision, PermissionEngine
 from agent_core.tool_runtime.registry import ToolRegistry, default_builtin_registry, empty_tool_registry
@@ -28,6 +29,7 @@ from ailit.chat_handlers import (
     strip_system_messages,
 )
 from ailit.chat_workflow_runner import run_workflow_capture_jsonl
+from ailit.process_log import ensure_process_log
 from ailit.compat_adapter import read_status, run_compat_workflow
 from ailit.debug_bundle import build_debug_bundle, default_rollout_phase
 from project_layer.bootstrap import format_agent_run_command
@@ -178,6 +180,7 @@ def _render_burger_menu(
                             model=wf_model if prov == "deepseek" else "mock",
                             max_turns=wf_mt,
                             dry_run=wf_dry,
+                            diag_sink=ensure_process_log("chat").sink,
                         )
                         st.session_state["ailit_wf_last_jsonl"] = text
                     except (OSError, ValueError, TypeError, KeyError, FileNotFoundError) as exc:
@@ -203,6 +206,7 @@ def _render_burger_menu(
                             dry_run=True,
                             sink=buf,
                             repo_root=_REPO,
+                            diag_sink=ensure_process_log("chat").sink,
                         )
                         st.session_state["compat_last_jsonl"] = buf.getvalue()
                     lj = st.session_state.get("compat_last_jsonl")
@@ -267,15 +271,25 @@ _FILE_TOOLS_SYSTEM_HINT = (
     "Не утверждай, что файл создан, если инструмент не был вызван."
 )
 
+_FS_TOOLS_SYSTEM_HINT = (
+    "Обзор дерева: list_dir (один уровень) или glob_file (шаблон имён). "
+    "read_file — только один текстовый файл, не каталог и не '.'. "
+    "Поиск по содержимому: grep (нужен `rg` в PATH); не выдумывай вывод grep."
+)
+
 
 def _inject_file_tools_system_hint(runner_msgs: list[ChatMessage], file_tools: bool) -> None:
-    """Подсказка модели (DeepSeek и др.): не обходить write_file текстом."""
+    """Подсказки модели: write_file и обзор/поиск по Claude-style."""
     if not file_tools:
         return
     for i, m in enumerate(runner_msgs):
         if m.role is MessageRole.USER:
             runner_msgs.insert(
                 i,
+                ChatMessage(role=MessageRole.SYSTEM, content=_FS_TOOLS_SYSTEM_HINT),
+            )
+            runner_msgs.insert(
+                i + 1,
                 ChatMessage(role=MessageRole.SYSTEM, content=_FILE_TOOLS_SYSTEM_HINT),
             )
             return
@@ -329,18 +343,39 @@ def _execute_llm_turn(
         _registry_for_chat(file_tools, project_root),
         permission_engine=perm,
     )
-    out = runner.run(runner_msgs, ApprovalSession(), settings)
+    out = runner.run(
+        runner_msgs,
+        ApprovalSession(),
+        settings,
+        diag_sink=ensure_process_log("chat").sink,
+    )
+
+    if out.state is SessionState.ERROR:
+        detail = out.reason or "unknown_error"
+        runner_msgs.append(
+            ChatMessage(
+                role=MessageRole.ASSISTANT,
+                content=(
+                    "Не удалось получить ответ модели. "
+                    f"Подробности: {detail}. См. JSONL-лог процесса."
+                ),
+            ),
+        )
 
     if use_project and loaded_local is not None and tuning is not None:
         st.session_state[_ChatPageState.MESSAGES] = store_after_run(base_system, prefix_len, runner_msgs)
     else:
         st.session_state[_ChatPageState.MESSAGES] = runner_msgs
 
-    st.caption(f"state={out.state.value} reason={out.reason!r}")
+    st.caption(
+        f"state={out.state.value} reason={out.reason!r} | "
+        f"log={ensure_process_log('chat').path}",
+    )
 
 
 def main() -> None:
     """Точка входа Streamlit."""
+    ensure_process_log("chat")
     st.set_page_config(page_title="ailit chat", layout="wide", initial_sidebar_state="collapsed")
     _init_messages()
     cfg = _load_cfg()

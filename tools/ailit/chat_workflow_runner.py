@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from io import StringIO
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,7 @@ def run_workflow_capture_jsonl(
     model: str,
     max_turns: int,
     dry_run: bool,
+    diag_sink: Callable[[dict[str, Any]], None] | None = None,
 ) -> str:
     """Исполнить workflow и вернуть JSONL (как stdout у CLI)."""
     wf_path = resolve_workflow_path(project_root, workflow_ref)
@@ -69,7 +71,8 @@ def run_workflow_capture_jsonl(
         msg = f"unknown provider: {provider!r}"
         raise ValueError(msg)
 
-    eng = WorkflowEngine(wf, prov, default_builtin_registry())  # type: ignore[arg-type]
+    reg = default_builtin_registry()
+    eng = WorkflowEngine(wf, prov, reg)  # type: ignore[arg-type]
     run_cfg = WorkflowRunConfig(
         model=model,
         dry_run=dry_run,
@@ -79,5 +82,5 @@ def run_workflow_capture_jsonl(
         temperature=aug_temp,
     )
     buf = StringIO()
-    list(eng.iter_run_events(run_cfg, sink=buf))
+    list(eng.iter_run_events(run_cfg, sink=buf, diag_sink=diag_sink))
     return buf.getvalue()

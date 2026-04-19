@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from io import StringIO
 from pathlib import Path
@@ -12,13 +13,18 @@ from agent_core.config_loader import load_test_local_yaml
 from agent_core.providers.factory import ProviderFactory, ProviderKind
 from agent_core.providers.mock_provider import MockProvider
 from agent_core.providers.protocol import ChatProvider
-from agent_core.tool_runtime.registry import ToolRegistry, default_builtin_registry
+from agent_core.tool_runtime.registry import (
+    ToolRegistry,
+    default_builtin_registry,
+)
 from project_layer.bootstrap import compute_workflow_augmentation
 from project_layer.loader import default_project_yaml_path, load_project
 from project_layer.models import RuntimeMode
 from project_layer.registry import ProjectRegistries
 from workflow_engine.engine import WorkflowEngine, WorkflowRunConfig
 from workflow_engine.loader import load_workflow_from_path
+
+DiagSink = Callable[[dict[str, Any]], None]
 
 
 def _repo_config_for_providers(repo_root: Path) -> dict[str, Any]:
@@ -31,7 +37,10 @@ def _make_provider(provider: str, repo_root: Path) -> ChatProvider:
     if provider == "mock":
         return MockProvider()  # type: ignore[return-value]
     if provider == "deepseek":
-        return ProviderFactory.create(ProviderKind.DEEPSEEK, config=cfg)  # type: ignore[return-value]
+        return ProviderFactory.create(
+            ProviderKind.DEEPSEEK,
+            config=cfg,
+        )  # type: ignore[return-value]
     msg = f"unknown provider: {provider!r}"
     raise ValueError(msg)
 
@@ -69,12 +78,16 @@ def run_compat_workflow(
     dry_run: bool,
     sink: TextIO,
     repo_root: Path | None = None,
+    diag_sink: DiagSink | None = None,
 ) -> AdapterRunResult:
-    """Исполнить workflow с учётом runtime из project.yaml и записать status.md."""
+    """Прогон workflow по runtime из project.yaml; пишет status.md."""
     root = project_root.resolve()
     cfg_path = default_project_yaml_path(root)
     loaded = load_project(cfg_path)
-    repo = repo_root.resolve() if repo_root else Path(__file__).resolve().parents[2]
+    if repo_root is not None:
+        repo = repo_root.resolve()
+    else:
+        repo = Path(__file__).resolve().parents[2]
 
     lines = [
         "# ailit compat status",
@@ -96,8 +109,14 @@ def run_compat_workflow(
                 "project_id": loaded.config.project_id,
             },
         )
-        lines.append("Режим **legacy**: исполнение на стороне ailit workflow engine отключено.")
-        lines.append("Подключите внешний pipeline (ai-multi-agents) или переключите `runtime: ailit`.")
+        lines.append(
+            "Режим **legacy**: исполнение на стороне ailit workflow engine "
+            "отключено.",
+        )
+        lines.append(
+            "Подключите внешний pipeline (ai-multi-agents) или переключите "
+            "`runtime: ailit`.",
+        )
         path = _write_status(root, "\n".join(lines) + "\n")
         return AdapterRunResult(
             runtime=loaded.config.runtime,
@@ -122,7 +141,7 @@ def run_compat_workflow(
         temperature=aug.temperature,
     )
     buf = StringIO()
-    events = list(eng.iter_run_events(run_cfg, sink=buf))
+    events = list(eng.iter_run_events(run_cfg, sink=buf, diag_sink=diag_sink))
     text = buf.getvalue()
     sink.write(text)
     sink.flush()

@@ -34,7 +34,7 @@ class ToolRegistry:
 
 
 def default_builtin_registry() -> ToolRegistry:
-    """Реестр встроенных echo/read_file/write_file."""
+    """Реестр встроенных list_dir, glob_file, grep, read_file, write_file, echo."""
     specs = builtin_tool_specs()
     handlers: dict[str, ToolHandler] = {k: BUILTIN_HANDLERS[k] for k in specs if k in BUILTIN_HANDLERS}
     return ToolRegistry(specs=specs, handlers=handlers)
