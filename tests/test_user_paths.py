@@ -1,0 +1,76 @@
+"""Тесты канонических глобальных путей ``ailit``."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import pytest
+
+from ailit.user_paths import GlobalDirResolver, global_config_dir, global_state_dir
+
+
+def test_global_config_dir_respects_ailit_config_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """При ``AILIT_CONFIG_DIR`` все глобальные пути конфига ведут в заданный каталог."""
+    target = tmp_path / "cfg_override"
+    monkeypatch.setenv("AILIT_CONFIG_DIR", str(target))
+    assert global_config_dir() == target.resolve()
+
+
+def test_global_state_dir_respects_ailit_state_dir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """При ``AILIT_STATE_DIR`` состояние не следует за конфигом."""
+    cfg = tmp_path / "cfg"
+    st = tmp_path / "state_override"
+    monkeypatch.setenv("AILIT_CONFIG_DIR", str(cfg))
+    monkeypatch.setenv("AILIT_STATE_DIR", str(st))
+    assert global_config_dir() == cfg.resolve()
+    assert global_state_dir() == st.resolve()
+
+
+def test_global_config_xdg_config_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Без override используется XDG_CONFIG_HOME на POSIX."""
+    if os.name == "nt":
+        pytest.skip("XDG layout проверяется на POSIX")
+    home = tmp_path / "home"
+    xdg_cfg = home / "xdg_config"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("AILIT_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_cfg))
+    r = GlobalDirResolver(os.environ)
+    assert r.global_config_dir() == (xdg_cfg / "ailit").resolve()
+
+
+def test_global_config_fallback_dot_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Без XDG_CONFIG_HOME на POSIX — ~/.config/ailit относительно HOME."""
+    if os.name == "nt":
+        pytest.skip("fallback ~/.config на POSIX")
+    home = tmp_path / "home"
+    (home / ".config").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("AILIT_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    r = GlobalDirResolver(os.environ)
+    assert r.global_config_dir() == (home / ".config" / "ailit").resolve()
+
+
+def test_global_state_xdg_state_home(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Состояние: XDG_STATE_HOME/ailit на POSIX."""
+    if os.name == "nt":
+        pytest.skip("XDG state на POSIX")
+    home = tmp_path / "home"
+    xdg_state = home / "xdg_state"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("AILIT_STATE_DIR", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(xdg_state))
+    r = GlobalDirResolver(os.environ)
+    assert r.global_state_dir() == (xdg_state / "ailit").resolve()
