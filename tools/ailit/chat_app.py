@@ -29,6 +29,7 @@ from ailit.chat_handlers import (
     store_after_run,
     strip_system_messages,
 )
+from ailit.chat_presenters import summarize_workflow_jsonl_for_user
 from ailit.chat_workflow_runner import run_workflow_capture_jsonl
 from ailit.process_log import ensure_process_log
 from ailit.compat_adapter import read_status, run_compat_workflow
@@ -129,14 +130,23 @@ def _render_burger_menu(
                     st.error(load_error)
                 elif loaded is not None:
                     st.success(f"project_id={loaded.config.project_id}")
-                    st.json(
-                        {
-                            "runtime": loaded.config.runtime.value,
-                            "workflows": list(loaded.config.workflows.keys()),
-                            "agents": list(loaded.config.agents.keys()),
-                            "rollout.phase": loaded.config.rollout.phase,
-                        },
+                    wf_keys = ", ".join(sorted(loaded.config.workflows.keys())) or "—"
+                    ag_keys = ", ".join(sorted(loaded.config.agents.keys())) or "—"
+                    st.markdown(
+                        f"- **runtime:** `{loaded.config.runtime.value}`\n"
+                        f"- **workflows:** {wf_keys}\n"
+                        f"- **agents:** {ag_keys}\n"
+                        f"- **rollout.phase:** `{loaded.config.rollout.phase}`",
                     )
+                    with st.expander("Сырой JSON (диагностика)", expanded=False):
+                        st.json(
+                            {
+                                "runtime": loaded.config.runtime.value,
+                                "workflows": list(loaded.config.workflows.keys()),
+                                "agents": list(loaded.config.agents.keys()),
+                                "rollout.phase": loaded.config.rollout.phase,
+                            },
+                        )
                 else:
                     st.info("Нет загруженного project.yaml")
             with tab_c:
@@ -178,7 +188,10 @@ def _render_burger_menu(
                         wf_dry = bool(st.session_state.get("ailit_wf_dry_run", True))
                         prov = "mock" if choice == "mock" else "deepseek"
                         if prov == "deepseek" and wf_dry is False:
-                            st.warning("Live DeepSeek: нужен ключ в config/test.local.yaml или DEEPSEEK_API_KEY.")
+                            st.warning(
+                                "Live DeepSeek: нужен DEEPSEEK_API_KEY или ключ в merge "
+                                "(см. `ailit config show`).",
+                            )
                         text = run_workflow_capture_jsonl(
                             repo_root=_REPO,
                             project_root=root,
@@ -194,7 +207,9 @@ def _render_burger_menu(
                         st.session_state["ailit_wf_last_jsonl"] = f"# error\n{type(exc).__name__}: {exc}\n"
                 wfj = st.session_state.get("ailit_wf_last_jsonl")
                 if wfj:
-                    st.code(str(wfj)[:50000], language="json")
+                    st.markdown(summarize_workflow_jsonl_for_user(str(wfj)))
+                    with st.expander("Сырой JSONL (диагностика)", expanded=False):
+                        st.code(str(wfj)[:50000], language="json")
             with tab_a:
                 st.caption("Compat adapter (этап 8)")
                 root = Path(st.session_state.get("ailit_project_root", project_root))
@@ -218,7 +233,9 @@ def _render_burger_menu(
                         st.session_state["compat_last_jsonl"] = buf.getvalue()
                     lj = st.session_state.get("compat_last_jsonl")
                     if lj:
-                        st.code(str(lj)[:20000], language="json")
+                        st.markdown(summarize_workflow_jsonl_for_user(str(lj)))
+                        with st.expander("Сырой JSONL compat (диагностика)", expanded=False):
+                            st.code(str(lj)[:20000], language="json")
                     st.markdown("**status.md**")
                     st.code(read_status(root) or "(нет)", language="markdown")
             with tab_d:

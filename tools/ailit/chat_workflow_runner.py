@@ -7,7 +7,7 @@ from io import StringIO
 from pathlib import Path
 from typing import Any
 
-from agent_core.config_loader import load_test_local_yaml
+from ailit.agent_provider_config import AgentRunProviderConfigBuilder
 from agent_core.providers.factory import ProviderFactory, ProviderKind
 from agent_core.providers.mock_provider import MockProvider
 from agent_core.tool_runtime.registry import default_builtin_registry
@@ -61,7 +61,10 @@ def run_workflow_capture_jsonl(
         aug_temp = aug.temperature
 
     wf = load_workflow_from_path(wf_path)
-    cfg = dict(load_test_local_yaml(repo_root / "config" / "test.local.yaml"))
+    cfg = AgentRunProviderConfigBuilder().build(
+        project_root.resolve(),
+        use_dev_repo_yaml=True,
+    )
     prov: Any
     if provider == "mock":
         prov = MockProvider()
