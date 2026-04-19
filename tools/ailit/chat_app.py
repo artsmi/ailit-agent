@@ -35,7 +35,11 @@ from ailit.chat_presenters import (
     summarize_workflow_jsonl_for_user,
     tool_message_should_offer_raw_json,
 )
-from ailit.session_outcome_user_copy import OutcomeReasonHumanizer, SessionErrorAssistantMessageComposer
+from ailit.chat_session_turn_progress import ChatSessionTurnProgress
+from ailit.session_outcome_user_copy import (
+    OutcomeReasonHumanizer,
+    SessionErrorAssistantMessageComposer,
+)
 from ailit.teams_panel_presenter import TeamMailboxPanelPresenter
 from ailit.teams_tools import teammate_tool_registry
 from ailit.chat_workflow_runner import run_workflow_capture_jsonl
@@ -304,6 +308,18 @@ def _render_header_and_menu(
                     st.code(read_status(root) or "(нет)", language="markdown")
             with tab_d:
                 st.caption("Debug bundle / rollout (этап 9)")
+                prog_raw = st.session_state.get("ailit_last_turn_progress")
+                if isinstance(prog_raw, ChatSessionTurnProgress):
+                    st.caption(prog_raw.markdown_caption())
+                    log_p = ensure_process_log("chat").path
+                    with st.expander(
+                        "Диагностика шагов последнего прогона чата",
+                        expanded=False,
+                    ):
+                        st.markdown(
+                            f"{prog_raw.markdown_caption()}\n\n"
+                            f"Полный след: `{log_p}` (события `session.turn`, …)."
+                        )
                 root = Path(st.session_state.get("ailit_project_root", project_root))
                 st.text(f"rollout.phase={default_rollout_phase(root)}")
                 if st.button("Собрать debug bundle", key="ailit_debug_bundle"):
@@ -479,9 +495,16 @@ def _execute_llm_turn(
     else:
         st.session_state[_ChatPageState.MESSAGES] = runner_msgs
 
+    progress = ChatSessionTurnProgress.from_outcome_events(
+        out.events,
+        limit=settings.max_turns,
+    )
+    st.session_state["ailit_last_turn_progress"] = progress
+
     hz = OutcomeReasonHumanizer()
     hint = hz.humanize(out.reason)
     cap_parts: list[str] = [f"state={out.state.value}"]
+    cap_parts.append(f"сессия: {progress.short_label_ru()}")
     if hint:
         cap_parts.append(hint)
     elif out.reason:

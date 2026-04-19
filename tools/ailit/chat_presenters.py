@@ -89,13 +89,32 @@ class TaskFinishedPresenter:
         reason_s = str(reason) if reason not in (None, "") else ""
         if reason_s == MAX_TURNS_EXCEEDED_REASON:
             extra = (
-                " Исчерпан лимит итераций сессии (**max_turns**, оркестратор). "
-                "Увеличьте лимит в форме workflow или в пресете агента — "
-                "это не `max_tokens` API."
+                " Исчерпан лимит итераций сессии (**max_turns**, "
+                "оркестратор). Увеличьте лимит в форме workflow или "
+                "в пресете агента — это не `max_tokens` API."
             )
         else:
             extra = f" Причина: `{reason_s}`." if reason_s else ""
         return f"Задача **`{tid}`** завершена: состояние **{state}**.{extra}"
+
+
+class SessionTurnDiagPresenter:
+    """Событие ``session.turn`` в JSONL диагностики session loop."""
+
+    def present(self, event: Mapping[str, Any]) -> str:
+        """Кратко: номер итерации цикла (1-based для человека)."""
+        raw = event.get("index", "?")
+        human_n: int | str
+        if isinstance(raw, int):
+            human_n = raw + 1
+        elif isinstance(raw, str) and raw.lstrip("-").isdigit():
+            human_n = int(raw, 10) + 1
+        else:
+            human_n = "?"
+        return (
+            f"Начат **{human_n}**-й шаг агентского цикла "
+            f"(`session.turn`, index={raw!r})."
+        )
 
 
 class TaskSkippedDryRunPresenter:
@@ -165,6 +184,7 @@ class ChatEventPresenterRegistry:
             "task.skipped_dry_run": TaskSkippedDryRunPresenter(),
             "project.policy.ref": ProjectPolicyRefPresenter(),
             "human.gate.requested": HumanGateRequestedPresenter(),
+            "session.turn": SessionTurnDiagPresenter(),
         }
         return cls(mapping, fallback=fb)
 
@@ -184,7 +204,7 @@ def format_event_for_user(event: Mapping[str, Any]) -> str:
 
 
 def format_jsonl_line_for_user(line: str) -> str:
-    """Распарсить одну строку JSONL и отформатировать; при ошибке — безопасная строка."""
+    """Распарсить строку JSONL; при ошибке — безопасная строка для UI."""
     raw = line.strip()
     if not raw:
         return ""
@@ -199,8 +219,12 @@ def format_jsonl_line_for_user(line: str) -> str:
     return format_event_for_user(obj)
 
 
-def summarize_workflow_jsonl_for_user(text: str, *, max_lines: int = 400) -> str:
-    """Свести JSONL прогона в компактный markdown для основной панели."""
+def summarize_workflow_jsonl_for_user(
+    text: str,
+    *,
+    max_lines: int = 400,
+) -> str:
+    """Свести JSONL прогона в markdown для основной панели."""
     all_lines = text.splitlines()
     out_lines: list[str] = []
     skipped = 0
@@ -263,7 +287,7 @@ class GlobFileToolResultPresenter:
 
 
 def format_tool_message_content_markdown(content: str) -> str:
-    """Сжать тело сообщения роли ``tool`` в markdown для основной колонки чата."""
+    """Сжать тело ``tool`` в markdown для основной колонки чата."""
     stripped = content.strip()
     if not stripped:
         return " "
@@ -271,7 +295,10 @@ def format_tool_message_content_markdown(content: str) -> str:
         return f"**Запись файла:** `{stripped}`"
     if not stripped.startswith("{"):
         limit = 6000
-        body = stripped if len(stripped) <= limit else f"{stripped[:limit]}\n\n_…усечено_"
+        if len(stripped) <= limit:
+            body = stripped
+        else:
+            body = f"{stripped[:limit]}\n\n_…усечено_"
         return f"```text\n{body}\n```"
     try:
         obj: Any = json.loads(stripped)
@@ -286,9 +313,14 @@ def format_tool_message_content_markdown(content: str) -> str:
     if obj.get("ok") is True and "inbox_rel" in obj:
         to = obj.get("to", "?")
         rel = obj.get("inbox_rel", "")
-        return f"**Сообщение teammate** доставлено получателю `{to}` (`{rel}`)."
+        return (
+            f"**Сообщение teammate** доставлено получателю `{to}` (`{rel}`)."
+        )
     keys = ", ".join(sorted(str(k) for k in obj.keys())[:10])
-    return f"**Результат инструмента** (поля: {keys}). Полный ответ — в «Сырой JSON»."
+    return (
+        f"**Результат инструмента** (поля: {keys}). "
+        "Полный ответ — в «Сырой JSON»."
+    )
 
 
 def tool_message_should_offer_raw_json(content: str) -> bool:
