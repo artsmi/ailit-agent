@@ -37,6 +37,7 @@ from ailit.chat_presenters import (
 )
 from ailit.chat_session_turn_progress import ChatSessionTurnProgress
 from ailit.session_outcome_user_copy import (
+    MAX_TURNS_EXCEEDED_REASON,
     OutcomeReasonHumanizer,
     SessionErrorAssistantMessageComposer,
 )
@@ -489,6 +490,12 @@ def _execute_llm_turn(
                 ),
             ),
         )
+        if out.reason == MAX_TURNS_EXCEEDED_REASON:
+            st.session_state["ailit_limit_turns_banner"] = (
+                "Сессия остановлена по **лимиту шагов** (оркестратор), "
+                "а не из‑за сбоя модели. Увеличьте **max_turns** в шапке и "
+                "отправьте следующее сообщение — история чата сохранится."
+            )
 
     if use_project and loaded_local is not None and tuning is not None:
         st.session_state[_ChatPageState.MESSAGES] = store_after_run(base_system, prefix_len, runner_msgs)
@@ -518,6 +525,9 @@ def main() -> None:
     ensure_process_log("chat")
     st.set_page_config(page_title="ailit chat", layout="wide", initial_sidebar_state="collapsed")
     _init_messages()
+    _banner = st.session_state.pop("ailit_limit_turns_banner", None)
+    if isinstance(_banner, str) and _banner.strip():
+        st.warning(_banner)
     st.markdown("### ailit chat")
     root_default = _REPO
     if "ailit_project_root" not in st.session_state:
