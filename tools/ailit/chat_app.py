@@ -29,7 +29,12 @@ from ailit.chat_handlers import (
     store_after_run,
     strip_system_messages,
 )
-from ailit.chat_presenters import summarize_workflow_jsonl_for_user
+from ailit.chat_presenters import (
+    format_assistant_chat_block_markdown,
+    format_tool_message_content_markdown,
+    summarize_workflow_jsonl_for_user,
+    tool_message_should_offer_raw_json,
+)
 from ailit.chat_workflow_runner import run_workflow_capture_jsonl
 from ailit.process_log import ensure_process_log
 from ailit.compat_adapter import read_status, run_compat_workflow
@@ -96,31 +101,28 @@ def _init_messages() -> None:
         ]
 
 
-def _render_header_bar() -> tuple[str, int, bool, str, bool]:
-    """Верхняя строка: провайдер, лимиты, project toggle. Возвращает выбранные значения."""
-    c_left, c_right = st.columns([5, 1])
-    with c_left:
+def _render_header_and_menu(
+    *,
+    project_root: Path,
+    loaded: LoadedProject | None,
+    load_error: str | None,
+) -> tuple[str, int, bool, str, bool]:
+    """Верхняя строка: настройки чата + заметная кнопка «Меню» (popover с вкладками)."""
+    col_left, col_mid, col_menu = st.columns([5, 3, 3])
+    with col_left:
         choice = st.selectbox("Провайдер", ("deepseek", "mock"), index=0, label_visibility="collapsed")
         max_turns = st.slider("max_turns", 1, 32, 8)
         file_tools = st.checkbox("Файловые tools", value=True)
-    with c_right:
+    with col_mid:
         use_project = st.toggle("Проект", value=True)
         agent_id = st.text_input("agent_id", value="default", label_visibility="visible")
-    return choice, max_turns, file_tools, agent_id, use_project
-
-
-def _render_burger_menu(
-    *,
-    project_root: Path,
-    choice: str,
-    max_turns: int,
-    loaded: LoadedProject | None,
-    load_error: str | None,
-) -> None:
-    """Правое бургер-меню: проект, контекст, workflow, Adapter, Debug, команда."""
-    _, col_burger = st.columns([6, 1])
-    with col_burger:
-        with st.popover("☰", use_container_width=True):
+    with col_menu:
+        st.caption("Дополнительно")
+        with st.popover(
+            "Меню",
+            help="Проект, контекст, workflow, adapter, debug, команды CLI",
+            use_container_width=True,
+        ):
             tab_p, tab_c, tab_w, tab_a, tab_d, tab_cmd = st.tabs(
                 ["Проект", "Контекст", "Workflow", "Adapter", "Debug", "Команда"],
             )
@@ -278,6 +280,7 @@ def _render_burger_menu(
                     f"ailit debug bundle --project-root {root} --out {root / '.ailit' / 'debug-bundle.zip'}",
                     language="bash",
                 )
+    return choice, max_turns, file_tools, agent_id, use_project
 
 
 def _render_dialogue_messages(messages: list[ChatMessage]) -> None:
@@ -286,7 +289,20 @@ def _render_dialogue_messages(messages: list[ChatMessage]) -> None:
         if m.role is MessageRole.SYSTEM:
             continue
         with st.chat_message(m.role.value):
-            st.markdown(m.content if m.content else " ")
+            if m.role is MessageRole.TOOL:
+                st.markdown(format_tool_message_content_markdown(m.content))
+                if tool_message_should_offer_raw_json(m.content):
+                    with st.expander("Сырой JSON (инструмент)", expanded=False):
+                        st.code(m.content, language="json")
+            elif m.role is MessageRole.ASSISTANT:
+                st.markdown(
+                    format_assistant_chat_block_markdown(
+                        content=m.content,
+                        tool_calls=m.tool_calls,
+                    ),
+                )
+            else:
+                st.markdown(m.content if m.content else " ")
 
 
 _FILE_TOOLS_SYSTEM_HINT = (
@@ -409,8 +425,6 @@ def main() -> None:
     project_root = Path(str(st.session_state.get("ailit_project_root", root_default)))
     cfg = _load_merged_chat_cfg(project_root)
 
-    choice, max_turns, file_tools, agent_id, use_project = _render_header_bar()
-
     st.session_state.setdefault("ailit_wf_ref", "minimal")
     st.session_state.setdefault("ailit_wf_model", "deepseek-chat")
     st.session_state.setdefault("ailit_wf_max_turns", 8)
@@ -421,10 +435,8 @@ def main() -> None:
     loaded = plr.loaded
     load_error = plr.error
 
-    _render_burger_menu(
+    choice, max_turns, file_tools, agent_id, use_project = _render_header_and_menu(
         project_root=project_root,
-        choice=choice,
-        max_turns=max_turns,
         loaded=loaded,
         load_error=load_error,
     )

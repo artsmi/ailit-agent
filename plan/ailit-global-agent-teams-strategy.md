@@ -620,7 +620,7 @@ def test_cli_agent_run_dry_run_emits_finished(
 Критерии приёмки: pytest; UI по-прежнему запускается streamlit run.
 ```
 
-**Статус:** выполнено (`tools/ailit/chat_presenters.py`, вкладки Workflow/Adapter и блок проекта в `chat_app.py`: основной вывод — markdown, сырой JSON(L) — в expander).
+**Статус:** выполнено (`tools/ailit/chat_presenters.py`; в `chat_app.py`: вкладки Workflow/Adapter/Проект — markdown + expander для сырого JSONL; верхняя строка **«Меню»** в колонке рядом с настройками; ответы роли `tool` в диалоге — markdown + expander «Сырой JSON»).
 
 **Чекпоинт для проверки (после J.1):**
 

@@ -191,3 +191,100 @@ def summarize_workflow_jsonl_for_user(text: str, *, max_lines: int = 400) -> str
     if skipped > 0:
         body += f"\n\n_…пропущено строк: {skipped}_"
     return body if body else "_Нет событий для отображения._"
+
+
+# --- Основной диалог: ответы инструментов (list_dir, glob_file, …) ---
+
+
+class ListDirToolResultPresenter:
+    """Форматирование JSON-ответа ``list_dir``."""
+
+    def format(self, data: dict[str, Any]) -> str:
+        """Markdown: путь и список имён."""
+        path = str(data.get("path", "."))
+        lines: list[str] = [f"**list_dir** `{path}`", ""]
+        entries = data.get("entries")
+        if isinstance(entries, list):
+            for item in entries[:120]:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name", "?"))
+                kind = str(item.get("type", "?"))
+                lines.append(f"- `{name}` _({kind})_")
+        if data.get("truncated"):
+            lines.extend(["", "_Список усечён лимитом инструмента._"])
+        return "\n".join(lines).strip()
+
+
+class GlobFileToolResultPresenter:
+    """Форматирование JSON-ответа ``glob_file``."""
+
+    def format(self, data: dict[str, Any]) -> str:
+        """Markdown: шаблон и пути."""
+        pattern = str(data.get("pattern", ""))
+        base = str(data.get("base", "."))
+        names = data.get("filenames")
+        n_raw = data.get("num_files", 0)
+        n = int(n_raw) if isinstance(n_raw, int) else 0
+        lines: list[str] = [
+            f"**glob_file** `{pattern}` в `{base}` — **{n}** файл(ов).",
+            "",
+        ]
+        if isinstance(names, list):
+            for rel in names[:60]:
+                lines.append(f"- `{rel}`")
+        if data.get("truncated"):
+            lines.extend(["", "_Список усечён._"])
+        return "\n".join(lines).strip()
+
+
+def format_tool_message_content_markdown(content: str) -> str:
+    """Сжать тело сообщения роли ``tool`` в markdown для основной колонки чата."""
+    stripped = content.strip()
+    if not stripped:
+        return " "
+    if stripped.startswith("wrote:"):
+        return f"**Запись файла:** `{stripped}`"
+    if not stripped.startswith("{"):
+        limit = 6000
+        body = stripped if len(stripped) <= limit else f"{stripped[:limit]}\n\n_…усечено_"
+        return f"```text\n{body}\n```"
+    try:
+        obj: Any = json.loads(stripped)
+    except json.JSONDecodeError:
+        return f"```\n{stripped[:4000]}\n```"
+    if not isinstance(obj, dict):
+        return "_Результат инструмента (JSON не объект)._"
+    if "entries" in obj and "path" in obj:
+        return ListDirToolResultPresenter().format(obj)
+    if "filenames" in obj and "pattern" in obj:
+        return GlobFileToolResultPresenter().format(obj)
+    keys = ", ".join(sorted(str(k) for k in obj.keys())[:10])
+    return f"**Результат инструмента** (поля: {keys}). Полный ответ — в «Сырой JSON»."
+
+
+def tool_message_should_offer_raw_json(content: str) -> bool:
+    """Показывать ли expander с сырым телом."""
+    s = content.strip()
+    return len(s) > 2 and (s.startswith("{") or s.startswith("["))
+
+
+def format_assistant_chat_block_markdown(
+    *,
+    content: str,
+    tool_calls: tuple[Any, ...] | None,
+) -> str:
+    """Текст ассистента + кратко о вызовах инструментов."""
+    parts: list[str] = []
+    if tool_calls:
+        items: list[str] = []
+        for tc in tool_calls:
+            name = str(getattr(tc, "tool_name", "?"))
+            arg = str(getattr(tc, "arguments_json", "")).strip()
+            arg_show = arg if len(arg) <= 160 else f"{arg[:157]}…"
+            items.append(f"- `{name}` — `{arg_show}`")
+        parts.append("**Вызовы инструментов**\n" + "\n".join(items))
+    body = content.strip()
+    if body:
+        parts.append(body)
+    return "\n\n".join(parts) if parts else " "

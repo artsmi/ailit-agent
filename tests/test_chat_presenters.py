@@ -7,7 +7,9 @@ import json
 from ailit.chat_presenters import (
     format_event_for_user,
     format_jsonl_line_for_user,
+    format_tool_message_content_markdown,
     summarize_workflow_jsonl_for_user,
+    tool_message_should_offer_raw_json,
 )
 
 
@@ -78,3 +80,26 @@ def test_unknown_event_type_fallback() -> None:
     out = format_event_for_user(row)
     assert "custom.vendor.event" in out
     assert "диагностика" in out
+
+
+def test_format_list_dir_tool_json() -> None:
+    """list_dir: markdown вместо сырого JSON."""
+    payload = {
+        "path": ".",
+        "entries": [
+            {"name": ".ailit", "type": "dir"},
+            {"name": "project.yaml", "type": "file"},
+        ],
+        "truncated": False,
+    }
+    out = format_tool_message_content_markdown(json.dumps(payload, ensure_ascii=False))
+    assert "**list_dir**" in out
+    assert "`.ailit`" in out
+    assert tool_message_should_offer_raw_json(json.dumps(payload))
+
+
+def test_format_write_file_short() -> None:
+    """write_file: короткая строка."""
+    out = format_tool_message_content_markdown("wrote:src/x.txt")
+    assert "wrote:src/x.txt" in out
+    assert not tool_message_should_offer_raw_json("wrote:src/x.txt")
