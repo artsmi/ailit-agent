@@ -172,8 +172,6 @@ def _cmd_debug_bundle(args: argparse.Namespace) -> int:
 
 def _cmd_plugin_install(args: argparse.Namespace) -> int:
     """Скопировать или git clone плагин в ``.ailit/plugins``."""
-    import subprocess
-
     root = Path(args.project_root).resolve()
     try:
         res = PluginInstaller.install(str(args.source), project_root=root)
