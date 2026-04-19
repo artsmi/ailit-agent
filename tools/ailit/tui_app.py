@@ -12,6 +12,7 @@ from textual.widgets import Footer, Header, Input, RichLog
 from ailit.process_log import ensure_process_log, ProcessLogHandle
 from ailit.tui_app_state import TuiAppState
 from ailit.tui_context_manager import TuiContextManager
+from ailit.tui_context_stats import TuiSubtitleUsageFormatter
 from ailit.tui_slash_registry import SlashCommandRegistry
 
 
@@ -51,6 +52,7 @@ class AilitTuiApp(App[None]):
             max_turns=mt,
             contexts=mgr,
         )
+        self._subtitle_fmt = TuiSubtitleUsageFormatter()
         self._slash = SlashCommandRegistry()
         self._log_handle: ProcessLogHandle | None = None
         self.title = "ailit tui"
@@ -73,11 +75,15 @@ class AilitTuiApp(App[None]):
         self.query_one("#chat_input", Input).focus()
 
     def _refresh_subtitle(self) -> None:
-        """Активный контекст и параметры провайдера."""
+        """Активный контекст, Σ по контексту и параметры провайдера (Q.2)."""
         s = self._app_state.session_view()
-        self.sub_title = (
-            f"{self._app_state.contexts.active_name()} | {s.provider} | "
-            f"{s.model} | mt={s.max_turns}"
+        cum = self._app_state.contexts.active_runtime().usage.as_dict()
+        self.sub_title = self._subtitle_fmt.format_idle(
+            context_name=self._app_state.contexts.active_name(),
+            cumulative=cum,
+            provider=s.provider,
+            model=s.model,
+            max_turns=s.max_turns,
         )
 
     def action_ctx_next(self) -> None:
@@ -132,11 +138,18 @@ class AilitTuiApp(App[None]):
             if usage is not None:
                 self._app_state.contexts.record_turn_usage(usage)
             log.write(escape(text))
+            sv = self._app_state.session_view()
+            cum = self._app_state.contexts.active_runtime().usage.as_dict()
+            self.sub_title = self._subtitle_fmt.format_after_turn(
+                context_name=self._app_state.contexts.active_name(),
+                last_turn=usage,
+                cumulative=cum,
+                provider=sv.provider,
+                model=sv.model,
+                max_turns=sv.max_turns,
+            )
             if st:
-                an = self._app_state.contexts.active_name()
-                self.sub_title = f"{an} | {st}"[:220]
-            else:
-                self._refresh_subtitle()
+                log.write(escape(st))
         except (OSError, RuntimeError, ValueError, TypeError) as exc:
             log.write(escape(f"{type(exc).__name__}: {exc}"))
 

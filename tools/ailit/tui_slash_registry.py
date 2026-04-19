@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ailit.tui_app_state import TuiAppState
-from ailit.tui_context_manager import TuiContextManager
+from ailit.tui_context_stats import CtxUsageMarkdownTable
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,7 +131,7 @@ class SlashCommandRegistry:
                 lines.append(f"  - {n}{mark} → {pr}")
             return tuple(lines)
         if sub == "stats":
-            return _format_ctx_stats_lines(mgr)
+            return CtxUsageMarkdownTable().render_lines(mgr)
         if sub == "new":
             if len(tokens) < 2:
                 return ("Нужно имя: /ctx new NAME [ROOT]",)
@@ -205,19 +205,3 @@ class SlashCommandRegistry:
             reply_lines=tuple(lines),
             exit_app=exit_app,
         )
-
-
-def _format_ctx_stats_lines(mgr: TuiContextManager) -> tuple[str, ...]:
-    """Текстовая сводка токенов по контекстам (расширяется в Q.2)."""
-    rows = mgr.all_usage_rows()
-    if not rows:
-        return ("Нет контекстов.",)
-    lines: list[str] = ["Токены по контекстам (накопленно):"]
-    for name, d in rows:
-        cr = d["cache_read_tokens"]
-        cw = d["cache_write_tokens"]
-        lines.append(
-            f"  - {name}: in={d['input_tokens']} out={d['output_tokens']} "
-            f"reason={d['reasoning_tokens']} cache_r={cr} cache_w={cw}",
-        )
-    return tuple(lines)
