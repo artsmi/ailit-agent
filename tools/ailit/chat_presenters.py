@@ -273,6 +273,10 @@ def format_tool_message_content_markdown(content: str) -> str:
         return ListDirToolResultPresenter().format(obj)
     if "filenames" in obj and "pattern" in obj:
         return GlobFileToolResultPresenter().format(obj)
+    if obj.get("ok") is True and "inbox_rel" in obj:
+        to = obj.get("to", "?")
+        rel = obj.get("inbox_rel", "")
+        return f"**Сообщение teammate** доставлено получателю `{to}` (`{rel}`)."
     keys = ", ".join(sorted(str(k) for k in obj.keys())[:10])
     return f"**Результат инструмента** (поля: {keys}). Полный ответ — в «Сырой JSON»."
 

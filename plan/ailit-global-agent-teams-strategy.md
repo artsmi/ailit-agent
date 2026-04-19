@@ -718,6 +718,8 @@ def test_cli_agent_run_dry_run_emits_finished(
 - SendMessageTool.ts 1–44 (только архитектурно, не копируй код)
 ```
 
+**Статус:** выполнено (`ailit/teams_tools.py`, merge в `chat_app._registry_for_chat`; `project_layer/models.py` поле `agents.*.role`, `project_layer/teammate_prompt.py`, `compute_chat_tuning`; тесты `tests/test_teammate_tool.py`, `tests/test_teammate_role_tuning.py`).
+
 **Чекпоинт для проверки (после L.2):**
 
 - Инструмент отправки маршрутизирует в mailbox; в system prompt для teammate-ролей явно сказано, что текст в чате не заменяет инструмент.
@@ -733,6 +735,8 @@ def test_cli_agent_run_dry_run_emits_finished(
 
 Тесты: минимум unit на presenter; e2e UI не обязателен.
 ```
+
+**Статус:** выполнено (`ailit/teams_panel_presenter.py`; вкладка «Команда» в `chat_app.py`, чекбокс «Инструмент команды (mailbox)»; презентер tool-ответа в `chat_presenters.py`; тест `tests/test_teams_panel_presenter.py`).
 
 **Чекпоинт для проверки (после L.3):**
 
@@ -761,6 +765,8 @@ def test_cli_agent_run_dry_run_emits_finished(
 
 Тесты: fixture плагин в tmp_path.
 ```
+
+**Статус:** выполнено (`ailit/plugin_install.py`, `project_layer/plugin_manifest.py`, `project_layer/plugin_skills.py`, `compute_chat_tuning` подмешивает snippets; CLI `ailit plugin install`; тест `tests/test_plugin_install_and_skills.py`).
 
 **Чекпоинт для проверки (после M.1):**
 
@@ -937,7 +943,7 @@ def test_cli_agent_run_dry_run_emits_finished(
 
 ## 12. Правила закрытия этапа (git, установка, команды для пользователя)
 
-Эти правила **обязательны** для работы по данному документу с этого момента и для всех будущих этапов (G.1–M.1, N.1–N.3, O.1–O.3, P.1–P.3, Q.1–Q.3 и далее).
+Эти правила **обязательны** для работы по данному документу с этого момента и для всех будущих этапов (в т.ч. N.1–N.3, O.1–O.3, P.1–P.3, Q.1–Q.3).
 
 1. **Git:** после каждого завершённого этапа (или логически завершённой подзадачи из §9) — **отдельный коммит** в репозитории `ailit-agent` с сообщением, из которого ясно, какой этап/задача закрыт (например `feat(ailit): H.2 config set …`).
 2. **Сообщение пользователю по завершении этапа** всегда должно включать два блока команд (кроме случаев, когда этап не затрагивает CLI вообще — тогда указать это явно):
@@ -974,7 +980,7 @@ ailit --help
 
 ## 13. Следующий шаг для команды
 
-Взять **задачу L.2** — инструмент `send_teammate_message` + system addendum для teammate-ролей (см. этап L). **L.1** закрыт (FS mailbox, `TeamSession`). **K.1–K.2** закрыты. **G.1–G.2**, **H.1–H.2**, **I.1–I.2** и **J.1** закрыты.
+Взять **задачу N.1** (или **O.1**) — см. этапы N/O по приоритету. **L.1–L.3** и **M.1** закрыты (mailbox UI + tool + плагины MVP). **K.1–K.2** закрыты. **G.1–G.2**, **H.1–H.2**, **I.1–I.2** и **J.1** закрыты.
 
 Опционально позже: подзадача **G.3** (поиск конфигурации вверх по дереву каталогов), если вынесена из merge. Каждая следующая задача — с промптом из этого файла и ссылками на референсы из §3.
 

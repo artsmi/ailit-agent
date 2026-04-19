@@ -35,6 +35,8 @@ from ailit.chat_presenters import (
     summarize_workflow_jsonl_for_user,
     tool_message_should_offer_raw_json,
 )
+from ailit.teams_panel_presenter import TeamMailboxPanelPresenter
+from ailit.teams_tools import teammate_tool_registry
 from ailit.chat_workflow_runner import run_workflow_capture_jsonl
 from ailit.process_log import ensure_process_log
 from ailit.compat_adapter import read_status, run_compat_workflow
@@ -73,13 +75,26 @@ def _make_provider(choice: str, cfg: dict) -> tuple[object, str]:
     raise ValueError(choice)
 
 
-def _registry_for_chat(file_tools: bool, work_root: Path | None = None) -> ToolRegistry:
-    """File tools: песочница = корень проекта (или репозиторий по умолчанию)."""
-    if not file_tools:
-        return empty_tool_registry()
-    root = (work_root or _REPO).resolve()
-    os.environ["AILIT_WORK_ROOT"] = str(root)
-    return default_builtin_registry()
+def _registry_for_chat(
+    *,
+    file_tools: bool,
+    work_root: Path | None,
+    teammate_tools: bool,
+) -> ToolRegistry:
+    """Собрать реестр: file tools + опционально ``send_teammate_message``."""
+    reg: ToolRegistry
+    if file_tools:
+        root = (work_root or _REPO).resolve()
+        os.environ["AILIT_WORK_ROOT"] = str(root)
+        reg = default_builtin_registry()
+    else:
+        reg = empty_tool_registry()
+    if teammate_tools and work_root is not None:
+        pr = work_root.resolve()
+        os.environ["AILIT_TEAM_PROJECT_ROOT"] = str(pr)
+        os.environ.setdefault("AILIT_WORK_ROOT", str(pr))
+        reg = reg.merge(teammate_tool_registry())
+    return reg
 
 
 class _ChatPageState:
@@ -106,7 +121,7 @@ def _render_header_and_menu(
     project_root: Path,
     loaded: LoadedProject | None,
     load_error: str | None,
-) -> tuple[str, int, bool, str, bool]:
+) -> tuple[str, int, bool, str, bool, bool]:
     """Верхняя строка: настройки чата + заметная кнопка «Меню» (popover с вкладками)."""
     col_left, col_mid, col_menu = st.columns([5, 3, 3])
     with col_left:
@@ -116,6 +131,12 @@ def _render_header_and_menu(
     with col_mid:
         use_project = st.toggle("Проект", value=True)
         agent_id = st.text_input("agent_id", value="default", label_visibility="visible")
+        teammate_tools = st.checkbox(
+            "Инструмент команды (mailbox)",
+            value=loaded is not None,
+            disabled=loaded is None,
+            help="send_teammate_message: запись в .ailit/teams/<team_id>/inboxes/",
+        )
     with col_menu:
         st.caption("Дополнительно")
         with st.popover(
@@ -123,8 +144,8 @@ def _render_header_and_menu(
             help="Проект, контекст, workflow, adapter, debug, команды CLI",
             use_container_width=True,
         ):
-            tab_p, tab_c, tab_w, tab_a, tab_d, tab_cmd = st.tabs(
-                ["Проект", "Контекст", "Workflow", "Adapter", "Debug", "Команда"],
+            tab_p, tab_team, tab_c, tab_w, tab_a, tab_d, tab_cmd = st.tabs(
+                ["Проект", "Команда", "Контекст", "Workflow", "Adapter", "Debug", "CLI"],
             )
             with tab_p:
                 st.text_input("Корень проекта", key="ailit_project_root")
@@ -151,6 +172,34 @@ def _render_header_and_menu(
                         )
                 else:
                     st.info("Нет загруженного project.yaml")
+            with tab_team:
+                st.caption("Файловый mailbox: `.ailit/teams/<team_id>/inboxes/<agent>.json`")
+                root = Path(st.session_state.get("ailit_project_root", project_root))
+                st.text_input("team_id", key="ailit_team_panel_id", value="default")
+                st.text_input("Фильтр: только inbox получателя (пусто = все)", key="ailit_team_filter_to")
+                if st.button("Обновить панель команды", key="ailit_team_refresh"):
+                    st.session_state["ailit_team_digest_tick"] = (
+                        int(st.session_state.get("ailit_team_digest_tick", 0)) + 1
+                    )
+                tid = str(st.session_state.get("ailit_team_panel_id", "default")).strip() or "default"
+                flt_raw = str(st.session_state.get("ailit_team_filter_to", "")).strip()
+                flt = flt_raw or None
+                if loaded is not None:
+                    pres = TeamMailboxPanelPresenter(project_root=root, team_id=tid)
+                    st.markdown(pres.markdown_digest(filter_to=flt))
+                    inbox_dir = root / ".ailit" / "teams" / tid / "inboxes"
+                    with st.expander("Сырой JSON (пути inbox)", expanded=False):
+                        if inbox_dir.is_dir():
+                            st.json(
+                                {
+                                    "inbox_dir": str(inbox_dir),
+                                    "files": sorted(str(p.name) for p in inbox_dir.glob("*.json")),
+                                },
+                            )
+                        else:
+                            st.json({"inbox_dir": str(inbox_dir), "files": []})
+                else:
+                    st.info("Нужен загруженный project.yaml и корень проекта.")
             with tab_c:
                 if loaded is None:
                     st.caption("Сначала укажите корректный корень и project.yaml")
@@ -280,7 +329,7 @@ def _render_header_and_menu(
                     f"ailit debug bundle --project-root {root} --out {root / '.ailit' / 'debug-bundle.zip'}",
                     language="bash",
                 )
-    return choice, max_turns, file_tools, agent_id, use_project
+    return choice, max_turns, file_tools, agent_id, use_project, teammate_tools
 
 
 def _render_dialogue_messages(messages: list[ChatMessage]) -> None:
@@ -345,8 +394,10 @@ def _execute_llm_turn(
     max_turns = int(snap["max_turns"])
     file_tools = bool(snap["file_tools"])
     use_project = bool(snap["use_project"])
+    teammate_tools = bool(snap.get("teammate_tools", False))
     agent_id = str(snap["agent_id"])
     project_root = Path(str(snap["project_root"]))
+    os.environ["AILIT_CHAT_AGENT_ID"] = agent_id.strip() or "default"
 
     fac_local = ProjectSessionFactory(project_root)
     plr = fac_local.load()
@@ -373,14 +424,19 @@ def _execute_llm_turn(
         temperature=tuning.temperature if tuning and tuning.temperature is not None else 0.3,
         shortlist_keywords=tuning.shortlist_keywords if tuning else None,
     )
+    work_for_tools = project_root if use_project else _REPO
     perm = (
         PermissionEngine(write_default=PermissionDecision.ALLOW)
-        if file_tools
+        if file_tools or teammate_tools
         else None
     )
     runner = SessionRunner(
         provider,
-        _registry_for_chat(file_tools, project_root),
+        _registry_for_chat(
+            file_tools=file_tools,
+            work_root=work_for_tools,
+            teammate_tools=teammate_tools,
+        ),
         permission_engine=perm,
     )
     out = runner.run(
@@ -435,7 +491,7 @@ def main() -> None:
     loaded = plr.loaded
     load_error = plr.error
 
-    choice, max_turns, file_tools, agent_id, use_project = _render_header_and_menu(
+    choice, max_turns, file_tools, agent_id, use_project, teammate_tools = _render_header_and_menu(
         project_root=project_root,
         loaded=loaded,
         load_error=load_error,
@@ -476,6 +532,7 @@ def main() -> None:
         "max_turns": max_turns,
         "file_tools": file_tools,
         "use_project": use_project,
+        "teammate_tools": teammate_tools,
         "agent_id": agent_id,
         "project_root": str(project_root),
     }

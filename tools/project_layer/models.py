@@ -32,6 +32,8 @@ class AgentPreset:
     temperature: float | None = None
     max_turns: int | None = None
     shortlist_extra: frozenset[str] = field(default_factory=frozenset)
+    """Роль агента: ``teammate`` — режим межагентной почты (addendum + tool)."""
+    role: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +92,10 @@ def _preset_from_mapping(agent_id: str, raw: Mapping[str, Any]) -> AgentPreset:
     extras = frozenset(str(x) for x in extra_raw)
     temp = raw.get("temperature")
     mt = raw.get("max_turns")
+    role_raw = raw.get("role")
+    role = str(role_raw).strip().lower() if role_raw else None
+    if role == "":
+        role = None
     return AgentPreset(
         agent_id=agent_id,
         system_append=str(raw.get("system_append", "") or ""),
@@ -97,6 +103,7 @@ def _preset_from_mapping(agent_id: str, raw: Mapping[str, Any]) -> AgentPreset:
         temperature=float(temp) if temp is not None else None,
         max_turns=int(mt) if mt is not None else None,
         shortlist_extra=extras,
+        role=role,
     )
 
 

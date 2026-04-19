@@ -12,7 +12,9 @@ from project_layer.knowledge import (
     StubKnowledgeRefresh,
 )
 from project_layer.loader import LoadedProject
+from project_layer.plugin_skills import collect_plugin_skill_snippets
 from project_layer.registry import ProjectRegistries
+from project_layer.teammate_prompt import TEAMMATE_MAILBOX_SYSTEM_ADDENDUM
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,8 +92,13 @@ def compute_chat_tuning(
         extras.append(f"Project rules:\n{rules}")
     if loaded.config.memory_hints:
         extras.append("Memory hints:\n" + "\n".join(f"- {h}" for h in loaded.config.memory_hints))
+    if (agent.role or "").lower() == "teammate":
+        extras.append(TEAMMATE_MAILBOX_SYSTEM_ADDENDUM)
     if agent.system_append:
         extras.append(agent.system_append)
+    plug = collect_plugin_skill_snippets(loaded)
+    if plug:
+        extras.append("Installed plugin skills (reference):\n" + plug)
     merged_keywords = frozenset(snap.shortlist_keywords | agent.shortlist_extra)
     keys: frozenset[str] | None = merged_keywords if merged_keywords else None
     return ChatSessionTuning(
