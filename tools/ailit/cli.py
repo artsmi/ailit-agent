@@ -42,6 +42,17 @@ def _cmd_chat(_args: argparse.Namespace) -> int:
     return subprocess.call(cmd)
 
 
+def _cmd_agent_usage_last(args: argparse.Namespace) -> int:
+    """Печать последней сводки usage из лога agent."""
+    from pathlib import Path
+
+    from ailit.agent_usage_cli import print_last_usage_from_log
+
+    raw = getattr(args, "usage_log_file", None)
+    explicit = Path(str(raw)).resolve() if raw else None
+    return print_last_usage_from_log(explicit)
+
+
 def _cmd_agent_run(args: argparse.Namespace) -> int:
     """Исполнить workflow YAML, печать JSONL в stdout."""
     from ailit.process_log import ensure_process_log
@@ -182,7 +193,8 @@ def _cmd_plugin_install(args: argparse.Namespace) -> int:
     except (OSError, ValueError, TypeError) as exc:
         sys.stderr.write(f"{type(exc).__name__}: {exc}\n")
         return 2
-    sys.stdout.write(f"Installed plugin `{res.manifest_name}` → {res.dest_dir}\n")
+    msg = f"Installed plugin `{res.manifest_name}` → {res.dest_dir}\n"
+    sys.stdout.write(msg)
     return 0
 
 
@@ -251,7 +263,10 @@ def main(argv: list[str] | None = None) -> int:
         "--task",
         default=None,
         metavar="TEXT",
-        help="Текст задачи для первой исполняемой задачи workflow (см. также --task-file, stdin)",
+        help=(
+            "Текст задачи для первой исполняемой задачи workflow "
+            "(см. --task-file, stdin)"
+        ),
     )
     task_group.add_argument(
         "--task-file",
@@ -261,6 +276,24 @@ def main(argv: list[str] | None = None) -> int:
         help="Путь к файлу с задачей (UTF-8); взаимоисключение с --task",
     )
     p_run.set_defaults(func=_cmd_agent_run)
+
+    p_usage = agent_sub.add_parser(
+        "usage",
+        help="Сводка токенов из JSONL-лога процесса agent",
+    )
+    usage_sub = p_usage.add_subparsers(dest="usage_cmd", required=True)
+    p_usage_last = usage_sub.add_parser(
+        "last",
+        help="Печать последней пары usage и session totals (как в chat)",
+    )
+    p_usage_last.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        dest="usage_log_file",
+        help="Путь к JSONL (иначе последний ~/.ailit/ailit-agent-*.log)",
+    )
+    p_usage_last.set_defaults(func=_cmd_agent_usage_last)
 
     p_compat = sub.add_parser(
         "compat",
@@ -323,12 +356,12 @@ def main(argv: list[str] | None = None) -> int:
     plugin_sub = p_plugin.add_subparsers(dest="plugin_cmd", required=True)
     p_pin = plugin_sub.add_parser(
         "install",
-        help="Установить плагин из локального каталога или git URL в .ailit/plugins/",
+        help="Установить плагин (каталог или git URL) в .ailit/plugins/",
     )
     p_pin.add_argument(
         "source",
         type=str,
-        help="Путь к каталогу с ailit-plugin.yaml или URL (github/gitlab/… .git)",
+        help="Каталог с ailit-plugin.yaml или URL репозитория (.git)",
     )
     p_pin.add_argument(
         "--project-root",

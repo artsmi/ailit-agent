@@ -68,6 +68,23 @@ def test_usage_to_diag_roundtrip_shape() -> None:
     assert d["cache_write_tokens"] == 5
 
 
+def test_last_usage_pair_from_agent_log_text() -> None:
+    """Парсинг хвоста JSONL для CLI ``usage last``."""
+    from ailit.agent_usage_cli import last_usage_pair_from_log_text
+
+    log = (
+        '{"event_type":"process.start","role":"agent"}\n'
+        '{"event_type":"model.response",'
+        '"usage":{"input_tokens":2,"output_tokens":1},'
+        '"usage_session_totals":{"input_tokens":5,"output_tokens":3}}\n'
+    )
+    pair = last_usage_pair_from_log_text(log)
+    assert pair is not None
+    lu, st = pair
+    assert lu["input_tokens"] == 2
+    assert st["input_tokens"] == 5
+
+
 def test_normalize_chat_completion_merges_unknown_meta() -> None:
     """provider_metadata получает usage_unknown_tail."""
     payload = {
