@@ -47,6 +47,10 @@ from ailit.chat_workflow_runner import run_workflow_capture_jsonl
 from ailit.process_log import ensure_process_log
 from ailit.compat_adapter import read_status, run_compat_workflow
 from ailit.debug_bundle import build_debug_bundle, default_rollout_phase
+from ailit.usage_display import (
+    SessionEventsUsageExtractor,
+    UsageSummaryMarkdownFormatter,
+)
 from project_layer.bootstrap import format_agent_run_command
 from project_layer.loader import LoadedProject
 
@@ -362,6 +366,24 @@ def _render_header_and_menu(
     return choice, max_turns, file_tools, agent_id, use_project, teammate_tools
 
 
+def _render_usage_tokens_panel() -> None:
+    """Панель токенов после последнего прогона (O.2)."""
+    raw = st.session_state.get("ailit_last_usage_pair")
+    if not isinstance(raw, tuple) or len(raw) != 2:
+        return
+    lu_raw, st_raw = raw
+    if not isinstance(lu_raw, dict) or not isinstance(st_raw, dict):
+        return
+    fmt = UsageSummaryMarkdownFormatter()
+    st.caption("**Токены** (последний вызов и накопление за сессию)")
+    st.caption(fmt.compact_last_call_line(lu_raw))
+    st.caption(fmt.compact_session_line(st_raw))
+    with st.expander("Токены: подробности (JSON)", expanded=False):
+        st.markdown(
+            fmt.expander_markdown(last_usage=lu_raw, session_totals=st_raw),
+        )
+
+
 def _render_dialogue_messages(messages: list[ChatMessage]) -> None:
     """Отрисовать user/assistant/tool (без system)."""
     for m in messages:
@@ -508,6 +530,12 @@ def _execute_llm_turn(
     )
     st.session_state["ailit_last_turn_progress"] = progress
 
+    pair = SessionEventsUsageExtractor.last_pair(out.events)
+    if pair is not None:
+        st.session_state["ailit_last_usage_pair"] = pair
+    else:
+        st.session_state.pop("ailit_last_usage_pair", None)
+
     hz = OutcomeReasonHumanizer()
     hint = hz.humanize(out.reason)
     cap_parts: list[str] = [f"state={out.state.value}"]
@@ -573,6 +601,7 @@ def main() -> None:
         return
 
     _render_dialogue_messages(msgs)
+    _render_usage_tokens_panel()
 
     prompt = st.chat_input("Сообщение…")
     if not prompt:
