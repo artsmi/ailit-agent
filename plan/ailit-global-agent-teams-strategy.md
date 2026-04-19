@@ -867,6 +867,8 @@ def test_cli_agent_run_dry_run_emits_finished(
 
 **Сделать:** зафиксировать библиотеку (например `textual` / `prompt_toolkit` — критерий: поддержка вложенных экранов, клавиатура, Windows по желанию). `ailit tui` или `ailit chat --tui` — один вход, описанный в `--help`.
 
+**Реализация в репозитории:** **Textual** (`>=0.47`), optional extra `[tui]` в `pyproject.toml`, вход **`ailit tui`** (без дублирования `ailit chat --tui`).
+
 **Критерии:** запуск из любого каталога с project root; тот же merge конфига, что у `ailit chat`.
 
 #### Задача P.2 — Реестр slash-команд `/`
@@ -916,6 +918,8 @@ def test_cli_agent_run_dry_run_emits_finished(
 **Чекпоинт этапа Q:**
 
 - Разработчик ведёт два проекта (два `project_root`) в одном TUI, переключается по имени, видит раздельный учёт токенов.
+
+**Статус в репозитории (2026-04):** закрыты **Q.1–Q.3** — `TuiContextManager`, `/ctx list|new|switch|rename|stats|save`, Ctrl+Shift+Left/Right, накопленный usage на контекст, подзаголовок с **last** и **Σ**, `/ctx stats` как markdown-таблица, снимок в `~/.ailit/tui-sessions/state.json` (автосохранение при выходе из TUI), тесты `tests/test_tui_context_manager.py`, `tests/test_tui_context_stats.py`, `tests/test_tui_context_persistence.py`.
 
 ---
 

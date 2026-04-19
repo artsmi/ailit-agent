@@ -88,6 +88,10 @@
 - cost-aware routing;
 - strict schema и fallback policy.
 
+### Рабочий workflow этого репозитория (Markdown)
+
+- [`project-workflow.md`](project-workflow.md) — порядок работы по плану, ссылки на референсы, правило «конец workflow → research и постановка».
+
 ### Глобальный CLI, Agent Teams, плагины и human-readable chat
 
 - [`../plan/ailit-global-agent-teams-strategy.md`](../plan/ailit-global-agent-teams-strategy.md)
