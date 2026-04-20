@@ -9,7 +9,9 @@ from pathlib import Path
 
 from ailit.agent_provider_config import AgentRunProviderConfigBuilder
 from ailit.config_cli import register_config_parser
+from ailit.models_cli import register_models_parser
 from ailit.plugin_install import PluginInstaller
+from ailit.setup_cli import register_setup_parser
 from ailit.task_spec import RunTaskArtifactWriter, TaskSpecResolver
 
 
@@ -131,10 +133,9 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
     if args.provider == "mock":
         provider: object = MockProvider()
     elif args.provider == "deepseek":
-        provider = ProviderFactory.create(
-            ProviderKind.DEEPSEEK,
-            config=cfg,
-        )
+        provider = ProviderFactory.create(ProviderKind.DEEPSEEK, config=cfg)
+    elif args.provider == "kimi":
+        provider = ProviderFactory.create(ProviderKind.KIMI, config=cfg)
     else:
         sys.stderr.write(f"Неизвестный провайдер: {args.provider}\n")
         return 2
@@ -235,6 +236,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="command", required=True)
     register_config_parser(sub)
+    register_setup_parser(sub)
+    register_models_parser(sub)
 
     p_chat = sub.add_parser(
         "chat",
@@ -254,7 +257,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_tui.add_argument(
         "--provider",
-        choices=("mock", "deepseek"),
+        choices=("mock", "deepseek", "kimi"),
         default="mock",
         help="Провайдер LLM",
     )
@@ -285,7 +288,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_agent.add_argument(
         "--provider",
-        choices=("mock", "deepseek"),
+        choices=("mock", "deepseek", "kimi"),
         default="mock",
         help="Провайдер LLM для интерактивного режима",
     )
@@ -334,7 +337,7 @@ def main(argv: list[str] | None = None) -> int:
     p_run.add_argument("--max-turns", type=int, default=8, dest="max_turns")
     p_run.add_argument(
         "--provider",
-        choices=("deepseek", "mock"),
+        choices=("deepseek", "kimi", "mock"),
         default="mock",
         help="Провайдер для задач workflow (mock не требует ключа)",
     )

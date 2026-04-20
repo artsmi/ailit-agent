@@ -26,7 +26,11 @@ def resolve_model(provider: str, model: str | None) -> str:
     """Модель по умолчанию в зависимости от провайдера."""
     if model:
         return model
-    return "mock" if provider == "mock" else "deepseek-chat"
+    if provider == "mock":
+        return "mock"
+    if provider == "kimi":
+        return "moonshot-v1-8k"
+    return "deepseek-chat"
 
 
 class AilitTuiApp(App[None]):

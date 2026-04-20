@@ -16,8 +16,11 @@ from ailit.user_paths import GlobalDirResolver
 GLOBAL_USER_CONFIG_FILENAME = "config.yaml"
 
 
-def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
-    """Рекурсивно объединить два mapping; значения из ``overlay`` перекрывают ``base``."""
+def _deep_merge(
+    base: dict[str, Any],
+    overlay: dict[str, Any],
+) -> dict[str, Any]:
+    """Рекурсивно объединить mapping; overlay перекрывает base."""
     result: dict[str, Any] = dict(base)
     for key, value in overlay.items():
         if (
@@ -32,7 +35,7 @@ def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]
 
 
 def _load_mapping_file(path: Path) -> dict[str, Any]:
-    """Прочитать YAML или JSON с корневым объектом-mapping; при отсутствии файла — ``{}``."""
+    """Прочитать YAML/JSON mapping; при отсутствии файла — ``{}``."""
     if not path.is_file():
         return {}
     raw = path.read_text(encoding="utf-8")
@@ -53,6 +56,7 @@ def _default_ailit_config() -> dict[str, Any]:
     """Встроенные значения по умолчанию (нижайший приоритет)."""
     return {
         "schema_version": "1",
+        "default": {"provider": "mock", "model": ""},
         "live": {"run": False},
         "deepseek": {},
         "kimi": {},
@@ -72,24 +76,31 @@ class ProviderEnvOverlay:
             base_ds: dict[str, Any] = dict(ds) if isinstance(ds, dict) else {}
             base_ds["api_key"] = ds_key
             out["deepseek"] = base_ds
-        for env_name in ("KIMI_API_KEY", "MOONSHOT_API_KEY"):
+        for env_name in (
+            "KIMI_API_KEY",
+            "MOONSHOT_API_KEY",
+        ):
             km_key = os.environ.get(env_name, "").strip()
             if km_key:
                 km = out.get("kimi")
-                base_km: dict[str, Any] = dict(km) if isinstance(km, dict) else {}
+                base_km: dict[str, Any] = (
+                    dict(km) if isinstance(km, dict) else {}
+                )
                 base_km["api_key"] = km_key
                 out["kimi"] = base_km
                 break
         if os.environ.get("AILIT_RUN_LIVE", "").strip() == "1":
             live = out.get("live")
-            base_live: dict[str, Any] = dict(live) if isinstance(live, dict) else {}
+            base_live: dict[str, Any] = (
+                dict(live) if isinstance(live, dict) else {}
+            )
             base_live["run"] = True
             out["live"] = base_live
         return out
 
 
 class AilitConfigMerger:
-    """Загрузка и merge; имена слоёв — :data:`ailit.config_layer_order.CONFIG_MERGE_LAYER_NAMES`."""
+    """Загрузка и merge; слои описаны в ``ailit.config_layer_order``."""
 
     def __init__(
         self,
@@ -99,11 +110,13 @@ class AilitConfigMerger:
         """Инициализировать merger.
 
         Args:
-            path_resolver: Резолвер глобальных путей (по умолчанию из ``os.environ``).
-            env_overlay: Слой env; по умолчанию :class:`ProviderEnvOverlay`.
+            path_resolver: Резолвер глобальных путей (по умолчанию: env).
+            env_overlay: Слой env; по умолчанию ProviderEnvOverlay.
         """
         self._paths = path_resolver or GlobalDirResolver()
-        self._env_overlay = env_overlay if env_overlay is not None else ProviderEnvOverlay()
+        self._env_overlay = (
+            env_overlay if env_overlay is not None else ProviderEnvOverlay()
+        )
 
     def global_config_file(self) -> Path:
         """Путь к глобальному пользовательскому ``config.yaml``."""
@@ -112,7 +125,10 @@ class AilitConfigMerger:
     def load(self, project_root: Path | None) -> dict[str, Any]:
         """Собрать конфиг: defaults → global file → project → env overlay."""
         merged = _deep_merge({}, _default_ailit_config())
-        merged = _deep_merge(merged, _load_mapping_file(self.global_config_file()))
+        merged = _deep_merge(
+            merged,
+            _load_mapping_file(self.global_config_file()),
+        )
         if project_root is not None:
             discovered = ProjectAilitConfigDiscovery.collect_deepest_first(
                 Path(project_root),

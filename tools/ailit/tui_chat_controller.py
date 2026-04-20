@@ -7,10 +7,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from agent_core.config_loader import deepseek_api_key_from_env_or_config
 from agent_core.models import ChatMessage, MessageRole
-from agent_core.providers.deepseek import DeepSeekAdapter
 from agent_core.providers.mock_provider import MockProvider
+from agent_core.providers.factory import ProviderFactory, ProviderKind
 from agent_core.session.loop import (
     SessionOutcome,
     SessionRunner,
@@ -53,20 +52,21 @@ class TuiProviderAssembler:
             root,
             use_dev_repo_yaml=True,
         )
-        key = deepseek_api_key_from_env_or_config(cfg)
-        if not key:
-            msg = (
-                "Нет ключа DeepSeek: DEEPSEEK_API_KEY или ключ в merge "
-                "(см. `ailit config show`)."
-            )
-            raise RuntimeError(msg)
-        ds = cfg.get("deepseek")
-        api_root = "https://api.deepseek.com/v1"
-        m = model or "deepseek-chat"
-        if isinstance(ds, dict):
-            api_root = str(ds.get("base_url") or api_root).rstrip("/")
-            m = str(ds.get("model") or m)
-        return DeepSeekAdapter(key, api_root=api_root), m
+        if provider == "deepseek":
+            prov = ProviderFactory.create(ProviderKind.DEEPSEEK, config=cfg)
+            ds = cfg.get("deepseek")
+            m = model or "deepseek-chat"
+            if isinstance(ds, dict):
+                m = str(ds.get("model") or m)
+            return prov, m
+        if provider == "kimi":
+            prov = ProviderFactory.create(ProviderKind.KIMI, config=cfg)
+            km = cfg.get("kimi")
+            m = model or "moonshot-v1-8k"
+            if isinstance(km, dict):
+                m = str(km.get("model") or m)
+            return prov, m
+        raise ValueError(provider)
 
 
 class TuiChatController:

@@ -12,11 +12,13 @@ from ailit.merged_config import AilitConfigMerger
 
 
 class ConfigSetKeyAllowlist:
-    """Допустимые ключи в нотации ``секция.поле`` (одна точка или несколько)."""
+    """Допустимые ключи в нотации ``секция.поле`` (с точками)."""
 
     _DOT_KEYS: frozenset[str] = frozenset(
         {
             "schema_version",
+            "default.provider",
+            "default.model",
             "deepseek.model",
             "deepseek.base_url",
             "deepseek.api_key",
@@ -47,7 +49,9 @@ class ConfigValueCoercer:
         stripped = raw.strip()
         if dot_key == "live.run":
             return stripped.lower() in ("1", "true", "yes", "on")
-        if dot_key.endswith(".max_tokens") or dot_key.endswith(".timeout_seconds"):
+        if dot_key.endswith(".max_tokens") or dot_key.endswith(
+            ".timeout_seconds"
+        ):
             return int(stripped, 10)
         return stripped
 
@@ -59,8 +63,11 @@ class DotKeyPathParser:
 
     def to_tuple(self, dot_key: str) -> tuple[str, ...]:
         """Разобрать ключ на сегменты или бросить ``ValueError``."""
-        if not dot_key or ".." in dot_key or dot_key.startswith(".") or dot_key.endswith(
-            ".",
+        if (
+            not dot_key
+            or ".." in dot_key
+            or dot_key.startswith(".")
+            or dot_key.endswith(".")
         ):
             msg = f"Некорректный ключ: {dot_key!r}"
             raise ValueError(msg)
@@ -75,7 +82,12 @@ class DotKeyPathParser:
 class NestedMappingWriter:
     """Вложенная запись в ``dict`` по пути из сегментов."""
 
-    def set_path(self, root: dict[str, Any], path: tuple[str, ...], value: Any) -> None:
+    def set_path(
+        self,
+        root: dict[str, Any],
+        path: tuple[str, ...],
+        value: Any,
+    ) -> None:
         """Установить ``value`` по ``path``, создавая промежуточные dict."""
         if not path:
             msg = "Путь ключа не может быть пустым"
@@ -94,7 +106,7 @@ class GlobalUserConfigFileStore:
     """Чтение/запись глобального ``config.yaml`` с атомарной заменой файла."""
 
     def __init__(self, config_file: Path | None = None) -> None:
-        """Инициализировать путь к файлу (по умолчанию из :class:`AilitConfigMerger`)."""
+        """Инициализировать путь к файлу (по умолчанию из merger)."""
         self._path = (
             config_file
             if config_file is not None
@@ -139,7 +151,7 @@ class GlobalUserConfigFileStore:
 
 
 def apply_config_set(dot_key: str, raw_value: str) -> Path:
-    """Проверить ключ, записать значение в глобальный конфиг, вернуть путь к файлу.
+    """Проверить ключ и записать значение в глобальный конфиг.
 
     Raises:
         ValueError: неразрешённый ключ, неверный формат пути или типа.
