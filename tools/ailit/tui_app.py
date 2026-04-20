@@ -6,8 +6,9 @@ import argparse
 from pathlib import Path
 
 from rich.markup import escape
+from rich.text import Text
 from textual.app import App, ComposeResult
-from textual.widgets import Footer, Header, Input, RichLog
+from textual.widgets import Header, Input, RichLog
 
 from ailit.process_log import ensure_process_log, ProcessLogHandle
 from ailit.tui_app_state import TuiAppState
@@ -66,13 +67,12 @@ class AilitTuiApp(App[None]):
 
     def compose(self) -> ComposeResult:
         """Шапка, журнал, ввод, подвал."""
-        yield Header()
+        yield Header(show_clock=False)
         yield RichLog(id="chat_log", wrap=True, highlight=True)
         yield Input(
             id="chat_input",
             placeholder="Сообщение или /help …",
         )
-        yield Footer()
 
     def on_mount(self) -> None:
         """Лог, фокус, подзаголовок; восстановление снимка TUI (Q.3)."""
@@ -147,7 +147,13 @@ class AilitTuiApp(App[None]):
             if res.exit_app:
                 self.exit()
             return
-        log.write(f"[dim]user>[/dim] {line}")
+        log.write(
+            Text.assemble(
+                ("Вы", "bold cyan"),
+                ("> ", "bold cyan"),
+                (line, ""),
+            )
+        )
         handle = self._log_handle
         if handle is None:
             log.write(escape("Лог процесса не инициализирован."))
@@ -162,6 +168,9 @@ class AilitTuiApp(App[None]):
             )
             if usage is not None:
                 self._app_state.contexts.record_turn_usage(usage)
+            log.write(
+                Text.assemble(("AI", "bold green"), ("> ", "bold green"))
+            )
             log.write(escape(text))
             sv = self._app_state.session_view()
             cum = self._app_state.contexts.active_runtime().usage.as_dict()

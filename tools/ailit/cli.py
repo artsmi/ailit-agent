@@ -20,6 +20,22 @@ def _repo_root() -> Path:
 
 def _cmd_tui(args: argparse.Namespace) -> int:
     """Терминальный чат (Textual)."""
+    sys.stderr.write(
+        "Предупреждение: `ailit tui` устаревает; используйте `ailit agent`.\n"
+    )
+    try:
+        import textual  # noqa: F401, PLC0415
+    except ImportError:
+        sys.stderr.write("Установите TUI: pip install -e '.[tui]'\n")
+        return 1
+    from ailit.tui_app import run_ailit_tui
+
+    run_ailit_tui(args, repo_root=_repo_root())
+    return 0
+
+
+def _cmd_agent_tui(args: argparse.Namespace) -> int:
+    """Интерактивный агент в терминале (Textual)."""
     try:
         import textual  # noqa: F401, PLC0415
     except ImportError:
@@ -257,8 +273,36 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_tui.set_defaults(func=_cmd_tui)
 
-    p_agent = sub.add_parser("agent", help="Запуск workflow")
-    agent_sub = p_agent.add_subparsers(dest="agent_cmd", required=True)
+    p_agent = sub.add_parser(
+        "agent",
+        help="Интерактивный агент (TUI) или запуск workflow",
+    )
+    p_agent.add_argument(
+        "--project-root",
+        type=str,
+        default=None,
+        help="Корень проекта (по умолчанию текущий каталог)",
+    )
+    p_agent.add_argument(
+        "--provider",
+        choices=("mock", "deepseek"),
+        default="mock",
+        help="Провайдер LLM для интерактивного режима",
+    )
+    p_agent.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Имя модели (по умолчанию: mock / deepseek-chat)",
+    )
+    p_agent.add_argument(
+        "--max-turns",
+        type=int,
+        default=8,
+        dest="max_turns",
+        help="Лимит итераций session loop (как в ailit chat)",
+    )
+    agent_sub = p_agent.add_subparsers(dest="agent_cmd", required=False)
     p_run = agent_sub.add_parser("run", help="Выполнить YAML workflow")
     p_run.add_argument(
         "workflow_ref",
@@ -338,6 +382,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Путь к JSONL (иначе последний ailit-agent-*.log в global logs)",
     )
     p_usage_last.set_defaults(func=_cmd_agent_usage_last)
+
+    p_agent.set_defaults(func=_cmd_agent_tui)
 
     p_compat = sub.add_parser(
         "compat",
