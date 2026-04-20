@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+import yaml
+
+from ailit.config_secrets import ConfigSecretRedactor
+from ailit.config_store import apply_config_set
+from ailit.merged_config import load_merged_ailit_config
 from ailit.tui_app_state import TuiAppState
 from ailit.tui_context_persistence import default_state_path, save_app_state
 from ailit.tui_context_stats import CtxUsageMarkdownTable
@@ -38,9 +43,10 @@ class HelpSlashHandler:
         sv = app_state.session_view()
         return (
             "Команды: /help | /model | /max_turns | /project | /cd | /paths | "
-            "/quit | /ctx …",
+            "/config … | /quit | /ctx …",
             "/ctx list | /ctx new NAME [ROOT] | /ctx switch NAME | "
             "/ctx rename NAME | /ctx stats | /ctx save [PATH]",
+            "/config show | /config set KEY VALUE",
             "Горячие клавиши: Ctrl+Shift+Right/Left — смена контекста "
             "(черновик в строке ввода сохраняется).",
             (
@@ -123,6 +129,34 @@ class PathsSlashHandler:
         )
 
 
+class ConfigSlashHandler:
+    """Показать/изменить глобальную конфигурацию (DP-2.5)."""
+
+    def run(self, arg: str, app_state: TuiAppState) -> tuple[str, ...]:
+        """`/config show` или `/config set KEY VALUE`."""
+        tokens = arg.strip().split(maxsplit=2)
+        if not tokens:
+            return ("Использование: /config show | /config set KEY VALUE",)
+        sub = tokens[0].lower()
+        if sub == "show":
+            proj = app_state.session_view().project_root
+            merged = dict(load_merged_ailit_config(proj))
+            safe = ConfigSecretRedactor().redact(merged)
+            text = yaml.safe_dump(safe, allow_unicode=True, sort_keys=False)
+            lines = text.strip().splitlines() if text.strip() else ["(пусто)"]
+            return ("Эффективный merge (секреты замаскированы):", *lines)
+        if sub == "set":
+            if len(tokens) < 3:
+                return ("Нужно: /config set KEY VALUE",)
+            key, value = tokens[1], tokens[2]
+            try:
+                written = apply_config_set(key, value)
+            except ValueError as exc:
+                return (str(exc),)
+            return (f"Записано в {written}",)
+        return ("Использование: /config show | /config set KEY VALUE",)
+
+
 class SlashCommandRegistry:
     """Регистрация и диспетчеризация команд ``/name``."""
 
@@ -136,6 +170,7 @@ class SlashCommandRegistry:
             "project": _project,
             "cd": _project,
             "paths": PathsSlashHandler(),
+            "config": ConfigSlashHandler(),
             "quit": QuitSlashHandler(),
         }
 
