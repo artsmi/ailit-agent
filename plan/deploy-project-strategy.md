@@ -214,6 +214,8 @@ export interface Interface {
 
 **Критерии приёмки:** ручной сценарий с `DEEPSEEK_API_KEY` (или mock-подстановка): хотя бы один полный turn в TUI; негативный тест при отсутствии ключа — понятное сообщение без traceback.
 
+**Статус в репозитории (2026-04):** дефолтные значения `default.provider/default.model` автоматически применяются, если флаги `--provider/--model` не заданы: `ailit agent`, `ailit tui`, `ailit agent run` (см. `tools/ailit/defaults_resolver.py`, `tools/ailit/cli.py`, `tools/ailit/tui_app.py`).
+
 #### Задача DP-2.3 — Визуальная чистота чата
 
 **Сделать:** заменить `[dim]user>[/dim]` на стилизованные виджеты или `RichLog` с явными `Markup`/`Style` без сырого вывода тегов; единый стиль для user/assistant/tool.
