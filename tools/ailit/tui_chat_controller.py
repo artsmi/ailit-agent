@@ -16,6 +16,7 @@ from agent_core.session.loop import (
     SessionSettings,
 )
 from agent_core.session.state import SessionState
+from agent_core.session.event_contract import SessionEventSink
 from agent_core.tool_runtime.approval import ApprovalSession
 from agent_core.tool_runtime.permission import (
     PermissionDecision,
@@ -137,6 +138,7 @@ class TuiChatController:
         state: TuiSessionState,
         diag_sink: DiagSink,
         log_path: str,
+        event_sink: SessionEventSink | None = None,
     ) -> tuple[str, str, dict[str, Any] | None]:
         """Прогон цикла: текст, статус, usage последнего ответа (или None)."""
         self._messages.append(ChatMessage(role=MessageRole.USER, content=text))
@@ -154,12 +156,14 @@ class TuiChatController:
             model=model_eff,
             max_turns=state.max_turns,
             temperature=0.3,
+            use_stream=True,
         )
         out = runner.run(
             list(self._messages),
             ApprovalSession(),
             settings,
             diag_sink=diag_sink,
+            event_sink=event_sink,
         )
         self._messages = list(out.messages)
         status = _last_diag_status_line(out)

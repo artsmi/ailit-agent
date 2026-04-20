@@ -21,6 +21,7 @@ from ailit.tui_context_persistence import (
 from ailit.defaults_resolver import DefaultProviderModelResolver
 from ailit.tui_context_stats import TuiSubtitleUsageFormatter
 from ailit.tui_slash_registry import SlashCommandRegistry
+from agent_core.session.event_contract import SessionEvent
 
 
 def resolve_model(provider: str, model: str | None) -> str:
@@ -199,19 +200,41 @@ class AilitTuiApp(App[None]):
             log.write(escape("Лог процесса не инициализирован."))
             return
         chat = self._app_state.contexts.active_chat()
+        stream_buf: list[str] = []
+
+        def on_event(ev: SessionEvent) -> None:
+            if ev.type != "assistant.delta":
+                return
+            raw = ev.payload.get("text")
+            if not isinstance(raw, str) or not raw:
+                return
+            stream_buf.append(raw)
+            joined = "".join(stream_buf)
+            # Слишком частые write() создают "простыню" строк.
+            # Делаем coarse-grained flush по размеру буфера.
+            if len(joined) < 160 and not raw.endswith("\n"):
+                return
+            log.write(escape(joined))
+            stream_buf.clear()
+
         try:
             text, st, usage = chat.run_user_turn(
                 line,
                 state=self._app_state.session_view(),
                 diag_sink=handle.sink,
                 log_path=str(handle.path),
+                event_sink=on_event,
             )
             if usage is not None:
                 self._app_state.contexts.record_turn_usage(usage)
             log.write(
                 Text.assemble(("AI", "bold green"), ("> ", "bold green"))
             )
-            log.write(escape(text))
+            if stream_buf:
+                log.write(escape("".join(stream_buf)))
+                stream_buf.clear()
+            else:
+                log.write(escape(text))
             sv = self._app_state.session_view()
             cum = self._app_state.contexts.active_runtime().usage.as_dict()
             self.sub_title = self._subtitle_fmt.format_after_turn(
