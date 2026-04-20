@@ -16,7 +16,6 @@ from agent_core.session.loop import SessionRunner, SessionSettings
 from agent_core.session.state import SessionState
 from agent_core.tool_runtime.approval import ApprovalSession
 from agent_core.tool_runtime.permission import PermissionDecision, PermissionEngine
-from agent_core.normalization.content_sanitize import AssistantContentSanitizer
 from agent_core.tool_runtime.registry import (
     ToolRegistry,
     default_builtin_registry,
@@ -30,7 +29,10 @@ from ailit.chat_handlers import (
     strip_system_messages,
 )
 from ailit.chat_presenters import summarize_workflow_jsonl_for_user
-from ailit.chat_transcript_view import ChatTranscriptProjector
+from ailit.chat_transcript_view import (
+    ChatTranscriptProjector,
+    format_assistant_body_for_ui,
+)
 from ailit.chat_session_turn_progress import ChatSessionTurnProgress
 from ailit.session_outcome_user_copy import (
     MAX_TURNS_EXCEEDED_REASON,
@@ -501,6 +503,10 @@ def _execute_llm_turn(
             return
         if not isinstance(et, str):
             return
+        if et == "model.request":
+            if status_ph is not None:
+                status_ph.markdown("_Запрос к модели…_")
+            return
         if et == "assistant.delta":
             if not isinstance(payload, dict):
                 return
@@ -510,22 +516,26 @@ def _execute_llm_turn(
             live_text.append(d)
             if delta_ph is not None:
                 joined = "".join(live_text)
-                shown = AssistantContentSanitizer.sanitize(
+                shown = format_assistant_body_for_ui(
                     joined,
-                    aggressive_trailing=True,
+                    aggressive_tail=True,
                 )
                 delta_ph.markdown(shown)
+            return
         if et == "tool.call_started":
             if isinstance(payload, dict):
                 t = payload.get("tool")
                 if status_ph is not None and isinstance(t, str):
-                    status_ph.markdown(f"_Инструмент: **{t}** …_")
+                    status_ph.markdown(f"_Шаг:_ **{t}** …")
+            return
         if et == "tool.call_finished":
             if isinstance(payload, dict):
                 t = payload.get("tool")
                 ok = payload.get("ok")
                 if status_ph is not None and isinstance(t, str):
-                    status_ph.markdown(f"_Инструмент: **{t}** (ok={ok})_")
+                    mark = "✓" if ok is True else "✗"
+                    status_ph.markdown(f"_Шаг:_ **{t}** — {mark}")
+            return
 
     settings = SessionSettings(
         model=model,

@@ -1,14 +1,18 @@
-"""Проекция транскрипта чата: без TOOL, компактные шаги."""
+"""Проекция транскрипта чата: сводка инструментов, без TOOL."""
 
 from __future__ import annotations
 
 from agent_core.models import ChatMessage, MessageRole, ToolCallNormalized
 
-from ailit.chat_transcript_view import ChatTranscriptProjector
+from ailit.chat_transcript_view import (
+    ChatTranscriptProjector,
+    SentenceBreakFormatter,
+    format_tool_summary_markdown,
+)
 
 
 def test_transcript_skips_tool_messages() -> None:
-    """TOOL не попадают в линии UI."""
+    """TOOL не попадают в линии UI; сводка + финальный текст."""
     tc = ToolCallNormalized(
         call_id="c1",
         tool_name="echo",
@@ -35,12 +39,13 @@ def test_transcript_skips_tool_messages() -> None:
     assert MessageRole.TOOL not in roles
     texts = "\n".join(ln.markdown for ln in lines)
     assert "huge" not in texts
-    assert "echo" in texts
+    assert "Сводка инструментов" in texts
+    assert "`echo`" in texts
     assert "done" in texts
 
 
-def test_transcript_tool_call_compact_without_json_args() -> None:
-    """Шаг показывает имя инструмента, не тело arguments_json."""
+def test_transcript_single_tool_wave_summary_only() -> None:
+    """Только assistant с tool_calls — одна строка сводки."""
     tc = ToolCallNormalized(
         call_id="c2",
         tool_name="read_file",
@@ -60,3 +65,18 @@ def test_transcript_tool_call_compact_without_json_args() -> None:
     assert len(lines) == 1
     assert "read_file" in lines[0].markdown
     assert "secret" not in lines[0].markdown
+
+
+def test_tool_summary_counts_repeats() -> None:
+    """Повторы инструментов отображаются как ×n."""
+    s = format_tool_summary_markdown(["read_file", "list_dir", "read_file"])
+    assert "×2" in s
+    assert "list_dir" in s
+
+
+def test_sentence_break_glued_russian() -> None:
+    """Точка без пробела перед заглавной буквой → перенос."""
+    fmt = SentenceBreakFormatter()
+    out = fmt.format("Готово.Теперь дальше.")
+    assert "\n\n" in out
+    assert "Теперь" in out

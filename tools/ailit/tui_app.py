@@ -8,7 +8,7 @@ from pathlib import Path
 from rich.markup import escape
 from rich.text import Text
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Input, RichLog
+from textual.widgets import Header, Input, RichLog, Static
 
 from ailit.process_log import ensure_process_log, ProcessLogHandle
 from ailit.tui_app_state import TuiAppState
@@ -21,6 +21,10 @@ from ailit.tui_context_persistence import (
 from ailit.defaults_resolver import DefaultProviderModelResolver
 from ailit.tui_context_stats import TuiSubtitleUsageFormatter
 from ailit.tui_slash_registry import SlashCommandRegistry
+from ailit.chat_transcript_view import (
+    format_assistant_body_for_ui,
+    format_tool_summary_markdown,
+)
 from ailit.tui_transcript_presenter import TuiTranscriptEventPresenter
 from agent_core.session.event_contract import SessionEvent
 
@@ -41,6 +45,18 @@ class AilitTuiApp(App[None]):
 
     # Плотность и рамки; кегль шрифта задаётся терминалом, не приложением.
     CSS = """
+    #tui_step_pulse {
+        height: 1;
+        min-height: 1;
+        padding: 0 1;
+        color: $text-muted;
+    }
+    #tui_stream_preview {
+        max-height: 10;
+        min-height: 1;
+        padding: 0 1;
+        border-bottom: tall $boost;
+    }
     RichLog {
         height: 1fr;
         border: tall $secondary 30%;
@@ -98,8 +114,10 @@ class AilitTuiApp(App[None]):
         self.sub_title = str(project_root)
 
     def compose(self) -> ComposeResult:
-        """Шапка, журнал, ввод, подвал."""
+        """Шапка, строка шага, превью ответа, журнал, ввод."""
         yield Header(show_clock=False)
+        yield Static(" ", id="tui_step_pulse")
+        yield Static(" ", id="tui_stream_preview")
         yield RichLog(id="chat_log", wrap=True, highlight=True)
         yield Input(
             id="chat_input",
@@ -177,6 +195,29 @@ class AilitTuiApp(App[None]):
         """Предыдущий контекст; сохранить черновик ввода."""
         self._cycle_context(delta=-1)
 
+    def _tui_clear_live_widgets(self) -> None:
+        """Очистить однострочный статус шага и превью стрима."""
+        for wid in ("#tui_step_pulse", "#tui_stream_preview"):
+            try:
+                self.query_one(wid, Static).update(" ")
+            except Exception:
+                pass
+
+    def _tui_step_widget(self, body: object) -> None:
+        """Одна «мигающая» строка: модель или инструмент."""
+        try:
+            self.query_one("#tui_step_pulse", Static).update(body)
+        except Exception:
+            pass
+
+    def _tui_preview_str(self, body: str) -> None:
+        """Превью текущего ответа (без записи в RichLog)."""
+        cap = body[:8000] if body.strip() else " "
+        try:
+            self.query_one("#tui_stream_preview", Static).update(escape(cap))
+        except Exception:
+            pass
+
     def _cycle_context(self, *, delta: int) -> None:
         """Переключить контекст с сохранением строки ввода (Q.1)."""
         inp = self.query_one("#chat_input", Input)
@@ -218,17 +259,22 @@ class AilitTuiApp(App[None]):
             return
         chat = self._app_state.contexts.active_chat()
         stream_buf: list[str] = []
+        turn_tools: list[str] = []
+        self._tui_clear_live_widgets()
 
         def on_event(ev: SessionEvent) -> None:
             pl = ev.payload
             if ev.type == "model.request" and isinstance(pl, dict):
-                log.write(self._tui_events.model_request_line(pl))
+                self._tui_step_widget(self._tui_events.model_request_line(pl))
                 return
             if ev.type == "tool.call_started" and isinstance(pl, dict):
-                log.write(self._tui_events.tool_started_line(pl))
+                tn = pl.get("tool")
+                if isinstance(tn, str) and tn.strip():
+                    turn_tools.append(tn.strip())
+                self._tui_step_widget(self._tui_events.tool_started_line(pl))
                 return
             if ev.type == "tool.call_finished" and isinstance(pl, dict):
-                log.write(self._tui_events.tool_finished_line(pl))
+                self._tui_step_widget(self._tui_events.tool_finished_line(pl))
                 return
             if ev.type != "assistant.delta":
                 return
@@ -239,12 +285,11 @@ class AilitTuiApp(App[None]):
                 return
             stream_buf.append(raw)
             joined = "".join(stream_buf)
-            # Слишком частые write() создают "простыню" строк.
-            # Делаем coarse-grained flush по размеру буфера.
-            if len(joined) < 160 and not raw.endswith("\n"):
-                return
-            log.write(escape(joined))
-            stream_buf.clear()
+            shown = format_assistant_body_for_ui(
+                joined,
+                aggressive_tail=True,
+            )
+            self._tui_preview_str(shown)
 
         try:
             text, st, usage = chat.run_user_turn(
@@ -256,14 +301,22 @@ class AilitTuiApp(App[None]):
             )
             if usage is not None:
                 self._app_state.contexts.record_turn_usage(usage)
+            self._tui_clear_live_widgets()
+            summary_md = format_tool_summary_markdown(turn_tools)
             log.write(
                 Text.assemble(("AI", "bold green"), ("> ", "bold green"))
             )
-            if stream_buf:
-                log.write(escape("".join(stream_buf)))
-                stream_buf.clear()
-            else:
-                log.write(escape(text))
+            if summary_md.strip():
+                try:
+                    log.write(Text.from_markup(summary_md))
+                except Exception:
+                    log.write(escape(summary_md))
+            final_txt = format_assistant_body_for_ui(
+                text,
+                aggressive_tail=True,
+            )
+            log.write(escape(final_txt if final_txt.strip() else text))
+            stream_buf.clear()
             sv = self._app_state.session_view()
             cum = self._app_state.contexts.active_runtime().usage.as_dict()
             self.sub_title = self._subtitle_fmt.format_after_turn(
@@ -277,6 +330,7 @@ class AilitTuiApp(App[None]):
             if st:
                 log.write(escape(st))
         except (OSError, RuntimeError, ValueError, TypeError) as exc:
+            self._tui_clear_live_widgets()
             log.write(escape(f"{type(exc).__name__}: {exc}"))
 
 
