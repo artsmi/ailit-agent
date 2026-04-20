@@ -255,6 +255,20 @@ def _cmd_plugin_install(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_doctor_paths(_args: argparse.Namespace) -> int:
+    """Печать диагностики путей."""
+    from ailit.doctor_cli import cmd_doctor_paths
+
+    return cmd_doctor_paths()
+
+
+def _cmd_doctor_data_policy(_args: argparse.Namespace) -> int:
+    """Печать политики данных пользователя."""
+    from ailit.doctor_cli import cmd_doctor_data_policy
+
+    return cmd_doctor_data_policy()
+
+
 def main(argv: list[str] | None = None) -> int:
     """Точка входа `ailit`."""
     parser = argparse.ArgumentParser(
@@ -265,6 +279,22 @@ def main(argv: list[str] | None = None) -> int:
     register_config_parser(sub)
     register_setup_parser(sub)
     register_models_parser(sub)
+
+    p_doctor = sub.add_parser(
+        "doctor",
+        help="Диагностика установки и путей",
+    )
+    doc_sub = p_doctor.add_subparsers(dest="doctor_cmd", required=True)
+    p_doc_paths = doc_sub.add_parser(
+        "paths",
+        help="Показать глобальные пути и исполняемые файлы",
+    )
+    p_doc_paths.set_defaults(func=_cmd_doctor_paths)
+    p_doc_pol = doc_sub.add_parser(
+        "data-policy",
+        help="Показать, какие каталоги сохраняются/удаляются",
+    )
+    p_doc_pol.set_defaults(func=_cmd_doctor_data_policy)
 
     p_chat = sub.add_parser(
         "chat",
