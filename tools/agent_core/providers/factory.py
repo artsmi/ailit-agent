@@ -40,17 +40,25 @@ class ProviderFactory:
         if kind is ProviderKind.DEEPSEEK:
             key = deepseek_api_key_from_env_or_config(cfg)
             if not key:
-                msg = "DeepSeek api key missing: set DEEPSEEK_API_KEY or config/test.local.yaml"
+                msg = (
+                    "DeepSeek api key missing: set DEEPSEEK_API_KEY or "
+                    "config/test.local.yaml"
+                )
                 raise ValueError(msg)
             ds = cfg.get("deepseek")
             root = "https://api.deepseek.com/v1"
             if isinstance(ds, dict):
                 root = str(ds.get("base_url") or root).rstrip("/")
+            if not root.endswith("/v1"):
+                root = f"{root}/v1"
             return DeepSeekAdapter(key, api_root=root)
         if kind is ProviderKind.KIMI:
             key = kimi_api_key_from_env_or_config(cfg)
             if not key:
-                msg = "Kimi api key missing: set KIMI_API_KEY or config/test.local.yaml"
+                msg = (
+                    "Kimi api key missing: set KIMI_API_KEY or "
+                    "config/test.local.yaml"
+                )
                 raise ValueError(msg)
             km = cfg.get("kimi")
             root = "https://api.moonshot.cn/v1"

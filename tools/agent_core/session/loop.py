@@ -38,6 +38,7 @@ from agent_core.tool_runtime.executor import (
 from agent_core.tool_runtime.permission import PermissionEngine
 from agent_core.normalization.usage_fields import usage_to_diag_dict
 from agent_core.tool_runtime.registry import ToolRegistry
+from agent_core.transport.errors import TransportHttpError
 
 
 def _incomplete_tool_followup(messages: Sequence[ChatMessage]) -> bool:
@@ -300,10 +301,16 @@ class SessionRunner:
                 resp = self._call_model(ctx, settings, decision.tool_choice)
             except Exception as exc:  # noqa: BLE001
                 err_reason = f"{type(exc).__name__}:{exc}"
+                extra: dict[str, object] = {}
+                if isinstance(exc, TransportHttpError):
+                    if exc.status_code is not None:
+                        extra["status_code"] = exc.status_code
+                    if exc.body_snippet:
+                        extra["body_snippet"] = exc.body_snippet
                 self._emit(
                     events,
                     "model.error",
-                    {"reason": err_reason},
+                    {"reason": err_reason, **extra},
                     diag_sink,
                 )
                 return SessionOutcome(

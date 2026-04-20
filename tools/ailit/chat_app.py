@@ -1,27 +1,26 @@
+# flake8: noqa
 """Streamlit: минималистичный чат + правое бургер-меню (project layer)."""
 
 from __future__ import annotations
 
 import os
-import sys
 from io import StringIO
 from pathlib import Path
 
 import streamlit as st
 
-_REPO = Path(__file__).resolve().parents[2]
-if str(_REPO / "tools") not in sys.path:
-    sys.path.insert(0, str(_REPO / "tools"))
-
-from agent_core.config_loader import deepseek_api_key_from_env_or_config
 from agent_core.models import ChatMessage, MessageRole
-from agent_core.providers.deepseek import DeepSeekAdapter
+from agent_core.providers.factory import ProviderFactory, ProviderKind
 from agent_core.providers.mock_provider import MockProvider
 from agent_core.session.loop import SessionRunner, SessionSettings
 from agent_core.session.state import SessionState
 from agent_core.tool_runtime.approval import ApprovalSession
 from agent_core.tool_runtime.permission import PermissionDecision, PermissionEngine
-from agent_core.tool_runtime.registry import ToolRegistry, default_builtin_registry, empty_tool_registry
+from agent_core.tool_runtime.registry import (
+    ToolRegistry,
+    default_builtin_registry,
+    empty_tool_registry,
+)
 from ailit.agent_provider_config import AgentRunProviderConfigBuilder
 from ailit.chat_handlers import (
     ProjectSessionFactory,
@@ -47,6 +46,7 @@ from ailit.chat_workflow_runner import run_workflow_capture_jsonl
 from ailit.process_log import ensure_process_log
 from ailit.compat_adapter import read_status, run_compat_workflow
 from ailit.debug_bundle import build_debug_bundle, default_rollout_phase
+from ailit.defaults_resolver import DefaultProviderModelResolver
 from ailit.usage_display import (
     SessionEventsUsageExtractor,
     UsageSummaryMarkdownFormatter,
@@ -54,9 +54,11 @@ from ailit.usage_display import (
 from project_layer.bootstrap import format_agent_run_command
 from project_layer.loader import LoadedProject
 
+_REPO = Path(__file__).resolve().parents[2]
+
 
 def _load_merged_chat_cfg(project_root: Path) -> dict:
-    """Тот же merge, что и в ``ailit agent run`` (включая dev ``test.local.yaml``)."""
+    """Тот же merge, что и в ``ailit agent run`` (включая dev yaml)."""
     return AgentRunProviderConfigBuilder().build(
         project_root.resolve(),
         use_dev_repo_yaml=True,
@@ -68,20 +70,33 @@ def _make_provider(choice: str, cfg: dict) -> tuple[object, str]:
     if choice == "mock":
         return MockProvider(), "mock"
     if choice == "deepseek":
-        key = deepseek_api_key_from_env_or_config(cfg)
-        if not key:
+        try:
+            prov = ProviderFactory.create(ProviderKind.DEEPSEEK, config=cfg)
+        except ValueError:
             st.error(
                 "Нет ключа: задайте DEEPSEEK_API_KEY или `deepseek.api_key` "
                 "в глобальном/проектном merge (см. `ailit config show`).",
             )
             st.stop()
         ds = cfg.get("deepseek")
-        root = "https://api.deepseek.com/v1"
         model = "deepseek-chat"
         if isinstance(ds, dict):
-            root = str(ds.get("base_url") or root).rstrip("/")
             model = str(ds.get("model") or model)
-        return DeepSeekAdapter(key, api_root=root), model
+        return prov, model
+    if choice == "kimi":
+        try:
+            prov = ProviderFactory.create(ProviderKind.KIMI, config=cfg)
+        except ValueError:
+            st.error(
+                "Нет ключа: задайте KIMI_API_KEY/MOONSHOT_API_KEY или "
+                "`kimi.api_key` в merge (см. `ailit config show`).",
+            )
+            st.stop()
+        km = cfg.get("kimi")
+        model = "moonshot-v1-8k"
+        if isinstance(km, dict):
+            model = str(km.get("model") or model)
+        return prov, model
     raise ValueError(choice)
 
 
@@ -135,7 +150,20 @@ def _render_header_and_menu(
     """Верхняя строка: настройки чата + заметная кнопка «Меню» (popover с вкладками)."""
     col_left, col_mid, col_menu = st.columns([5, 3, 3])
     with col_left:
-        choice = st.selectbox("Провайдер", ("deepseek", "mock"), index=0, label_visibility="collapsed")
+        cfg_for_defaults = _load_merged_chat_cfg(project_root)
+        defaults = DefaultProviderModelResolver().from_mapping(cfg_for_defaults)
+        providers = ("deepseek", "kimi", "mock")
+        idx = (
+            providers.index(defaults.provider)
+            if defaults.provider in providers
+            else 0
+        )
+        choice = st.selectbox(
+            "Провайдер",
+            providers,
+            index=idx,
+            label_visibility="collapsed",
+        )
         _mt_help = (
             "Сколько раз агент может повторить цикл "
             "«модель → инструменты → снова модель». "
@@ -557,7 +585,7 @@ def main() -> None:
     if isinstance(_banner, str) and _banner.strip():
         st.warning(_banner)
     st.markdown("### ailit chat")
-    root_default = _REPO
+    root_default = Path.cwd().resolve()
     if "ailit_project_root" not in st.session_state:
         st.session_state["ailit_project_root"] = str(root_default)
     project_root = Path(str(st.session_state.get("ailit_project_root", root_default)))

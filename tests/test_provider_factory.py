@@ -23,3 +23,16 @@ def test_factory_deepseek_requires_key(_mock_key: object) -> None:
     """Без ключа DeepSeek не создаётся."""
     with pytest.raises(ValueError, match="DeepSeek api key"):
         ProviderFactory.create(ProviderKind.DEEPSEEK, config={})
+
+
+@patch(
+    "agent_core.providers.factory.deepseek_api_key_from_env_or_config",
+    return_value="k",
+)
+def test_factory_deepseek_normalizes_base_url_v1(_mock_key: object) -> None:
+    """base_url без /v1 нормализуется до /v1."""
+    p = ProviderFactory.create(
+        ProviderKind.DEEPSEEK,
+        config={"deepseek": {"base_url": "https://api.deepseek.com"}},
+    )
+    assert getattr(p, "_api_root", "").endswith("/v1")

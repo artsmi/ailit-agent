@@ -41,11 +41,17 @@ class AilitTuiApp(App[None]):
         ("ctrl+q", "quit", "Выход"),
         ("ctrl+shift+right", "ctx_next", "След.контекст"),
         ("ctrl+shift+left", "ctx_prev", "Пред.контекст"),
+        ("ctrl+m", "mouse_toggle", "Мышь: on/off"),
     ]
 
     def __init__(self, *, args: argparse.Namespace, repo_root: Path) -> None:
         """Сохранить аргументы CLI и корень репозитория ailit-agent."""
         super().__init__()
+        try:
+            # По умолчанию: без mouse reporting, для выделения мышью.
+            self.disable_mouse()
+        except Exception:
+            pass
         self._args = args
         self._repo_root = repo_root
         pr = getattr(args, "project_root", None)
@@ -84,6 +90,7 @@ class AilitTuiApp(App[None]):
 
     def on_mount(self) -> None:
         """Лог, фокус, подзаголовок; восстановление снимка TUI (Q.3)."""
+        self._set_mouse_capture(enabled=False)
         self._log_handle = ensure_process_log("chat")
         bundle = load_app_state(
             default_state_path(),
@@ -99,6 +106,31 @@ class AilitTuiApp(App[None]):
             )
         self._refresh_subtitle()
         self.query_one("#chat_input", Input).focus()
+
+    def on_ready(self) -> None:
+        """Повторить отключение мыши после инициализации драйвера."""
+        self._set_mouse_capture(enabled=False)
+
+    def _set_mouse_capture(self, *, enabled: bool) -> None:
+        """Вкл/выкл захват мыши для выделения/копирования в терминале."""
+        try:
+            if enabled:
+                self.enable_mouse()
+            else:
+                self.disable_mouse()
+        except AttributeError:
+            # Совместимость с разными версиями Textual.
+            try:
+                self.mouse_enabled = bool(  # type: ignore[attr-defined]
+                    enabled
+                )
+            except Exception:
+                return
+
+    def action_mouse_toggle(self) -> None:
+        """Переключить захват мыши для выделения мышью в терминале."""
+        cur = getattr(self, "mouse_enabled", True)
+        self._set_mouse_capture(enabled=not bool(cur))
 
     def on_unmount(self) -> None:
         """Сохранить контексты и usage перед выходом."""

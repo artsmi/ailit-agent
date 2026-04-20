@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from agent_core.models import ChatMessage, MessageRole
+from agent_core.models import ChatMessage, MessageRole, ToolCallNormalized
 from agent_core.providers.mock_provider import MockProvider
 from agent_core.providers.factory import ProviderFactory, ProviderKind
 from agent_core.session.loop import (
@@ -31,6 +31,38 @@ from ailit.session_outcome_user_copy import (
 from ailit.tui_session_types import TuiSessionState
 
 DiagSink = Callable[[dict[str, Any]], None]
+
+
+def _sanitize_messages_for_openai_tools(
+    messages: list[ChatMessage],
+) -> list[ChatMessage]:
+    """Удалить `role=tool`, которые не следуют за `assistant.tool_calls`.
+
+    DeepSeek (OpenAI-совместимый) отвечает 400, если в messages встречается
+    `tool` без предшествующего сообщения `assistant` с `tool_calls`.
+    Такое может появиться при восстановлении сохранённого состояния.
+    """
+    out: list[ChatMessage] = []
+    expected_ids: set[str] = set()
+    for m in messages:
+        if m.role is MessageRole.ASSISTANT:
+            expected_ids = set()
+            tcs: tuple[ToolCallNormalized, ...] | None = m.tool_calls
+            if tcs:
+                expected_ids = {tc.call_id for tc in tcs if tc.call_id}
+            out.append(m)
+            continue
+        if m.role is MessageRole.TOOL:
+            if (
+                expected_ids
+                and m.tool_call_id
+                and m.tool_call_id in expected_ids
+            ):
+                out.append(m)
+            continue
+        expected_ids = set()
+        out.append(m)
+    return out
 
 
 class TuiProviderAssembler:
@@ -79,7 +111,9 @@ class TuiChatController:
     ) -> None:
         """Начать с системного сообщения или с восстановленного снимка."""
         if seed_messages:
-            self._messages = list(seed_messages)
+            self._messages = _sanitize_messages_for_openai_tools(
+                list(seed_messages),
+            )
         else:
             self._messages = [
                 ChatMessage(
@@ -94,7 +128,7 @@ class TuiChatController:
 
     def replace_messages(self, messages: list[ChatMessage]) -> None:
         """Восстановить историю (после загрузки с диска)."""
-        self._messages = list(messages)
+        self._messages = _sanitize_messages_for_openai_tools(list(messages))
 
     def run_user_turn(
         self,
