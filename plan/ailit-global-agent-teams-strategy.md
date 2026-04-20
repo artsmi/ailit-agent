@@ -1008,6 +1008,6 @@ ailit --help
 
 По документу §9 на **2026-04** в коде закрыты этапы **G** (включая **G.3**), **H**, **I**, **J**, **K**, **L**, **M**, **N**, **O**, **P**, **Q** — см. строки «**Статус:** выполнено» и «**Статус в репозитории**» у соответствующих задач и чекпоинтов.
 
-Дальнейшая работа **не выводится автоматически из этого файла**: нужны **research** и **постановка** новых этапов (отдельный PR в план, ветка `plan/project-orchestrator-strategy.md`, задачи из `plan/agent-core-workflow.md` и т.д.) — см. также [`docs/project-workflow.md`](../docs/project-workflow.md).
+Дальнейшая работа **не выводится автоматически из этого файла**: нужны **research** и **постановка** новых этапов (отдельный PR в план, ветка `plan/project-orchestrator-strategy.md`, задачи из `plan/agent-core-workflow.md` и т.д.) — см. также [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc).
 
 Вернуться к оглавлению: [`docs/INDEX.md`](../docs/INDEX.md)

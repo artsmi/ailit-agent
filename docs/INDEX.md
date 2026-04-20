@@ -88,9 +88,9 @@
 - cost-aware routing;
 - strict schema и fallback policy.
 
-### Рабочий workflow этого репозитория (Markdown)
+### Рабочий workflow этого репозитория (Cursor)
 
-- [`project-workflow.md`](project-workflow.md) — порядок работы по плану, ссылки на референсы, правило «конец workflow → research и постановка».
+- [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc) — порядок работы по плану для агента Cursor, ссылки на референсы, правило «конец workflow → research и постановка».
 
 ### Глобальный CLI, Agent Teams, плагины и human-readable chat
 
