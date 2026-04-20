@@ -14,14 +14,16 @@ from agent_core.models import (
     FinishReason,
     MessageRole,
     NormalizedChatResponse,
+    StreamDone,
+    StreamTextDelta,
     ToolChoice,
+    ToolDefinition,
 )
 from agent_core.providers.protocol import ChatProvider
 from agent_core.session.budget import BudgetGovernance
 from agent_core.session.compaction import compact_messages
 from agent_core.session.shortlist import apply_keyword_shortlist
 from agent_core.session.state import SessionState
-from agent_core.session.stream_reducer import StreamReducer
 from agent_core.session.tool_bridge import tool_definitions_from_registry
 from agent_core.session.tool_choice_policy import (
     default_tool_choice_policy,
@@ -70,7 +72,7 @@ class SessionSettings:
     model: str = "mock"
     temperature: float = 0.0
     max_tokens: int | None = None
-    max_turns: int = 8
+    max_turns: int = 10_000
     max_context_units: int | None = None
     max_total_tokens: int | None = None
     compaction_tail_messages: int = 40
@@ -78,6 +80,18 @@ class SessionSettings:
     shortlist_keywords: frozenset[str] | None = None
     use_stream: bool = False
     suppress_tools_after_write_file: bool = True
+
+
+def _effective_max_turns(settings: SessionSettings) -> int:
+    """Минимум из настроек и опционального AILIT_AGENT_HARD_CAP."""
+    raw = os.environ.get("AILIT_AGENT_HARD_CAP", "1000000")
+    try:
+        hard = int(raw)
+    except ValueError:
+        hard = 1_000_000
+    hard = max(1, hard)
+    configured = max(1, settings.max_turns)
+    return min(configured, hard)
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,25 +159,177 @@ class SessionRunner:
             )
         return compacted
 
-    def _call_model(
+    def _invoke_model_request(
         self,
+        *,
         context: list[ChatMessage],
         settings: SessionSettings,
         tool_choice: ToolChoice | None,
+        tools_defs: tuple[ToolDefinition, ...],
+        events: list[dict[str, Any]],
+        diag_sink: Callable[[dict[str, Any]], None] | None,
+        event_sink: SessionEventSink | None,
+        request_meta: dict[str, Any],
     ) -> NormalizedChatResponse:
-        tools = tool_definitions_from_registry(self._registry)
+        """Вызов провайдера: stream или complete; эмит событий диагностики."""
+        self._emit(
+            events,
+            "model.request",
+            {
+                "context_messages": len(context),
+                "tools_count": len(tools_defs),
+                **request_meta,
+            },
+            diag_sink,
+            event_sink,
+        )
         req = ChatRequest(
             messages=context,
             model=settings.model,
             temperature=settings.temperature,
             max_tokens=settings.max_tokens,
-            tools=tools,
+            tools=tools_defs,
             tool_choice=tool_choice,
             stream=settings.use_stream,
         )
         if settings.use_stream:
-            return StreamReducer.consume(iter(self._provider.stream(req)))
+            text_parts: list[str] = []
+            stream_events = self._provider.stream(req)
+            for ev in stream_events:
+                if isinstance(ev, StreamTextDelta):
+                    text_parts.append(ev.text)
+                    self._emit(
+                        events,
+                        "assistant.delta",
+                        {"text": ev.text},
+                        diag_sink,
+                        event_sink,
+                    )
+                if isinstance(ev, StreamDone):
+                    return ev.response
+            msg = "stream ended without StreamDone"
+            raise ValueError(msg)
         return self._provider.complete(req)
+
+    def _finalize_after_turn_cap(
+        self,
+        messages: list[ChatMessage],
+        settings: SessionSettings,
+        events: list[dict[str, Any]],
+        diag_sink: Callable[[dict[str, Any]], None] | None,
+        event_sink: SessionEventSink | None,
+        bud: BudgetGovernance,
+    ) -> SessionOutcome:
+        """После исчерпания лимита ходов — один text-only запрос без tools."""
+        self._emit(
+            events,
+            "session.cap_hit",
+            {"policy": "finalize_text_only"},
+            diag_sink,
+            event_sink,
+        )
+        ctx_base = self._prepare_context(messages, settings)
+        cap_msg = (
+            "The maximum number of agent steps for this session was reached. "
+            "Reply in natural language only: brief summary of progress, "
+            "what is still pending if anything, and how the user may "
+            "continue. Do not use tools."
+        )
+        finalize_prompt = ChatMessage(
+            role=MessageRole.SYSTEM,
+            content=cap_msg,
+        )
+        ctx_final = list(ctx_base) + [finalize_prompt]
+        tools_empty: tuple[ToolDefinition, ...] = ()
+        try:
+            resp = self._invoke_model_request(
+                context=ctx_final,
+                settings=settings,
+                tool_choice=None,
+                tools_defs=tools_empty,
+                events=events,
+                diag_sink=diag_sink,
+                event_sink=event_sink,
+                request_meta={
+                    "tool_choice_mode": "none_finalize",
+                    "policy_reason": "session_turn_cap",
+                },
+            )
+        except Exception as exc:  # noqa: BLE001
+            err_reason = f"{type(exc).__name__}:{exc}"
+            self._emit(
+                events,
+                "model.error",
+                {"reason": err_reason, "phase": "cap_finalize"},
+                diag_sink,
+                event_sink,
+            )
+            messages.append(
+                ChatMessage(
+                    role=MessageRole.ASSISTANT,
+                    content=(
+                        "Достигнут лимит шагов агента в этой сессии; "
+                        "не удалось получить итоговое резюме от модели. "
+                        "Продолжите новым сообщением или проверьте "
+                        "настройки провайдера."
+                    ),
+                )
+            )
+            return SessionOutcome(
+                state=SessionState.FINISHED,
+                messages=tuple(messages),
+                events=tuple(events),
+                reason="cap_finalize_failed",
+            )
+
+        bud.record_usage(resp.usage)
+        fin = resp.finish_reason.value
+        resp_tool_names = [tc.tool_name for tc in resp.tool_calls]
+        self._emit(
+            events,
+            "model.response",
+            {
+                "finish": fin,
+                "tool_calls_count": len(resp.tool_calls),
+                "tool_names": resp_tool_names,
+                "usage": usage_to_diag_dict(resp.usage),
+                "usage_session_totals": bud.diag_totals_dict(),
+                "phase": "cap_finalize",
+            },
+            diag_sink,
+            event_sink,
+        )
+        over = bud.check_exceeded(messages)
+        if over is not None:
+            self._emit(
+                events,
+                "session.budget",
+                {"reason": over},
+                diag_sink,
+                event_sink,
+            )
+            return SessionOutcome(
+                state=SessionState.BUDGET_EXCEEDED,
+                messages=tuple(messages),
+                events=tuple(events),
+                reason=over,
+            )
+
+        text = "".join(resp.text_parts)
+        if resp.tool_calls:
+            fallback = (
+                "Итог: после лимита шагов модель снова запросила инструменты; "
+                "их выполнение отключено. Кратко опишите пользователю "
+                "состояние задачи текстом."
+            )
+            text = text or fallback
+        messages.append(ChatMessage(role=MessageRole.ASSISTANT, content=text))
+        return SessionOutcome(
+            state=SessionState.FINISHED,
+            messages=tuple(messages),
+            events=tuple(events),
+            reason=None,
+        )
 
     def _append_tool_results(
         self,
@@ -212,7 +378,7 @@ class SessionRunner:
         )
         suppress_next: list[bool] = [False]
 
-        for turn in range(settings.max_turns):
+        for turn in range(_effective_max_turns(settings)):
             self._emit(
                 events,
                 "session.turn",
@@ -320,57 +486,21 @@ class SessionRunner:
                 suppress_next_request=should_use_suppress,
                 policy_enabled=settings.suppress_tools_after_write_file,
             )
-            self._emit(
-                events,
-                "model.request",
-                {
-                    "context_messages": len(ctx),
-                    "tools_count": len(tools_defs),
+            try:
+                meta = {
                     "tool_choice_mode": decision.tool_choice_mode_effective,
                     "policy_reason": decision.policy_reason,
-                },
-                diag_sink,
-                event_sink,
-            )
-            try:
-                if settings.use_stream:
-                    req = ChatRequest(
-                        messages=ctx,
-                        model=settings.model,
-                        temperature=settings.temperature,
-                        max_tokens=settings.max_tokens,
-                        tools=tools_defs,
-                        tool_choice=decision.tool_choice,
-                        stream=True,
-                    )
-                    text_parts: list[str] = []
-                    stream_events = self._provider.stream(req)
-                    for ev in stream_events:
-                        from agent_core.models import (
-                            StreamDone,
-                            StreamTextDelta,
-                        )
-
-                        if isinstance(ev, StreamTextDelta):
-                            text_parts.append(ev.text)
-                            self._emit(
-                                events,
-                                "assistant.delta",
-                                {"text": ev.text},
-                                diag_sink,
-                                event_sink,
-                            )
-                        if isinstance(ev, StreamDone):
-                            resp = ev.response
-                            break
-                    else:
-                        raise ValueError("stream ended without StreamDone")
-                else:
-                    resp = self._call_model(
-                        ctx,
-                        settings,
-                        decision.tool_choice,
-                    )
+                }
+                resp = self._invoke_model_request(
+                    context=ctx,
+                    settings=settings,
+                    tool_choice=decision.tool_choice,
+                    tools_defs=tools_defs,
+                    events=events,
+                    diag_sink=diag_sink,
+                    event_sink=event_sink,
+                    request_meta=meta,
+                )
             except Exception as exc:  # noqa: BLE001
                 err_reason = f"{type(exc).__name__}:{exc}"
                 extra: dict[str, object] = {}
@@ -510,9 +640,11 @@ class SessionRunner:
                 reason=None,
             )
 
-        return SessionOutcome(
-            state=SessionState.ERROR,
-            messages=tuple(messages),
-            events=tuple(events),
-            reason="max_turns_exceeded",
+        return self._finalize_after_turn_cap(
+            messages,
+            settings,
+            events,
+            diag_sink,
+            event_sink,
+            bud,
         )
