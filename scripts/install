@@ -2,7 +2,7 @@
 # Установка CLI ailit из корня репозитория.
 #
 # Режимы:
-#   ./scripts/install           # dev (по умолчанию): editable, .venv в клоне
+#   ./scripts/install           # prod (по умолчанию): venv в AILIT_INSTALL_PREFIX, shim в ~/.local/bin
 #   ./scripts/install dev       # то же: pip install -e . + [dev,chat,tui]
 #   ./scripts/install prod      # без -e: venv в AILIT_INSTALL_PREFIX, shim в ~/.local/bin
 #
@@ -12,7 +12,7 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-MODE="${1:-dev}"
+MODE="${1:-prod}"
 cd "${REPO_ROOT}"
 
 LOCAL_BIN="${HOME}/.local/bin"

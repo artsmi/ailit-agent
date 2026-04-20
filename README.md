@@ -20,8 +20,8 @@
 Из корня клона:
 
 ```bash
-./scripts/install          # dev: editable + .venv в клоне
-# или:  ./scripts/install prod   # venv в ~/.local/share/ailit (см. план DP-1)
+./scripts/install          # prod: venv в ~/.local/share/ailit (см. план DP-5)
+# или:  ./scripts/install dev    # editable + .venv в клоне
 # при необходимости: export PATH="${HOME}/.local/bin:${PATH}"
 ailit --help
 ```
