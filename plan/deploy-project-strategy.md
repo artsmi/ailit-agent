@@ -236,6 +236,8 @@ export interface Interface {
 
 **Чекпоинт этапа DP-2:** интерактивный агент по умолчанию в терминале — основной способ работы; DeepSeek рабочий; UI без служебной разметки.
 
+**Статус в репозитории (2026-04):** закрыты **DP-2.1** (CLI: `ailit agent` → TUI по умолчанию; `agent run` сохранён; `tui` deprecated alias; тест `tests/test_cli_agent_tui_default.py`), **DP-2.5** (slash `/config show|set` в `tools/ailit/tui_slash_registry.py`). Частично закрыты **DP-2.3/DP-2.4** (убран `Footer`, убран `[dim]user>[/dim]`).
+
 ---
 
 ### Этап DP-3. Инкрементальный вывод в `ailit chat` и интерактивном агенте
