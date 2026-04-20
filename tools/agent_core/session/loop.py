@@ -27,6 +27,7 @@ from agent_core.session.tool_choice_policy import (
     default_tool_choice_policy,
     last_batch_had_successful_write_file,
 )
+from agent_core.session.event_contract import SessionEvent, SessionEventSink
 from agent_core.tool_runtime.approval import ApprovalSession
 from agent_core.tool_runtime.executor import (
     ApprovalPending,
@@ -111,9 +112,12 @@ class SessionRunner:
         event_type: str,
         payload: dict[str, Any],
         diag_sink: Callable[[dict[str, Any]], None] | None,
+        event_sink: SessionEventSink | None,
     ) -> None:
         row = {"event_type": event_type, **payload}
         events.append(row)
+        if event_sink is not None:
+            event_sink(SessionEvent(type=event_type, payload=dict(payload)))
         if diag_sink is not None:
             enriched: dict[str, Any] = {
                 "contract": "ailit_session_diag_v1",
@@ -198,6 +202,7 @@ class SessionRunner:
         *,
         budget: BudgetGovernance | None = None,
         diag_sink: Callable[[dict[str, Any]], None] | None = None,
+        event_sink: SessionEventSink | None = None,
     ) -> SessionOutcome:
         """Цикл до FINISHED, бюджета, ошибки или паузы на approval."""
         events: list[dict[str, Any]] = []
@@ -208,7 +213,13 @@ class SessionRunner:
         suppress_next: list[bool] = [False]
 
         for turn in range(settings.max_turns):
-            self._emit(events, "session.turn", {"index": turn}, diag_sink)
+            self._emit(
+                events,
+                "session.turn",
+                {"index": turn},
+                diag_sink,
+                event_sink,
+            )
             exc = bud.check_exceeded(messages)
             if exc is not None:
                 self._emit(
@@ -216,6 +227,7 @@ class SessionRunner:
                     "session.budget",
                     {"reason": exc},
                     diag_sink,
+                    event_sink,
                 )
                 return SessionOutcome(
                     state=SessionState.BUDGET_EXCEEDED,
@@ -243,8 +255,17 @@ class SessionRunner:
                     "tool.batch",
                     {"count": len(invs), "tool_names": tool_names},
                     diag_sink,
+                    event_sink,
                 )
                 try:
+                    for inv in invs:
+                        self._emit(
+                            events,
+                            "tool.call_started",
+                            {"tool": inv.tool_name, "call_id": inv.call_id},
+                            diag_sink,
+                            event_sink,
+                        )
                     results = self._executor.execute_serial(invs, approvals)
                 except ApprovalPending as exc:
                     self._emit(
@@ -252,6 +273,7 @@ class SessionRunner:
                         "session.waiting_approval",
                         {"call_id": exc.call_id, "tool": exc.tool_name},
                         diag_sink,
+                        event_sink,
                     )
                     return SessionOutcome(
                         state=SessionState.WAITING_APPROVAL,
@@ -265,6 +287,18 @@ class SessionRunner:
                         messages=tuple(messages),
                         events=tuple(events),
                         reason=f"rejected:{exc.tool_name}",
+                    )
+                for inv, res in zip(invs, results, strict=True):
+                    self._emit(
+                        events,
+                        "tool.call_finished",
+                        {
+                            "tool": inv.tool_name,
+                            "call_id": inv.call_id,
+                            "ok": res.error is None,
+                        },
+                        diag_sink,
+                        event_sink,
                     )
                 self._maybe_set_suppress_after_write_file(
                     invs,
@@ -296,9 +330,47 @@ class SessionRunner:
                     "policy_reason": decision.policy_reason,
                 },
                 diag_sink,
+                event_sink,
             )
             try:
-                resp = self._call_model(ctx, settings, decision.tool_choice)
+                if settings.use_stream:
+                    req = ChatRequest(
+                        messages=ctx,
+                        model=settings.model,
+                        temperature=settings.temperature,
+                        max_tokens=settings.max_tokens,
+                        tools=tools_defs,
+                        tool_choice=decision.tool_choice,
+                        stream=True,
+                    )
+                    text_parts: list[str] = []
+                    stream_events = self._provider.stream(req)
+                    for ev in stream_events:
+                        from agent_core.models import (
+                            StreamDone,
+                            StreamTextDelta,
+                        )
+
+                        if isinstance(ev, StreamTextDelta):
+                            text_parts.append(ev.text)
+                            self._emit(
+                                events,
+                                "assistant.delta",
+                                {"text": ev.text},
+                                diag_sink,
+                                event_sink,
+                            )
+                        if isinstance(ev, StreamDone):
+                            resp = ev.response
+                            break
+                    else:
+                        raise ValueError("stream ended without StreamDone")
+                else:
+                    resp = self._call_model(
+                        ctx,
+                        settings,
+                        decision.tool_choice,
+                    )
             except Exception as exc:  # noqa: BLE001
                 err_reason = f"{type(exc).__name__}:{exc}"
                 extra: dict[str, object] = {}
@@ -312,6 +384,7 @@ class SessionRunner:
                     "model.error",
                     {"reason": err_reason, **extra},
                     diag_sink,
+                    event_sink,
                 )
                 return SessionOutcome(
                     state=SessionState.ERROR,
@@ -334,6 +407,7 @@ class SessionRunner:
                     "usage_session_totals": bud.diag_totals_dict(),
                 },
                 diag_sink,
+                event_sink,
             )
             over = bud.check_exceeded(messages)
             if over is not None:
@@ -342,6 +416,7 @@ class SessionRunner:
                     "session.budget",
                     {"reason": over},
                     diag_sink,
+                    event_sink,
                 )
                 return SessionOutcome(
                     state=SessionState.BUDGET_EXCEEDED,
@@ -369,8 +444,17 @@ class SessionRunner:
                     "tool.batch",
                     {"count": len(invs), "tool_names": tool_names},
                     diag_sink,
+                    event_sink,
                 )
                 try:
+                    for inv in invs:
+                        self._emit(
+                            events,
+                            "tool.call_started",
+                            {"tool": inv.tool_name, "call_id": inv.call_id},
+                            diag_sink,
+                            event_sink,
+                        )
                     results = self._executor.execute_serial(invs, approvals)
                 except ApprovalPending as exc:
                     self._emit(
@@ -378,6 +462,7 @@ class SessionRunner:
                         "session.waiting_approval",
                         {"call_id": exc.call_id, "tool": exc.tool_name},
                         diag_sink,
+                        event_sink,
                     )
                     return SessionOutcome(
                         state=SessionState.WAITING_APPROVAL,
@@ -391,6 +476,18 @@ class SessionRunner:
                         messages=tuple(messages),
                         events=tuple(events),
                         reason=f"rejected:{exc.tool_name}",
+                    )
+                for inv, res in zip(invs, results, strict=True):
+                    self._emit(
+                        events,
+                        "tool.call_finished",
+                        {
+                            "tool": inv.tool_name,
+                            "call_id": inv.call_id,
+                            "ok": res.error is None,
+                        },
+                        diag_sink,
+                        event_sink,
                     )
                 self._maybe_set_suppress_after_write_file(
                     invs,
