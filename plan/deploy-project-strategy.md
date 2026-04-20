@@ -192,7 +192,9 @@ export interface Interface {
 
 **Чекпоинт этапа DP-1:** из произвольного каталога виден один и тот же глобальный конфиг; проектные overrides работают.
 
-**Статус в репозитории (2026-04):** закрыты **DP-1.1** (переменная `AILIT_HOME` → `<home>/config` и `<home>/state`; слой merge имён в [`tools/ailit/config_layer_order.py`](../tools/ailit/config_layer_order.py); пути в [`tools/ailit/user_paths.py`](../tools/ailit/user_paths.py); логи и TUI-state под `global_state_dir()` — [`process_log.py`](../tools/ailit/process_log.py), [`tui_context_persistence.py`](../tools/ailit/tui_context_persistence.py); тесты `tests/test_user_paths.py`, `tests/test_agent_log_discovery.py`), **DP-1.2** (`./scripts/install prod`, префикс `AILIT_INSTALL_PREFIX`), **DP-1.3** (slash `/project`, `/cd`, `/paths` и существующий `/ctx new … ROOT` в [`tui_slash_registry.py`](../tools/ailit/tui_slash_registry.py); `ailit config path` печатает `AILIT_HOME` и `global_logs_dir`).
+**Статус в репозитории (2026-04):** закрыты **DP-1.1** (единый глобальный дом `~/.ailit` по умолчанию; `AILIT_HOME` и overrides; слой merge имён в [`tools/ailit/config_layer_order.py`](../tools/ailit/config_layer_order.py); пути в [`tools/ailit/user_paths.py`](../tools/ailit/user_paths.py); логи и TUI-state под `~/.ailit/state/*` — [`process_log.py`](../tools/ailit/process_log.py), [`tui_context_persistence.py`](../tools/ailit/tui_context_persistence.py); тесты `tests/test_user_paths.py`, `tests/test_agent_log_discovery.py`), **DP-1.2** (`./scripts/install prod`, префикс `AILIT_INSTALL_PREFIX`), **DP-1.3** (slash `/project`, `/cd`, `/paths` и существующий `/ctx new … ROOT` в [`tui_slash_registry.py`](../tools/ailit/tui_slash_registry.py); `ailit config path` печатает `AILIT_HOME` и `global_logs_dir`).
+
+**Статус в репозитории (2026-04):** закрыта **DP-2.1** — `ailit agent` по умолчанию запускает Textual TUI, `ailit agent run` сохранён, `ailit tui` помечен как deprecated alias с предупреждением; добавлен тест `tests/test_cli_agent_tui_default.py`. Начаты **DP-2.3/DP-2.4**: убран `Footer` (кнопка меню) и удалён `[dim]user>[/dim]` из вывода (`tools/ailit/tui_app.py`).
 
 ---
 
