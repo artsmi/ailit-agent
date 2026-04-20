@@ -6,9 +6,22 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from agent_core.models import ChatMessage, MessageRole
+from agent_core.system_prompt_builder import (
+    SystemPromptLayers,
+    build_effective_system_messages,
+    dedupe_system_texts,
+)
 from project_layer.bootstrap import ChatSessionTuning, compute_chat_tuning
-from project_layer.knowledge import ContextSnapshot, FilesystemKnowledgeRefresh, StubKnowledgeRefresh
-from project_layer.loader import LoadedProject, default_project_yaml_path, load_project
+from project_layer.knowledge import (
+    ContextSnapshot,
+    FilesystemKnowledgeRefresh,
+    StubKnowledgeRefresh,
+)
+from project_layer.loader import (
+    LoadedProject,
+    default_project_yaml_path,
+    load_project,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,11 +72,12 @@ def merge_system_messages(
     tuning: ChatSessionTuning,
 ) -> list[ChatMessage]:
     """Собрать system-слои: проект, затем базовый промпт чата."""
-    out: list[ChatMessage] = []
-    for body in tuning.extra_system_messages:
-        out.append(ChatMessage(role=MessageRole.SYSTEM, content=body))
-    out.append(ChatMessage(role=MessageRole.SYSTEM, content=base_system))
-    return out
+    extras = dedupe_system_texts(tuning.extra_system_messages)
+    layers = SystemPromptLayers(
+        default=(base_system,),
+        append=extras,
+    )
+    return build_effective_system_messages(layers)
 
 
 def strip_system_messages(messages: list[ChatMessage]) -> list[ChatMessage]:

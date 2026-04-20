@@ -1,4 +1,4 @@
-"""Сборка augmentation для workflow и настроек чата без импорта session loop."""
+"""Сборка augmentation для workflow и настроек чата без session loop."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from project_layer.loader import LoadedProject
 from project_layer.plugin_skills import collect_plugin_skill_snippets
 from project_layer.registry import ProjectRegistries
 from project_layer.teammate_prompt import TEAMMATE_MAILBOX_SYSTEM_ADDENDUM
+from agent_core.system_prompt_builder import dedupe_system_texts
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,14 +65,19 @@ def compute_workflow_augmentation(
     if rules:
         extras.append(f"Project rules:\n{rules}")
     if loaded.config.memory_hints:
-        extras.append("Memory hints:\n" + "\n".join(f"- {h}" for h in loaded.config.memory_hints))
+        extras.append(
+            "Memory hints:\n"
+            + "\n".join(f"- {h}" for h in loaded.config.memory_hints)
+        )
     if snap.preview_text:
-        extras.append(f"Canonical context preview:\n{snap.preview_text[:8000]}")
+        extras.append(
+            f"Canonical context preview:\n{snap.preview_text[:8000]}"
+        )
     keys: frozenset[str] | None = (
         snap.shortlist_keywords if len(snap.shortlist_keywords) > 0 else None
     )
     return WorkflowAugmentation(
-        extra_system_messages=tuple(extras),
+        extra_system_messages=dedupe_system_texts(extras),
         shortlist_keywords=keys,
         temperature=0.0,
     )
@@ -91,7 +97,10 @@ def compute_chat_tuning(
     if rules:
         extras.append(f"Project rules:\n{rules}")
     if loaded.config.memory_hints:
-        extras.append("Memory hints:\n" + "\n".join(f"- {h}" for h in loaded.config.memory_hints))
+        extras.append(
+            "Memory hints:\n"
+            + "\n".join(f"- {h}" for h in loaded.config.memory_hints)
+        )
     if (agent.role or "").lower() == "teammate":
         extras.append(TEAMMATE_MAILBOX_SYSTEM_ADDENDUM)
     if agent.system_append:
@@ -99,10 +108,12 @@ def compute_chat_tuning(
     plug = collect_plugin_skill_snippets(loaded)
     if plug:
         extras.append("Installed plugin skills (reference):\n" + plug)
-    merged_keywords = frozenset(snap.shortlist_keywords | agent.shortlist_extra)
+    merged_keywords = frozenset(
+        snap.shortlist_keywords | agent.shortlist_extra
+    )
     keys: frozenset[str] | None = merged_keywords if merged_keywords else None
     return ChatSessionTuning(
-        extra_system_messages=tuple(extras),
+        extra_system_messages=dedupe_system_texts(extras),
         shortlist_keywords=keys,
         temperature=agent.temperature,
         max_turns=agent.max_turns,
@@ -119,7 +130,10 @@ def format_agent_run_command(
     dry_run: bool,
 ) -> str:
     """Строка CLI для копирования."""
-    flags = f"--project-root {project_root} --provider {provider} --model {model} --max-turns {max_turns}"
+    flags = (
+        f"--project-root {project_root} --provider {provider} "
+        f"--model {model} --max-turns {max_turns}"
+    )
     if dry_run:
         flags += " --dry-run"
     return f"ailit agent run {workflow_ref} {flags}".strip()

@@ -11,6 +11,10 @@ from typing import Any, TextIO
 from agent_core.models import ChatMessage, MessageRole
 from agent_core.providers.protocol import ChatProvider
 from agent_core.session.loop import SessionRunner, SessionSettings
+from agent_core.system_prompt_builder import (
+    SystemPromptLayers,
+    build_effective_system_messages,
+)
 from agent_core.tool_runtime.approval import ApprovalSession
 from agent_core.tool_runtime.registry import ToolRegistry
 from .graph import Workflow
@@ -30,7 +34,7 @@ class WorkflowRunConfig:
     temperature: float = 0.0
     """Идентификатор прогона (артефакты ``.ailit/run/<run_id>/``)."""
     run_id: str | None = None
-    """Текст CLI-задачи; подмешивается только в **первую** исполняемую задачу."""
+    """Текст CLI-задачи; только в **первую** исполняемую задачу."""
     cli_task_body: str | None = None
     """Относительный путь к ``task.md`` для события ``run.started``."""
     task_artifact_rel: str | None = None
@@ -149,10 +153,11 @@ class WorkflowEngine:
                         },
                     )
                     continue
-                messages: list[ChatMessage] = [
-                    ChatMessage(role=MessageRole.SYSTEM, content=body)
-                    for body in run_config.extra_system_messages
-                ]
+                layers = SystemPromptLayers(
+                    default=(),
+                    append=tuple(run_config.extra_system_messages),
+                )
+                messages = build_effective_system_messages(layers)
                 user_text = task.user_text
                 if cli_task_pending is not None:
                     user_text = merge_cli_task_into_first_user_message(
