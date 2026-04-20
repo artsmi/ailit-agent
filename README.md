@@ -6,13 +6,13 @@
 
 | Область | Состояние |
 |---------|-----------|
-| Стратегия §9 [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md) | Этапы **G–Q** закрыты в репозитории (в т.ч. **G.3** — поиск `.ailit/config.yaml` вверх от `project_root`; **N.1–N.3**; **O–Q**). Детали — строки «Статус» в плане, §13 «Следующий шаг». |
-| Новая работа по продукту | Не следует из §9; нужны **research** и **постановка** следующих целей — см. [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc). |
+| Актуальная стратегия продукта | [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md) — этапы **DP-1–DP-5** (деплой, глобальный runtime, TUI как основной `ailit agent`, потоковый вывод, карта промптов, установка одной командой). Таблица статуса — §8 плана. |
+| [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md) | Этапы **G–Q** закрыты; документ архивен как ориентир закрытой ветки. |
 
 ## Как работать по проекту
 
 1. **Workflow:** обязательный порядок задач и правило «конец workflow → research и постановка» — в [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc).
-2. **Стратегия и критерии этапов:** [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md).
+2. **Стратегия и критерии этапов:** [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md) (актуально); закрытая ветка — [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md).
 3. **Оглавление документации:** [`docs/INDEX.md`](docs/INDEX.md).
 
 ## Установка и быстрая проверка

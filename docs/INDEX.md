@@ -104,6 +104,21 @@
 - этапы G–M с промптами, тестами и критериями приёмки;
 - точные ссылки на строки в `claude-code`, `opencode`, `ailit-agent` и образец в `reps-research`.
 
+**Статус:** этапы **G–Q** закрыты; дальнейшая продуктовая ветка вынесена в [`../plan/deploy-project-strategy.md`](../plan/deploy-project-strategy.md).
+
+### Деплой, проекты на диске, TUI как основной агент (актуально)
+
+- [`../plan/deploy-project-strategy.md`](../plan/deploy-project-strategy.md)
+
+Фиксирует:
+
+- production-установку и сохранение глобальных настроек при обновлении;
+- работу из любого каталога и смену репозитория;
+- перенос интерактива в `ailit agent` (TUI по умолчанию), сохранение `ailit agent run`;
+- потоковый вывод в chat и TUI;
+- карту скрытых промптов и оптимизацию токенов;
+- ссылки на `claude-code`, `opencode`, `context-mode` (без опоры на `ai-multi-agents` как референс этой ветки).
+
 ### Стратегия верхнего project orchestrator-а
 
 - [`../plan/project-orchestrator-strategy.md`](../plan/project-orchestrator-strategy.md)
@@ -126,7 +141,8 @@
 3. При необходимости уточнять детали через:
    - [`../plan/agent-core-architecture.md`](../plan/agent-core-architecture.md)
    - [`../plan/agent-core-provider-strategy.md`](../plan/agent-core-provider-strategy.md)
-   - [`../plan/ailit-global-agent-teams-strategy.md`](../plan/ailit-global-agent-teams-strategy.md) для глобального CLI, команд агентов и UX chat
+   - [`../plan/deploy-project-strategy.md`](../plan/deploy-project-strategy.md) для текущей ветки деплоя, TUI и промптов
+   - [`../plan/ailit-global-agent-teams-strategy.md`](../plan/ailit-global-agent-teams-strategy.md) для закрытой ветки G–Q (глобальный CLI, teams, UX chat)
    - [`../plan/project-orchestrator-strategy.md`](../plan/project-orchestrator-strategy.md) для верхнеуровневой стратегической ветки
 
 ## Какой workflow сейчас считается правильным
