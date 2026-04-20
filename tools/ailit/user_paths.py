@@ -1,21 +1,23 @@
 """Канонические глобальные пути конфигурации и состояния для CLI и UI.
 
-Порядок приоритета для **каталога конфигурации** (файл ``config.yaml``
-внутри него, см. :mod:`ailit.merged_config`):
+Цель: **один глобальный дом** для всех файлов `ailit` по умолчанию.
 
-1. ``AILIT_CONFIG_DIR`` — полный override каталога конфигурации.
-2. Иначе при заданном ``AILIT_HOME``: ``<AILIT_HOME>/config`` (дерево как у
-   единого «дома» приложения; ориентир — ``CLAUDE_CONFIG_DIR`` /
-   ``getClaudeConfigHomeDir`` в ``claude-code``, см. ``utils/envUtils.ts``).
-3. Иначе XDG/дефолты: на POSIX ``XDG_CONFIG_HOME/ailit`` или
-   ``~/.config/ailit``; на Windows ``%APPDATA%/ailit``.
+Базовый каталог (``ailit_home``):
 
-Для **каталога состояния** (логи процессов, снимки TUI и т.п.):
+- ``AILIT_HOME`` если задан.
+- иначе ``~/.ailit`` (POSIX и Windows, если нет явных override).
 
-1. ``AILIT_STATE_DIR``.
-2. Иначе при ``AILIT_HOME``: ``<AILIT_HOME>/state``.
-3. Иначе XDG: ``XDG_STATE_HOME/ailit`` или ``~/.local/state/ailit``;
-   на Windows ``%LOCALAPPDATA%/ailit``.
+Иерархия внутри ``ailit_home``:
+
+- ``config/`` — конфигурация пользователя
+- ``state/`` — состояние, логи и кэши
+  - ``state/logs/`` — JSONL-логи процессов (chat/agent)
+  - ``state/tui-sessions/`` — сохранённые сессии TUI
+
+Override-переменные (сильнее ``AILIT_HOME``):
+
+- ``AILIT_CONFIG_DIR`` — полный override каталога конфигурации.
+- ``AILIT_STATE_DIR`` — полный override каталога состояния.
 
 Слой merge ключей конфигурации описан в :mod:`ailit.config_layer_order`.
 """
@@ -44,49 +46,30 @@ class GlobalDirResolver:
     def _resolved_dir(raw: str) -> Path:
         return Path(raw).expanduser().resolve()
 
+    def _default_ailit_home(self) -> Path:
+        """Дефолтный глобальный дом: ``~/.ailit``."""
+        return (Path.home() / ".ailit").resolve()
+
+    def ailit_home(self) -> Path:
+        """Глобальный дом пользователя (единый корень для config/state)."""
+        home_root = self._environ.get("AILIT_HOME")
+        if home_root:
+            return self._resolved_dir(home_root)
+        return self._default_ailit_home()
+
     def global_config_dir(self) -> Path:
         """Каталог пользовательской конфигурации ``ailit``."""
         override = self._environ.get("AILIT_CONFIG_DIR")
         if override:
             return self._resolved_dir(override)
-        home_root = self._environ.get("AILIT_HOME")
-        if home_root:
-            return (self._resolved_dir(home_root) / "config").resolve()
-        return self._default_config_dir()
+        return (self.ailit_home() / "config").resolve()
 
     def global_state_dir(self) -> Path:
         """Каталог пользовательского состояния (кэши, логи сессий и т.п.)."""
         override = self._environ.get("AILIT_STATE_DIR")
         if override:
             return self._resolved_dir(override)
-        home_root = self._environ.get("AILIT_HOME")
-        if home_root:
-            return (self._resolved_dir(home_root) / "state").resolve()
-        return self._default_state_dir()
-
-    def _default_config_dir(self) -> Path:
-        if os.name == "nt":
-            appdata = self._environ.get("APPDATA")
-            if appdata:
-                return (Path(appdata) / "ailit").resolve()
-            home = Path.home()
-            return (home / "AppData" / "Roaming" / "ailit").resolve()
-        xdg = self._environ.get("XDG_CONFIG_HOME")
-        if xdg:
-            return (Path(xdg).expanduser() / "ailit").resolve()
-        return (Path.home() / ".config" / "ailit").resolve()
-
-    def _default_state_dir(self) -> Path:
-        if os.name == "nt":
-            local = self._environ.get("LOCALAPPDATA")
-            if local:
-                return (Path(local) / "ailit").resolve()
-            home = Path.home()
-            return (home / "AppData" / "Local" / "ailit").resolve()
-        xdg = self._environ.get("XDG_STATE_HOME")
-        if xdg:
-            return (Path(xdg).expanduser() / "ailit").resolve()
-        return (Path.home() / ".local" / "state" / "ailit").resolve()
+        return (self.ailit_home() / "state").resolve()
 
 
 def global_config_dir() -> Path:

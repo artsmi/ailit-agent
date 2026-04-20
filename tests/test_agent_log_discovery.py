@@ -27,7 +27,7 @@ def test_discover_prefers_newer_file_in_canonical_logs(
     primary = global_logs_dir()
     primary.mkdir(parents=True)
     legacy = home / ".ailit"
-    legacy.mkdir(parents=True)
+    legacy.mkdir(parents=True, exist_ok=True)
     older = primary / "ailit-agent-older.log"
     newer = legacy / "ailit-agent-newer.log"
     older.write_text('{"event_type":"x"}\n', encoding="utf-8")

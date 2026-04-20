@@ -19,8 +19,10 @@ def discover_latest_agent_log(*, logs_dir: Path | None = None) -> Path | None:
         primary = global_logs_dir()
         dirs.append(primary)
         legacy = Path.home() / ".ailit"
-        if legacy.resolve() != primary.resolve():
-            dirs.append(legacy)
+        legacy_logs = legacy / "logs"
+        for cand in (legacy, legacy_logs):
+            if cand.resolve() != primary.resolve():
+                dirs.append(cand)
     best: Path | None = None
     best_mtime = -1.0
     for base in dirs:

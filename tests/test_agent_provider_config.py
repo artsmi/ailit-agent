@@ -25,16 +25,15 @@ def test_dev_layer_under_global_merge(
         encoding="utf-8",
     )
 
-    gdir = tmp_path / "xdg"
-    (gdir / "ailit").mkdir(parents=True)
-    global_yaml = gdir / "ailit" / "config.yaml"
+    cfg_home = tmp_path / "cfg"
+    cfg_home.mkdir(parents=True)
+    global_yaml = cfg_home / "config.yaml"
     global_yaml.write_text(
         yaml.safe_dump({"deepseek": {"model": "from-global"}}),
         encoding="utf-8",
     )
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(gdir))
-    monkeypatch.delenv("AILIT_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("AILIT_CONFIG_DIR", str(cfg_home))
 
     dev_src = DevRepoTestLocalSource(repo_root_override=fake_repo)
     cfg = AgentRunProviderConfigBuilder(dev_source=dev_src).build(
@@ -55,15 +54,14 @@ def test_no_dev_skips_repo_file(
         encoding="utf-8",
     )
 
-    gdir = tmp_path / "xdg"
-    (gdir / "ailit").mkdir(parents=True)
-    (gdir / "ailit" / "config.yaml").write_text(
+    cfg_home = tmp_path / "cfg"
+    cfg_home.mkdir(parents=True)
+    (cfg_home / "config.yaml").write_text(
         yaml.safe_dump({"deepseek": {"model": "from-global"}}),
         encoding="utf-8",
     )
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(gdir))
-    monkeypatch.delenv("AILIT_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("AILIT_CONFIG_DIR", str(cfg_home))
 
     dev_src = DevRepoTestLocalSource(repo_root_override=fake_repo)
     cfg = AgentRunProviderConfigBuilder(dev_source=dev_src).build(
@@ -77,9 +75,9 @@ def test_project_layer_over_global(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Проектный ``.ailit/config.yaml`` перекрывает глобальный."""
-    gdir = tmp_path / "xdg"
-    (gdir / "ailit").mkdir(parents=True)
-    (gdir / "ailit" / "config.yaml").write_text(
+    cfg_home = tmp_path / "cfg"
+    cfg_home.mkdir(parents=True)
+    (cfg_home / "config.yaml").write_text(
         yaml.safe_dump({"deepseek": {"model": "global-m"}}),
         encoding="utf-8",
     )
@@ -90,8 +88,7 @@ def test_project_layer_over_global(
         encoding="utf-8",
     )
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(gdir))
-    monkeypatch.delenv("AILIT_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("AILIT_CONFIG_DIR", str(cfg_home))
 
     cfg = AgentRunProviderConfigBuilder().build(proj, use_dev_repo_yaml=False)
     assert cfg["deepseek"]["model"] == "proj-m"

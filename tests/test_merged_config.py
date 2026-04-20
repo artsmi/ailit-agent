@@ -21,13 +21,10 @@ def test_project_overrides_global_model(
 ) -> None:
     """Один и тот же вложенный ключ: проект перекрывает глобальный файл."""
     home = tmp_path / "h"
-    gdir = home / "gcfg"
-    gdir.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(gdir))
-    monkeypatch.delenv("AILIT_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("AILIT_CONFIG_DIR", str(home / ".ailit" / "config"))
 
-    global_yaml = gdir / "ailit" / GLOBAL_USER_CONFIG_FILENAME
+    global_yaml = (home / ".ailit" / "config" / GLOBAL_USER_CONFIG_FILENAME)
     global_yaml.parent.mkdir(parents=True)
     global_yaml.write_text(
         yaml.safe_dump({"deepseek": {"model": "from-global", "api_key": ""}}),
@@ -54,13 +51,10 @@ def test_global_layer_used_when_no_project(
 ) -> None:
     """Без project_root глобальный файл всё равно участвует."""
     home = tmp_path / "h"
-    gdir = home / "xdg"
-    gdir.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(gdir))
-    monkeypatch.delenv("AILIT_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("AILIT_CONFIG_DIR", str(home / ".ailit" / "config"))
 
-    global_yaml = gdir / "ailit" / GLOBAL_USER_CONFIG_FILENAME
+    global_yaml = (home / ".ailit" / "config" / GLOBAL_USER_CONFIG_FILENAME)
     global_yaml.parent.mkdir(parents=True)
     global_yaml.write_text(
         yaml.safe_dump({"deepseek": {"model": "only-global"}}),
@@ -80,7 +74,7 @@ def test_defaults_when_no_files(
     (home / ".config").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.delenv("AILIT_CONFIG_DIR", raising=False)
-    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    monkeypatch.delenv("AILIT_HOME", raising=False)
 
     r = GlobalDirResolver()
     out = AilitConfigMerger(path_resolver=r).load(None)
@@ -110,13 +104,10 @@ def test_g3_project_config_in_parent_dir(
 ) -> None:
     """G.3: конфиг предка виден из вложенного каталога без своего yaml."""
     home = tmp_path / "h"
-    gdir = home / "xdg"
-    gdir.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(gdir))
-    monkeypatch.delenv("AILIT_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("AILIT_CONFIG_DIR", str(home / ".ailit" / "config"))
 
-    global_yaml = gdir / "ailit" / GLOBAL_USER_CONFIG_FILENAME
+    global_yaml = (home / ".ailit" / "config" / GLOBAL_USER_CONFIG_FILENAME)
     global_yaml.parent.mkdir(parents=True)
     global_yaml.write_text(
         yaml.safe_dump({"live": {"run": False}}),
@@ -143,13 +134,10 @@ def test_g3_deepest_project_file_wins_over_ancestor(
 ) -> None:
     """G.3: ближайший к ``project_root`` конфиг перекрывает предка."""
     home = tmp_path / "h"
-    gdir = home / "xdg"
-    gdir.mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home))
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(gdir))
-    monkeypatch.delenv("AILIT_CONFIG_DIR", raising=False)
+    monkeypatch.setenv("AILIT_CONFIG_DIR", str(home / ".ailit" / "config"))
 
-    global_yaml = gdir / "ailit" / GLOBAL_USER_CONFIG_FILENAME
+    global_yaml = (home / ".ailit" / "config" / GLOBAL_USER_CONFIG_FILENAME)
     global_yaml.parent.mkdir(parents=True)
     global_yaml.write_text(yaml.safe_dump({}), encoding="utf-8")
 
