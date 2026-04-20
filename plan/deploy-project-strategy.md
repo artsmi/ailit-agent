@@ -21,24 +21,32 @@
 5. **Скрытый промптинг:** явная «карта» системных фрагментов (базовый агент, окружение, инструменты, политики compaction/shortlist), версионирование и минимизация дубликатов в духе OpenCode (модули `.txt`) и приоритетов Claude Code (`buildEffectiveSystemPrompt`), с **оптимизацией токенов** как сквозной фичей `ailit` (см. идеи удержания контекста в context-mode).
 6. **Деплой одной командой:** из корня клона — «продакшен»-установка (не обязательно editable); обновление и удаление **не стирают** глобальные пользовательские настройки без явной команды «factory reset».
 
-Критерий успеха продукта: разработчик один раз ставит CLI, настраивает глобально из TUI или CLI, открывает любой проект, работает агентом в терминале с приятным потоковым UI, при обновлении пакета не теряет `~/.ailit` (или XDG-эквивалент).
+Критерий успеха продукта: разработчик один раз ставит CLI, настраивает глобально из TUI или CLI, открывает любой проект, работает агентом в терминале с приятным потоковым UI, при обновлении пакета не теряет глобальный конфиг (`AILIT_HOME`, XDG-каталоги или legacy `~/.ailit` для старых логов).
 
 ---
 
 ## 2. Диагностика текущего состояния (точки роста)
 
-### 2.1. Установка и shim указывают на клон
+### 2.1. Установка и shim (обновлено после DP-1.2)
 
-Скрипт `scripts/install` создаёт симлинк на **venv текущего клона**; последний успешный install «перезаписывает» shim — это удобно для разработки, но не задаёт модель «глобальное приложение + обновляемый бинарник/venv в фиксированном месте».
+Режим **dev** по умолчанию по-прежнему ставит editable-пакет в `.venv` клона и симлинк на него. Режим **prod** ставит не-editable wheel из исходников в отдельный venv (префикс `AILIT_INSTALL_PREFIX`, по умолчанию `~/.local/share/ailit`), чтобы shim не указывал на клон как на единственный «дом» пакета.
 
-```28:36:/home/artem/reps/ailit-agent/scripts/install
-LOCAL_BIN="${HOME}/.local/bin"
+```15:36:/home/artem/reps/ailit-agent/scripts/install
+MODE="${1:-dev}"
 ...
-    ln -sf "${VENV}/bin/ailit" "${LOCAL_BIN}/ailit"
-    echo "Команда ailit:  ${LOCAL_BIN}/ailit  →  ${VENV}/bin/ailit"
+if [[ "${MODE}" == "prod" ]]; then
+  VENV="${INSTALL_PREFIX}/venv"
+...
+  python3 -m pip install ".[chat,tui]"
 ```
 
-**Вывод:** нужна команда/режим **production install** (целевой префикс, отдельный venv или wheel, политика обновления), не ломающая глобальный конфиг.
+```57:60:/home/artem/reps/ailit-agent/scripts/install
+  mkdir -p "${LOCAL_BIN}"
+  if [[ -x "${VENV}/bin/ailit" ]]; then
+    ln -sf "${VENV}/bin/ailit" "${LOCAL_BIN}/ailit"
+```
+
+**Оставшийся вывод:** политика данных при `pip uninstall` и «одна команда без аргумента = prod» — этапы DP-5 / уточнение UX.
 
 ### 2.2. TUI: служебная разметка Rich и синхронный вывод хода
 
@@ -183,6 +191,8 @@ export interface Interface {
 **Критерии приёмки:** ручной сценарий: два git-клона, переключение без перезапуска процесса (или с явным restart — зафиксировать в постановке задачи).
 
 **Чекпоинт этапа DP-1:** из произвольного каталога виден один и тот же глобальный конфиг; проектные overrides работают.
+
+**Статус в репозитории (2026-04):** закрыты **DP-1.1** (переменная `AILIT_HOME` → `<home>/config` и `<home>/state`; слой merge имён в [`tools/ailit/config_layer_order.py`](../tools/ailit/config_layer_order.py); пути в [`tools/ailit/user_paths.py`](../tools/ailit/user_paths.py); логи и TUI-state под `global_state_dir()` — [`process_log.py`](../tools/ailit/process_log.py), [`tui_context_persistence.py`](../tools/ailit/tui_context_persistence.py); тесты `tests/test_user_paths.py`, `tests/test_agent_log_discovery.py`), **DP-1.2** (`./scripts/install prod`, префикс `AILIT_INSTALL_PREFIX`), **DP-1.3** (slash `/project`, `/cd`, `/paths` и существующий `/ctx new … ROOT` в [`tui_slash_registry.py`](../tools/ailit/tui_slash_registry.py); `ailit config path` печатает `AILIT_HOME` и `global_logs_dir`).
 
 ---
 
@@ -339,7 +349,7 @@ export interface Interface {
 
 | Этап | Статус | Примечание |
 |------|--------|------------|
-| DP-1 | не начат | |
+| DP-1 | закрыт (итерация 2026-04) | см. §4 чекпоинт DP-1 «Статус в репозитории» |
 | DP-2 | не начат | |
 | DP-3 | не начат | |
 | DP-4 | не начат | |

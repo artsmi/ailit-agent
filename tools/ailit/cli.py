@@ -335,7 +335,7 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default=None,
         dest="usage_log_file",
-        help="Путь к JSONL (иначе последний ~/.ailit/ailit-agent-*.log)",
+        help="Путь к JSONL (иначе последний ailit-agent-*.log в global logs)",
     )
     p_usage_last.set_defaults(func=_cmd_agent_usage_last)
 

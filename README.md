@@ -6,7 +6,7 @@
 
 | Область | Состояние |
 |---------|-----------|
-| Актуальная стратегия продукта | [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md) — этапы **DP-1–DP-5** (деплой, глобальный runtime, TUI как основной `ailit agent`, потоковый вывод, карта промптов, установка одной командой). Таблица статуса — §8 плана. |
+| Актуальная стратегия продукта | [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md): **DP-1** закрыт (`AILIT_HOME`, XDG, `install prod`, логи в global state, `/paths` в TUI); далее **DP-2–DP-5**. §8 плана. |
 | [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md) | Этапы **G–Q** закрыты; документ архивен как ориентир закрытой ветки. |
 
 ## Как работать по проекту
@@ -20,7 +20,8 @@
 Из корня клона:
 
 ```bash
-./scripts/install
+./scripts/install          # dev: editable + .venv в клоне
+# или:  ./scripts/install prod   # venv в ~/.local/share/ailit (см. план DP-1)
 # при необходимости: export PATH="${HOME}/.local/bin:${PATH}"
 ailit --help
 ```

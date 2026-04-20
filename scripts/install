@@ -1,31 +1,56 @@
 #!/usr/bin/env bash
-# Полное обновление editable-установки ailit-agent из корня репозитория:
-#   pip install -e .  →  '.[dev]'  →  '.[chat]'  →  '.[tui]'
-# Создаёт/использует локальный .venv; затем симлинк ~/.local/bin/ailit → .venv/bin/ailit,
-# чтобы вызывать `ailit` из любого каталога без `source` (нужен ~/.local/bin в PATH).
+# Установка CLI ailit из корня репозитория.
 #
-# Отключить shim:  AILIT_INSTALL_NO_SHIM=1 ./scripts/install
+# Режимы:
+#   ./scripts/install           # dev (по умолчанию): editable, .venv в клоне
+#   ./scripts/install dev       # то же: pip install -e . + [dev,chat,tui]
+#   ./scripts/install prod      # без -e: venv в AILIT_INSTALL_PREFIX, shim в ~/.local/bin
+#
+# Переменные:
+#   AILIT_INSTALL_NO_SHIM=1     — не создавать симлинк ~/.local/bin/ailit
+#   AILIT_INSTALL_PREFIX        — корень для prod venv (по умолчанию ~/.local/share/ailit)
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+MODE="${1:-dev}"
 cd "${REPO_ROOT}"
 
-VENV="${REPO_ROOT}/.venv"
-if [[ ! -d "${VENV}" ]]; then
-  python3 -m venv "${VENV}"
-fi
-# shellcheck disable=SC1091
-source "${VENV}/bin/activate"
-
-python3 -m pip install -U pip setuptools wheel
-python3 -m pip install -e .
-python3 -m pip install -e '.[dev]'
-python3 -m pip install -e '.[chat]'
-python3 -m pip install -e '.[tui]'
-
-echo "Готово: пакет в ${VENV}"
-
 LOCAL_BIN="${HOME}/.local/bin"
+INSTALL_PREFIX="${AILIT_INSTALL_PREFIX:-${HOME}/.local/share/ailit}"
+
+if [[ "${MODE}" != "dev" && "${MODE}" != "prod" ]]; then
+  echo "Неизвестный режим: ${MODE}. Используйте: dev | prod" >&2
+  exit 2
+fi
+
+if [[ "${MODE}" == "prod" ]]; then
+  VENV="${INSTALL_PREFIX}/venv"
+  mkdir -p "${INSTALL_PREFIX}"
+  if [[ ! -d "${VENV}" ]]; then
+    python3 -m venv "${VENV}"
+  fi
+  # shellcheck disable=SC1091
+  source "${VENV}/bin/activate"
+  python3 -m pip install -U pip setuptools wheel
+  python3 -m pip install ".[chat,tui]"
+  echo "Готово: production-установка в ${VENV} (без -e; префикс ${INSTALL_PREFIX})"
+else
+  VENV="${REPO_ROOT}/.venv"
+  if [[ ! -d "${VENV}" ]]; then
+    python3 -m venv "${VENV}"
+  fi
+  # shellcheck disable=SC1091
+  source "${VENV}/bin/activate"
+
+  python3 -m pip install -U pip setuptools wheel
+  python3 -m pip install -e .
+  python3 -m pip install -e '.[dev]'
+  python3 -m pip install -e '.[chat]'
+  python3 -m pip install -e '.[tui]'
+
+  echo "Готово: пакет в ${VENV}"
+fi
+
 if [[ -n "${AILIT_INSTALL_NO_SHIM:-}" ]]; then
   echo "Shim пропущен (AILIT_INSTALL_NO_SHIM). Тогда: source ${VENV}/bin/activate"
 else
@@ -33,7 +58,9 @@ else
   if [[ -x "${VENV}/bin/ailit" ]]; then
     ln -sf "${VENV}/bin/ailit" "${LOCAL_BIN}/ailit"
     echo "Команда ailit:  ${LOCAL_BIN}/ailit  →  ${VENV}/bin/ailit"
-    echo "(последний успешный install перезаписывает shim; указывает на этот клон)"
+    if [[ "${MODE}" == "dev" ]]; then
+      echo "(последний успешный install перезаписывает shim; указывает на этот клон)"
+    fi
     case ":${PATH}:" in
       *:"${LOCAL_BIN}":*) echo "PATH уже содержит ${LOCAL_BIN}" ;;
       *)

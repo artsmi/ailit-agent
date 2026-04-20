@@ -7,19 +7,31 @@ import sys
 from pathlib import Path
 
 from ailit.usage_display import UsageSummaryPlainTextFormatter
+from ailit.user_paths import global_logs_dir
 
 
 def discover_latest_agent_log(*, logs_dir: Path | None = None) -> Path | None:
-    """Самый свежий по mtime ``ailit-agent-*.log`` в ``~/.ailit``."""
-    base = logs_dir or (Path.home() / ".ailit")
-    if not base.is_dir():
-        return None
-    candidates = sorted(
-        base.glob("ailit-agent-*.log"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    return candidates[0] if candidates else None
+    """Новейший ailit-agent-*.log в каталоге логов или legacy ~/.ailit."""
+    dirs: list[Path] = []
+    if logs_dir is not None:
+        dirs.append(logs_dir)
+    else:
+        primary = global_logs_dir()
+        dirs.append(primary)
+        legacy = Path.home() / ".ailit"
+        if legacy.resolve() != primary.resolve():
+            dirs.append(legacy)
+    best: Path | None = None
+    best_mtime = -1.0
+    for base in dirs:
+        if not base.is_dir():
+            continue
+        for path in base.glob("ailit-agent-*.log"):
+            m = path.stat().st_mtime
+            if m > best_mtime:
+                best_mtime = m
+                best = path
+    return best
 
 
 def last_usage_pair_from_log_text(
@@ -66,7 +78,8 @@ def print_last_usage_from_log(explicit: Path | None) -> int:
     path = explicit or discover_latest_agent_log()
     if path is None:
         sys.stderr.write(
-            "Не найден каталог ~/.ailit или файлы ailit-agent-*.log.\n",
+            "Не найдены файлы ailit-agent-*.log в "
+            f"{global_logs_dir()} (или legacy ~/.ailit).\n",
         )
         return 1
     if not path.is_file():

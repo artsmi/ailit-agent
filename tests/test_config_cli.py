@@ -48,8 +48,10 @@ def test_config_path_cli(
     rc = main(["config", "path"])
     assert rc == 0
     out = capsys.readouterr().out
+    assert "AILIT_HOME=" in out
     assert "global_config_dir=" in out
     assert "global_state_dir=" in out
+    assert "global_logs_dir=" in out
     assert "global_config_file=" in out
     assert "detected_project_root=" in out
 

@@ -18,11 +18,12 @@ from ailit.tui_message_codec import (
     messages_from_jsonable,
     messages_to_jsonable,
 )
+from ailit.user_paths import global_state_dir
 
 
 def default_state_path() -> Path:
-    """Путь к state.json в ``tui-sessions`` (под ``~/.ailit``)."""
-    base = Path.home() / ".ailit" / "tui-sessions"
+    """Путь к state.json в ``tui-sessions`` (под глобальным state)."""
+    base = global_state_dir() / "tui-sessions"
     base.mkdir(parents=True, exist_ok=True)
     return base / "state.json"
 

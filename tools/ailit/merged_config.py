@@ -89,7 +89,7 @@ class ProviderEnvOverlay:
 
 
 class AilitConfigMerger:
-    """Загрузка и merge: defaults → глобальный файл → проектный файл → env."""
+    """Загрузка и merge; имена слоёв — :data:`ailit.config_layer_order.CONFIG_MERGE_LAYER_NAMES`."""
 
     def __init__(
         self,
@@ -110,7 +110,7 @@ class AilitConfigMerger:
         return self._paths.global_config_dir() / GLOBAL_USER_CONFIG_FILENAME
 
     def load(self, project_root: Path | None) -> dict[str, Any]:
-        """Собрать конфиг: defaults, global, проектный слой (G.2 + G.3)."""
+        """Собрать конфиг: defaults → global file → project → env overlay."""
         merged = _deep_merge({}, _default_ailit_config())
         merged = _deep_merge(merged, _load_mapping_file(self.global_config_file()))
         if project_root is not None:
@@ -125,7 +125,7 @@ class AilitConfigMerger:
 def load_merged_ailit_config(
     project_root: Path | None = None,
 ) -> Mapping[str, Any]:
-    """Merge: defaults, global, проектные ``.ailit/config.yaml`` (G.3), env.
+    """Merge: см. :mod:`ailit.config_layer_order`.
 
     Проект: от ``project_root`` к корню ФС; ниже по дереву перекрывает выше.
 

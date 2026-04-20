@@ -1,4 +1,4 @@
-"""Файловый журнал процесса: ~/.ailit/ailit-{chat|agent}-<timestamp>.log."""
+"""Файловый журнал процесса: ``<global_logs_dir>/ailit-{chat|agent}-*.log``."""
 
 from __future__ import annotations
 
@@ -10,10 +10,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal, TextIO
 
+from ailit.user_paths import global_logs_dir
+
 ProcessLogRole = Literal["chat", "agent"]
 DiagSink = Callable[[dict[str, Any]], None]
 
-_LOG_DIR_NAME = ".ailit"
 _FILE_PREFIX = "ailit"
 
 
@@ -29,8 +30,9 @@ _state: ProcessLogHandle | None = None
 
 
 def _ailit_log_dir() -> Path:
-    """Каталог журналов в домашней директории."""
-    return Path.home() / _LOG_DIR_NAME
+    """Каталог журналов: см. ``ailit.user_paths.global_logs_dir``."""
+    d = global_logs_dir()
+    return d
 
 
 def _timestamp_for_filename() -> str:

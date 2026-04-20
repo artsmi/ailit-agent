@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -23,9 +24,12 @@ def cmd_config_path(_args: argparse.Namespace) -> int:
     merger = AilitConfigMerger()
     gfile = merger.global_config_file()
     proj = ProjectRootDetector().find()
+    home = os.environ.get("AILIT_HOME", "")
     lines = (
+        f"AILIT_HOME={home or '(не задан)'}",
         f"global_config_dir={gcfg}",
         f"global_state_dir={gst}",
+        f"global_logs_dir={gst / 'logs'}",
         f"global_config_file={gfile}",
         f"detected_project_root={proj if proj else '(не найден)'}",
     )
@@ -34,7 +38,7 @@ def cmd_config_path(_args: argparse.Namespace) -> int:
 
 
 def cmd_config_set(args: argparse.Namespace) -> int:
-    """Записать значение в глобальный ``config.yaml`` (только allowlist-ключи)."""
+    """Записать значение в глобальный ``config.yaml`` (allowlist)."""
     key = str(args.key).strip()
     value = str(args.value).strip()
     try:
@@ -64,7 +68,10 @@ def register_config_parser(sub: Any) -> None:
     )
     cfg_sub = p_cfg.add_subparsers(dest="config_cmd", required=True)
 
-    p_path = cfg_sub.add_parser("path", help="Каталоги конфигурации и корень проекта")
+    p_path = cfg_sub.add_parser(
+        "path",
+        help="Каталоги конфигурации и корень проекта",
+    )
     p_path.set_defaults(func=cmd_config_path)
 
     p_set = cfg_sub.add_parser(
@@ -89,6 +96,6 @@ def register_config_parser(sub: Any) -> None:
         "--project-root",
         type=str,
         default=None,
-        help="Явный корень проекта для слоя .ailit/config.yaml (иначе автоот cwd)",
+        help="Корень проекта для .ailit/config.yaml (иначе от cwd)",
     )
     p_show.set_defaults(func=cmd_config_show)

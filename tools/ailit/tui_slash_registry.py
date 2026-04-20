@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -9,6 +10,7 @@ from typing import Protocol
 from ailit.tui_app_state import TuiAppState
 from ailit.tui_context_persistence import default_state_path, save_app_state
 from ailit.tui_context_stats import CtxUsageMarkdownTable
+from ailit.user_paths import GlobalDirResolver
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,7 +37,8 @@ class HelpSlashHandler:
         """Перечень команд и текущие значения."""
         sv = app_state.session_view()
         return (
-            "Команды: /help | /model | /max_turns | /project | /quit | /ctx …",
+            "Команды: /help | /model | /max_turns | /project | /cd | /paths | "
+            "/quit | /ctx …",
             "/ctx list | /ctx new NAME [ROOT] | /ctx switch NAME | "
             "/ctx rename NAME | /ctx stats | /ctx save [PATH]",
             "Горячие клавиши: Ctrl+Shift+Right/Left — смена контекста "
@@ -102,16 +105,37 @@ class QuitSlashHandler:
         return ("Выход…",)
 
 
+class PathsSlashHandler:
+    """Глобальные пути и активный корень (аналог ``ailit config path``)."""
+
+    def run(self, _arg: str, app_state: TuiAppState) -> tuple[str, ...]:
+        """Печать резолвера и ``project_root`` активного контекста."""
+        r = GlobalDirResolver(os.environ)
+        ah = os.environ.get("AILIT_HOME", "")
+        sv = app_state.session_view()
+        st = r.global_state_dir()
+        return (
+            f"AILIT_HOME={ah or '(не задан)'}",
+            f"global_config_dir={r.global_config_dir()}",
+            f"global_state_dir={st}",
+            f"global_logs_dir={st / 'logs'}",
+            f"active project_root={sv.project_root}",
+        )
+
+
 class SlashCommandRegistry:
     """Регистрация и диспетчеризация команд ``/name``."""
 
     def __init__(self) -> None:
         """Стандартные обработчики."""
+        _project = ProjectSlashHandler()
         self._handlers: dict[str, SlashCommandHandler] = {
             "help": HelpSlashHandler(),
             "model": ModelSlashHandler(),
             "max_turns": MaxTurnsSlashHandler(),
-            "project": ProjectSlashHandler(),
+            "project": _project,
+            "cd": _project,
+            "paths": PathsSlashHandler(),
             "quit": QuitSlashHandler(),
         }
 

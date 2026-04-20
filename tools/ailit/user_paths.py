@@ -1,14 +1,23 @@
 """Канонические глобальные пути конфигурации и состояния для CLI и UI.
 
-Порядок приоритета для каталога конфигурации:
-1. Переменная ``AILIT_CONFIG_DIR`` (полный override).
-2. На POSIX: ``XDG_CONFIG_HOME/ailit`` или ``~/.config/ailit``.
-3. На Windows: ``%APPDATA%/ailit`` (или домашний ``AppData/Roaming/ailit``).
+Порядок приоритета для **каталога конфигурации** (файл ``config.yaml``
+внутри него, см. :mod:`ailit.merged_config`):
 
-Для каталога состояния:
-1. ``AILIT_STATE_DIR`` при наличии.
-2. На POSIX: ``XDG_STATE_HOME/ailit`` или ``~/.local/state/ailit``.
-3. На Windows: ``%LOCALAPPDATA%/ailit``.
+1. ``AILIT_CONFIG_DIR`` — полный override каталога конфигурации.
+2. Иначе при заданном ``AILIT_HOME``: ``<AILIT_HOME>/config`` (дерево как у
+   единого «дома» приложения; ориентир — ``CLAUDE_CONFIG_DIR`` /
+   ``getClaudeConfigHomeDir`` в ``claude-code``, см. ``utils/envUtils.ts``).
+3. Иначе XDG/дефолты: на POSIX ``XDG_CONFIG_HOME/ailit`` или
+   ``~/.config/ailit``; на Windows ``%APPDATA%/ailit``.
+
+Для **каталога состояния** (логи процессов, снимки TUI и т.п.):
+
+1. ``AILIT_STATE_DIR``.
+2. Иначе при ``AILIT_HOME``: ``<AILIT_HOME>/state``.
+3. Иначе XDG: ``XDG_STATE_HOME/ailit`` или ``~/.local/state/ailit``;
+   на Windows ``%LOCALAPPDATA%/ailit``.
+
+Слой merge ключей конфигурации описан в :mod:`ailit.config_layer_order`.
 """
 
 from __future__ import annotations
@@ -40,6 +49,9 @@ class GlobalDirResolver:
         override = self._environ.get("AILIT_CONFIG_DIR")
         if override:
             return self._resolved_dir(override)
+        home_root = self._environ.get("AILIT_HOME")
+        if home_root:
+            return (self._resolved_dir(home_root) / "config").resolve()
         return self._default_config_dir()
 
     def global_state_dir(self) -> Path:
@@ -47,6 +59,9 @@ class GlobalDirResolver:
         override = self._environ.get("AILIT_STATE_DIR")
         if override:
             return self._resolved_dir(override)
+        home_root = self._environ.get("AILIT_HOME")
+        if home_root:
+            return (self._resolved_dir(home_root) / "state").resolve()
         return self._default_state_dir()
 
     def _default_config_dir(self) -> Path:
@@ -75,10 +90,15 @@ class GlobalDirResolver:
 
 
 def global_config_dir() -> Path:
-    """Эффективный глобальный каталог конфигурации (см. :class:`GlobalDirResolver`)."""
+    """Глобальный каталог конфигурации (см. ``GlobalDirResolver``)."""
     return GlobalDirResolver().global_config_dir()
 
 
 def global_state_dir() -> Path:
     """Эффективный глобальный каталог состояния."""
     return GlobalDirResolver().global_state_dir()
+
+
+def global_logs_dir() -> Path:
+    """Каталог JSONL-логов процессов (chat/agent) внутри state."""
+    return GlobalDirResolver().global_state_dir() / "logs"
