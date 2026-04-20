@@ -327,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
     p_tui.add_argument(
         "--max-turns",
         type=int,
-        default=8,
+        default=10_000,
         dest="max_turns",
         help="Лимит итераций session loop (как в ailit chat)",
     )
@@ -358,7 +358,7 @@ def main(argv: list[str] | None = None) -> int:
     p_agent.add_argument(
         "--max-turns",
         type=int,
-        default=8,
+        default=10_000,
         dest="max_turns",
         help="Лимит итераций session loop (как в ailit chat)",
     )
@@ -391,7 +391,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Идентификатор модели",
     )
-    p_run.add_argument("--max-turns", type=int, default=8, dest="max_turns")
+    p_run.add_argument(
+        "--max-turns",
+        type=int,
+        default=10_000,
+        dest="max_turns",
+    )
     p_run.add_argument(
         "--provider",
         choices=("deepseek", "kimi", "mock"),
@@ -470,7 +475,7 @@ def main(argv: list[str] | None = None) -> int:
     p_compat_run.add_argument(
         "--max-turns",
         type=int,
-        default=8,
+        default=10_000,
         dest="max_turns",
     )
     p_compat_run.add_argument(

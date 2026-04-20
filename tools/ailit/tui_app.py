@@ -21,6 +21,7 @@ from ailit.tui_context_persistence import (
 from ailit.defaults_resolver import DefaultProviderModelResolver
 from ailit.tui_context_stats import TuiSubtitleUsageFormatter
 from ailit.tui_slash_registry import SlashCommandRegistry
+from ailit.tui_transcript_presenter import TuiTranscriptEventPresenter
 from agent_core.session.event_contract import SessionEvent
 
 
@@ -37,6 +38,21 @@ def resolve_model(provider: str, model: str | None) -> str:
 
 class AilitTuiApp(App[None]):
     """TUI: slash-команды, мульти-контекст (Q), ``SessionRunner``."""
+
+    # Плотность и рамки; кегль шрифта задаётся терминалом, не приложением.
+    CSS = """
+    RichLog {
+        height: 1fr;
+        border: tall $secondary 30%;
+        padding: 0 1;
+        margin: 0 1;
+    }
+    Input {
+        dock: bottom;
+        height: 3;
+        margin-top: 1;
+    }
+    """
 
     BINDINGS = [
         ("ctrl+q", "quit", "Выход"),
@@ -62,7 +78,7 @@ class AilitTuiApp(App[None]):
         )
         prov = str(getattr(args, "provider", None) or dflt.provider)
         model = resolve_model(prov, getattr(args, "model", None) or dflt.model)
-        mt = int(getattr(args, "max_turns", 8))
+        mt = int(getattr(args, "max_turns", 10_000))
         self._project_root = project_root
         mgr = TuiContextManager(
             default_root=project_root,
@@ -76,6 +92,7 @@ class AilitTuiApp(App[None]):
         )
         self._subtitle_fmt = TuiSubtitleUsageFormatter()
         self._slash = SlashCommandRegistry()
+        self._tui_events = TuiTranscriptEventPresenter()
         self._log_handle: ProcessLogHandle | None = None
         self.title = "ailit tui"
         self.sub_title = str(project_root)
@@ -203,9 +220,21 @@ class AilitTuiApp(App[None]):
         stream_buf: list[str] = []
 
         def on_event(ev: SessionEvent) -> None:
+            pl = ev.payload
+            if ev.type == "model.request" and isinstance(pl, dict):
+                log.write(self._tui_events.model_request_line(pl))
+                return
+            if ev.type == "tool.call_started" and isinstance(pl, dict):
+                log.write(self._tui_events.tool_started_line(pl))
+                return
+            if ev.type == "tool.call_finished" and isinstance(pl, dict):
+                log.write(self._tui_events.tool_finished_line(pl))
+                return
             if ev.type != "assistant.delta":
                 return
-            raw = ev.payload.get("text")
+            if not isinstance(pl, dict):
+                return
+            raw = pl.get("text")
             if not isinstance(raw, str) or not raw:
                 return
             stream_buf.append(raw)

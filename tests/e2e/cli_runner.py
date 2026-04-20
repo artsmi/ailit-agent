@@ -46,7 +46,7 @@ class AilitCliRunner:
         project_root: Path,
         provider: str = "mock",
         dry_run: bool = False,
-        max_turns: int = 8,
+        max_turns: int = 10_000,
         cwd: Path | None = None,
         extra_env: dict[str, str] | None = None,
         no_dev_repo_config: bool = False,

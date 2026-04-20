@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 MAX_TURNS_EXCEEDED_REASON: str = "max_turns_exceeded"
+CAP_FINALIZE_FAILED_REASON: str = "cap_finalize_failed"
 
 
 class OutcomeReasonHumanizer:
@@ -16,6 +17,11 @@ class OutcomeReasonHumanizer:
             return (
                 "лимит итераций агентского цикла (max_turns) — "
                 "это не лимит токенов ответа API"
+            )
+        if reason == CAP_FINALIZE_FAILED_REASON:
+            return (
+                "лимит шагов сессии: не удалось получить автоматическое "
+                "текстовое резюме после финального вызова модели"
             )
         return None
 
@@ -45,19 +51,19 @@ class SessionErrorAssistantMessageComposer:
         log_path: str,
         effective_max_turns: int,
     ) -> str:
-        """Тело сообщения при max_turns_exceeded."""
+        """Тело сообщения при max_turns_exceeded (устаревший путь ядра)."""
         return (
-            "**Лимит шагов сессии исчерпан.** Агент успел сделать максимум "
-            "итераций «вызов модели → обработка инструментов → повтор», "
-            "но не выдал финальный текстовый ответ.\n\n"
-            "- Это настройка **max_turns** (лимит итераций **оркестратора**), "
-            "она **не** заменяет и **не** дублирует лимит длины одного ответа "
-            "у провайдера (**max_tokens** / output tokens), если он задан.\n"
-            f"- Сейчас действовал лимит **{effective_max_turns}** шаг(ов). "
-            "Увеличьте слайдер **max_turns** в шапке чата или задайте больший "
-            "лимит в пресете агента в `project.yaml`.\n"
+            "**Лимит шагов сессии (устаревший код ошибки).** В актуальном "
+            "ядре при исчерпании **max_turns** выполняется дополнительный "
+            "text-only вызов модели, чтобы вы получили резюме, а не только "
+            "технический `reason`.\n\n"
+            "- Если вы видите это сообщение, вероятен внешний исполнитель "
+            "или старая версия `agent_core`.\n"
+            f"- Лимит в настройках UI/CLI был **{effective_max_turns}** "
+            "шаг(ов); при необходимости задайте больший **max_turns** или "
+            "проверьте переменную окружения **AILIT_AGENT_HARD_CAP**.\n"
             "- Подробная диагностика: JSONL-лог процесса "
-            f"`{log_path}` (события `session.turn`, `model.request`, …)."
+            f"`{log_path}` (события `session.turn`, `session.cap_hit`, …)."
         )
 
     def _generic_body(self, *, detail: str, log_path: str) -> str:

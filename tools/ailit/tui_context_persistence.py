@@ -76,7 +76,7 @@ def load_app_state(
     active = str(raw.get("active") or "default")
     prov = str(raw.get("provider") or "mock")
     model = str(raw.get("model") or "mock")
-    mt = int(raw.get("max_turns") or 8)
+    mt = int(raw.get("max_turns") or 10_000)
     ctxs_raw = raw.get("contexts")
     if not isinstance(ctxs_raw, list) or not ctxs_raw:
         return None

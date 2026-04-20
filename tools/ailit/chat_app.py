@@ -28,12 +28,8 @@ from ailit.chat_handlers import (
     store_after_run,
     strip_system_messages,
 )
-from ailit.chat_presenters import (
-    format_assistant_chat_block_markdown,
-    format_tool_message_content_markdown,
-    summarize_workflow_jsonl_for_user,
-    tool_message_should_offer_raw_json,
-)
+from ailit.chat_presenters import summarize_workflow_jsonl_for_user
+from ailit.chat_transcript_view import ChatTranscriptProjector
 from ailit.chat_session_turn_progress import ChatSessionTurnProgress
 from ailit.session_outcome_user_copy import (
     MAX_TURNS_EXCEEDED_REASON,
@@ -168,13 +164,16 @@ def _render_header_and_menu(
             "Сколько раз агент может повторить цикл "
             "«модель → инструменты → снова модель». "
             "Это не лимит длины ответа API (max_tokens у провайдера — "
-            "отдельно в конфиге)."
+            "отдельно в конфиге). При исчерпании лимита ядро делает "
+            "дополнительный text-only вызов модели с кратким резюме. "
+            "Переменная **AILIT_AGENT_HARD_CAP** задаёт верхнюю границу "
+            "независимо от слайдера."
         )
         max_turns = st.slider(
             "Лимит итераций сессии (max_turns)",
             1,
-            32,
-            8,
+            20_000,
+            10_000,
             help=_mt_help,
         )
         file_tools = st.checkbox("Файловые tools", value=True)
@@ -279,13 +278,18 @@ def _render_header_and_menu(
                     help="Id из project.yaml или путь *.yaml относительно корня проекта",
                 )
                 st.text_input("model", key="ailit_wf_model")
-                st.number_input("max_turns (workflow)", min_value=1, max_value=64, key="ailit_wf_max_turns")
+                st.number_input(
+                    "max_turns (workflow)",
+                    min_value=1,
+                    max_value=50_000,
+                    key="ailit_wf_max_turns",
+                )
                 st.checkbox("dry_run", key="ailit_wf_dry_run")
                 if st.button("Запустить workflow", key="ailit_wf_run"):
                     try:
                         ref = str(st.session_state.get("ailit_wf_ref", "minimal")).strip()
                         wf_model = str(st.session_state.get("ailit_wf_model", "deepseek-chat")).strip()
-                        wf_mt = int(st.session_state.get("ailit_wf_max_turns", 8))
+                        wf_mt = int(st.session_state.get("ailit_wf_max_turns", 10_000))
                         wf_dry = bool(st.session_state.get("ailit_wf_dry_run", True))
                         prov = "mock" if choice == "mock" else "deepseek"
                         if prov == "deepseek" and wf_dry is False:
@@ -413,25 +417,11 @@ def _render_usage_tokens_panel() -> None:
 
 
 def _render_dialogue_messages(messages: list[ChatMessage]) -> None:
-    """Отрисовать user/assistant/tool (без system)."""
-    for m in messages:
-        if m.role is MessageRole.SYSTEM:
-            continue
-        with st.chat_message(m.role.value):
-            if m.role is MessageRole.TOOL:
-                st.markdown(format_tool_message_content_markdown(m.content))
-                if tool_message_should_offer_raw_json(m.content):
-                    with st.expander("Сырой JSON (инструмент)", expanded=False):
-                        st.code(m.content, language="json")
-            elif m.role is MessageRole.ASSISTANT:
-                st.markdown(
-                    format_assistant_chat_block_markdown(
-                        content=m.content,
-                        tool_calls=m.tool_calls,
-                    ),
-                )
-            else:
-                st.markdown(m.content if m.content else " ")
+    """Отрисовать диалог через проекцию (без SYSTEM/сырых TOOL)."""
+    projector = ChatTranscriptProjector()
+    for line in projector.project(messages):
+        with st.chat_message(line.role.value):
+            st.markdown(line.markdown)
 
 
 _FILE_TOOLS_SYSTEM_HINT = (
@@ -577,9 +567,9 @@ def _execute_llm_turn(
         )
         if out.reason == MAX_TURNS_EXCEEDED_REASON:
             st.session_state["ailit_limit_turns_banner"] = (
-                "Сессия остановлена по **лимиту шагов** (оркестратор), "
-                "а не из‑за сбоя модели. Увеличьте **max_turns** в шапке и "
-                "отправьте следующее сообщение — история чата сохранится."
+                "Сессия завершилась с устаревшим кодом ошибки по лимиту шагов. "
+                "В актуальном ядре ожидается text-only резюме; проверьте "
+                "версию `agent_core` и JSONL-лог."
             )
 
     if use_project and loaded_local is not None and tuning is not None:
@@ -628,7 +618,7 @@ def main() -> None:
 
     st.session_state.setdefault("ailit_wf_ref", "minimal")
     st.session_state.setdefault("ailit_wf_model", "deepseek-chat")
-    st.session_state.setdefault("ailit_wf_max_turns", 8)
+    st.session_state.setdefault("ailit_wf_max_turns", 10_000)
     st.session_state.setdefault("ailit_wf_dry_run", True)
 
     fac = ProjectSessionFactory(project_root)

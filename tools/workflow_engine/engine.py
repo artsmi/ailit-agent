@@ -27,7 +27,7 @@ class WorkflowRunConfig:
     """Параметры прогона workflow."""
 
     model: str = "deepseek-chat"
-    max_turns: int = 6
+    max_turns: int = 10_000
     dry_run: bool = False
     extra_system_messages: tuple[str, ...] = ()
     shortlist_keywords: frozenset[str] | None = None

@@ -8,7 +8,10 @@ from typing import Any, Protocol
 
 from agent_core.normalization.content_sanitize import AssistantContentSanitizer
 
-from ailit.session_outcome_user_copy import MAX_TURNS_EXCEEDED_REASON
+from ailit.session_outcome_user_copy import (
+    CAP_FINALIZE_FAILED_REASON,
+    MAX_TURNS_EXCEEDED_REASON,
+)
 
 
 class EventPresenter(Protocol):
@@ -89,9 +92,13 @@ class TaskFinishedPresenter:
         reason_s = str(reason) if reason not in (None, "") else ""
         if reason_s == MAX_TURNS_EXCEEDED_REASON:
             extra = (
-                " Исчерпан лимит итераций сессии (**max_turns**, "
-                "оркестратор). Увеличьте лимит в форме workflow или "
-                "в пресете агента — это не `max_tokens` API."
+                " Редкий случай: зафиксирована ошибка цикла с **max_turns** "
+                "(ожидается text-only финал в актуальном ядре). См. JSONL."
+            )
+        elif reason_s == CAP_FINALIZE_FAILED_REASON:
+            extra = (
+                " Лимит шагов исчерпан; не удалось получить автоматическое "
+                "текстовое резюме после финального вызова модели. См. JSONL."
             )
         else:
             extra = f" Причина: `{reason_s}`." if reason_s else ""
