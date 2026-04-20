@@ -498,11 +498,45 @@ def _execute_llm_turn(
     _inject_file_tools_system_hint(runner_msgs, file_tools)
 
     provider, model = _make_provider(choice, cfg)
+    status_ph = st.session_state.get("ailit_stream_status_ph")
+    delta_ph = st.session_state.get("ailit_stream_delta_ph")
+    live_text: list[str] = []
+
+    def on_event(ev: object) -> None:
+        try:
+            et = getattr(ev, "type", "")
+            payload = getattr(ev, "payload", {})
+        except Exception:
+            return
+        if not isinstance(et, str):
+            return
+        if et == "assistant.delta":
+            if not isinstance(payload, dict):
+                return
+            d = payload.get("text")
+            if not isinstance(d, str) or not d:
+                return
+            live_text.append(d)
+            if delta_ph is not None:
+                delta_ph.markdown("".join(live_text))
+        if et == "tool.call_started":
+            if isinstance(payload, dict):
+                t = payload.get("tool")
+                if status_ph is not None and isinstance(t, str):
+                    status_ph.markdown(f"_Инструмент: **{t}** …_")
+        if et == "tool.call_finished":
+            if isinstance(payload, dict):
+                t = payload.get("tool")
+                ok = payload.get("ok")
+                if status_ph is not None and isinstance(t, str):
+                    status_ph.markdown(f"_Инструмент: **{t}** (ok={ok})_")
+
     settings = SessionSettings(
         model=model,
         max_turns=tuning.max_turns if tuning and tuning.max_turns is not None else max_turns,
         temperature=tuning.temperature if tuning and tuning.temperature is not None else 0.3,
         shortlist_keywords=tuning.shortlist_keywords if tuning else None,
+        use_stream=True,
     )
     work_for_tools = project_root if use_project else _REPO
     perm = (
@@ -524,6 +558,7 @@ def _execute_llm_turn(
         ApprovalSession(),
         settings,
         diag_sink=ensure_process_log("chat").sink,
+        event_sink=on_event,
     )
 
     log_handle = ensure_process_log("chat")
@@ -620,9 +655,13 @@ def main() -> None:
         with st.chat_message("assistant"):
             wait_ph = st.empty()
             wait_ph.markdown("_Ожидание ответа…_")
+            st.session_state["ailit_stream_status_ph"] = st.empty()
+            st.session_state["ailit_stream_delta_ph"] = st.empty()
             with st.spinner("Запрос к модели…"):
                 _execute_llm_turn(cfg=cfg, snap=snap_raw)
             wait_ph.empty()
+            st.session_state.pop("ailit_stream_status_ph", None)
+            st.session_state.pop("ailit_stream_delta_ph", None)
         st.session_state[_ChatPageState.PENDING_LLM] = False
         st.session_state.pop(_ChatPageState.LLM_WIDGET_SNAPSHOT, None)
         st.rerun()
