@@ -238,6 +238,8 @@ export interface Interface {
 
 **Статус в репозитории (2026-04):** закрыты **DP-2.1** (CLI: `ailit agent` → TUI по умолчанию; `agent run` сохранён; `tui` deprecated alias; тест `tests/test_cli_agent_tui_default.py`), **DP-2.5** (slash `/config show|set` в `tools/ailit/tui_slash_registry.py`). Частично закрыты **DP-2.3/DP-2.4** (убран `Footer`, убран `[dim]user>[/dim]`).
 
+**Статус в репозитории (2026-04):** закрыта **DP-2.2** (TUI поддерживает `kimi` и `deepseek` через `ProviderFactory` + merge-конфиг), добавлены CLI‑утилиты: `ailit setup` (глобальная настройка provider/model/api_key) и `ailit models list` (каталог моделей). См. `tools/ailit/setup_cli.py`, `tools/ailit/models_cli.py`, `tools/ailit/provider_catalog.py`.
+
 ---
 
 ### Этап DP-3. Инкрементальный вывод в `ailit chat` и интерактивном агенте
