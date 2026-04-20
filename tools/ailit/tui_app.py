@@ -18,6 +18,7 @@ from ailit.tui_context_persistence import (
     load_app_state,
     save_app_state,
 )
+from ailit.defaults_resolver import DefaultProviderModelResolver
 from ailit.tui_context_stats import TuiSubtitleUsageFormatter
 from ailit.tui_slash_registry import SlashCommandRegistry
 
@@ -49,8 +50,11 @@ class AilitTuiApp(App[None]):
         self._repo_root = repo_root
         pr = getattr(args, "project_root", None)
         project_root = Path(str(pr)).resolve() if pr else Path.cwd().resolve()
-        prov = str(getattr(args, "provider", "mock"))
-        model = resolve_model(prov, getattr(args, "model", None))
+        dflt = DefaultProviderModelResolver().resolve(
+            project_root=project_root,
+        )
+        prov = str(getattr(args, "provider", None) or dflt.provider)
+        model = resolve_model(prov, getattr(args, "model", None) or dflt.model)
         mt = int(getattr(args, "max_turns", 8))
         self._project_root = project_root
         mgr = TuiContextManager(

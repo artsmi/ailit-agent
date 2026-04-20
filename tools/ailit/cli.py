@@ -32,6 +32,15 @@ def _cmd_tui(args: argparse.Namespace) -> int:
         return 1
     from ailit.tui_app import run_ailit_tui
 
+    from ailit.defaults_resolver import DefaultProviderModelResolver
+
+    pr = getattr(args, "project_root", None)
+    root = Path(str(pr)).resolve() if pr else Path.cwd().resolve()
+    dflt = DefaultProviderModelResolver().resolve(project_root=root)
+    if getattr(args, "provider", None) is None:
+        args.provider = dflt.provider
+    if getattr(args, "model", None) is None:
+        args.model = dflt.model
     run_ailit_tui(args, repo_root=_repo_root())
     return 0
 
@@ -45,6 +54,15 @@ def _cmd_agent_tui(args: argparse.Namespace) -> int:
         return 1
     from ailit.tui_app import run_ailit_tui
 
+    from ailit.defaults_resolver import DefaultProviderModelResolver
+
+    pr = getattr(args, "project_root", None)
+    root = Path(str(pr)).resolve() if pr else Path.cwd().resolve()
+    dflt = DefaultProviderModelResolver().resolve(project_root=root)
+    if getattr(args, "provider", None) is None:
+        args.provider = dflt.provider
+    if getattr(args, "model", None) is None:
+        args.model = dflt.model
     run_ailit_tui(args, repo_root=_repo_root())
     return 0
 
@@ -130,6 +148,15 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
         proj_for_cfg,
         use_dev_repo_yaml=not bool(args.no_dev_repo_config),
     )
+    from ailit.defaults_resolver import DefaultProviderModelResolver
+
+    defaults = DefaultProviderModelResolver().resolve(
+        project_root=proj_for_cfg,
+    )
+    if getattr(args, "provider", None) is None:
+        args.provider = defaults.provider
+    if getattr(args, "model", None) is None:
+        args.model = defaults.model
     if args.provider == "mock":
         provider: object = MockProvider()
     elif args.provider == "deepseek":
@@ -258,7 +285,7 @@ def main(argv: list[str] | None = None) -> int:
     p_tui.add_argument(
         "--provider",
         choices=("mock", "deepseek", "kimi"),
-        default="mock",
+        default=None,
         help="Провайдер LLM",
     )
     p_tui.add_argument(
@@ -289,7 +316,7 @@ def main(argv: list[str] | None = None) -> int:
     p_agent.add_argument(
         "--provider",
         choices=("mock", "deepseek", "kimi"),
-        default="mock",
+        default=None,
         help="Провайдер LLM для интерактивного режима",
     )
     p_agent.add_argument(
@@ -331,14 +358,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_run.add_argument(
         "--model",
-        default="deepseek-chat",
+        default=None,
         help="Идентификатор модели",
     )
     p_run.add_argument("--max-turns", type=int, default=8, dest="max_turns")
     p_run.add_argument(
         "--provider",
         choices=("deepseek", "kimi", "mock"),
-        default="mock",
+        default=None,
         help="Провайдер для задач workflow (mock не требует ключа)",
     )
     p_run.add_argument(
