@@ -16,6 +16,7 @@ from agent_core.session.loop import SessionRunner, SessionSettings
 from agent_core.session.state import SessionState
 from agent_core.tool_runtime.approval import ApprovalSession
 from agent_core.tool_runtime.permission import PermissionDecision, PermissionEngine
+from agent_core.normalization.content_sanitize import AssistantContentSanitizer
 from agent_core.tool_runtime.registry import (
     ToolRegistry,
     default_builtin_registry,
@@ -508,7 +509,12 @@ def _execute_llm_turn(
                 return
             live_text.append(d)
             if delta_ph is not None:
-                delta_ph.markdown("".join(live_text))
+                joined = "".join(live_text)
+                shown = AssistantContentSanitizer.sanitize(
+                    joined,
+                    aggressive_trailing=True,
+                )
+                delta_ph.markdown(shown)
         if et == "tool.call_started":
             if isinstance(payload, dict):
                 t = payload.get("tool")
