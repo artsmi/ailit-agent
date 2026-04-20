@@ -6,7 +6,7 @@
 
 | Область | Состояние |
 |---------|-----------|
-| Актуальная стратегия продукта | [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md): **DP-1** закрыт (`AILIT_HOME`, XDG, `install prod`, логи в global state, `/paths` в TUI); далее **DP-2–DP-5**. §8 плана. |
+| Актуальная стратегия продукта | [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md): этапы **DP-1…DP-5** закрыты; проект перешёл в **этап тестирования** (сбор багов → фиксы). |
 | [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md) | Этапы **G–Q** закрыты; документ архивен как ориентир закрытой ветки. |
 
 ## Как работать по проекту
