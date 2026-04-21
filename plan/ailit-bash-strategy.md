@@ -103,6 +103,7 @@
 | D.2 Хранилище вызовов | `st.session_state["bash_runs"]`: список `ShellInvocationRecord`. | Новый небольшой модуль `tools/ailit/bash_chat_store.py` |
 | D.3 View | Вкладка «Shell» или боковая колонка: выбор `call_id`, `st.code(tail_full, language="bash")`, настройка N. | `tools/ailit/chat_app.py` |
 | D.4 Подсказка модели | Не дублировать file_tools hint; отдельный блок про bash и политику подтверждения. | `_inject_file_tools_system_hint` рядом в `chat_app.py` |
+| D.5 Inline Shell Activity | Всегда показывать статус/команду/превью (tail=5) прямо в чате; кнопка раскрытия полного лога. | `plan/chat-shell-ux-stop.md` |
 
 ### Этап E — TUI (Textual)
 
