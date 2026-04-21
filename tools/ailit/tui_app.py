@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import argparse
+from functools import partial
 from pathlib import Path
 
 from rich.markup import escape
 from rich.text import Text
+from textual import on
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Input, RichLog, Static
+from textual.worker import Worker, WorkerState
 
 from ailit.process_log import ensure_process_log, ProcessLogHandle
 from ailit.tui_app_state import TuiAppState
@@ -25,8 +28,9 @@ from ailit.chat_transcript_view import (
     format_assistant_body_for_ui,
     format_tool_summary_markdown,
 )
+from ailit.tui_llm_worker import TuiLlmTurnOutcome, TuiThreadUiSessionSink
 from ailit.tui_transcript_presenter import TuiTranscriptEventPresenter
-from agent_core.session.event_contract import SessionEvent
+_LLM_WORKER_NAME = "ailit_llm_turn"
 
 
 def resolve_model(provider: str, model: str | None) -> str:
@@ -218,6 +222,129 @@ class AilitTuiApp(App[None]):
         except Exception:
             pass
 
+    def _ui_session_model_request(self, pl: dict) -> None:
+        """UI-поток: событие ``model.request``."""
+        self._tui_step_widget(self._tui_events.model_request_line(pl))
+
+    def _ui_session_tool_started(self, pl: dict) -> None:
+        """UI-поток: ``tool.call_started``."""
+        self._tui_step_widget(self._tui_events.tool_started_line(pl))
+
+    def _ui_session_tool_finished(self, pl: dict) -> None:
+        """UI-поток: ``tool.call_finished``."""
+        self._tui_step_widget(self._tui_events.tool_finished_line(pl))
+
+    def _ui_session_assistant_joined(self, joined: str) -> None:
+        """UI-поток: обновить превью по накопленному тексту стрима."""
+        shown = format_assistant_body_for_ui(
+            joined,
+            aggressive_tail=True,
+        )
+        self._tui_preview_str(shown)
+
+    def _blocking_llm_turn(self, line: str) -> TuiLlmTurnOutcome:
+        """Полный прогон ``run_user_turn`` в worker-потоке."""
+        handle = self._log_handle
+        if handle is None:
+            return TuiLlmTurnOutcome(
+                text="",
+                status_line="",
+                usage=None,
+                turn_tools=[],
+                error=RuntimeError("log handle missing"),
+            )
+        chat = self._app_state.contexts.active_chat()
+        sink = TuiThreadUiSessionSink(self)
+        try:
+            text, st, usage = chat.run_user_turn(
+                line,
+                state=self._app_state.session_view(),
+                diag_sink=handle.sink,
+                log_path=str(handle.path),
+                event_sink=sink,
+            )
+            return TuiLlmTurnOutcome(
+                text=text,
+                status_line=st,
+                usage=usage,
+                turn_tools=list(sink.turn_tools),
+                error=None,
+            )
+        except (OSError, RuntimeError, ValueError, TypeError) as exc:
+            return TuiLlmTurnOutcome(
+                text="",
+                status_line="",
+                usage=None,
+                turn_tools=list(sink.turn_tools),
+                error=exc,
+            )
+
+    def _apply_llm_turn_success(self, out: TuiLlmTurnOutcome) -> None:
+        """Дописать ответ в журнал (уже в UI-потоке)."""
+        log = self.query_one("#chat_log", RichLog)
+        if out.error is not None:
+            self._tui_clear_live_widgets()
+            log.write(escape(f"{type(out.error).__name__}: {out.error}"))
+            return
+        if out.usage is not None:
+            self._app_state.contexts.record_turn_usage(out.usage)
+        self._tui_clear_live_widgets()
+        summary_md = format_tool_summary_markdown(out.turn_tools)
+        log.write(Text.assemble(("AI", "bold green"), ("> ", "bold green")))
+        if summary_md.strip():
+            try:
+                log.write(Text.from_markup(summary_md))
+            except Exception:
+                log.write(escape(summary_md))
+        final_txt = format_assistant_body_for_ui(
+            out.text,
+            aggressive_tail=True,
+        )
+        log.write(escape(final_txt if final_txt.strip() else out.text))
+        sv = self._app_state.session_view()
+        cum = self._app_state.contexts.active_runtime().usage.as_dict()
+        self.sub_title = self._subtitle_fmt.format_after_turn(
+            context_name=self._app_state.contexts.active_name(),
+            last_turn=out.usage,
+            cumulative=cum,
+            provider=sv.provider,
+            model=sv.model,
+            max_turns=sv.max_turns,
+        )
+        if out.status_line:
+            log.write(escape(out.status_line))
+
+    @on(Worker.StateChanged)
+    def _on_llm_worker_state_changed(self, event: Worker.StateChanged) -> None:
+        """Завершение worker: вывести ответ и вернуть ввод."""
+        w = event.worker
+        if w.name != _LLM_WORKER_NAME:
+            return
+        if event.state not in (
+            WorkerState.SUCCESS,
+            WorkerState.ERROR,
+            WorkerState.CANCELLED,
+        ):
+            return
+        inp = self.query_one("#chat_input", Input)
+        inp.disabled = False
+        if event.state == WorkerState.SUCCESS:
+            out = w.result
+            if isinstance(out, TuiLlmTurnOutcome):
+                self._apply_llm_turn_success(out)
+            inp.focus()
+            return
+        if event.state == WorkerState.ERROR:
+            self._tui_clear_live_widgets()
+            log = self.query_one("#chat_log", RichLog)
+            err = w.error
+            if err is not None:
+                log.write(escape(f"{type(err).__name__}: {err}"))
+            inp.focus()
+            return
+        self._tui_clear_live_widgets()
+        inp.focus()
+
     def _cycle_context(self, *, delta: int) -> None:
         """Переключить контекст с сохранением строки ввода (Q.1)."""
         inp = self.query_one("#chat_input", Input)
@@ -257,81 +384,16 @@ class AilitTuiApp(App[None]):
         if handle is None:
             log.write(escape("Лог процесса не инициализирован."))
             return
-        chat = self._app_state.contexts.active_chat()
-        stream_buf: list[str] = []
-        turn_tools: list[str] = []
         self._tui_clear_live_widgets()
-
-        def on_event(ev: SessionEvent) -> None:
-            pl = ev.payload
-            if ev.type == "model.request" and isinstance(pl, dict):
-                self._tui_step_widget(self._tui_events.model_request_line(pl))
-                return
-            if ev.type == "tool.call_started" and isinstance(pl, dict):
-                tn = pl.get("tool")
-                if isinstance(tn, str) and tn.strip():
-                    turn_tools.append(tn.strip())
-                self._tui_step_widget(self._tui_events.tool_started_line(pl))
-                return
-            if ev.type == "tool.call_finished" and isinstance(pl, dict):
-                self._tui_step_widget(self._tui_events.tool_finished_line(pl))
-                return
-            if ev.type != "assistant.delta":
-                return
-            if not isinstance(pl, dict):
-                return
-            raw = pl.get("text")
-            if not isinstance(raw, str) or not raw:
-                return
-            stream_buf.append(raw)
-            joined = "".join(stream_buf)
-            shown = format_assistant_body_for_ui(
-                joined,
-                aggressive_tail=True,
-            )
-            self._tui_preview_str(shown)
-
-        try:
-            text, st, usage = chat.run_user_turn(
-                line,
-                state=self._app_state.session_view(),
-                diag_sink=handle.sink,
-                log_path=str(handle.path),
-                event_sink=on_event,
-            )
-            if usage is not None:
-                self._app_state.contexts.record_turn_usage(usage)
-            self._tui_clear_live_widgets()
-            summary_md = format_tool_summary_markdown(turn_tools)
-            log.write(
-                Text.assemble(("AI", "bold green"), ("> ", "bold green"))
-            )
-            if summary_md.strip():
-                try:
-                    log.write(Text.from_markup(summary_md))
-                except Exception:
-                    log.write(escape(summary_md))
-            final_txt = format_assistant_body_for_ui(
-                text,
-                aggressive_tail=True,
-            )
-            log.write(escape(final_txt if final_txt.strip() else text))
-            stream_buf.clear()
-            sv = self._app_state.session_view()
-            cum = self._app_state.contexts.active_runtime().usage.as_dict()
-            self.sub_title = self._subtitle_fmt.format_after_turn(
-                context_name=self._app_state.contexts.active_name(),
-                last_turn=usage,
-                cumulative=cum,
-                provider=sv.provider,
-                model=sv.model,
-                max_turns=sv.max_turns,
-            )
-            if st:
-                log.write(escape(st))
-        except (OSError, RuntimeError, ValueError, TypeError) as exc:
-            self._tui_clear_live_widgets()
-            log.write(escape(f"{type(exc).__name__}: {exc}"))
+        inp = self.query_one("#chat_input", Input)
+        inp.disabled = True
+        self.run_worker(
+            partial(self._blocking_llm_turn, line),
+            name=_LLM_WORKER_NAME,
+            exclusive=True,
+            thread=True,
+            exit_on_error=False,
+        )
 
 
 def run_ailit_tui(args: argparse.Namespace, *, repo_root: Path) -> None:
