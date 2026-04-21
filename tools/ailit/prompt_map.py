@@ -40,6 +40,30 @@ def prompt_map_rows() -> tuple[PromptFragmentRow, ...]:
             token_notes="короткий базовый промпт; должен быть стабильным",
         ),
         PromptFragmentRow(
+            fragment_id="global.assistant_style",
+            owner="agent_core",
+            priority="default/append",
+            enabled_when=(
+                "чат/TUI: merge с базовым system; workflow: augmentation"
+            ),
+            where_defined="tools/agent_core/system_style_defaults.py",
+            token_notes=(
+                "без эмодзи; отчёт по путям после изменения файлов"
+            ),
+        ),
+        PromptFragmentRow(
+            fragment_id="session.tool.write_file.telemetry",
+            owner="agent_core",
+            priority="diag",
+            enabled_when="после успешного write_file в session loop",
+            where_defined=(
+                "tools/agent_core/tool_runtime/executor.py:"
+                "_write_file_extras_before_run; "
+                "tools/agent_core/session/loop.py:_tool_call_finished_payload"
+            ),
+            token_notes="relative_path, file_change_kind в tool.call_finished",
+        ),
+        PromptFragmentRow(
             fragment_id="project.rules",
             owner="project_layer",
             priority="append",

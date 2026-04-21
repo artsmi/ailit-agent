@@ -17,12 +17,13 @@ from agent_core.session.loop import (
 )
 from agent_core.session.state import SessionState
 from agent_core.session.event_contract import SessionEventSink
+from agent_core.system_style_defaults import merge_with_base_system
 from agent_core.tool_runtime.approval import ApprovalSession
+from agent_core.tool_runtime.bash_tools import bash_tool_registry
 from agent_core.tool_runtime.permission import (
     PermissionDecision,
     PermissionEngine,
 )
-from agent_core.tool_runtime.bash_tools import bash_tool_registry
 from agent_core.tool_runtime.registry import default_builtin_registry
 
 from ailit.agent_provider_config import AgentRunProviderConfigBuilder
@@ -120,7 +121,9 @@ class TuiChatController:
             self._messages = [
                 ChatMessage(
                     role=MessageRole.SYSTEM,
-                    content="You are a helpful concise assistant.",
+                    content=merge_with_base_system(
+                        "You are a helpful concise assistant.",
+                    ),
                 ),
             ]
 

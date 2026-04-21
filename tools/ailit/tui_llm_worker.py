@@ -17,6 +17,7 @@ class TuiLlmTurnOutcome:
     status_line: str
     usage: dict[str, Any] | None
     turn_tools: list[str] = field(default_factory=list)
+    file_change_lines: tuple[str, ...] = ()
     error: BaseException | None = None
 
 
@@ -29,6 +30,7 @@ class TuiThreadUiSessionSink:
         """Привязать приложение и буферы."""
         self._app = app
         self.turn_tools: list[str] = []
+        self.file_change_lines: list[str] = []
         self._stream_parts: list[str] = []
         self._last_preview_len: int = 0
         self._bash_chunks: dict[str, list[str]] = {}
@@ -47,6 +49,18 @@ class TuiThreadUiSessionSink:
             self._app.call_from_thread(self._app._ui_session_tool_started, pl)
             return
         if et == "tool.call_finished":
+            t = pl.get("tool")
+            ok = pl.get("ok")
+            rp = pl.get("relative_path")
+            fk = pl.get("file_change_kind")
+            if (
+                ok is True
+                and t == "write_file"
+                and isinstance(rp, str)
+                and fk in ("created", "updated")
+            ):
+                sym = "+" if fk == "created" else "~"
+                self.file_change_lines.append(f"{sym} {rp} ({fk})")
             self._app.call_from_thread(self._app._ui_session_tool_finished, pl)
             return
         if et == "bash.output_delta":

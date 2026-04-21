@@ -22,6 +22,23 @@ from .hybrid import hybrid_event_payload
 from .user_task_merge import merge_cli_task_into_first_user_message
 
 
+def _write_file_changes_from_events(
+    events: tuple[dict[str, Any], ...],
+) -> list[dict[str, str]]:
+    """Список created/updated по write_file из событий session loop."""
+    items: list[dict[str, str]] = []
+    for row in events:
+        if row.get("event_type") != "tool.call_finished":
+            continue
+        if row.get("tool") != "write_file" or row.get("ok") is not True:
+            continue
+        rp = row.get("relative_path")
+        k = row.get("file_change_kind")
+        if isinstance(rp, str) and isinstance(k, str):
+            items.append({"relative_path": rp, "file_change_kind": k})
+    return items
+
+
 @dataclass(frozen=True, slots=True)
 class WorkflowRunConfig:
     """Параметры прогона workflow."""
@@ -32,12 +49,14 @@ class WorkflowRunConfig:
     extra_system_messages: tuple[str, ...] = ()
     shortlist_keywords: frozenset[str] | None = None
     temperature: float = 0.0
-    """Идентификатор прогона (артефакты ``.ailit/run/<run_id>/``)."""
+    # Идентификатор прогона (артефакты ``.ailit/run/<run_id>/``).
     run_id: str | None = None
-    """Текст CLI-задачи; только в **первую** исполняемую задачу."""
+    # Текст CLI-задачи; только в первую исполняемую задачу.
     cli_task_body: str | None = None
-    """Относительный путь к ``task.md`` для события ``run.started``."""
+    # Относительный путь к ``task.md`` для события ``run.started``.
     task_artifact_rel: str | None = None
+    # Переопределяет SessionSettings.suppress_tools_after_write_file.
+    suppress_tools_after_write_file: bool | None = None
 
 
 class WorkflowEngine:
@@ -104,12 +123,17 @@ class WorkflowEngine:
             if run_config.cli_task_body and run_config.cli_task_body.strip()
             else None
         )
-        settings = SessionSettings(
-            model=run_config.model,
-            max_turns=run_config.max_turns,
-            shortlist_keywords=run_config.shortlist_keywords,
-            temperature=run_config.temperature,
-        )
+        settings_kw: dict[str, Any] = {
+            "model": run_config.model,
+            "max_turns": run_config.max_turns,
+            "shortlist_keywords": run_config.shortlist_keywords,
+            "temperature": run_config.temperature,
+        }
+        if run_config.suppress_tools_after_write_file is not None:
+            settings_kw["suppress_tools_after_write_file"] = (
+                run_config.suppress_tools_after_write_file
+            )
+        settings = SessionSettings(**settings_kw)
         runner = SessionRunner(self._provider, self._registry)
         approvals = ApprovalSession()
 
@@ -192,6 +216,9 @@ class WorkflowEngine:
                         "task_id": task.task_id,
                         "session_state": session_out.state.value,
                         "reason": session_out.reason,
+                        "file_changes": _write_file_changes_from_events(
+                            session_out.events,
+                        ),
                     },
                 )
             yield self._emit(

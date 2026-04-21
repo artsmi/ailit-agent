@@ -23,6 +23,25 @@ class TranscriptLine:
     markdown: str
 
 
+class TrailingColonEllipsisFormatter:
+    """Хвостовое «:» (артефакт стрима) заменить на «…».
+
+    URL с ``://`` в хвосте не трогаем.
+    """
+
+    def format(self, text: str) -> str:
+        """Заменить финальное «:» на «…» при необходимости."""
+        if not text:
+            return text
+        stripped = text.rstrip(" \t")
+        suffix_ws = text[len(stripped):]
+        if not stripped.endswith(":"):
+            return text
+        if "://" in stripped[-40:]:
+            return text
+        return stripped[:-1] + "…" + suffix_ws
+
+
 class SentenceBreakFormatter:
     """Вставляет пустую строку между «слепленными» фразами в потоке ответа."""
 
@@ -56,6 +75,7 @@ class AssistantDisplayFormatter:
     def __init__(self) -> None:
         """Подготовить вложенный форматтер."""
         self._breaks = SentenceBreakFormatter()
+        self._colon_tail = TrailingColonEllipsisFormatter()
 
     def format(self, text: str, *, aggressive_tail: bool) -> str:
         """Текст для отображения пользователю."""
@@ -66,6 +86,7 @@ class AssistantDisplayFormatter:
             stripped,
             aggressive_trailing=aggressive_tail,
         )
+        clean = self._colon_tail.format(clean)
         return self._breaks.format(clean)
 
 

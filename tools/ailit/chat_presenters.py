@@ -102,7 +102,22 @@ class TaskFinishedPresenter:
             )
         else:
             extra = f" Причина: `{reason_s}`." if reason_s else ""
-        return f"Задача **`{tid}`** завершена: состояние **{state}**.{extra}"
+        base = f"Задача **`{tid}`** завершена: состояние **{state}**.{extra}"
+        fc = event.get("file_changes")
+        if isinstance(fc, list) and fc:
+            lines = []
+            for row in fc:
+                if not isinstance(row, dict):
+                    continue
+                rp = row.get("relative_path")
+                k = row.get("file_change_kind")
+                if isinstance(rp, str) and isinstance(k, str):
+                    sym = "+" if k == "created" else "~"
+                    lines.append(f"{sym} `{rp}` ({k})")
+            if lines:
+                joined = "\n".join(f"- {ln}" for ln in lines)
+                return f"{base}\n\nФайлы:\n{joined}"
+        return base
 
 
 class SessionTurnDiagPresenter:

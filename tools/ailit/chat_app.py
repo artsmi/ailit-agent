@@ -13,6 +13,7 @@ from agent_core.models import ChatMessage, MessageRole
 from agent_core.providers.factory import ProviderFactory, ProviderKind
 from agent_core.providers.mock_provider import MockProvider
 from agent_core.session.loop import SessionRunner, SessionSettings
+from agent_core.system_style_defaults import merge_with_base_system
 from agent_core.session.state import SessionState
 from agent_core.tool_runtime.approval import ApprovalSession
 from agent_core.tool_runtime.permission import PermissionDecision, PermissionEngine
@@ -144,7 +145,9 @@ def _init_messages() -> None:
         st.session_state[_ChatPageState.MESSAGES] = [
             ChatMessage(
                 role=MessageRole.SYSTEM,
-                content="You are a helpful concise assistant.",
+                content=merge_with_base_system(
+                    "You are a helpful concise assistant.",
+                ),
             ),
         ]
 
@@ -490,7 +493,10 @@ def _render_dialogue_messages(messages: list[ChatMessage]) -> None:
 _FILE_TOOLS_SYSTEM_HINT = (
     "Когда пользователь просит создать или записать файл, обязательно вызови инструмент "
     "write_file с относительным путём внутри рабочего корня и содержимым файла. "
-    "Не утверждай, что файл создан, если инструмент не был вызван."
+    "Не утверждай, что файл создан, если инструмент не был вызван. "
+    "После успешных записей в ответе пользователю перечисли каждый затронутый "
+    "относительный путь и операцию (создан / обновлён); по возможности используй "
+    "префиксы «+» для нового файла и «~» для изменения существующего."
 )
 
 _FS_TOOLS_SYSTEM_HINT = (
@@ -570,7 +576,7 @@ def _execute_llm_turn(
         BashProjectEnvSync.apply(loaded_local.config.bash)
     else:
         BashProjectEnvSync.clear()
-    base_system = "You are a helpful concise assistant."
+    base_system = merge_with_base_system("You are a helpful concise assistant.")
     msgs_src = st.session_state[_ChatPageState.MESSAGES]
     tuning = None
     prefix_len = 0
@@ -593,6 +599,7 @@ def _execute_llm_turn(
     status_ph = st.session_state.get("ailit_stream_status_ph")
     delta_ph = st.session_state.get("ailit_stream_delta_ph")
     live_text: list[str] = []
+    file_change_log: list[str] = []
 
     def on_event(ev: object) -> None:
         try:
@@ -633,7 +640,29 @@ def _execute_llm_turn(
                 ok = payload.get("ok")
                 if status_ph is not None and isinstance(t, str):
                     mark = "✓" if ok is True else "✗"
-                    status_ph.markdown(f"_Шаг:_ **{t}** — {mark}")
+                    extra = ""
+                    rp = payload.get("relative_path")
+                    fk = payload.get("file_change_kind")
+                    if (
+                        ok is True
+                        and t == "write_file"
+                        and isinstance(rp, str)
+                        and fk in ("created", "updated")
+                    ):
+                        sym = "+" if fk == "created" else "~"
+                        extra = f" `{sym} {rp}`"
+                    status_ph.markdown(f"_Шаг:_ **{t}** — {mark}{extra}")
+                if (
+                    isinstance(t, str)
+                    and t == "write_file"
+                    and ok is True
+                    and isinstance(payload.get("relative_path"), str)
+                    and payload.get("file_change_kind") in ("created", "updated")
+                ):
+                    rp2 = str(payload.get("relative_path"))
+                    fk2 = str(payload.get("file_change_kind"))
+                    sym2 = "+" if fk2 == "created" else "~"
+                    file_change_log.append(f"{sym2} `{rp2}` ({fk2})")
             return
         if et == "bash.execution" and bash_tools:
             if isinstance(payload, dict):
@@ -730,7 +759,12 @@ def _execute_llm_turn(
     elif out.reason:
         cap_parts.append(f"reason={out.reason!r}")
     cap_parts.append(f"log=`{log_path}`")
+    if file_change_log:
+        cap_parts.append("файлы: " + " · ".join(file_change_log))
     st.caption(" | ".join(cap_parts))
+    if file_change_log:
+        with st.expander("Изменения файлов (ход)", expanded=False):
+            st.markdown("\n".join(f"- {row}" for row in file_change_log))
 
 
 def main() -> None:

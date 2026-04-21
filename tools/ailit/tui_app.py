@@ -259,6 +259,7 @@ class AilitTuiApp(App[None]):
                 status_line="",
                 usage=None,
                 turn_tools=[],
+                file_change_lines=(),
                 error=RuntimeError("log handle missing"),
             )
         chat = self._app_state.contexts.active_chat()
@@ -276,6 +277,7 @@ class AilitTuiApp(App[None]):
                 status_line=st,
                 usage=usage,
                 turn_tools=list(sink.turn_tools),
+                file_change_lines=tuple(sink.file_change_lines),
                 error=None,
             )
         except (OSError, RuntimeError, ValueError, TypeError) as exc:
@@ -284,6 +286,7 @@ class AilitTuiApp(App[None]):
                 status_line="",
                 usage=None,
                 turn_tools=list(sink.turn_tools),
+                file_change_lines=tuple(sink.file_change_lines),
                 error=exc,
             )
 
@@ -309,6 +312,10 @@ class AilitTuiApp(App[None]):
             aggressive_tail=True,
         )
         log.write(escape(final_txt if final_txt.strip() else out.text))
+        if out.file_change_lines:
+            log.write(
+                escape("Файлы: " + " · ".join(out.file_change_lines)),
+            )
         sv = self._app_state.session_view()
         cum = self._app_state.contexts.active_runtime().usage.as_dict()
         self.sub_title = self._subtitle_fmt.format_after_turn(

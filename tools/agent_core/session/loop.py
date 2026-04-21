@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
@@ -45,6 +45,34 @@ from agent_core.tool_runtime.registry import ToolRegistry
 from agent_core.transport.errors import TransportHttpError
 
 
+def _default_suppress_tools_after_write_file() -> bool:
+    """Legacy: один запрос без tools после write_file (вкл. через env)."""
+    raw = (
+        os.environ.get("AILIT_SUPPRESS_TOOLS_AFTER_WRITE", "")
+        .strip()
+        .lower()
+    )
+    return raw in ("1", "true", "yes", "on")
+
+
+def _tool_call_finished_payload(
+    inv: ToolInvocation,
+    res: ToolRunResult,
+) -> dict[str, Any]:
+    """Полезная нагрузка для UI/логов по завершении инструмента."""
+    pl: dict[str, Any] = {
+        "tool": inv.tool_name,
+        "call_id": inv.call_id,
+        "ok": res.error is None,
+    }
+    ext = res.extras
+    if ext:
+        for key in ("relative_path", "file_change_kind"):
+            if key in ext:
+                pl[key] = ext[key]
+    return pl
+
+
 def _incomplete_tool_followup(messages: Sequence[ChatMessage]) -> bool:
     """True если последний assistant с tool_calls ещё без всех TOOL ответов."""
     last_ast: int | None = None
@@ -80,7 +108,9 @@ class SessionSettings:
     compaction_max_tool_chars: int = 2000
     shortlist_keywords: frozenset[str] | None = None
     use_stream: bool = False
-    suppress_tools_after_write_file: bool = True
+    suppress_tools_after_write_file: bool = field(
+        default_factory=_default_suppress_tools_after_write_file,
+    )
 
 
 def _effective_max_turns(settings: SessionSettings) -> int:
@@ -464,11 +494,7 @@ class SessionRunner:
                     self._emit(
                         events,
                         "tool.call_finished",
-                        {
-                            "tool": inv.tool_name,
-                            "call_id": inv.call_id,
-                            "ok": res.error is None,
-                        },
+                        _tool_call_finished_payload(inv, res),
                         diag_sink,
                         event_sink,
                     )
@@ -622,11 +648,7 @@ class SessionRunner:
                     self._emit(
                         events,
                         "tool.call_finished",
-                        {
-                            "tool": inv.tool_name,
-                            "call_id": inv.call_id,
-                            "ok": res.error is None,
-                        },
+                        _tool_call_finished_payload(inv, res),
                         diag_sink,
                         event_sink,
                     )

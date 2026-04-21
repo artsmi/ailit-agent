@@ -5,6 +5,7 @@ from __future__ import annotations
 from agent_core.models import ChatMessage, MessageRole, ToolCallNormalized
 
 from ailit.chat_transcript_view import (
+    AssistantDisplayFormatter,
     ChatTranscriptProjector,
     SentenceBreakFormatter,
     format_tool_summary_markdown,
@@ -88,6 +89,14 @@ def test_sentence_break_colon_then_capital() -> None:
     raw = "описание репозитория:Теперь посмотрим на QUICK_START.md"
     out = fmt.format(raw)
     assert ":\n\nТ" in out or ":\n\n" in out
+
+
+def test_assistant_display_trailing_colon_to_ellipsis() -> None:
+    """Хвостовое «:» в конце ответа заменяется на «…»."""
+    fmt = AssistantDisplayFormatter()
+    out = fmt.format("Теперь создам скрипт:", aggressive_tail=False)
+    assert out.rstrip().endswith("…")
+    assert not out.rstrip().endswith(":")
 
 
 def test_sentence_break_colon_space_capital() -> None:

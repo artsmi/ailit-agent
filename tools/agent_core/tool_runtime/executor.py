@@ -5,13 +5,45 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from threading import Event
-from typing import Sequence
+from typing import Any, Sequence
 
 from agent_core.tool_runtime.approval import ApprovalDecision, ApprovalSession
-from agent_core.tool_runtime.permission import PermissionDecision, PermissionEngine
+from agent_core.tool_runtime.permission import (
+    PermissionDecision,
+    PermissionEngine,
+)
 from agent_core.tool_runtime.registry import ToolRegistry
-from agent_core.tool_runtime.schema_validate import parse_and_validate_arguments_json
+from agent_core.tool_runtime.schema_validate import (
+    parse_and_validate_arguments_json,
+)
 from agent_core.tool_runtime.spec import ToolSpec
+
+
+def _write_file_extras_before_run(
+    args: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Перед записью: путь и created/updated для телеметрии."""
+    from agent_core.tool_runtime.workdir_paths import (
+        normalize_relative,
+        resolve_under_root,
+    )
+
+    rel = str(args.get("path", ""))
+    try:
+        norm = normalize_relative(rel)
+    except (OSError, TypeError, ValueError):
+        return None
+    if norm in ("", ".", ".."):
+        return None
+    try:
+        path = resolve_under_root(rel)
+        existed = path.is_file()
+    except (OSError, ValueError):
+        return None
+    return {
+        "relative_path": norm,
+        "file_change_kind": "updated" if existed else "created",
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +63,8 @@ class ToolRunResult:
     tool_name: str
     content: str
     error: str | None = None
+    # Доп. поля для телеметрии UI (write_file: путь, created/updated).
+    extras: dict[str, Any] | None = None
 
 
 class ApprovalPending(Exception):
@@ -52,7 +86,7 @@ class ToolRejected(Exception):
 
 
 class ToolExecutor:
-    """Исполнитель: serial или safe-parallel только для read_only allow_parallel."""
+    """Исполнитель: serial или безопасный параллель для read_only."""
 
     def __init__(
         self,
@@ -84,6 +118,7 @@ class ToolExecutor:
                 tool_name=inv.tool_name,
                 content="",
                 error="permission_denied",
+                extras=None,
             )
         if perm is PermissionDecision.ASK:
             st = approvals.status(inv.call_id)
@@ -94,16 +129,26 @@ class ToolExecutor:
         args = parse_and_validate_arguments_json(spec, inv.arguments_json)
         self._guard_cancel(cancel)
         handler = self._registry.get_handler(inv.tool_name)
+        extras: dict[str, Any] | None = None
+        if inv.tool_name == "write_file" and isinstance(args, dict):
+            extras = _write_file_extras_before_run(args)
         try:
             out = handler(args)
-        except Exception as exc:  # noqa: BLE001 — нормализация ошибок инструмента
+        except Exception as exc:  # noqa: BLE001
             return ToolRunResult(
                 call_id=inv.call_id,
                 tool_name=inv.tool_name,
                 content="",
                 error=f"{type(exc).__name__}: {exc}",
+                extras=None,
             )
-        return ToolRunResult(call_id=inv.call_id, tool_name=inv.tool_name, content=out, error=None)
+        return ToolRunResult(
+            call_id=inv.call_id,
+            tool_name=inv.tool_name,
+            content=out,
+            error=None,
+            extras=extras,
+        )
 
     def execute_serial(
         self,
@@ -125,7 +170,7 @@ class ToolExecutor:
         *,
         cancel: Event | None = None,
     ) -> list[ToolRunResult]:
-        """Параллельно только если все вызовы read_only+allow_parallel и ALLOW."""
+        """Параллельно только при read_only+allow_parallel и ALLOW."""
         if not invocations:
             return []
         specs: list[ToolSpec] = []

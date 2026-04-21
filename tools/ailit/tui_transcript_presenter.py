@@ -52,10 +52,22 @@ class ToolCallFinishedEventLine:
         ok = payload.get("ok")
         ok_s = "ok" if ok is True else ("err" if ok is False else "?")
         style = "green" if ok is True else ("red" if ok is False else "dim")
+        tail = ""
+        rp = payload.get("relative_path")
+        fk = payload.get("file_change_kind")
+        if (
+            ok is True
+            and name == "write_file"
+            and isinstance(rp, str)
+            and fk in ("created", "updated")
+        ):
+            sym = "+" if fk == "created" else "~"
+            tail = f" {sym} {escape(rp)}"
         return Text.assemble(
             ("  ← ", "dim"),
             (tool_s, "cyan"),
             (f" ({ok_s})", style),
+            (tail, "dim"),
         )
 
 

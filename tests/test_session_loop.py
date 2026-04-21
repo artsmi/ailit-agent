@@ -20,6 +20,10 @@ from agent_core.session.loop import SessionRunner, SessionSettings
 from agent_core.session.state import SessionState
 from agent_core.session.stream_reducer import StreamReducer
 from agent_core.tool_runtime.approval import ApprovalSession
+from agent_core.tool_runtime.permission import (
+    PermissionDecision,
+    PermissionEngine,
+)
 from agent_core.tool_runtime.registry import default_builtin_registry
 
 
@@ -54,6 +58,69 @@ class ScriptedProvider:
             return
         r = self.complete(request)
         yield StreamDone(response=r)
+
+
+def test_loop_two_write_file_one_user_turn(
+    tmp_path: object,
+    monkeypatch: object,
+) -> None:
+    """Два write_file подряд в одном ``runner.run()`` без legacy-suppress."""
+    monkeypatch.delenv("AILIT_SUPPRESS_TOOLS_AFTER_WRITE", raising=False)
+    monkeypatch.setenv("AILIT_WORK_ROOT", str(tmp_path))
+    reg = default_builtin_registry()
+    tc1 = ToolCallNormalized(
+        call_id="w1",
+        tool_name="write_file",
+        arguments_json='{"path":"a.txt","content":"1"}',
+        stream_index=0,
+        provider_name="scripted",
+    )
+    tc2 = ToolCallNormalized(
+        call_id="w2",
+        tool_name="write_file",
+        arguments_json='{"path":"b.txt","content":"2"}',
+        stream_index=0,
+        provider_name="scripted",
+    )
+    r1 = NormalizedChatResponse(
+        text_parts=(),
+        tool_calls=(tc1,),
+        finish_reason=FinishReason.TOOL_CALLS,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    r2 = NormalizedChatResponse(
+        text_parts=(),
+        tool_calls=(tc2,),
+        finish_reason=FinishReason.TOOL_CALLS,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    r3 = NormalizedChatResponse(
+        text_parts=("done",),
+        tool_calls=(),
+        finish_reason=FinishReason.STOP,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    runner = SessionRunner(
+        ScriptedProvider([r1, r2, r3]),
+        reg,
+        permission_engine=PermissionEngine(
+            write_default=PermissionDecision.ALLOW,
+        ),
+    )
+    messages = [ChatMessage(role=MessageRole.USER, content="write two")]
+    out = runner.run(
+        messages,
+        ApprovalSession(),
+        SessionSettings(model="m"),
+    )
+    assert out.state is SessionState.FINISHED
+    assert (tmp_path / "a.txt").read_text(encoding="utf-8") == "1"
+    assert (tmp_path / "b.txt").read_text(encoding="utf-8") == "2"
+    assert messages[-1].role is MessageRole.ASSISTANT
+    assert "done" in (messages[-1].content or "")
 
 
 def test_loop_tool_then_text(tmp_path: object, monkeypatch: object) -> None:

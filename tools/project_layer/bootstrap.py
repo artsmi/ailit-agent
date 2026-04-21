@@ -16,6 +16,7 @@ from project_layer.plugin_skills import collect_plugin_skill_snippets
 from project_layer.registry import ProjectRegistries
 from project_layer.teammate_prompt import TEAMMATE_MAILBOX_SYSTEM_ADDENDUM
 from agent_core.system_prompt_builder import dedupe_system_texts
+from agent_core.system_style_defaults import workflow_style_append_fragments
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +62,7 @@ def compute_workflow_augmentation(
     """Построить augmentation для прогона workflow."""
     snap = snapshot or _knowledge_port_for(loaded).refresh(loaded)
     extras: list[str] = []
+    extras.extend(workflow_style_append_fragments())
     rules = _rules_text(loaded)
     if rules:
         extras.append(f"Project rules:\n{rules}")
