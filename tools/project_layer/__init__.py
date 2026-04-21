@@ -10,11 +10,18 @@ from project_layer.bootstrap import (
 )
 from project_layer.knowledge import ContextSnapshot, FilesystemKnowledgeRefresh, KnowledgeRefreshPort
 from project_layer.loader import LoadedProject, load_project
-from project_layer.models import AgentPreset, ProjectConfig, RuntimeMode, WorkflowRef
+from project_layer.models import (
+    AgentPreset,
+    BashSectionModel,
+    ProjectConfig,
+    RuntimeMode,
+    WorkflowRef,
+)
 from project_layer.registry import ProjectRegistries
 
 __all__ = [
     "AgentPreset",
+    "BashSectionModel",
     "ChatSessionTuning",
     "WorkflowAugmentation",
     "ContextSnapshot",

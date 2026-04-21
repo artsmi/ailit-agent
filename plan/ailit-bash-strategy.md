@@ -170,4 +170,7 @@
 - **Этап C:** `tools/agent_core/session/bash_tool_events.py` — `bash.output_delta`, `bash.finished`, `bash.execution`; интеграция в `tools/agent_core/session/loop.py`; тесты `tests/test_bash_tool_events.py`, `tests/test_session_bash_telemetry.py`.
 - **Этап D.2–D.3:** `tools/ailit/bash_chat_store.py`, вкладка «Shell» в меню chat, запись по `bash.execution`; тест `tests/test_bash_chat_store.py`.
 - **Этап E (MVP):** `ailit tui` / `ailit agent --bash-tools`, merge `bash_tool_registry` в `tui_chat_controller.py`, превью хвоста run_shell в `tui_llm_worker.py` / `tui_app.py`.
+- **Этап D.4:** отдельный блок подсказок для shell (`ChatToolSystemHintComposer`), без дублирования file_tools.
+- **Этап F.1:** строки `bash.permission`, `project.bash` в `tools/ailit/prompt_map.py`.
+- **Этап F.2:** секция `bash:` в `project.yaml` → `BashSectionModel`, синхронизация в env через `tools/ailit/bash_project_env.py`, учёт в `builtin_run_shell` (`bash_tools` + project в чате).
 - Сессионный shell — этап **H** (после B–C).

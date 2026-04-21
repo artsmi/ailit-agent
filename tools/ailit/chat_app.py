@@ -24,6 +24,7 @@ from agent_core.tool_runtime.registry import (
     empty_tool_registry,
 )
 from ailit.bash_chat_store import append_execution, runs_list, set_view_tail_lines, view_tail_lines
+from ailit.bash_project_env import BashProjectEnvSync
 from ailit.agent_provider_config import AgentRunProviderConfigBuilder
 from ailit.chat_handlers import (
     ProjectSessionFactory,
@@ -501,40 +502,48 @@ _FS_TOOLS_SYSTEM_HINT = (
 _BASH_TOOLS_SYSTEM_HINT = (
     "Инструмент run_shell выполняет команду через bash -lc только внутри "
     "AILIT_WORK_ROOT. Не утверждай результат команды без вызова run_shell. "
-    "Для длинного вывода возможна усечённая сводка и файл под .ailit/."
+    "Для длинного вывода возможна усечённая сводка и файл под .ailit/. "
+    "Политика allow/ask/deny для shell задаётся PermissionEngine в runtime; "
+    "в Streamlit-чате при включённом «Shell» она часто ALLOW, но это не "
+    "отменяет необходимости реально вызвать инструмент и опираться на его вывод."
 )
 
 
-def _inject_file_tools_system_hint(runner_msgs: list[ChatMessage], file_tools: bool) -> None:
-    """Подсказки модели: write_file и обзор/поиск по Claude-style."""
-    if not file_tools:
-        return
-    for i, m in enumerate(runner_msgs):
-        if m.role is MessageRole.USER:
-            runner_msgs.insert(
-                i,
-                ChatMessage(role=MessageRole.SYSTEM, content=_FS_TOOLS_SYSTEM_HINT),
-            )
-            runner_msgs.insert(
-                i + 1,
-                ChatMessage(role=MessageRole.SYSTEM, content=_FILE_TOOLS_SYSTEM_HINT),
-            )
-            return
+class ChatToolSystemHintComposer:
+    """Фрагменты system для файловых tools и для shell — раздельно (D.4)."""
+
+    @staticmethod
+    def fragments(*, file_tools: bool, bash_tools: bool) -> list[str]:
+        """Порядок: сначала файлы, затем shell — без дублирования текста."""
+        parts: list[str] = []
+        if file_tools:
+            parts.append(_FS_TOOLS_SYSTEM_HINT)
+            parts.append(_FILE_TOOLS_SYSTEM_HINT)
+        if bash_tools:
+            parts.append(_BASH_TOOLS_SYSTEM_HINT)
+        return parts
 
 
-def _inject_bash_tools_system_hint(
+def _inject_tool_hints_before_first_user(
     runner_msgs: list[ChatMessage],
+    *,
+    file_tools: bool,
     bash_tools: bool,
 ) -> None:
-    """Подсказка модели для run_shell."""
-    if not bash_tools:
+    """Вставить подсказки одним проходом перед первым USER."""
+    frags = ChatToolSystemHintComposer.fragments(
+        file_tools=file_tools,
+        bash_tools=bash_tools,
+    )
+    if not frags:
         return
     for i, m in enumerate(runner_msgs):
         if m.role is MessageRole.USER:
-            runner_msgs.insert(
-                i,
-                ChatMessage(role=MessageRole.SYSTEM, content=_BASH_TOOLS_SYSTEM_HINT),
-            )
+            for text in reversed(frags):
+                runner_msgs.insert(
+                    i,
+                    ChatMessage(role=MessageRole.SYSTEM, content=text),
+                )
             return
 
 
@@ -557,6 +566,10 @@ def _execute_llm_turn(
     fac_local = ProjectSessionFactory(project_root)
     plr = fac_local.load()
     loaded_local = plr.loaded
+    if use_project and loaded_local is not None and bash_tools:
+        BashProjectEnvSync.apply(loaded_local.config.bash)
+    else:
+        BashProjectEnvSync.clear()
     base_system = "You are a helpful concise assistant."
     msgs_src = st.session_state[_ChatPageState.MESSAGES]
     tuning = None
@@ -570,8 +583,11 @@ def _execute_llm_turn(
     else:
         runner_msgs = list(msgs_src)
 
-    _inject_file_tools_system_hint(runner_msgs, file_tools)
-    _inject_bash_tools_system_hint(runner_msgs, bash_tools)
+    _inject_tool_hints_before_first_user(
+        runner_msgs,
+        file_tools=file_tools,
+        bash_tools=bash_tools,
+    )
 
     provider, model = _make_provider(choice, cfg)
     status_ph = st.session_state.get("ailit_stream_status_ph")

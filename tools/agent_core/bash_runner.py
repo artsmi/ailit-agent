@@ -13,6 +13,7 @@ from typing import Mapping
 
 _DEFAULT_TIMEOUT_MS: int = 120_000
 _MAX_CAPTURE_BYTES_DEFAULT: int = 512_000
+MAX_CAPTURE_BYTES_DEFAULT: int = _MAX_CAPTURE_BYTES_DEFAULT
 
 
 @dataclass(frozen=True, slots=True)

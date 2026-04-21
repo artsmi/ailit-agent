@@ -70,6 +70,15 @@ class RolloutSectionModel:
 
 
 @dataclass(frozen=True, slots=True)
+class BashSectionModel:
+    """Опциональные лимиты и allowlist для ``run_shell`` (project.yaml)."""
+
+    default_timeout_ms: int | None = None
+    max_output_mb: float | None = None
+    allow_patterns: tuple[str, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectConfig:
     """Корневой контракт project.yaml v1."""
 
@@ -81,6 +90,7 @@ class ProjectConfig:
     context: ContextSectionModel = field(default_factory=ContextSectionModel)
     memory_hints: tuple[str, ...] = ()
     rollout: RolloutSectionModel = field(default_factory=RolloutSectionModel)
+    bash: BashSectionModel | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -113,6 +123,29 @@ def _workflow_ref_from_mapping(wid: str, raw: Mapping[str, Any]) -> WorkflowRef:
         msg = f"workflow {wid!r} must contain 'path'"
         raise ValueError(msg)
     return WorkflowRef(workflow_id=wid, path=str(path))
+
+
+def _bash_section_from_mapping(raw: Mapping[str, Any]) -> BashSectionModel:
+    dto = raw.get("default_timeout_ms")
+    default_timeout_ms = int(dto) if dto is not None else None
+    if default_timeout_ms is not None and default_timeout_ms < 1:
+        msg = "bash.default_timeout_ms must be >= 1 when set"
+        raise ValueError(msg)
+    mo = raw.get("max_output_mb")
+    max_output_mb = float(mo) if mo is not None else None
+    if max_output_mb is not None and max_output_mb <= 0:
+        msg = "bash.max_output_mb must be > 0 when set"
+        raise ValueError(msg)
+    ap_raw = raw.get("allow_patterns") or []
+    if not isinstance(ap_raw, list):
+        msg = "bash.allow_patterns must be a list of strings"
+        raise TypeError(msg)
+    allow_patterns = tuple(str(x) for x in ap_raw)
+    return BashSectionModel(
+        default_timeout_ms=default_timeout_ms,
+        max_output_mb=max_output_mb,
+        allow_patterns=allow_patterns,
+    )
 
 
 def project_config_from_mapping(data: Mapping[str, Any]) -> ProjectConfig:
@@ -176,6 +209,17 @@ def project_config_from_mapping(data: Mapping[str, Any]) -> ProjectConfig:
     rollout_raw = data.get("rollout") if isinstance(data.get("rollout"), dict) else {}
     rollout = RolloutSectionModel(phase=str(rollout_raw.get("phase", "internal_alpha")))
 
+    bash_section: BashSectionModel | None = None
+    if "bash" in data:
+        raw_bash = data["bash"]
+        if raw_bash is None:
+            bash_section = None
+        elif isinstance(raw_bash, dict):
+            bash_section = _bash_section_from_mapping(raw_bash)
+        else:
+            msg = "bash must be a mapping or null"
+            raise TypeError(msg)
+
     known_keys = {
         "project_id",
         "id",
@@ -186,6 +230,7 @@ def project_config_from_mapping(data: Mapping[str, Any]) -> ProjectConfig:
         "context",
         "memory_hints",
         "rollout",
+        "bash",
     }
     extra = {k: v for k, v in data.items() if k not in known_keys}
     return ProjectConfig(
@@ -197,5 +242,6 @@ def project_config_from_mapping(data: Mapping[str, Any]) -> ProjectConfig:
         context=context,
         memory_hints=memory_hints,
         rollout=rollout,
+        bash=bash_section,
         extra=extra,
     )

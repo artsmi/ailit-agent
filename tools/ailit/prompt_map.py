@@ -119,9 +119,39 @@ def prompt_map_rows() -> tuple[PromptFragmentRow, ...]:
             priority="append",
             enabled_when="если включён чекбокс Shell в ailit chat",
             where_defined=(
-                "tools/ailit/chat_app.py:_inject_bash_tools_system_hint"
+                "tools/ailit/chat_app.py:ChatToolSystemHintComposer; "
+                "_inject_tool_hints_before_first_user"
             ),
-            token_notes="короткая подсказка для run_shell",
+            token_notes=(
+                "отдельно от file_tools; run_shell + PermissionEngine"
+            ),
+        ),
+        PromptFragmentRow(
+            fragment_id="bash.permission",
+            owner="agent_core",
+            priority="runtime",
+            enabled_when="если в реестре есть run_shell",
+            where_defined=(
+                "tools/agent_core/tool_runtime/permission.py:"
+                "PermissionEngine.evaluate (SHELL → shell_default)"
+            ),
+            token_notes=(
+                "по умолчанию ASK; chat/TUI могут подставить ALLOW"
+            ),
+        ),
+        PromptFragmentRow(
+            fragment_id="project.bash",
+            owner="project_layer",
+            priority="config",
+            enabled_when="если в project.yaml задана секция bash:",
+            where_defined=(
+                "tools/project_layer/models.py:BashSectionModel; "
+                "tools/ailit/bash_project_env.py:BashProjectEnvSync"
+            ),
+            token_notes=(
+                "default_timeout_ms, max_output_mb, "
+                "allow_patterns (fnmatch)"
+            ),
         ),
         PromptFragmentRow(
             fragment_id="bash.events.telemetry",
