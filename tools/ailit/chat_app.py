@@ -8,7 +8,7 @@ from io import StringIO
 from pathlib import Path
 import uuid
 import time
-from typing import Any
+from typing import Any, Callable
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -222,6 +222,94 @@ def _render_shell_runs_inline(
                     st.code(stdout_txt, language="bash")
                     if stderr_txt.strip():
                         st.code(stderr_txt, language="bash")
+
+
+def _render_chat_end_anchor() -> None:
+    """Невидимый якорь внизу потока чата (для скролла к актуальным сообщениям)."""
+    st.markdown(
+        '<div id="ailit-chat-end" style="height:1px"></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def _scroll_streamlit_main_to_bottom() -> None:
+    """Прокрутить основной скролл приложения к низу (новые сообщения у нижнего края)."""
+    components.html(
+        """
+        <script>
+        const doc = window.parent.document;
+        const selectors = [
+            '[data-testid="stAppViewContainer"] [data-testid="stMain"]',
+            '[data-testid="stAppViewContainer"] .main .block-container',
+        ];
+        for (const sel of selectors) {
+            const el = doc.querySelector(sel);
+            if (el && el.scrollHeight > el.clientHeight) {
+                el.scrollTop = el.scrollHeight;
+                break;
+            }
+        }
+        const end = doc.getElementById("ailit-chat-end");
+        if (end) {
+            end.scrollIntoView({block: "end", inline: "nearest"});
+        }
+        </script>
+        """,
+        height=0,
+    )
+
+
+def _render_chat_composer_row(
+    *,
+    pending: bool,
+    worker: ChatStopWorker | None,
+    on_request_send: Callable[[], None] | None,
+) -> tuple[str, bool]:
+    """Одна строка: поле ввода + кнопка отправки или стоп. Возвращает (prompt, send_clicked)."""
+    if pending and worker is not None:
+        cols = st.columns([30, 1])
+        with cols[0]:
+            st.text_input(
+                "Сообщение…",
+                value="",
+                disabled=True,
+                key="ailit_chat_input_pending_bottom",
+            )
+        with cols[1]:
+            stop = st.button(
+                "■",
+                key="ailit_chat_stop_btn",
+                use_container_width=True,
+            )
+            if stop:
+                worker.request_cancel()
+        if worker.state.stop_requested and not worker.state.finished:
+            st.caption("Останавливаю…")
+        return ("", False)
+
+    cols = st.columns([30, 1])
+    with cols[0]:
+        if bool(st.session_state.get(_ChatPageState.CLEAR_INPUT, False)):
+            st.session_state["ailit_chat_input"] = ""
+            st.session_state[_ChatPageState.CLEAR_INPUT] = False
+        if on_request_send is None:
+            msg = "on_request_send is required when pending is False"
+            raise ValueError(msg)
+        prompt = st.text_input(
+            "Сообщение…",
+            value="",
+            key="ailit_chat_input",
+            on_change=on_request_send,
+        )
+    with cols[1]:
+        send_btn = st.button(
+            "➤",
+            key="ailit_chat_send_btn",
+            use_container_width=True,
+        )
+    send_enter = bool(st.session_state.pop(_ChatPageState.SEND_REQUEST, False))
+    send = bool(send_btn or send_enter)
+    return (str(prompt), send)
 
 
 def _init_messages() -> None:
@@ -1068,7 +1156,6 @@ def main() -> None:
 
                 worker = worker_raw
 
-                finished = worker.state.finished
                 error = worker.state.error
                 bash_execs = list(worker.state.bash_executions)
 
@@ -1096,32 +1183,20 @@ def main() -> None:
                         )
                         continue
 
-                cols2 = st.columns([20, 1])
-                with cols2[0]:
-                    st.text_input(
-                        "Сообщение…",
-                        value="",
-                        disabled=True,
-                        key="ailit_chat_input_pending",
-                    )
-                with cols2[1]:
-                    if st.button(
-                        "■",
-                        key="ailit_chat_stop_btn",
-                        use_container_width=True,
-                    ):
-                        worker.request_cancel()
-                if worker.state.stop_requested and not worker.state.finished:
-                    st.caption("Останавливаю…")
-
                 if error:
                     st.error(error)
-                    finished = True
-                if not finished:
-                    st.session_state[_ChatPageState.SCROLL_BOTTOM] = True
-                    time.sleep(0.2)
-                    st.rerun()
-                    return
+
+            if not worker.state.finished:
+                _render_chat_end_anchor()
+                _render_chat_composer_row(
+                    pending=True,
+                    worker=worker,
+                    on_request_send=None,
+                )
+                _scroll_streamlit_main_to_bottom()
+                time.sleep(0.2)
+                st.rerun()
+                return
 
             meta = st.session_state.get("ailit_chat_turn_worker_meta", {})
             base_system = str(meta.get("base_system") or "")
@@ -1190,31 +1265,14 @@ def main() -> None:
         def _request_send() -> None:
             st.session_state[_ChatPageState.SEND_REQUEST] = True
 
-        cols = st.columns([30, 1])
-        with cols[0]:
-            if bool(st.session_state.get(_ChatPageState.CLEAR_INPUT, False)):
-                st.session_state["ailit_chat_input"] = ""
-                st.session_state[_ChatPageState.CLEAR_INPUT] = False
-            prompt = st.text_input(
-                "Сообщение…",
-                value="",
-                key="ailit_chat_input",
-                on_change=_request_send,
-            )
-        with cols[1]:
-            send_btn = st.button("➤", key="ailit_chat_send_btn", use_container_width=True)
-        send_enter = bool(st.session_state.pop(_ChatPageState.SEND_REQUEST, False))
-        send = bool(send_btn or send_enter)
-
-        st.markdown('<div id="ailit-bottom"></div>', unsafe_allow_html=True)
+        _render_chat_end_anchor()
+        prompt, send = _render_chat_composer_row(
+            pending=False,
+            worker=None,
+            on_request_send=_request_send,
+        )
         if bool(st.session_state.get(_ChatPageState.SCROLL_BOTTOM, False)):
-            components.html(
-                "<script>"
-                "const el = window.parent.document.getElementById('ailit-bottom');"
-                "if (el) { el.scrollIntoView({behavior: 'smooth', block: 'end'}); }"
-                "</script>",
-                height=0,
-            )
+            _scroll_streamlit_main_to_bottom()
             st.session_state[_ChatPageState.SCROLL_BOTTOM] = False
 
         if not send or not prompt.strip():
