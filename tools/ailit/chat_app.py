@@ -145,6 +145,7 @@ class _ChatPageState:
     SHELL_BY_ASSISTANT_SEQ = "ailit_shell_by_assistant_seq"
     SCROLL_BOTTOM = "ailit_scroll_to_bottom"
     SEND_REQUEST = "ailit_chat_send_request"
+    CLEAR_INPUT = "ailit_chat_clear_input"
 
 
 def _parse_tool_output(text: str) -> tuple[str, str]:
@@ -983,6 +984,7 @@ def main() -> None:
     st.session_state.setdefault(_ChatPageState.SHELL_BY_ASSISTANT_SEQ, {})
     st.session_state.setdefault(_ChatPageState.SCROLL_BOTTOM, False)
     st.session_state.setdefault(_ChatPageState.SEND_REQUEST, False)
+    st.session_state.setdefault(_ChatPageState.CLEAR_INPUT, False)
     st.markdown("### ailit chat")
     st.session_state.setdefault("ailit_shell_session_key", uuid.uuid4().hex)
     root_default = Path.cwd().resolve()
@@ -1172,6 +1174,9 @@ def main() -> None:
 
         cols = st.columns([30, 1])
         with cols[0]:
+            if bool(st.session_state.get(_ChatPageState.CLEAR_INPUT, False)):
+                st.session_state["ailit_chat_input"] = ""
+                st.session_state[_ChatPageState.CLEAR_INPUT] = False
             prompt = st.text_input(
                 "Сообщение…",
                 value="",
@@ -1201,7 +1206,7 @@ def main() -> None:
         st.session_state[_ChatPageState.MESSAGES].append(
             ChatMessage(role=MessageRole.USER, content=prompt),
         )
-        st.session_state["ailit_chat_input"] = ""
+        st.session_state[_ChatPageState.CLEAR_INPUT] = True
         st.session_state[_ChatPageState.LLM_WIDGET_SNAPSHOT] = {
             "choice": choice,
             "max_turns": max_turns,
