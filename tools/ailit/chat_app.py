@@ -144,6 +144,7 @@ class _ChatPageState:
     LLM_WIDGET_SNAPSHOT = "ailit_llm_widget_snapshot"
     SHELL_BY_ASSISTANT_SEQ = "ailit_shell_by_assistant_seq"
     SCROLL_BOTTOM = "ailit_scroll_to_bottom"
+    SEND_REQUEST = "ailit_chat_send_request"
 
 
 def _parse_tool_output(text: str) -> tuple[str, str]:
@@ -981,6 +982,7 @@ def main() -> None:
         st.warning(_banner)
     st.session_state.setdefault(_ChatPageState.SHELL_BY_ASSISTANT_SEQ, {})
     st.session_state.setdefault(_ChatPageState.SCROLL_BOTTOM, False)
+    st.session_state.setdefault(_ChatPageState.SEND_REQUEST, False)
     st.markdown("### ailit chat")
     st.session_state.setdefault("ailit_shell_session_key", uuid.uuid4().hex)
     root_default = Path.cwd().resolve()
@@ -1062,7 +1064,6 @@ def main() -> None:
                 finished = worker.state.finished
                 cancelled = worker.state.cancelled
                 error = worker.state.error
-                outcome = worker.state.outcome
                 bash_execs = list(worker.state.bash_executions)
 
                 if status_line:
@@ -1105,20 +1106,21 @@ def main() -> None:
             meta = st.session_state.get("ailit_chat_turn_worker_meta", {})
             base_system = str(meta.get("base_system") or "")
             prefix_len = int(meta.get("prefix_len") or 0)
-            use_project = bool(meta.get("use_project") or False)
+            use_project_meta = bool(meta.get("use_project") or False)
             has_loaded = bool(meta.get("has_loaded") or False)
             has_tuning = bool(meta.get("has_tuning") or False)
 
-            if outcome is not None:
-                runner_msgs = list(outcome.messages)
-                if cancelled:
+            outcome2 = worker.state.outcome
+            if outcome2 is not None:
+                runner_msgs = list(outcome2.messages)
+                if worker.state.cancelled:
                     runner_msgs.append(
                         ChatMessage(
                             role=MessageRole.ASSISTANT,
                             content="Остановлено пользователем. Контекст сохранён.",
                         ),
                     )
-                if use_project and has_loaded and has_tuning:
+                if use_project_meta and has_loaded and has_tuning:
                     st.session_state[_ChatPageState.MESSAGES] = store_after_run(
                         base_system,
                         prefix_len,
@@ -1130,7 +1132,6 @@ def main() -> None:
                 for row in bash_execs:
                     append_execution(st.session_state, row)
 
-                # Привязать shell логи к последнему assistant сообщению этого прогона.
                 a_count = sum(1 for m in runner_msgs if m.role is MessageRole.ASSISTANT)
                 aseq = max(0, a_count - 1)
                 live_final = list(reversed(runs_list(worker.state.shell_store)))
@@ -1140,12 +1141,12 @@ def main() -> None:
                     st.session_state[_ChatPageState.SHELL_BY_ASSISTANT_SEQ] = shell_map2
 
                 progress = ChatSessionTurnProgress.from_outcome_events(
-                    outcome.events,
+                    outcome2.events,
                     limit=int(snap_raw.get("max_turns", 10_000)),
                 )
                 st.session_state["ailit_last_turn_progress"] = progress
 
-                pair = SessionEventsUsageExtractor.last_pair(outcome.events)
+                pair = SessionEventsUsageExtractor.last_pair(outcome2.events)
                 if pair is not None:
                     st.session_state["ailit_last_usage_pair"] = pair
                 else:
@@ -1166,11 +1167,21 @@ def main() -> None:
         )
         _render_usage_tokens_panel()
 
-        cols = st.columns([20, 1])
+        def _request_send() -> None:
+            st.session_state[_ChatPageState.SEND_REQUEST] = True
+
+        cols = st.columns([30, 1])
         with cols[0]:
-            prompt = st.text_input("Сообщение…", value="", key="ailit_chat_input")
+            prompt = st.text_input(
+                "Сообщение…",
+                value="",
+                key="ailit_chat_input",
+                on_change=_request_send,
+            )
         with cols[1]:
-            send = st.button("➤", key="ailit_chat_send_btn", use_container_width=True)
+            send_btn = st.button("➤", key="ailit_chat_send_btn", use_container_width=True)
+        send_enter = bool(st.session_state.pop(_ChatPageState.SEND_REQUEST, False))
+        send = bool(send_btn or send_enter)
 
         st.markdown('<div id="ailit-bottom"></div>', unsafe_allow_html=True)
         if bool(st.session_state.get(_ChatPageState.SCROLL_BOTTOM, False)):
@@ -1190,6 +1201,7 @@ def main() -> None:
         st.session_state[_ChatPageState.MESSAGES].append(
             ChatMessage(role=MessageRole.USER, content=prompt),
         )
+        st.session_state["ailit_chat_input"] = ""
         st.session_state[_ChatPageState.LLM_WIDGET_SNAPSHOT] = {
             "choice": choice,
             "max_turns": max_turns,
