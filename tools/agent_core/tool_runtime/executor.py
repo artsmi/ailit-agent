@@ -126,7 +126,16 @@ class ToolExecutor:
                 raise ApprovalPending(inv.call_id, inv.tool_name)
             if st is ApprovalDecision.REJECTED:
                 raise ToolRejected(inv.call_id, inv.tool_name)
-        args = parse_and_validate_arguments_json(spec, inv.arguments_json)
+        try:
+            args = parse_and_validate_arguments_json(spec, inv.arguments_json)
+        except (TypeError, ValueError) as exc:
+            return ToolRunResult(
+                call_id=inv.call_id,
+                tool_name=inv.tool_name,
+                content="",
+                error=f"invalid_tool_arguments: {exc}",
+                extras=None,
+            )
         self._guard_cancel(cancel)
         handler = self._registry.get_handler(inv.tool_name)
         extras: dict[str, Any] | None = None

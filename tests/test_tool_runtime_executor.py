@@ -48,6 +48,16 @@ def test_serial_order_preserved() -> None:
     assert [r.content for r in results] == ["a", "b"]
 
 
+def test_invalid_tool_arguments_json_returns_error() -> None:
+    """Невалидный JSON в arguments_json не должен ронять процесс."""
+    reg = _echo_registry()
+    ex = ToolExecutor(reg)
+    inv = ToolInvocation("x", "echo", '{"message": "a"')  # broken JSON
+    res = ex.execute_one(inv, ApprovalSession())
+    assert res.error is not None
+    assert "invalid_tool_arguments" in res.error
+
+
 def test_approval_pending_then_resume() -> None:
     """ASK → pending → approve → успех."""
     spec = ToolSpec(
@@ -87,7 +97,10 @@ def test_rejected_raises() -> None:
         description="",
         parameters_schema={
             "type": "object",
-            "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+            "properties": {
+                "path": {"type": "string"},
+                "content": {"type": "string"},
+            },
             "required": ["path", "content"],
         },
         side_effect=SideEffectClass.WRITE,
@@ -128,7 +141,11 @@ def test_cancel_before_run() -> None:
     ev = Event()
     ev.set()
     with pytest.raises(RuntimeError, match="cancelled"):
-        ex.execute_one(ToolInvocation("1", "echo", '{"message":"a"}'), ApprovalSession(), cancel=ev)
+        ex.execute_one(
+            ToolInvocation("1", "echo", '{"message":"a"}'),
+            ApprovalSession(),
+            cancel=ev,
+        )
 
 
 def test_parallel_safe_two_echoes() -> None:
