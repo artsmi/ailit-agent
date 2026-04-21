@@ -22,6 +22,7 @@ class ShellSessionRunOutcome:
     exit_code: int | None
     combined_output: str
     timed_out: bool
+    cancelled: bool
     truncated: bool
     spill_path: str | None
 
@@ -92,10 +93,17 @@ class BashSessionHandle:
         buf_parts: list[str] = []
         used_bytes = 0
         timed_out = False
+        cancelled = False
         truncated = False
         spill: str | None = None
         exit_code: int | None = None
         while True:
+            from agent_core.tool_runtime.cancel_context import current_cancel
+
+            ev = current_cancel()
+            if ev is not None and ev.is_set():
+                cancelled = True
+                break
             if time.time() > deadline:
                 timed_out = True
                 break
@@ -138,10 +146,14 @@ class BashSessionHandle:
         if timed_out:
             exit_code = None
             self.dispose()
+        if cancelled:
+            exit_code = None
+            self.dispose()
         return ShellSessionRunOutcome(
             exit_code=exit_code,
             combined_output="".join(buf_parts),
             timed_out=timed_out,
+            cancelled=cancelled,
             truncated=truncated,
             spill_path=spill,
         )

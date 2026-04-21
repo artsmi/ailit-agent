@@ -17,6 +17,10 @@ from agent_core.tool_runtime.schema_validate import (
     parse_and_validate_arguments_json,
 )
 from agent_core.tool_runtime.spec import ToolSpec
+from agent_core.tool_runtime.cancel_context import (
+    clear_current_cancel,
+    set_current_cancel,
+)
 
 
 def _write_file_extras_before_run(
@@ -142,8 +146,10 @@ class ToolExecutor:
         if inv.tool_name == "write_file" and isinstance(args, dict):
             extras = _write_file_extras_before_run(args)
         try:
+            set_current_cancel(cancel)
             out = handler(args)
         except Exception as exc:  # noqa: BLE001
+            clear_current_cancel()
             return ToolRunResult(
                 call_id=inv.call_id,
                 tool_name=inv.tool_name,
@@ -151,6 +157,7 @@ class ToolExecutor:
                 error=f"{type(exc).__name__}: {exc}",
                 extras=None,
             )
+        clear_current_cancel()
         return ToolRunResult(
             call_id=inv.call_id,
             tool_name=inv.tool_name,

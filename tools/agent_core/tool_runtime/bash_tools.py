@@ -75,6 +75,7 @@ def _format_outcome(outcome: BashRunOutcome) -> str:
     lines: list[str] = []
     lines.append(f"exit_code: {outcome.exit_code!s}")
     lines.append(f"timed_out: {str(outcome.timed_out).lower()}")
+    lines.append(f"cancelled: {str(outcome.cancelled).lower()}")
     lines.append(f"truncated: {str(outcome.truncated).lower()}")
     if outcome.spill_path:
         lines.append(f"spill_path: {outcome.spill_path}")
@@ -182,6 +183,7 @@ def builtin_run_shell_session(arguments: Mapping[str, Any]) -> str:
     hdr = [
         f"exit_code: {out.exit_code!s}",
         f"timed_out: {str(out.timed_out).lower()}",
+        f"cancelled: {str(out.cancelled).lower()}",
         f"truncated: {str(out.truncated).lower()}",
     ]
     if out.spill_path:

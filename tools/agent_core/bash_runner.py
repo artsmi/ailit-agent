@@ -6,10 +6,13 @@ import os
 import signal
 import subprocess
 import sys
+import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
+
+from agent_core.tool_runtime.cancel_context import current_cancel
 
 _DEFAULT_TIMEOUT_MS: int = 120_000
 _MAX_CAPTURE_BYTES_DEFAULT: int = 512_000
@@ -26,6 +29,7 @@ class BashRunOutcome:
     timed_out: bool
     truncated: bool
     spill_path: str | None
+    cancelled: bool = False
 
 
 def _pick_bash() -> str:
@@ -92,18 +96,45 @@ def run_bash_command(
         )
     timeout_sec = timeout_ms / 1000.0
     timed_out = False
-    try:
-        out, err = proc.communicate(timeout=timeout_sec)
-    except subprocess.TimeoutExpired:
-        timed_out = True
-        _kill_process_group(proc)
+    cancelled = False
+    out_parts: list[str] = []
+    err_parts: list[str] = []
+    deadline = time.time() + timeout_sec
+    step = 0.2
+    while True:
+        ev = current_cancel()
+        if ev is not None and ev.is_set():
+            cancelled = True
+            _kill_process_group(proc)
+            break
+        now = time.time()
+        if now >= deadline:
+            timed_out = True
+            _kill_process_group(proc)
+            break
+        try:
+            out, err = proc.communicate(
+                timeout=min(step, max(0.0, deadline - now)),
+            )
+            out_parts.append(out or "")
+            err_parts.append(err or "")
+            break
+        except subprocess.TimeoutExpired as exc:
+            if exc.stdout:
+                out_parts.append(str(exc.stdout))
+            if exc.stderr:
+                err_parts.append(str(exc.stderr))
+            continue
+    if timed_out or cancelled:
         out, err = proc.communicate()
+        out_parts.append(out or "")
+        err_parts.append(err or "")
     rc = proc.returncode
     exit_code: int | None = int(rc) if rc is not None else None
-    if timed_out:
+    if timed_out or cancelled:
         exit_code = None
-    so = out or ""
-    se = err or ""
+    so = "".join(out_parts)
+    se = "".join(err_parts)
     combined_len = len(so.encode("utf-8")) + len(se.encode("utf-8"))
     truncated = False
     spill: str | None = None
@@ -129,6 +160,7 @@ def run_bash_command(
         stdout=so,
         stderr=se,
         timed_out=timed_out,
+        cancelled=cancelled,
         truncated=truncated,
         spill_path=spill,
     )

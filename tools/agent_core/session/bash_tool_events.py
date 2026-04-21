@@ -115,6 +115,7 @@ def emit_bash_shell_telemetry(
             "exit_code": exit_code,
             "truncated": _truthy_flag_line(text, "truncated"),
             "timed_out": _truthy_flag_line(text, "timed_out"),
+            "cancelled": _truthy_flag_line(text, "cancelled"),
             "shell_session_id": sess_id,
             "session_seq": sess_seq,
         },
