@@ -99,7 +99,7 @@
 
 | Задача | Действия | Ссылки |
 |--------|----------|--------|
-| D.1 Чекбокс «Bash / shell» | Аналог «Файловые tools»; при включении — реестр с bash tool + system hint. | ```182:186:/home/artem/reps/ailit-agent/tools/ailit/chat_app.py``` |
+| D.1 Всегда включённый tool registry | Инструменты доступны по умолчанию (без чекбоксов/флагов); реестр включает file tools + `run_shell` и system hints. | `tools/ailit/chat_app.py:_registry_for_chat` |
 | D.2 Хранилище вызовов | `st.session_state["bash_runs"]`: список `ShellInvocationRecord`. | Новый небольшой модуль `tools/ailit/bash_chat_store.py` |
 | D.3 View | Вкладка «Shell» или боковая колонка: выбор `call_id`, `st.code(tail_full, language="bash")`, настройка N. | `tools/ailit/chat_app.py` |
 | D.4 Подсказка модели | Не дублировать file_tools hint; отдельный блок про bash и политику подтверждения. | `_inject_file_tools_system_hint` рядом в `chat_app.py` |
@@ -111,7 +111,7 @@
 | Задача | Действия | Ссылки |
 |--------|----------|--------|
 | E.1 Виджет превью | Rich markup: метка «running…» / duration; `LineTailSelector` из A.1. | `tools/ailit/tui_chat_controller.py`, при необходимости новый виджет-файл |
-| E.2 Реестр tools TUI | Синхронизация с chat: те же builtins + bash при флаге. | См. сборку провайдера в `tui_chat_controller.py` / `tui_app.py` |
+| E.2 Реестр tools TUI | Синхронизация с chat: builtins + `run_shell` включены по умолчанию (без флагов). | `tools/ailit/tui_chat_controller.py` |
 
 ### Этап F — Документация, промпт-карта, конфиг проекта
 
@@ -166,11 +166,11 @@
 
 - Добавлены утилиты превью вывода (`shell_output_preview.py`) и тесты — задел под этапы D/E.
 - **Этап A.2:** `tools/agent_core/shell_invocation_record.py`, тесты `tests/test_shell_invocation_record.py`.
-- **Этап B (MVP):** `tools/agent_core/bash_runner.py` (таймаут, killpg, spill), инструмент `run_shell` в `tools/agent_core/tool_runtime/bash_tools.py`, `SideEffectClass.SHELL`, `PermissionEngine.shell_default`, реестр `bash_tool_registry()`, чекбокс Shell в `tools/ailit/chat_app.py`, строки в `tools/ailit/prompt_map.py`; тесты `tests/test_bash_runner.py`.
+- **Этап B (MVP):** `tools/agent_core/bash_runner.py` (таймаут, killpg, spill), инструмент `run_shell` в `tools/agent_core/tool_runtime/bash_tools.py`, `SideEffectClass.SHELL`, `PermissionEngine.shell_default`, реестр `bash_tool_registry()`, включённый по умолчанию tool registry в `tools/ailit/chat_app.py`, строки в `tools/ailit/prompt_map.py`; тесты `tests/test_bash_runner.py`.
 - **Этап C:** `tools/agent_core/session/bash_tool_events.py` — `bash.output_delta`, `bash.finished`, `bash.execution`; интеграция в `tools/agent_core/session/loop.py`; тесты `tests/test_bash_tool_events.py`, `tests/test_session_bash_telemetry.py`.
 - **Этап D.2–D.3:** `tools/ailit/bash_chat_store.py`, вкладка «Shell» в меню chat, запись по `bash.execution`; тест `tests/test_bash_chat_store.py`.
-- **Этап E (MVP):** `ailit tui` / `ailit agent --bash-tools`, merge `bash_tool_registry` в `tui_chat_controller.py`, превью хвоста run_shell в `tui_llm_worker.py` / `tui_app.py`.
+- **Этап E (MVP):** `ailit tui` / `ailit agent`, `bash_tool_registry` включён по умолчанию в `tui_chat_controller.py`, превью хвоста run_shell в `tui_llm_worker.py` / `tui_app.py`.
 - **Этап D.4:** отдельный блок подсказок для shell (`ChatToolSystemHintComposer`), без дублирования file_tools.
 - **Этап F.1:** строки `bash.permission`, `project.bash` в `tools/ailit/prompt_map.py`.
-- **Этап F.2:** секция `bash:` в `project.yaml` → `BashSectionModel`, синхронизация в env через `tools/ailit/bash_project_env.py`, учёт в `builtin_run_shell` (`bash_tools` + project в чате).
+- **Этап F.2:** секция `bash:` в `project.yaml` → `BashSectionModel`, синхронизация в env через `tools/ailit/bash_project_env.py`, учёт в `builtin_run_shell` (project в чате).
 - Сессионный shell — этап **H** (после B–C).

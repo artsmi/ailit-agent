@@ -120,9 +120,10 @@ def prompt_map_rows() -> tuple[PromptFragmentRow, ...]:
             fragment_id="chat.file_tools_hint",
             owner="ailit.chat",
             priority="append",
-            enabled_when="если включены file_tools в чате",
+            enabled_when="всегда (tools включены по умолчанию)",
             where_defined=(
-                "tools/ailit/chat_app.py:_inject_file_tools_system_hint"
+                "tools/ailit/chat_app.py:ChatToolSystemHintComposer; "
+                "_inject_tool_hints_before_first_user"
             ),
             token_notes="короткая подсказка; не дублировать в других режимах",
         ),
@@ -130,7 +131,7 @@ def prompt_map_rows() -> tuple[PromptFragmentRow, ...]:
             fragment_id="bash.run_shell",
             owner="agent_core",
             priority="tool",
-            enabled_when="если включён чекбокс Shell в ailit chat",
+            enabled_when="всегда (встроенный реестр tools в chat/TUI)",
             where_defined=(
                 "tools/agent_core/tool_runtime/"
                 "bash_tools.py:run_shell_tool_spec"
@@ -141,7 +142,7 @@ def prompt_map_rows() -> tuple[PromptFragmentRow, ...]:
             fragment_id="bash.chat.hint",
             owner="ailit.chat",
             priority="append",
-            enabled_when="если включён чекбокс Shell в ailit chat",
+            enabled_when="всегда (tools включены по умолчанию)",
             where_defined=(
                 "tools/ailit/chat_app.py:ChatToolSystemHintComposer; "
                 "_inject_tool_hints_before_first_user"

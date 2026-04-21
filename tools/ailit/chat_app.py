@@ -22,7 +22,6 @@ from agent_core.tool_runtime.bash_tools import bash_tool_registry
 from agent_core.tool_runtime.registry import (
     ToolRegistry,
     default_builtin_registry,
-    empty_tool_registry,
 )
 from ailit.bash_chat_store import append_execution, runs_list, set_view_tail_lines, view_tail_lines
 from ailit.bash_project_env import BashProjectEnvSync
@@ -106,23 +105,13 @@ def _make_provider(choice: str, cfg: dict) -> tuple[object, str]:
 
 def _registry_for_chat(
     *,
-    file_tools: bool,
-    bash_tools: bool,
     work_root: Path | None,
     teammate_tools: bool,
 ) -> ToolRegistry:
     """Собрать реестр: file tools, shell, teammate."""
     root = (work_root or _REPO).resolve()
-    reg = empty_tool_registry()
-    if file_tools:
-        os.environ["AILIT_WORK_ROOT"] = str(root)
-        reg = default_builtin_registry()
-    elif bash_tools:
-        os.environ["AILIT_WORK_ROOT"] = str(root)
-        reg = bash_tool_registry()
-    if bash_tools and file_tools:
-        os.environ["AILIT_WORK_ROOT"] = str(root)
-        reg = reg.merge(bash_tool_registry())
+    os.environ["AILIT_WORK_ROOT"] = str(root)
+    reg = default_builtin_registry().merge(bash_tool_registry())
     if teammate_tools and work_root is not None:
         pr = work_root.resolve()
         os.environ["AILIT_TEAM_PROJECT_ROOT"] = str(pr)
@@ -157,7 +146,7 @@ def _render_header_and_menu(
     project_root: Path,
     loaded: LoadedProject | None,
     load_error: str | None,
-) -> tuple[str, int, bool, bool, str, bool, bool]:
+) -> tuple[str, int, str, bool]:
     """Верхняя строка: настройки чата + заметная кнопка «Меню» (popover с вкладками)."""
     col_left, col_mid, col_menu = st.columns([5, 3, 3])
     with col_left:
@@ -191,21 +180,13 @@ def _render_header_and_menu(
             10_000,
             help=_mt_help,
         )
-        file_tools = st.checkbox("Файловые tools", value=True)
-        bash_tools = st.checkbox(
-            "Shell (run_shell)",
-            value=False,
-            help="bash -lc в AILIT_WORK_ROOT; таймаут и усечение вывода.",
-        )
+        st.caption("tools включены по умолчанию")
     with col_mid:
         use_project = st.toggle("Проект", value=True)
         agent_id = st.text_input("agent_id", value="default", label_visibility="visible")
-        teammate_tools = st.checkbox(
-            "Инструмент команды (mailbox)",
-            value=loaded is not None,
-            disabled=loaded is None,
-            help="send_teammate_message: запись в .ailit/teams/<team_id>/inboxes/",
-        )
+        teammate_tools = bool(use_project and loaded is not None)
+        if loaded is None:
+            st.caption("Команда: нужен project.yaml")
     with col_menu:
         st.caption("Дополнительно")
         with st.popover(
@@ -252,54 +233,61 @@ def _render_header_and_menu(
                     st.info("Нет загруженного project.yaml")
             with tab_shell:
                 st.caption("История `run_shell` (последние N строк вывода)")
-                if not bash_tools:
-                    st.info("Включите чекбокс «Shell (run_shell)» слева.")
+                runs = runs_list(st.session_state)
+                if not runs:
+                    st.caption("Пока нет завершённых shell-вызовов в этой сессии.")
                 else:
-                    runs = runs_list(st.session_state)
-                    if not runs:
-                        st.caption("Пока нет завершённых shell-вызовов в этой сессии.")
-                    else:
-                        n_tail = st.number_input(
-                            "N строк в превью",
-                            min_value=1,
-                            max_value=5000,
-                            value=view_tail_lines(st.session_state),
-                            key="ailit_bash_tail_n",
+                    n_tail = st.number_input(
+                        "N строк в превью",
+                        min_value=1,
+                        max_value=5000,
+                        value=view_tail_lines(st.session_state),
+                        key="ailit_bash_tail_n",
+                    )
+                    set_view_tail_lines(st.session_state, int(n_tail))
+                    rev = list(reversed(runs))
+                    labels = [
+                        f"{str(r.get('call_id', ''))[:10]}… "
+                        f"{str(r.get('command', ''))[:36]}"
+                        for r in rev
+                    ]
+                    pick = st.selectbox(
+                        "Вызов",
+                        options=list(range(len(rev))),
+                        format_func=lambda i: labels[i],
+                        key="ailit_bash_pick_idx",
+                    )
+                    row = rev[int(pick)]
+                    out_txt = str(row.get("combined_output", ""))
+                    st.code(
+                        LineTailSelector.last_lines(out_txt, int(n_tail)),
+                        language="bash",
+                    )
+                    if row.get("detached_recommended"):
+                        st.caption(
+                            "Помечен как длинный вывод (эвристика detached view).",
                         )
-                        set_view_tail_lines(st.session_state, int(n_tail))
-                        rev = list(reversed(runs))
-                        labels = [
-                            f"{str(r.get('call_id', ''))[:10]}… "
-                            f"{str(r.get('command', ''))[:36]}"
-                            for r in rev
-                        ]
-                        pick = st.selectbox(
-                            "Вызов",
-                            options=list(range(len(rev))),
-                            format_func=lambda i: labels[i],
-                            key="ailit_bash_pick_idx",
-                        )
-                        row = rev[int(pick)]
-                        out_txt = str(row.get("combined_output", ""))
-                        st.code(
-                            LineTailSelector.last_lines(out_txt, int(n_tail)),
-                            language="bash",
-                        )
-                        if row.get("detached_recommended"):
-                            st.caption("Помечен как длинный вывод (эвристика detached view).")
             with tab_team:
                 st.caption("Файловый mailbox: `.ailit/teams/<team_id>/inboxes/<agent>.json`")
                 root = Path(st.session_state.get("ailit_project_root", project_root))
-                st.text_input("team_id", key="ailit_team_panel_id", value="default")
-                st.text_input("Фильтр: только inbox получателя (пусто = все)", key="ailit_team_filter_to")
-                if st.button("Обновить панель команды", key="ailit_team_refresh"):
-                    st.session_state["ailit_team_digest_tick"] = (
-                        int(st.session_state.get("ailit_team_digest_tick", 0)) + 1
+                if loaded is None:
+                    st.info("Нужен загруженный project.yaml и корень проекта.")
+                else:
+                    st.text_input("team_id", key="ailit_team_panel_id", value="default")
+                    st.text_input(
+                        "Фильтр: только inbox получателя (пусто = все)",
+                        key="ailit_team_filter_to",
                     )
-                tid = str(st.session_state.get("ailit_team_panel_id", "default")).strip() or "default"
-                flt_raw = str(st.session_state.get("ailit_team_filter_to", "")).strip()
-                flt = flt_raw or None
-                if loaded is not None:
+                    if st.button("Обновить панель команды", key="ailit_team_refresh"):
+                        st.session_state["ailit_team_digest_tick"] = (
+                            int(st.session_state.get("ailit_team_digest_tick", 0)) + 1
+                        )
+                    tid = (
+                        str(st.session_state.get("ailit_team_panel_id", "default")).strip()
+                        or "default"
+                    )
+                    flt_raw = str(st.session_state.get("ailit_team_filter_to", "")).strip()
+                    flt = flt_raw or None
                     pres = TeamMailboxPanelPresenter(project_root=root, team_id=tid)
                     st.markdown(pres.markdown_digest(filter_to=flt))
                     inbox_dir = root / ".ailit" / "teams" / tid / "inboxes"
@@ -308,13 +296,13 @@ def _render_header_and_menu(
                             st.json(
                                 {
                                     "inbox_dir": str(inbox_dir),
-                                    "files": sorted(str(p.name) for p in inbox_dir.glob("*.json")),
+                                    "files": sorted(
+                                        str(p.name) for p in inbox_dir.glob("*.json")
+                                    ),
                                 },
                             )
                         else:
                             st.json({"inbox_dir": str(inbox_dir), "files": []})
-                else:
-                    st.info("Нужен загруженный project.yaml и корень проекта.")
             with tab_c:
                 if loaded is None:
                     st.caption("Сначала укажите корректный корень и project.yaml")
@@ -461,7 +449,7 @@ def _render_header_and_menu(
                     f"ailit debug bundle --project-root {root} --out {root / '.ailit' / 'debug-bundle.zip'}",
                     language="bash",
                 )
-    return choice, max_turns, file_tools, bash_tools, agent_id, use_project, teammate_tools
+    return choice, max_turns, agent_id, use_project
 
 
 def _render_usage_tokens_panel() -> None:
@@ -519,28 +507,21 @@ class ChatToolSystemHintComposer:
     """Фрагменты system для файловых tools и для shell — раздельно (D.4)."""
 
     @staticmethod
-    def fragments(*, file_tools: bool, bash_tools: bool) -> list[str]:
+    def fragments() -> list[str]:
         """Порядок: сначала файлы, затем shell — без дублирования текста."""
         parts: list[str] = []
-        if file_tools:
-            parts.append(_FS_TOOLS_SYSTEM_HINT)
-            parts.append(_FILE_TOOLS_SYSTEM_HINT)
-        if bash_tools:
-            parts.append(_BASH_TOOLS_SYSTEM_HINT)
+        parts.append(_FS_TOOLS_SYSTEM_HINT)
+        parts.append(_FILE_TOOLS_SYSTEM_HINT)
+        parts.append(_BASH_TOOLS_SYSTEM_HINT)
         return parts
 
 
 def _inject_tool_hints_before_first_user(
     runner_msgs: list[ChatMessage],
     *,
-    file_tools: bool,
-    bash_tools: bool,
 ) -> None:
     """Вставить подсказки одним проходом перед первым USER."""
-    frags = ChatToolSystemHintComposer.fragments(
-        file_tools=file_tools,
-        bash_tools=bash_tools,
-    )
+    frags = ChatToolSystemHintComposer.fragments()
     if not frags:
         return
     for i, m in enumerate(runner_msgs):
@@ -561,8 +542,6 @@ def _execute_llm_turn(
     """Второй проход: SessionRunner (настройки из снимка отправки)."""
     choice = str(snap["choice"])
     max_turns = int(snap["max_turns"])
-    file_tools = bool(snap["file_tools"])
-    bash_tools = bool(snap.get("bash_tools", False))
     use_project = bool(snap["use_project"])
     teammate_tools = bool(snap.get("teammate_tools", False))
     agent_id = str(snap["agent_id"])
@@ -572,7 +551,7 @@ def _execute_llm_turn(
     fac_local = ProjectSessionFactory(project_root)
     plr = fac_local.load()
     loaded_local = plr.loaded
-    if use_project and loaded_local is not None and bash_tools:
+    if use_project and loaded_local is not None:
         BashProjectEnvSync.apply(loaded_local.config.bash)
     else:
         BashProjectEnvSync.clear()
@@ -589,11 +568,7 @@ def _execute_llm_turn(
     else:
         runner_msgs = list(msgs_src)
 
-    _inject_tool_hints_before_first_user(
-        runner_msgs,
-        file_tools=file_tools,
-        bash_tools=bash_tools,
-    )
+    _inject_tool_hints_before_first_user(runner_msgs)
 
     provider, model = _make_provider(choice, cfg)
     status_ph = st.session_state.get("ailit_stream_status_ph")
@@ -664,7 +639,7 @@ def _execute_llm_turn(
                     sym2 = "+" if fk2 == "created" else "~"
                     file_change_log.append(f"{sym2} `{rp2}` ({fk2})")
             return
-        if et == "bash.execution" and bash_tools:
+        if et == "bash.execution":
             if isinstance(payload, dict):
                 append_execution(st.session_state, payload)
             return
@@ -677,28 +652,13 @@ def _execute_llm_turn(
         use_stream=True,
     )
     work_for_tools = project_root if use_project else _REPO
-    need_perm = bool(file_tools or teammate_tools or bash_tools)
-    perm = (
-        PermissionEngine(
-            write_default=(
-                PermissionDecision.ALLOW
-                if (file_tools or teammate_tools)
-                else PermissionDecision.DENY
-            ),
-            shell_default=(
-                PermissionDecision.ALLOW
-                if bash_tools
-                else PermissionDecision.DENY
-            ),
-        )
-        if need_perm
-        else None
+    perm = PermissionEngine(
+        write_default=PermissionDecision.ALLOW,
+        shell_default=PermissionDecision.ALLOW,
     )
     runner = SessionRunner(
         provider,
         _registry_for_chat(
-            file_tools=file_tools,
-            bash_tools=bash_tools,
             work_root=work_for_tools,
             teammate_tools=teammate_tools,
         ),
@@ -795,16 +755,14 @@ def main() -> None:
     (
         choice,
         max_turns,
-        file_tools,
-        bash_tools,
         agent_id,
         use_project,
-        teammate_tools,
     ) = _render_header_and_menu(
         project_root=project_root,
         loaded=loaded,
         load_error=load_error,
     )
+    teammate_tools = bool(use_project and loaded is not None)
 
     msgs = st.session_state[_ChatPageState.MESSAGES]
     pending = bool(st.session_state.get(_ChatPageState.PENDING_LLM, False))
@@ -844,8 +802,6 @@ def main() -> None:
     st.session_state[_ChatPageState.LLM_WIDGET_SNAPSHOT] = {
         "choice": choice,
         "max_turns": max_turns,
-        "file_tools": file_tools,
-        "bash_tools": bash_tools,
         "use_project": use_project,
         "teammate_tools": teammate_tools,
         "agent_id": agent_id,

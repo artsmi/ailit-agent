@@ -16,7 +16,6 @@ class TuiAppState:
     model: str
     max_turns: int
     contexts: TuiContextManager
-    bash_tools: bool = False
 
     def session_view(self) -> TuiSessionState:
         """Собрать ``TuiSessionState`` для активного контекста."""
@@ -28,5 +27,4 @@ class TuiAppState:
             max_turns=self.max_turns,
             agent_id=prof.agent_id,
             workflow_ref=prof.workflow_ref,
-            bash_tools=self.bash_tools,
         )

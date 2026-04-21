@@ -153,16 +153,10 @@ class TuiChatController:
         )
         root = state.project_root.resolve()
         os.environ["AILIT_WORK_ROOT"] = str(root)
-        reg = default_builtin_registry()
-        if state.bash_tools:
-            reg = reg.merge(bash_tool_registry())
+        reg = default_builtin_registry().merge(bash_tool_registry())
         perm = PermissionEngine(
             write_default=PermissionDecision.ALLOW,
-            shell_default=(
-                PermissionDecision.ALLOW
-                if state.bash_tools
-                else PermissionDecision.DENY
-            ),
+            shell_default=PermissionDecision.ALLOW,
         )
         runner = SessionRunner(provider_obj, reg, permission_engine=perm)
         settings = SessionSettings(
