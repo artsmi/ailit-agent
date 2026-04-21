@@ -6,12 +6,14 @@ import json
 import os
 from typing import Final
 
-from project_layer.models import BashSectionModel
+from project_layer.models import BashSectionModel, BashSessionSectionModel
 
 _ENV_KEYS: Final[tuple[str, ...]] = (
     "AILIT_BASH_DEFAULT_TIMEOUT_MS",
     "AILIT_BASH_MAX_CAPTURE_BYTES",
     "AILIT_BASH_ALLOW_PATTERNS_JSON",
+    "AILIT_BASH_SESSION_IDLE_TIMEOUT_MS",
+    "AILIT_BASH_SESSION_MAX_SESSIONS",
 )
 
 
@@ -47,4 +49,32 @@ class BashProjectEnvSync:
             os.environ["AILIT_BASH_ALLOW_PATTERNS_JSON"] = json.dumps(
                 list(section.allow_patterns),
                 ensure_ascii=False,
+            )
+
+
+class BashSessionProjectEnvSync:
+    """Секция project.yaml ``bash_session:`` → env для session manager."""
+
+    @staticmethod
+    def clear() -> None:
+        """Снять override для bash session."""
+        for key in (
+            "AILIT_BASH_SESSION_IDLE_TIMEOUT_MS",
+            "AILIT_BASH_SESSION_MAX_SESSIONS",
+        ):
+            os.environ.pop(key, None)
+
+    @staticmethod
+    def apply(section: BashSessionSectionModel | None) -> None:
+        """Применить секцию ``bash_session`` или очистить override."""
+        BashSessionProjectEnvSync.clear()
+        if section is None:
+            return
+        if section.idle_timeout_ms is not None:
+            os.environ["AILIT_BASH_SESSION_IDLE_TIMEOUT_MS"] = str(
+                int(section.idle_timeout_ms),
+            )
+        if section.max_sessions is not None:
+            os.environ["AILIT_BASH_SESSION_MAX_SESSIONS"] = str(
+                int(section.max_sessions),
             )

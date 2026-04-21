@@ -222,11 +222,28 @@ class ShellSessionManager:
 
 
 _DEFAULT_MANAGER: ShellSessionManager | None = None
+_DEFAULT_MANAGER_CFG: tuple[int, int] | None = None
 
 
 def default_shell_session_manager() -> ShellSessionManager:
     """Глобальный singleton менеджера сессий."""
     global _DEFAULT_MANAGER  # noqa: PLW0603
-    if _DEFAULT_MANAGER is None:
-        _DEFAULT_MANAGER = ShellSessionManager()
+    global _DEFAULT_MANAGER_CFG  # noqa: PLW0603
+    max_s = 16
+    idle_ms = 10 * 60 * 1000
+    raw_max = os.environ.get("AILIT_BASH_SESSION_MAX_SESSIONS")
+    raw_idle = os.environ.get("AILIT_BASH_SESSION_IDLE_TIMEOUT_MS")
+    if raw_max is not None and str(raw_max).strip() != "":
+        max_s = max(1, int(raw_max))
+    if raw_idle is not None and str(raw_idle).strip() != "":
+        idle_ms = max(1, int(raw_idle))
+    cfg = (max_s, idle_ms)
+    if _DEFAULT_MANAGER is None or _DEFAULT_MANAGER_CFG != cfg:
+        if _DEFAULT_MANAGER is not None:
+            _DEFAULT_MANAGER.dispose_all()
+        _DEFAULT_MANAGER = ShellSessionManager(
+            max_sessions=max_s,
+            idle_timeout_ms=idle_ms,
+        )
+        _DEFAULT_MANAGER_CFG = cfg
     return _DEFAULT_MANAGER

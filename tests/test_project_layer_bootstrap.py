@@ -12,7 +12,11 @@ from project_layer.bootstrap import (
     compute_workflow_augmentation,
 )
 from project_layer.loader import LoadedProject, load_project
-from project_layer.models import BashSectionModel, project_config_from_mapping
+from project_layer.models import (
+    BashSectionModel,
+    BashSessionSectionModel,
+    project_config_from_mapping,
+)
 from project_layer.registry import ProjectRegistries
 
 
@@ -109,4 +113,39 @@ def test_project_yaml_bash_rejects_nonpositive_max_output_mb() -> None:
     with pytest.raises(ValueError, match="max_output_mb"):
         project_config_from_mapping(
             {"project_id": "p", "bash": {"max_output_mb": 0.0}},
+        )
+
+
+def test_project_yaml_parses_bash_session_section() -> None:
+    """Секция bash_session: в project.yaml → BashSessionSectionModel."""
+    cfg = project_config_from_mapping(
+        {
+            "project_id": "p",
+            "bash_session": {
+                "idle_timeout_ms": 1234,
+                "max_sessions": 3,
+                "backend": "pty",
+            },
+        },
+    )
+    assert cfg.bash_session is not None
+    assert isinstance(cfg.bash_session, BashSessionSectionModel)
+    assert cfg.bash_session.idle_timeout_ms == 1234
+    assert cfg.bash_session.max_sessions == 3
+    assert cfg.bash_session.backend == "pty"
+
+
+def test_project_yaml_bash_session_null_is_none() -> None:
+    """bash_session: null не оставляет секцию."""
+    cfg = project_config_from_mapping(
+        {"project_id": "p", "bash_session": None},
+    )
+    assert cfg.bash_session is None
+
+
+def test_project_yaml_bash_session_rejects_invalid_backend() -> None:
+    """backend вне allowlist отклоняется."""
+    with pytest.raises(ValueError, match="bash_session\\.backend"):
+        project_config_from_mapping(
+            {"project_id": "p", "bash_session": {"backend": "bad"}},
         )

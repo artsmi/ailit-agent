@@ -32,8 +32,8 @@ class AgentPreset:
     temperature: float | None = None
     max_turns: int | None = None
     shortlist_extra: frozenset[str] = field(default_factory=frozenset)
-    """Роль агента: ``teammate`` — режим межагентной почты (addendum + tool)."""
     role: str | None = None
+    """Роль: ``teammate`` — межагентная почта (addendum + tool)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +51,9 @@ class ContextSectionModel:
     """Секция context: canonical paths и refresh."""
 
     canonical_globs: tuple[str, ...] = ("context/**/*.md",)
-    knowledge_refresh: KnowledgeRefreshModel = field(default_factory=KnowledgeRefreshModel)
+    knowledge_refresh: KnowledgeRefreshModel = field(
+        default_factory=KnowledgeRefreshModel,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +81,15 @@ class BashSectionModel:
 
 
 @dataclass(frozen=True, slots=True)
+class BashSessionSectionModel:
+    """Опции сессионного shell (этап H.7; project.yaml)."""
+
+    idle_timeout_ms: int | None = None
+    max_sessions: int | None = None
+    backend: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectConfig:
     """Корневой контракт project.yaml v1."""
 
@@ -91,11 +102,16 @@ class ProjectConfig:
     memory_hints: tuple[str, ...] = ()
     rollout: RolloutSectionModel = field(default_factory=RolloutSectionModel)
     bash: BashSectionModel | None = None
+    bash_session: BashSessionSectionModel | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
 def _preset_from_mapping(agent_id: str, raw: Mapping[str, Any]) -> AgentPreset:
-    extra_raw = raw.get("shortlist_extra_keywords") or raw.get("shortlist_extra") or []
+    extra_raw = (
+        raw.get("shortlist_extra_keywords")
+        or raw.get("shortlist_extra")
+        or []
+    )
     if not isinstance(extra_raw, list):
         msg = "shortlist_extra_keywords must be a list of strings"
         raise TypeError(msg)
@@ -109,7 +125,9 @@ def _preset_from_mapping(agent_id: str, raw: Mapping[str, Any]) -> AgentPreset:
     return AgentPreset(
         agent_id=agent_id,
         system_append=str(raw.get("system_append", "") or ""),
-        system_prompt=str(raw["system_prompt"]) if raw.get("system_prompt") else None,
+        system_prompt=(
+            str(raw["system_prompt"]) if raw.get("system_prompt") else None
+        ),
         temperature=float(temp) if temp is not None else None,
         max_turns=int(mt) if mt is not None else None,
         shortlist_extra=extras,
@@ -117,7 +135,10 @@ def _preset_from_mapping(agent_id: str, raw: Mapping[str, Any]) -> AgentPreset:
     )
 
 
-def _workflow_ref_from_mapping(wid: str, raw: Mapping[str, Any]) -> WorkflowRef:
+def _workflow_ref_from_mapping(
+    wid: str,
+    raw: Mapping[str, Any],
+) -> WorkflowRef:
     path = raw.get("path")
     if not path:
         msg = f"workflow {wid!r} must contain 'path'"
@@ -148,6 +169,33 @@ def _bash_section_from_mapping(raw: Mapping[str, Any]) -> BashSectionModel:
     )
 
 
+def _bash_session_section_from_mapping(
+    raw: Mapping[str, Any],
+) -> BashSessionSectionModel:
+    idle_raw = raw.get("idle_timeout_ms")
+    idle_timeout_ms = int(idle_raw) if idle_raw is not None else None
+    if idle_timeout_ms is not None and idle_timeout_ms < 1:
+        msg = "bash_session.idle_timeout_ms must be >= 1 when set"
+        raise ValueError(msg)
+    max_raw = raw.get("max_sessions")
+    max_sessions = int(max_raw) if max_raw is not None else None
+    if max_sessions is not None and max_sessions < 1:
+        msg = "bash_session.max_sessions must be >= 1 when set"
+        raise ValueError(msg)
+    backend_raw = raw.get("backend")
+    backend = str(backend_raw).strip().lower() if backend_raw else None
+    if backend == "":
+        backend = None
+    if backend is not None and backend not in ("pty", "tmux"):
+        msg = "bash_session.backend must be 'pty', 'tmux', or null"
+        raise ValueError(msg)
+    return BashSessionSectionModel(
+        idle_timeout_ms=idle_timeout_ms,
+        max_sessions=max_sessions,
+        backend=backend,
+    )
+
+
 def project_config_from_mapping(data: Mapping[str, Any]) -> ProjectConfig:
     """Разобрать dict (YAML) в ProjectConfig."""
     pid = data.get("project_id") or data.get("id")
@@ -161,7 +209,9 @@ def project_config_from_mapping(data: Mapping[str, Any]) -> ProjectConfig:
         msg = f"invalid runtime: {runtime_raw!r}"
         raise ValueError(msg) from exc
 
-    paths_raw = data.get("paths") if isinstance(data.get("paths"), dict) else {}
+    paths_raw = (
+        data.get("paths") if isinstance(data.get("paths"), dict) else {}
+    )
     paths = PathsSectionModel(
         context_root=str(paths_raw.get("context_root", "context")),
         rules=str(paths_raw["rules"]) if paths_raw.get("rules") else None,
@@ -179,25 +229,38 @@ def project_config_from_mapping(data: Mapping[str, Any]) -> ProjectConfig:
     if isinstance(wf_raw, dict):
         for wid, body in wf_raw.items():
             if isinstance(body, dict):
-                workflows[str(wid)] = _workflow_ref_from_mapping(str(wid), body)
+                key = str(wid)
+                workflows[key] = _workflow_ref_from_mapping(key, body)
 
-    ctx_raw = data.get("context") if isinstance(data.get("context"), dict) else {}
+    ctx_raw = (
+        data.get("context") if isinstance(data.get("context"), dict) else {}
+    )
     globs_raw = ctx_raw.get("canonical_globs", ("context/**/*.md",))
     if isinstance(globs_raw, str):
         canonical_globs = (globs_raw,)
     elif isinstance(globs_raw, (list, tuple)):
         canonical_globs = tuple(str(g) for g in globs_raw)
     else:
-        msg = "context.canonical_globs must be str, list[str], or tuple[str, ...]"
+        msg = (
+            "context.canonical_globs must be str, list[str], "
+            "or tuple[str, ...]"
+        )
         raise TypeError(msg)
-    kr_raw = ctx_raw.get("knowledge_refresh") if isinstance(ctx_raw.get("knowledge_refresh"), dict) else {}
+    kr_raw = (
+        ctx_raw.get("knowledge_refresh")
+        if isinstance(ctx_raw.get("knowledge_refresh"), dict)
+        else {}
+    )
     kr = KnowledgeRefreshModel(
         mode=str(kr_raw.get("mode", "filesystem")),
         max_files=int(kr_raw.get("max_files", 20)),
         max_chars_per_file=int(kr_raw.get("max_chars_per_file", 4000)),
         max_keywords=int(kr_raw.get("max_keywords", 40)),
     )
-    context = ContextSectionModel(canonical_globs=canonical_globs, knowledge_refresh=kr)
+    context = ContextSectionModel(
+        canonical_globs=canonical_globs,
+        knowledge_refresh=kr,
+    )
 
     mem_raw = data.get("memory_hints", [])
     if isinstance(mem_raw, list):
@@ -206,8 +269,14 @@ def project_config_from_mapping(data: Mapping[str, Any]) -> ProjectConfig:
         msg = "memory_hints must be a list of strings"
         raise TypeError(msg)
 
-    rollout_raw = data.get("rollout") if isinstance(data.get("rollout"), dict) else {}
-    rollout = RolloutSectionModel(phase=str(rollout_raw.get("phase", "internal_alpha")))
+    rollout_raw = (
+        data.get("rollout")
+        if isinstance(data.get("rollout"), dict)
+        else {}
+    )
+    rollout = RolloutSectionModel(
+        phase=str(rollout_raw.get("phase", "internal_alpha")),
+    )
 
     bash_section: BashSectionModel | None = None
     if "bash" in data:
@@ -218,6 +287,17 @@ def project_config_from_mapping(data: Mapping[str, Any]) -> ProjectConfig:
             bash_section = _bash_section_from_mapping(raw_bash)
         else:
             msg = "bash must be a mapping or null"
+            raise TypeError(msg)
+
+    bash_session: BashSessionSectionModel | None = None
+    if "bash_session" in data:
+        raw_bs = data["bash_session"]
+        if raw_bs is None:
+            bash_session = None
+        elif isinstance(raw_bs, dict):
+            bash_session = _bash_session_section_from_mapping(raw_bs)
+        else:
+            msg = "bash_session must be a mapping or null"
             raise TypeError(msg)
 
     known_keys = {
@@ -231,6 +311,7 @@ def project_config_from_mapping(data: Mapping[str, Any]) -> ProjectConfig:
         "memory_hints",
         "rollout",
         "bash",
+        "bash_session",
     }
     extra = {k: v for k, v in data.items() if k not in known_keys}
     return ProjectConfig(
@@ -243,5 +324,6 @@ def project_config_from_mapping(data: Mapping[str, Any]) -> ProjectConfig:
         memory_hints=memory_hints,
         rollout=rollout,
         bash=bash_section,
+        bash_session=bash_session,
         extra=extra,
     )

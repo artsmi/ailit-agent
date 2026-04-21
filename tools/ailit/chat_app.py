@@ -26,7 +26,7 @@ from agent_core.tool_runtime.registry import (
     default_builtin_registry,
 )
 from ailit.bash_chat_store import append_execution, runs_list, set_view_tail_lines, view_tail_lines
-from ailit.bash_project_env import BashProjectEnvSync
+from ailit.bash_project_env import BashProjectEnvSync, BashSessionProjectEnvSync
 from ailit.chat_stop_worker import ChatStopWorker
 from ailit.agent_provider_config import AgentRunProviderConfigBuilder
 from ailit.chat_handlers import (
@@ -556,8 +556,10 @@ def _execute_llm_turn(
     loaded_local = plr.loaded
     if use_project and loaded_local is not None:
         BashProjectEnvSync.apply(loaded_local.config.bash)
+        BashSessionProjectEnvSync.apply(loaded_local.config.bash_session)
     else:
         BashProjectEnvSync.clear()
+        BashSessionProjectEnvSync.clear()
     base_system = merge_with_base_system("You are a helpful concise assistant.")
     msgs_src = st.session_state[_ChatPageState.MESSAGES]
     tuning = None
