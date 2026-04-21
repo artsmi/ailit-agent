@@ -521,7 +521,6 @@ class ChatToolSystemHintComposer:
 
 def _inject_tool_hints_before_first_user(
     runner_msgs: list[ChatMessage],
-    *,
 ) -> None:
     """Вставить подсказки одним проходом перед первым USER."""
     frags = ChatToolSystemHintComposer.fragments()
