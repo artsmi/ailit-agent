@@ -242,46 +242,52 @@ def _render_header_and_menu(
     loaded: LoadedProject | None,
     load_error: str | None,
 ) -> tuple[str, int, str, bool]:
-    """Настройки (в sidebar / burger menu)."""
-    with st.sidebar:
+    """Настройки в popover (бургер), без левой панели."""
+    col_l, col_mid, col_r = st.columns([1, 6, 1])
+    with col_mid:
         st.markdown("### ailit chat")
-        cfg_for_defaults = _load_merged_chat_cfg(project_root)
-        defaults = DefaultProviderModelResolver().from_mapping(cfg_for_defaults)
-        providers = ("deepseek", "kimi", "mock")
-        idx = (
-            providers.index(defaults.provider)
-            if defaults.provider in providers
-            else 0
-        )
-        choice = st.selectbox(
-            "Провайдер",
-            providers,
-            index=idx,
-            label_visibility="visible",
-        )
-        _mt_help = (
-            "Сколько раз агент может повторить цикл "
-            "«модель → инструменты → снова модель». "
-            "Это не лимит длины ответа API (max_tokens у провайдера — "
-            "отдельно в конфиге). При исчерпании лимита ядро делает "
-            "дополнительный text-only вызов модели с кратким резюме. "
-            "Переменная **AILIT_AGENT_HARD_CAP** задаёт верхнюю границу "
-            "независимо от слайдера."
-        )
-        max_turns = st.slider(
-            "Лимит итераций сессии (max_turns)",
-            1,
-            20_000,
-            10_000,
-            help=_mt_help,
-        )
-        st.caption("tools включены по умолчанию")
-        use_project = st.toggle("Проект", value=True)
-        agent_id = st.text_input("agent_id", value="default", label_visibility="visible")
-        teammate_tools = bool(use_project and loaded is not None)
-        if loaded is None:
-            st.caption("Команда: нужен project.yaml")
-        with st.expander("Меню", expanded=False):
+    with col_r:
+        with st.popover("☰", use_container_width=True):
+            cfg_for_defaults = _load_merged_chat_cfg(project_root)
+            defaults = DefaultProviderModelResolver().from_mapping(cfg_for_defaults)
+            providers = ("deepseek", "kimi", "mock")
+            idx = (
+                providers.index(defaults.provider)
+                if defaults.provider in providers
+                else 0
+            )
+            choice = st.selectbox(
+                "Провайдер",
+                providers,
+                index=idx,
+                label_visibility="visible",
+            )
+            _mt_help = (
+                "Сколько раз агент может повторить цикл "
+                "«модель → инструменты → снова модель». "
+                "Это не лимит длины ответа API (max_tokens у провайдера — "
+                "отдельно в конфиге). При исчерпании лимита ядро делает "
+                "дополнительный text-only вызов модели с кратким резюме. "
+                "Переменная **AILIT_AGENT_HARD_CAP** задаёт верхнюю границу "
+                "независимо от слайдера."
+            )
+            max_turns = st.slider(
+                "Лимит итераций сессии (max_turns)",
+                1,
+                20_000,
+                10_000,
+                help=_mt_help,
+            )
+            st.caption("tools включены по умолчанию")
+            use_project = st.toggle("Проект", value=True)
+            agent_id = st.text_input(
+                "agent_id",
+                value="default",
+                label_visibility="visible",
+            )
+            teammate_tools = bool(use_project and loaded is not None)
+            if loaded is None:
+                st.caption("Команда: нужен project.yaml")
             tab_p, tab_team, tab_shell, tab_c, tab_w, tab_a, tab_d, tab_cmd = st.tabs(
                 [
                     "Проект",
@@ -1062,28 +1068,33 @@ def main() -> None:
 
                 worker = worker_raw
 
-                # Ответ ассистента (стрим) + shell активности под ним.
-                txt = worker.state.assistant_text
-                status_line = worker.state.status_line
                 finished = worker.state.finished
                 error = worker.state.error
                 bash_execs = list(worker.state.bash_executions)
 
-                if status_line:
-                    st.markdown(f"_Статус:_ {status_line}")
-                if txt:
-                    st.markdown(
-                        format_assistant_body_for_ui(txt, aggressive_tail=True),
-                    )
-
-                live_runs = list(reversed(runs_list(worker.state.shell_store)))
-                if live_runs:
-                    _render_shell_runs_inline(
-                        live_runs,
-                        n_tail=n_tail,
-                        pending=True,
-                        worker=worker,
-                    )
+                # Таймлайн: мысль → bash → мысль → ...
+                tl = list(worker.state.timeline)
+                for item in tl:
+                    kind = str(item.get("kind") or "")
+                    if kind == "thought":
+                        txt = str(item.get("text") or "")
+                        if txt.strip():
+                            st.markdown(
+                                format_assistant_body_for_ui(
+                                    txt,
+                                    aggressive_tail=True,
+                                ),
+                            )
+                        continue
+                    if kind == "shell":
+                        row = dict(item)
+                        _render_shell_runs_inline(
+                            [row],
+                            n_tail=n_tail,
+                            pending=True,
+                            worker=worker,
+                        )
+                        continue
 
                 cols2 = st.columns([20, 1])
                 with cols2[0]:
@@ -1100,6 +1111,8 @@ def main() -> None:
                         use_container_width=True,
                     ):
                         worker.request_cancel()
+                if worker.state.stop_requested and not worker.state.finished:
+                    st.caption("Останавливаю…")
 
                 if error:
                     st.error(error)

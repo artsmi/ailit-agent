@@ -29,6 +29,7 @@ class ChatStopWorkerState:
 
     started: bool = False
     finished: bool = False
+    stop_requested: bool = False
     cancelled: bool = False
     error: str | None = None
     assistant_text: str = ""
@@ -38,6 +39,7 @@ class ChatStopWorkerState:
     bash_executions: list[dict[str, Any]] = field(default_factory=list)
     file_change_lines: list[str] = field(default_factory=list)
     shell_store: dict[str, Any] = field(default_factory=dict)
+    timeline: list[dict[str, Any]] = field(default_factory=list)
 
 
 class ChatStopWorker:
@@ -74,12 +76,51 @@ class ChatStopWorker:
 
     def request_cancel(self) -> None:
         """Попросить отменить прогон."""
+        with self._lock:
+            self.state.stop_requested = True
         self.cancel_event.set()
 
     def _run(self) -> None:
         live: list[str] = []
         file_changes: list[str] = []
         bash_execs: list[dict[str, Any]] = []
+        timeline: list[dict[str, Any]] = []
+        shell_idx_by_call_id: dict[str, int] = {}
+
+        def _append_thought(text: str) -> None:
+            if not text:
+                return
+            if timeline and timeline[-1].get("kind") == "thought":
+                timeline[-1]["text"] = str(timeline[-1].get("text", "")) + text
+            else:
+                timeline.append({"kind": "thought", "text": text})
+
+        def _ensure_shell_block(
+            *,
+            call_id: str,
+            tool_name: str,
+            command: str,
+        ) -> None:
+            if call_id in shell_idx_by_call_id:
+                i = shell_idx_by_call_id[call_id]
+                if (
+                    0 <= i < len(timeline)
+                    and timeline[i].get("kind") == "shell"
+                ):
+                    timeline[i]["tool_name"] = tool_name
+                    timeline[i]["command"] = command
+                    return
+            timeline.append(
+                {
+                    "kind": "shell",
+                    "call_id": call_id,
+                    "tool_name": tool_name,
+                    "command": command,
+                    "status": "running",
+                    "combined_output": "",
+                },
+            )
+            shell_idx_by_call_id[call_id] = len(timeline) - 1
 
         def on_event(ev: object) -> None:
             et = getattr(ev, "type", "")
@@ -90,6 +131,8 @@ class ChatStopWorker:
                     live.append(txt)
                     with self._lock:
                         self.state.assistant_text = "".join(live)
+                        _append_thought(txt)
+                        self.state.timeline = list(timeline)
                 return
             if et == "tool.call_finished" and isinstance(payload, dict):
                 t = payload.get("tool")
@@ -112,6 +155,20 @@ class ChatStopWorker:
                 with self._lock:
                     self.state.bash_executions = list(bash_execs)
                     append_execution(self.state.shell_store, payload)
+                    cid = str(payload.get("call_id") or "")
+                    if cid and cid in shell_idx_by_call_id:
+                        i = shell_idx_by_call_id[cid]
+                        if (
+                            0 <= i < len(timeline)
+                            and timeline[i].get("kind") == "shell"
+                        ):
+                            timeline[i]["status"] = (
+                                "ok" if payload.get("ok") else "error"
+                            )
+                            timeline[i]["combined_output"] = str(
+                                payload.get("combined_output") or "",
+                            )
+                            self.state.timeline = list(timeline)
                 return
             if et == "bash.output_delta" and isinstance(payload, dict):
                 cid = payload.get("call_id")
@@ -123,6 +180,21 @@ class ChatStopWorker:
                             call_id=cid,
                             chunk=ch,
                         )
+                        if cid in shell_idx_by_call_id:
+                            i = shell_idx_by_call_id[cid]
+                            if (
+                                0 <= i < len(timeline)
+                                and timeline[i].get("kind") == "shell"
+                            ):
+                                prev = str(
+                                    timeline[i].get(
+                                        "combined_output",
+                                        "",
+                                    )
+                                    or "",
+                                )
+                                timeline[i]["combined_output"] = prev + ch
+                                self.state.timeline = list(timeline)
                 return
             if et == "bash.finished" and isinstance(payload, dict):
                 cid = payload.get("call_id")
@@ -136,6 +208,18 @@ class ChatStopWorker:
                             ok=bool(ok is True),
                             error=str(err) if err else None,
                         )
+                        if cid in shell_idx_by_call_id:
+                            i = shell_idx_by_call_id[cid]
+                            if (
+                                0 <= i < len(timeline)
+                                and timeline[i].get("kind") == "shell"
+                            ):
+                                timeline[i]["status"] = (
+                                    "ok" if ok is True else "error"
+                                )
+                                if err:
+                                    timeline[i]["error"] = str(err)
+                                self.state.timeline = list(timeline)
                 return
             if et == "tool.call_started" and isinstance(payload, dict):
                 tn = payload.get("tool")
@@ -167,6 +251,12 @@ class ChatStopWorker:
                             command=cmd,
                             tool_name=tn,
                         )
+                        _ensure_shell_block(
+                            call_id=cid,
+                            tool_name=tn,
+                            command=cmd,
+                        )
+                        self.state.timeline = list(timeline)
                 return
             if et == "tool.call_finished" and isinstance(payload, dict):
                 tn = payload.get("tool")
@@ -185,6 +275,18 @@ class ChatStopWorker:
                             ok=bool(ok is True),
                             error=str(err) if err else None,
                         )
+                        if cid in shell_idx_by_call_id:
+                            i = shell_idx_by_call_id[cid]
+                            if (
+                                0 <= i < len(timeline)
+                                and timeline[i].get("kind") == "shell"
+                            ):
+                                timeline[i]["status"] = (
+                                    "ok" if ok is True else "error"
+                                )
+                                if err:
+                                    timeline[i]["error"] = str(err)
+                                self.state.timeline = list(timeline)
                 return
 
         try:
