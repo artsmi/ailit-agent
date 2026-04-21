@@ -8,8 +8,10 @@ from io import StringIO
 from pathlib import Path
 import uuid
 import time
+from typing import Any
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from agent_core.models import ChatMessage, MessageRole
 from agent_core.providers.factory import ProviderFactory, ProviderKind
@@ -140,6 +142,84 @@ class _ChatPageState:
     SNAPSHOT_CACHE = "context_snapshot_cache"
     PENDING_LLM = "ailit_pending_llm"
     LLM_WIDGET_SNAPSHOT = "ailit_llm_widget_snapshot"
+    SHELL_BY_ASSISTANT_SEQ = "ailit_shell_by_assistant_seq"
+    SCROLL_BOTTOM = "ailit_scroll_to_bottom"
+
+
+def _parse_tool_output(text: str) -> tuple[str, str]:
+    """Вернуть (stdout, stderr) из формата run_shell."""
+    lines = (text or "").splitlines()
+    so: list[str] = []
+    se: list[str] = []
+    mode: str | None = None
+    saw_sections = False
+    for ln in lines:
+        if ln.strip() == "--- stdout ---":
+            mode = "stdout"
+            saw_sections = True
+            continue
+        if ln.strip() == "--- stderr ---":
+            mode = "stderr"
+            saw_sections = True
+            continue
+        if mode == "stdout":
+            if ln.strip() != "(empty)":
+                so.append(ln)
+            continue
+        if mode == "stderr":
+            if ln.strip() != "(empty)":
+                se.append(ln)
+            continue
+    if not saw_sections:
+        return ((text or "").rstrip(), "")
+    return ("\n".join(so).rstrip(), "\n".join(se).rstrip())
+
+
+def _render_shell_runs_inline(
+    runs: list[dict[str, Any]],
+    *,
+    n_tail: int,
+    pending: bool,
+    worker: ChatStopWorker | None,
+) -> None:
+    """Рендерить shell активность прямо в чате (под ответом)."""
+    for row in runs:
+        cid = str(row.get("call_id", "") or "")
+        cmd = str(row.get("command", "") or "")
+        stt = str(row.get("status", "") or "")
+        out_txt = str(row.get("combined_output", "") or "")
+        err = row.get("error")
+        stdout_txt, stderr_txt = _parse_tool_output(out_txt)
+        out_lines = stdout_txt.splitlines() if stdout_txt else []
+        more_than_tail = len(out_lines) > int(n_tail)
+
+        cols = st.columns([1, 10])
+        with cols[0]:
+            can_stop = (
+                pending
+                and worker is not None
+                and stt == "running"
+                and bool(cid)
+            )
+            if can_stop and st.button("■", key=f"bash_stop_{cid}"):
+                worker.request_cancel()
+        with cols[1]:
+            if cmd.strip():
+                st.code(cmd.strip(), language="bash")
+            if stdout_txt.strip():
+                st.code(
+                    LineTailSelector.last_lines(stdout_txt, int(n_tail)),
+                    language="bash",
+                )
+            if stderr_txt.strip():
+                st.code(stderr_txt, language="bash")
+            if err:
+                st.caption(f"error: `{str(err)[:200]}`")
+            if more_than_tail:
+                with st.expander("Лог", expanded=False):
+                    st.code(stdout_txt, language="bash")
+                    if stderr_txt.strip():
+                        st.code(stderr_txt, language="bash")
 
 
 def _init_messages() -> None:
@@ -160,9 +240,9 @@ def _render_header_and_menu(
     loaded: LoadedProject | None,
     load_error: str | None,
 ) -> tuple[str, int, str, bool]:
-    """Верхняя строка: настройки чата + заметная кнопка «Меню» (popover с вкладками)."""
-    col_left, col_mid, col_menu = st.columns([5, 3, 3])
-    with col_left:
+    """Настройки (в sidebar / burger menu)."""
+    with st.sidebar:
+        st.markdown("### ailit chat")
         cfg_for_defaults = _load_merged_chat_cfg(project_root)
         defaults = DefaultProviderModelResolver().from_mapping(cfg_for_defaults)
         providers = ("deepseek", "kimi", "mock")
@@ -175,7 +255,7 @@ def _render_header_and_menu(
             "Провайдер",
             providers,
             index=idx,
-            label_visibility="collapsed",
+            label_visibility="visible",
         )
         _mt_help = (
             "Сколько раз агент может повторить цикл "
@@ -194,19 +274,12 @@ def _render_header_and_menu(
             help=_mt_help,
         )
         st.caption("tools включены по умолчанию")
-    with col_mid:
         use_project = st.toggle("Проект", value=True)
         agent_id = st.text_input("agent_id", value="default", label_visibility="visible")
         teammate_tools = bool(use_project and loaded is not None)
         if loaded is None:
             st.caption("Команда: нужен project.yaml")
-    with col_menu:
-        st.caption("Дополнительно")
-        with st.popover(
-            "Меню",
-            help="Проект, контекст, workflow, adapter, debug, команды CLI",
-            use_container_width=True,
-        ):
+        with st.expander("Меню", expanded=False):
             tab_p, tab_team, tab_shell, tab_c, tab_w, tab_a, tab_d, tab_cmd = st.tabs(
                 [
                     "Проект",
@@ -493,12 +566,28 @@ def _render_usage_tokens_panel() -> None:
         )
 
 
-def _render_dialogue_messages(messages: list[ChatMessage]) -> None:
-    """Отрисовать диалог через проекцию (без SYSTEM/сырых TOOL)."""
+def _render_dialogue_messages(
+    messages: list[ChatMessage],
+    *,
+    shell_by_assistant_seq: dict[int, list[dict[str, Any]]],
+    n_tail: int,
+) -> None:
+    """Отрисовать диалог + shell активность под ответами."""
     projector = ChatTranscriptProjector()
+    aseq = -1
     for line in projector.project(messages):
         with st.chat_message(line.role.value):
             st.markdown(line.markdown)
+            if line.role is MessageRole.ASSISTANT:
+                aseq += 1
+                runs = shell_by_assistant_seq.get(aseq) or []
+                if runs:
+                    _render_shell_runs_inline(
+                        runs,
+                        n_tail=n_tail,
+                        pending=False,
+                        worker=None,
+                    )
 
 
 _FILE_TOOLS_SYSTEM_HINT = (
@@ -890,6 +979,8 @@ def main() -> None:
     _banner = st.session_state.pop("ailit_limit_turns_banner", None)
     if isinstance(_banner, str) and _banner.strip():
         st.warning(_banner)
+    st.session_state.setdefault(_ChatPageState.SHELL_BY_ASSISTANT_SEQ, {})
+    st.session_state.setdefault(_ChatPageState.SCROLL_BOTTOM, False)
     st.markdown("### ailit chat")
     st.session_state.setdefault("ailit_shell_session_key", uuid.uuid4().hex)
     root_default = Path.cwd().resolve()
@@ -925,63 +1016,28 @@ def main() -> None:
 
     msgs = st.session_state[_ChatPageState.MESSAGES]
     pending = bool(st.session_state.get(_ChatPageState.PENDING_LLM, False))
+    n_tail = chat_tail_lines(st.session_state)
+    shell_map_raw = st.session_state.get(_ChatPageState.SHELL_BY_ASSISTANT_SEQ, {})
+    shell_map: dict[int, list[dict[str, Any]]] = (
+        dict(shell_map_raw) if isinstance(shell_map_raw, dict) else {}
+    )
 
-    # Нижняя панель активности shell (всегда видна).
-    st.session_state.setdefault("ailit_bash_open_call_id", "")
-    open_cid = str(st.session_state.get("ailit_bash_open_call_id", "") or "")
-    runs = list(reversed(runs_list(st.session_state)))
-    if runs:
-        st.markdown("### Shell activity")
-        n_tail = chat_tail_lines(st.session_state)
-        for row in runs[:10]:
-            cid = str(row.get("call_id", "") or "")
-            cmd = str(row.get("command", "") or "")
-            tool_name = str(row.get("tool_name", "") or "")
-            stt = str(row.get("status", "") or "")
-            head = f"`{tool_name}` **{stt or '—'}**"
-            if cid:
-                head += f" · `{cid[:10]}…`"
-            st.markdown(head)
-            if cmd.strip():
-                st.code(cmd.strip(), language="bash")
-            out_txt = str(row.get("combined_output", "") or "")
-            if out_txt.strip():
-                st.caption(f"Последние {n_tail} строк")
-                st.code(
-                    LineTailSelector.last_lines(out_txt, int(n_tail)),
-                    language="bash",
-                )
-            cols = st.columns([2, 8])
-            with cols[0]:
-                if cid and st.button(
-                    "Лог",
-                    key=f"bash_open_{cid}",
-                    use_container_width=True,
-                ):
-                    st.session_state["ailit_bash_open_call_id"] = cid
-                    open_cid = cid
-            with cols[1]:
-                err = row.get("error")
-                if err:
-                    st.caption(f"error: `{str(err)[:200]}`")
-        if open_cid:
-            for row in runs:
-                if str(row.get("call_id", "")) == open_cid:
-                    full = str(row.get("combined_output", "") or "")
-                    st.markdown("### Shell log (full)")
-                    with st.expander(f"call_id={open_cid}", expanded=True):
-                        st.code(full or "(empty)", language="bash")
-                    break
+    col_l, col_mid, col_r = st.columns([1, 2, 1])
+    with col_mid:
+        if pending:
+            snap_raw = st.session_state.get(_ChatPageState.LLM_WIDGET_SNAPSHOT)
+            if not isinstance(snap_raw, dict):
+                st.session_state[_ChatPageState.PENDING_LLM] = False
+                st.rerun()
+                return
 
-    if pending:
-        snap_raw = st.session_state.get(_ChatPageState.LLM_WIDGET_SNAPSHOT)
-        if not isinstance(snap_raw, dict):
-            st.session_state[_ChatPageState.PENDING_LLM] = False
-            st.rerun()
-            return
-        _render_dialogue_messages(msgs)
-        with st.chat_message("assistant"):
-            worker_raw = st.session_state.get("ailit_chat_turn_worker")
+            _render_dialogue_messages(
+                msgs,
+                shell_by_assistant_seq=shell_map,
+                n_tail=n_tail,
+            )
+            with st.chat_message("assistant"):
+                worker_raw = st.session_state.get("ailit_chat_turn_worker")
             if not isinstance(worker_raw, ChatStopWorker):
                 worker, base_system, prefix_len, up, loaded_local, tuning = _build_chat_turn_worker(
                     cfg=cfg,
@@ -998,32 +1054,53 @@ def main() -> None:
                 worker.start()
                 worker_raw = worker
 
-            worker = worker_raw
-            st.caption("Выполняется ход агента.")
-            if st.button("Stop", key="ailit_chat_stop_btn", use_container_width=True):
-                worker.request_cancel()
+                worker = worker_raw
 
-            txt = worker.state.assistant_text
-            status_line = worker.state.status_line
-            finished = worker.state.finished
-            cancelled = worker.state.cancelled
-            error = worker.state.error
-            outcome = worker.state.outcome
-            bash_execs = list(worker.state.bash_executions)
+                # Ответ ассистента (стрим) + shell активности под ним.
+                txt = worker.state.assistant_text
+                status_line = worker.state.status_line
+                finished = worker.state.finished
+                cancelled = worker.state.cancelled
+                error = worker.state.error
+                outcome = worker.state.outcome
+                bash_execs = list(worker.state.bash_executions)
 
-            if status_line:
-                st.markdown(f"_Статус:_ {status_line}")
-            if txt:
-                st.markdown(
-                    format_assistant_body_for_ui(txt, aggressive_tail=True),
-                )
-            if error:
-                st.error(error)
-                finished = True
-            if not finished:
-                time.sleep(0.2)
-                st.rerun()
-                return
+                if status_line:
+                    st.markdown(f"_Статус:_ {status_line}")
+                if txt:
+                    st.markdown(
+                        format_assistant_body_for_ui(txt, aggressive_tail=True),
+                    )
+
+                live_runs = list(reversed(runs_list(worker.state.shell_store)))
+                if live_runs:
+                    _render_shell_runs_inline(
+                        live_runs,
+                        n_tail=n_tail,
+                        pending=True,
+                        worker=worker,
+                    )
+
+                cols2 = st.columns([20, 1])
+                with cols2[0]:
+                    st.text_input(
+                        "Сообщение…",
+                        value="",
+                        disabled=True,
+                        key="ailit_chat_input_pending",
+                    )
+                with cols2[1]:
+                    if st.button("■", key="ailit_chat_stop_btn", use_container_width=True):
+                        worker.request_cancel()
+
+                if error:
+                    st.error(error)
+                    finished = True
+                if not finished:
+                    st.session_state[_ChatPageState.SCROLL_BOTTOM] = True
+                    time.sleep(0.2)
+                    st.rerun()
+                    return
 
             meta = st.session_state.get("ailit_chat_turn_worker_meta", {})
             base_system = str(meta.get("base_system") or "")
@@ -1053,6 +1130,15 @@ def main() -> None:
                 for row in bash_execs:
                     append_execution(st.session_state, row)
 
+                # Привязать shell логи к последнему assistant сообщению этого прогона.
+                a_count = sum(1 for m in runner_msgs if m.role is MessageRole.ASSISTANT)
+                aseq = max(0, a_count - 1)
+                live_final = list(reversed(runs_list(worker.state.shell_store)))
+                if live_final:
+                    shell_map2 = dict(shell_map)
+                    shell_map2[int(aseq)] = list(reversed(live_final))
+                    st.session_state[_ChatPageState.SHELL_BY_ASSISTANT_SEQ] = shell_map2
+
                 progress = ChatSessionTurnProgress.from_outcome_events(
                     outcome.events,
                     limit=int(snap_raw.get("max_turns", 10_000)),
@@ -1069,31 +1155,53 @@ def main() -> None:
             st.session_state.pop("ailit_chat_turn_worker_meta", None)
             st.session_state[_ChatPageState.PENDING_LLM] = False
             st.session_state.pop(_ChatPageState.LLM_WIDGET_SNAPSHOT, None)
+            st.session_state[_ChatPageState.SCROLL_BOTTOM] = True
             st.rerun()
             return
 
-    _render_dialogue_messages(msgs)
-    _render_usage_tokens_panel()
+        _render_dialogue_messages(
+            msgs,
+            shell_by_assistant_seq=shell_map,
+            n_tail=n_tail,
+        )
+        _render_usage_tokens_panel()
 
-    if pending:
-        return
-    prompt = st.chat_input("Сообщение…")
-    if not prompt:
-        return
+        cols = st.columns([20, 1])
+        with cols[0]:
+            prompt = st.text_input("Сообщение…", value="", key="ailit_chat_input")
+        with cols[1]:
+            send = st.button("➤", key="ailit_chat_send_btn", use_container_width=True)
 
-    st.session_state[_ChatPageState.MESSAGES].append(
-        ChatMessage(role=MessageRole.USER, content=prompt),
-    )
-    st.session_state[_ChatPageState.LLM_WIDGET_SNAPSHOT] = {
-        "choice": choice,
-        "max_turns": max_turns,
-        "use_project": use_project,
-        "teammate_tools": teammate_tools,
-        "agent_id": agent_id,
-        "project_root": str(project_root),
-    }
-    st.session_state[_ChatPageState.PENDING_LLM] = True
-    st.rerun()
+        st.markdown('<div id="ailit-bottom"></div>', unsafe_allow_html=True)
+        if bool(st.session_state.get(_ChatPageState.SCROLL_BOTTOM, False)):
+            components.html(
+                "<script>"
+                "const el = window.parent.document.getElementById('ailit-bottom');"
+                "if (el) { el.scrollIntoView({behavior: 'smooth', block: 'end'}); }"
+                "</script>",
+                height=0,
+            )
+            st.session_state[_ChatPageState.SCROLL_BOTTOM] = False
+
+        if not send or not prompt.strip():
+            return
+        prompt = prompt.strip()
+
+        st.session_state[_ChatPageState.MESSAGES].append(
+            ChatMessage(role=MessageRole.USER, content=prompt),
+        )
+        st.session_state[_ChatPageState.LLM_WIDGET_SNAPSHOT] = {
+            "choice": choice,
+            "max_turns": max_turns,
+            "use_project": use_project,
+            "teammate_tools": teammate_tools,
+            "agent_id": agent_id,
+            "project_root": str(project_root),
+            "turn_id": uuid.uuid4().hex,
+        }
+        st.session_state[_ChatPageState.PENDING_LLM] = True
+        st.session_state[_ChatPageState.SCROLL_BOTTOM] = True
+        st.rerun()
 
 
 if __name__ == "__main__":
