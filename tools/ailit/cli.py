@@ -3,21 +3,83 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
+import venv
 from pathlib import Path
-
-from ailit.agent_provider_config import AgentRunProviderConfigBuilder
-from ailit.config_cli import register_config_parser
-from ailit.models_cli import register_models_parser
-from ailit.plugin_install import PluginInstaller
-from ailit.setup_cli import register_setup_parser
-from ailit.task_spec import RunTaskArtifactWriter, TaskSpecResolver
 
 
 def _repo_root() -> Path:
     """Корень репозитория (…/ailit-agent)."""
     return Path(__file__).resolve().parents[2]
+
+
+def _venv_python(repo_root: Path) -> Path:
+    """Путь до python внутри .venv."""
+    return (repo_root / ".venv" / "bin" / "python3").resolve()
+
+
+def _is_running_in_repo_venv(repo_root: Path) -> bool:
+    """True, если текущий интерпретатор — python из repo/.venv."""
+    try:
+        return Path(sys.executable).resolve() == _venv_python(repo_root)
+    except OSError:
+        return False
+
+
+def _bootstrap_repo_venv_if_needed(argv: list[str]) -> None:
+    """Поднять repo/.venv и re-exec, если нет runtime deps (например httpx)."""
+    repo = _repo_root()
+    if os.environ.get("AILIT_REPO_BOOTSTRAP_DISABLED", "").strip():
+        return
+    if _is_running_in_repo_venv(repo):
+        return
+    if os.environ.get("AILIT_REPO_BOOTSTRAPPED", "").strip():
+        return
+
+    missing_runtime = False
+    try:
+        import httpx  # noqa: F401, PLC0415
+    except Exception:
+        missing_runtime = True
+
+    missing_pytest = False
+    if argv[:1] == ["agent"] and "run" in argv:
+        try:
+            import pytest  # noqa: F401, PLC0415
+        except Exception:
+            missing_pytest = True
+
+    if not (missing_runtime or missing_pytest):
+        return
+
+    venv_dir = (repo / ".venv").resolve()
+    py = _venv_python(repo)
+    if not py.exists():
+        venv.EnvBuilder(with_pip=True, clear=False).create(str(venv_dir))
+    cmd_prefix = [str(py), "-m", "pip"]
+    subprocess.check_call(
+        cmd_prefix + ["install", "-U", "pip"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    subprocess.check_call(
+        cmd_prefix + ["install", "-e", ".[dev]"],
+        cwd=str(repo),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    env = os.environ.copy()
+    env["AILIT_REPO_BOOTSTRAPPED"] = "1"
+    if (
+        env.get("AILIT_BOOTSTRAP_SILENT", "").strip()
+        not in ("1", "true", "yes")
+    ):
+        sys.stderr.write(
+            f"[ailit] bootstrapped repo venv: {venv_dir}\n"
+        )
+    os.execve(str(py), [str(py), "-m", "ailit.cli", *argv], env)
 
 
 def _cmd_tui(args: argparse.Namespace) -> int:
@@ -104,6 +166,8 @@ def _cmd_agent_usage_last(args: argparse.Namespace) -> int:
 
 def _cmd_agent_run(args: argparse.Namespace) -> int:
     """Исполнить workflow YAML, печать JSONL в stdout."""
+    from ailit.agent_provider_config import AgentRunProviderConfigBuilder
+    from ailit.task_spec import RunTaskArtifactWriter, TaskSpecResolver
     from ailit.process_log import ensure_process_log
     from agent_core.providers.factory import ProviderFactory, ProviderKind
     from agent_core.providers.mock_provider import MockProvider
@@ -240,6 +304,7 @@ def _cmd_debug_bundle(args: argparse.Namespace) -> int:
 
 def _cmd_plugin_install(args: argparse.Namespace) -> int:
     """Скопировать или git clone плагин в ``.ailit/plugins``."""
+    from ailit.plugin_install import PluginInstaller
     root = Path(args.project_root).resolve()
     try:
         res = PluginInstaller.install(str(args.source), project_root=root)
@@ -271,6 +336,13 @@ def _cmd_doctor_data_policy(_args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     """Точка входа `ailit`."""
+    args_in = list(argv) if argv is not None else sys.argv[1:]
+    _bootstrap_repo_venv_if_needed(args_in)
+
+    from ailit.config_cli import register_config_parser
+    from ailit.models_cli import register_models_parser
+    from ailit.setup_cli import register_setup_parser
+
     parser = argparse.ArgumentParser(
         prog="ailit",
         description="ailit-agent CLI",
@@ -536,7 +608,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_pin.set_defaults(func=_cmd_plugin_install)
 
-    args = parser.parse_args(argv)
+    args = parser.parse_args(args_in)
     func = getattr(args, "func", None)
     if func is None:
         parser.print_help()

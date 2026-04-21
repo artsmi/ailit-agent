@@ -104,8 +104,12 @@ class AilitCliRunner:
         extra_env: dict[str, str] | None = None,
     ) -> AilitCliResult:
         """Запустить pytest на каталоге тестов приложения."""
+        py = Path(sys.executable).resolve()
+        repo_py = (self._repo / ".venv" / "bin" / "python3").resolve()
+        if repo_py.exists():
+            py = repo_py
         cmd = [
-            sys.executable,
+            str(py),
             "-m",
             "pytest",
             str(tests_dir.resolve()),
