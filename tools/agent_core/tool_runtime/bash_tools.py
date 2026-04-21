@@ -169,20 +169,33 @@ def builtin_run_shell_session(arguments: Mapping[str, Any]) -> str:
         raise ValueError(msg)
     root = work_root()
     mgr = default_shell_session_manager()
-    sess = mgr.get_or_create(_session_key_from_env(), cwd=root)
-    out = sess.run(cmd, timeout_ms=timeout_ms)
+    session_key = _session_key_from_env()
+    os.environ["AILIT_SHELL_SESSION_KEY"] = session_key
+    os.environ["AILIT_SHELL_SESSION_SEQ"] = str(mgr.next_seq(session_key))
+    sess = mgr.get_or_create(session_key, cwd=root)
+    out = sess.run(
+        cmd,
+        timeout_ms=timeout_ms,
+        max_capture_bytes=os_cfg.max_capture_bytes,
+    )
     warn_block = BashSecurityFormatter.warnings_block(findings)
     hdr = [
         f"exit_code: {out.exit_code!s}",
         f"timed_out: {str(out.timed_out).lower()}",
-        "truncated: false",
-        "",
-        "--- stdout ---",
-        out.combined_output or "(empty)",
-        "",
-        "--- stderr ---",
-        "(empty)",
+        f"truncated: {str(out.truncated).lower()}",
     ]
+    if out.spill_path:
+        hdr.append(f"spill_path: {out.spill_path}")
+    hdr.extend(
+        [
+            "",
+            "--- stdout ---",
+            out.combined_output or "(empty)",
+            "",
+            "--- stderr ---",
+            "(empty)",
+        ],
+    )
     return warn_block + "\n".join(hdr)
 
 
@@ -190,7 +203,10 @@ def builtin_shell_reset(arguments: Mapping[str, Any]) -> str:
     """Сбросить текущую shell-сессию (перезапуск процесса bash)."""
     _ = arguments
     mgr = default_shell_session_manager()
-    mgr.reset(_session_key_from_env())
+    session_key = _session_key_from_env()
+    os.environ["AILIT_SHELL_SESSION_KEY"] = session_key
+    os.environ["AILIT_SHELL_SESSION_SEQ"] = "0"
+    mgr.reset(session_key)
     return "shell_reset: ok"
 
 

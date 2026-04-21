@@ -22,6 +22,8 @@ class ShellSessionRunOutcome:
     exit_code: int | None
     combined_output: str
     timed_out: bool
+    truncated: bool
+    spill_path: str | None
 
 
 class BashSessionHandle:
@@ -66,7 +68,13 @@ class BashSessionHandle:
         except OSError:
             pass
 
-    def run(self, command: str, *, timeout_ms: int) -> ShellSessionRunOutcome:
+    def run(
+        self,
+        command: str,
+        *,
+        timeout_ms: int,
+        max_capture_bytes: int,
+    ) -> ShellSessionRunOutcome:
         """Выполнить команду в текущей сессии и вернуть вывод до маркера."""
         if not self.is_alive():
             raise RuntimeError("bash session is not running")
@@ -82,7 +90,10 @@ class BashSessionHandle:
 
         deadline = time.time() + (timeout_ms / 1000.0)
         buf_parts: list[str] = []
+        used_bytes = 0
         timed_out = False
+        truncated = False
+        spill: str | None = None
         exit_code: int | None = None
         while True:
             if time.time() > deadline:
@@ -99,13 +110,40 @@ class BashSessionHandle:
                     except ValueError:
                         exit_code = None
                 break
-            buf_parts.append(line)
+            if not truncated:
+                b = len(line.encode("utf-8"))
+                used_bytes += b
+                if used_bytes > max_capture_bytes:
+                    truncated = True
+                    spill_dir = Path(str(os.getcwd())).resolve() / ".ailit"
+                    try:
+                        spill_dir.mkdir(parents=True, exist_ok=True)
+                        spill_path = spill_dir / (
+                            f"shell-session-spill-{uuid.uuid4().hex}.txt"
+                        )
+                        spill_path.write_text(
+                            "".join(buf_parts),
+                            encoding="utf-8",
+                            errors="replace",
+                        )
+                        spill = str(spill_path)
+                    except OSError:
+                        spill = None
+                else:
+                    buf_parts.append(line)
+            else:
+                # При превышении лимита мы уже "срезаем" вывод в UI; spill-файл
+                # отражает вывод до момента truncation (безопасный минимум).
+                pass
         if timed_out:
             exit_code = None
+            self.dispose()
         return ShellSessionRunOutcome(
             exit_code=exit_code,
             combined_output="".join(buf_parts),
             timed_out=timed_out,
+            truncated=truncated,
+            spill_path=spill,
         )
 
 
@@ -122,6 +160,7 @@ class ShellSessionManager:
         self._max_sessions = int(max_sessions)
         self._idle_timeout_ms = int(idle_timeout_ms)
         self._sessions: dict[str, BashSessionHandle] = {}
+        self._seq: dict[str, int] = {}
 
     def _cleanup_idle(self) -> None:
         now = time.time()
@@ -142,12 +181,21 @@ class ShellSessionManager:
         for sess in self._sessions.values():
             sess.dispose()
         self._sessions = {}
+        self._seq = {}
 
     def reset(self, session_key: str) -> None:
         """Сбросить (перезапустить) конкретную сессию."""
         sess = self._sessions.pop(session_key, None)
         if sess is not None:
             sess.dispose()
+        self._seq.pop(session_key, None)
+
+    def next_seq(self, session_key: str) -> int:
+        """Монотонный счётчик команд в сессии (для UI/событий)."""
+        cur = int(self._seq.get(session_key, 0))
+        nxt = cur + 1
+        self._seq[session_key] = nxt
+        return nxt
 
     def get_or_create(
         self,

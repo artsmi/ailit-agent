@@ -1,8 +1,9 @@
-"""События телеметрии для ``run_shell`` (этап C ailit-bash-strategy)."""
+"""События телеметрии для bash tools (этап C ailit-bash-strategy)."""
 
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -57,11 +58,20 @@ def emit_bash_shell_telemetry(
     res: ToolRunResult,
 ) -> None:
     """Эмитить ``bash.output_delta``, ``bash.finished``, ``bash.execution``."""
-    if inv.tool_name != "run_shell":
+    if inv.tool_name not in ("run_shell", "run_shell_session", "shell_reset"):
         return
     started = _utc_iso()
     cmd = _parse_run_shell_command(inv.arguments_json)
     text = res.content or ""
+    sess_id = (
+        str(os.environ.get("AILIT_SHELL_SESSION_KEY", "")).strip() or None
+    )
+    sess_seq: int | None = None
+    if inv.tool_name == "run_shell_session":
+        try:
+            sess_seq = int(os.environ.get("AILIT_SHELL_SESSION_SEQ", "0") or 0)
+        except ValueError:
+            sess_seq = None
     n_chunks = max(1, (len(text) + _CHUNK_CHARS - 1) // _CHUNK_CHARS)
     for i in range(0, len(text), _CHUNK_CHARS):
         hi = i + _CHUNK_CHARS
@@ -73,6 +83,8 @@ def emit_bash_shell_telemetry(
                 "chunk": chunk,
                 "chunk_index": i // _CHUNK_CHARS,
                 "chunk_count": n_chunks,
+                "shell_session_id": sess_id,
+                "session_seq": sess_seq,
             },
         )
     byte_len = len(text.encode("utf-8"))
@@ -84,6 +96,8 @@ def emit_bash_shell_telemetry(
             "byte_len": byte_len,
             "ok": ok,
             "error": res.error,
+            "shell_session_id": sess_id,
+            "session_seq": sess_seq,
         },
     )
     finished = _utc_iso()
@@ -101,5 +115,7 @@ def emit_bash_shell_telemetry(
             "exit_code": exit_code,
             "truncated": _truthy_flag_line(text, "truncated"),
             "timed_out": _truthy_flag_line(text, "timed_out"),
+            "shell_session_id": sess_id,
+            "session_seq": sess_seq,
         },
     )
