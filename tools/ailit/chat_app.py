@@ -7,6 +7,7 @@ import os
 from io import StringIO
 from pathlib import Path
 import uuid
+import time
 
 import streamlit as st
 
@@ -26,6 +27,7 @@ from agent_core.tool_runtime.registry import (
 )
 from ailit.bash_chat_store import append_execution, runs_list, set_view_tail_lines, view_tail_lines
 from ailit.bash_project_env import BashProjectEnvSync
+from ailit.chat_stop_worker import ChatStopWorker
 from ailit.agent_provider_config import AgentRunProviderConfigBuilder
 from ailit.chat_handlers import (
     ProjectSessionFactory,
@@ -728,6 +730,78 @@ def _execute_llm_turn(
             st.markdown("\n".join(f"- {row}" for row in file_change_log))
 
 
+def _build_chat_turn_worker(
+    *,
+    cfg: dict,
+    snap: dict[str, object],
+) -> tuple[ChatStopWorker, str, int, bool, object | None, object | None]:
+    """Подготовить worker для фонового прогона (нужно для кнопки Stop)."""
+    choice = str(snap["choice"])
+    max_turns = int(snap["max_turns"])
+    use_project = bool(snap["use_project"])
+    teammate_tools = bool(snap.get("teammate_tools", False))
+    agent_id = str(snap["agent_id"])
+    project_root = Path(str(snap["project_root"]))
+    os.environ["AILIT_CHAT_AGENT_ID"] = agent_id.strip() or "default"
+
+    fac_local = ProjectSessionFactory(project_root)
+    plr = fac_local.load()
+    loaded_local = plr.loaded
+    if use_project and loaded_local is not None:
+        BashProjectEnvSync.apply(loaded_local.config.bash)
+    else:
+        BashProjectEnvSync.clear()
+
+    base_system = merge_with_base_system("You are a helpful concise assistant.")
+    msgs_src = st.session_state[_ChatPageState.MESSAGES]
+    tuning = None
+    prefix_len = 0
+    if use_project and loaded_local is not None:
+        ctx_snap = st.session_state.get(_ChatPageState.SNAPSHOT_CACHE)
+        tuning = fac_local.tuning_for_chat(
+            loaded_local,
+            agent_id.strip() or "default",
+            ctx_snap,
+        )
+        suffix = strip_system_messages(list(msgs_src))
+        runner_msgs = attach_runner_suffix(base_system, tuning, suffix)
+        prefix_len = len(runner_msgs) - len(suffix)
+    else:
+        runner_msgs = list(msgs_src)
+
+    _inject_tool_hints_before_first_user(runner_msgs)
+    provider, model = _make_provider(choice, cfg)
+
+    settings = SessionSettings(
+        model=model,
+        max_turns=tuning.max_turns if tuning and tuning.max_turns is not None else max_turns,
+        temperature=tuning.temperature if tuning and tuning.temperature is not None else 0.3,
+        shortlist_keywords=tuning.shortlist_keywords if tuning else None,
+        use_stream=True,
+    )
+    work_for_tools = project_root if use_project else _REPO
+    perm = PermissionEngine(
+        write_default=PermissionDecision.ALLOW,
+        shell_default=PermissionDecision.ALLOW,
+    )
+    runner = SessionRunner(
+        provider,
+        _registry_for_chat(
+            work_root=work_for_tools,
+            teammate_tools=teammate_tools,
+        ),
+        permission_engine=perm,
+    )
+    log_handle = ensure_process_log("chat")
+    worker = ChatStopWorker(
+        runner=runner,
+        runner_messages=runner_msgs,
+        settings=settings,
+        diag_sink=log_handle.sink,
+    )
+    return worker, base_system, prefix_len, use_project, loaded_local, tuning
+
+
 def main() -> None:
     """Точка входа Streamlit."""
     ensure_process_log("chat")
@@ -780,19 +854,96 @@ def main() -> None:
             return
         _render_dialogue_messages(msgs)
         with st.chat_message("assistant"):
-            wait_ph = st.empty()
-            wait_ph.markdown("_Ожидание ответа…_")
-            st.session_state["ailit_stream_status_ph"] = st.empty()
-            st.session_state["ailit_stream_delta_ph"] = st.empty()
-            with st.spinner("Запрос к модели…"):
-                _execute_llm_turn(cfg=cfg, snap=snap_raw)
-            wait_ph.empty()
-            st.session_state.pop("ailit_stream_status_ph", None)
-            st.session_state.pop("ailit_stream_delta_ph", None)
-        st.session_state[_ChatPageState.PENDING_LLM] = False
-        st.session_state.pop(_ChatPageState.LLM_WIDGET_SNAPSHOT, None)
-        st.rerun()
-        return
+            worker_raw = st.session_state.get("ailit_chat_turn_worker")
+            if not isinstance(worker_raw, ChatStopWorker):
+                worker, base_system, prefix_len, up, loaded_local, tuning = _build_chat_turn_worker(
+                    cfg=cfg,
+                    snap=snap_raw,
+                )
+                st.session_state["ailit_chat_turn_worker"] = worker
+                st.session_state["ailit_chat_turn_worker_meta"] = {
+                    "base_system": base_system,
+                    "prefix_len": int(prefix_len),
+                    "use_project": bool(up),
+                    "has_loaded": loaded_local is not None,
+                    "has_tuning": tuning is not None,
+                }
+                worker.start()
+                worker_raw = worker
+
+            worker = worker_raw
+            st.caption("Выполняется ход агента. Нажмите Stop, чтобы прервать.")
+            if st.button("Stop", key="ailit_chat_stop_btn"):
+                worker.request_cancel()
+
+            txt = worker.state.assistant_text
+            status_line = worker.state.status_line
+            finished = worker.state.finished
+            cancelled = worker.state.cancelled
+            error = worker.state.error
+            outcome = worker.state.outcome
+            bash_execs = list(worker.state.bash_executions)
+
+            if status_line:
+                st.markdown(f"_Статус:_ {status_line}")
+            if txt:
+                st.markdown(
+                    format_assistant_body_for_ui(txt, aggressive_tail=True),
+                )
+            if error:
+                st.error(error)
+                finished = True
+            if not finished:
+                time.sleep(0.2)
+                st.rerun()
+                return
+
+            meta = st.session_state.get("ailit_chat_turn_worker_meta", {})
+            base_system = str(meta.get("base_system") or "")
+            prefix_len = int(meta.get("prefix_len") or 0)
+            use_project = bool(meta.get("use_project") or False)
+            has_loaded = bool(meta.get("has_loaded") or False)
+            has_tuning = bool(meta.get("has_tuning") or False)
+
+            if outcome is not None:
+                runner_msgs = list(outcome.messages)
+                if cancelled:
+                    runner_msgs.append(
+                        ChatMessage(
+                            role=MessageRole.ASSISTANT,
+                            content="Остановлено пользователем. Контекст сохранён.",
+                        ),
+                    )
+                if use_project and has_loaded and has_tuning:
+                    st.session_state[_ChatPageState.MESSAGES] = store_after_run(
+                        base_system,
+                        prefix_len,
+                        runner_msgs,
+                    )
+                else:
+                    st.session_state[_ChatPageState.MESSAGES] = runner_msgs
+
+                for row in bash_execs:
+                    append_execution(st.session_state, row)
+
+                progress = ChatSessionTurnProgress.from_outcome_events(
+                    outcome.events,
+                    limit=int(snap_raw.get("max_turns", 10_000)),
+                )
+                st.session_state["ailit_last_turn_progress"] = progress
+
+                pair = SessionEventsUsageExtractor.last_pair(outcome.events)
+                if pair is not None:
+                    st.session_state["ailit_last_usage_pair"] = pair
+                else:
+                    st.session_state.pop("ailit_last_usage_pair", None)
+
+            st.session_state.pop("ailit_chat_turn_worker", None)
+            st.session_state.pop("ailit_chat_turn_worker_meta", None)
+            st.session_state[_ChatPageState.PENDING_LLM] = False
+            st.session_state.pop(_ChatPageState.LLM_WIDGET_SNAPSHOT, None)
+            st.rerun()
+            return
 
     _render_dialogue_messages(msgs)
     _render_usage_tokens_panel()

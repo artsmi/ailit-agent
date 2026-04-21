@@ -6,6 +6,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from threading import Event
 from typing import Any, Sequence
 
 from agent_core.models import (
@@ -201,6 +202,7 @@ class SessionRunner:
         diag_sink: Callable[[dict[str, Any]], None] | None,
         event_sink: SessionEventSink | None,
         request_meta: dict[str, Any],
+        cancel: Event | None,
     ) -> NormalizedChatResponse:
         """Вызов провайдера: stream или complete; эмит событий диагностики."""
         self._emit(
@@ -227,6 +229,15 @@ class SessionRunner:
             text_parts: list[str] = []
             stream_events = self._provider.stream(req)
             for ev in stream_events:
+                if cancel is not None and cancel.is_set():
+                    self._emit(
+                        events,
+                        "session.cancelled",
+                        {"phase": "model_stream"},
+                        diag_sink,
+                        event_sink,
+                    )
+                    raise RuntimeError("cancelled")
                 if isinstance(ev, StreamTextDelta):
                     text_parts.append(ev.text)
                     self._emit(
@@ -240,6 +251,15 @@ class SessionRunner:
                     return ev.response
             msg = "stream ended without StreamDone"
             raise ValueError(msg)
+        if cancel is not None and cancel.is_set():
+            self._emit(
+                events,
+                "session.cancelled",
+                {"phase": "model_complete"},
+                diag_sink,
+                event_sink,
+            )
+            raise RuntimeError("cancelled")
         return self._provider.complete(req)
 
     def _finalize_after_turn_cap(
@@ -285,6 +305,7 @@ class SessionRunner:
                     "tool_choice_mode": "none_finalize",
                     "policy_reason": "session_turn_cap",
                 },
+                cancel=None,
             )
         except Exception as exc:  # noqa: BLE001
             err_reason = f"{type(exc).__name__}:{exc}"
@@ -400,6 +421,7 @@ class SessionRunner:
         budget: BudgetGovernance | None = None,
         diag_sink: Callable[[dict[str, Any]], None] | None = None,
         event_sink: SessionEventSink | None = None,
+        cancel: Event | None = None,
     ) -> SessionOutcome:
         """Цикл до FINISHED, бюджета, ошибки или паузы на approval."""
         events: list[dict[str, Any]] = []
@@ -410,6 +432,20 @@ class SessionRunner:
         suppress_next: list[bool] = [False]
 
         for turn in range(_effective_max_turns(settings)):
+            if cancel is not None and cancel.is_set():
+                self._emit(
+                    events,
+                    "session.cancelled",
+                    {"phase": "turn_loop"},
+                    diag_sink,
+                    event_sink,
+                )
+                return SessionOutcome(
+                    state=SessionState.ERROR,
+                    messages=tuple(messages),
+                    events=tuple(events),
+                    reason="cancelled",
+                )
             self._emit(
                 events,
                 "session.turn",
@@ -463,7 +499,11 @@ class SessionRunner:
                             diag_sink,
                             event_sink,
                         )
-                    results = self._executor.execute_serial(invs, approvals)
+                    results = self._executor.execute_serial(
+                        invs,
+                        approvals,
+                        cancel=cancel,
+                    )
                 except ApprovalPending as exc:
                     self._emit(
                         events,
@@ -532,6 +572,7 @@ class SessionRunner:
                     diag_sink=diag_sink,
                     event_sink=event_sink,
                     request_meta=meta,
+                    cancel=cancel,
                 )
             except Exception as exc:  # noqa: BLE001
                 err_reason = f"{type(exc).__name__}:{exc}"
@@ -617,7 +658,11 @@ class SessionRunner:
                             diag_sink,
                             event_sink,
                         )
-                    results = self._executor.execute_serial(invs, approvals)
+                    results = self._executor.execute_serial(
+                        invs,
+                        approvals,
+                        cancel=cancel,
+                    )
                 except ApprovalPending as exc:
                     self._emit(
                         events,
