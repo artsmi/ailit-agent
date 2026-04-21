@@ -80,3 +80,19 @@ def test_sentence_break_glued_russian() -> None:
     out = fmt.format("Готово.Теперь дальше.")
     assert "\n\n" in out
     assert "Теперь" in out
+
+
+def test_sentence_break_colon_then_capital() -> None:
+    """Двоеточие сразу перед «Теперь» (типичный вывод моделей)."""
+    fmt = SentenceBreakFormatter()
+    raw = "описание репозитория:Теперь посмотрим на QUICK_START.md"
+    out = fmt.format(raw)
+    assert ":\n\nТ" in out or ":\n\n" in out
+
+
+def test_sentence_break_colon_space_capital() -> None:
+    """«: Теперь» с пробелом."""
+    fmt = SentenceBreakFormatter()
+    out = fmt.format("информации: Теперь смотрим")
+    assert "\n\n" in out
+    assert "Теперь" in out

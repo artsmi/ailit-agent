@@ -24,18 +24,29 @@ class TranscriptLine:
 
 
 class SentenceBreakFormatter:
-    """Вставляет пустую строку между предложениями (после . ! ?)."""
+    """Вставляет пустую строку между «слепленными» фразами в потоке ответа."""
 
+    # Пробел после знака, затем заглавная (RU/EN).
     _spaced = re.compile(r"([.!?])(\s+)([А-ЯЁA-Z])")
     _tight = re.compile(r"([.!?])([А-ЯЁA-Z])")
+    # «…описание:Теперь» — типичный стиль моделей без перевода строки.
+    _lower_then_colon_cap = re.compile(
+        r"([a-zа-яё])(:)([А-ЯЁA-Z])",
+    )
+    # Двоеточие + пробел + заглавная.
+    _colon_spaced_cap = re.compile(
+        r"(:)(\s+)([А-ЯЁA-Z])",
+    )
     _collapse = re.compile(r"\n{3,}")
 
     def format(self, text: str) -> str:
-        """Разбить «слепленные» предложения (например «...проекта.Теперь»)."""
+        """Разбить склейки вроде «…:Теперь» для markdown-абзацев."""
         if not text.strip():
             return text
         t = self._spaced.sub(r"\1\n\n\3", text)
         t = self._tight.sub(r"\1\n\n\2", t)
+        t = self._lower_then_colon_cap.sub(r"\1\2\n\n\3", t)
+        t = self._colon_spaced_cap.sub(r"\1\n\n\3", t)
         return self._collapse.sub("\n\n", t).strip()
 
 
