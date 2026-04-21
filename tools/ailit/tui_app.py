@@ -104,11 +104,13 @@ class AilitTuiApp(App[None]):
             default_root=project_root,
             default_name="default",
         )
+        bash_flag = bool(getattr(args, "bash_tools", False))
         self._app_state = TuiAppState(
             provider=prov,
             model=model,
             max_turns=mt,
             contexts=mgr,
+            bash_tools=bash_flag,
         )
         self._subtitle_fmt = TuiSubtitleUsageFormatter()
         self._slash = SlashCommandRegistry()
@@ -138,11 +140,13 @@ class AilitTuiApp(App[None]):
         )
         if bundle is not None:
             mgr, _sp, _sm, _mt = bundle
+            bash_flag = self._app_state.bash_tools
             self._app_state = TuiAppState(
                 provider=self._app_state.provider,
                 model=self._app_state.model,
                 max_turns=self._app_state.max_turns,
                 contexts=mgr,
+                bash_tools=bash_flag,
             )
         self._refresh_subtitle()
         self.query_one("#chat_input", Input).focus()
@@ -241,6 +245,10 @@ class AilitTuiApp(App[None]):
             aggressive_tail=True,
         )
         self._tui_preview_str(shown)
+
+    def _ui_bash_shell_preview(self, tail: str) -> None:
+        """UI-поток: последние строки вывода run_shell (этап E)."""
+        self._tui_preview_str(tail if tail.strip() else " ")
 
     def _blocking_llm_turn(self, line: str) -> TuiLlmTurnOutcome:
         """Полный прогон ``run_user_turn`` в worker-потоке."""

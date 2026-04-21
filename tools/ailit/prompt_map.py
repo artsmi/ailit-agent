@@ -124,6 +124,25 @@ def prompt_map_rows() -> tuple[PromptFragmentRow, ...]:
             token_notes="короткая подсказка для run_shell",
         ),
         PromptFragmentRow(
+            fragment_id="bash.events.telemetry",
+            owner="agent_core",
+            priority="diag",
+            enabled_when="после исполнения run_shell",
+            where_defined=(
+                "tools/agent_core/session/bash_tool_events.py:"
+                "emit_bash_shell_telemetry"
+            ),
+            token_notes="bash.output_delta, bash.finished, bash.execution",
+        ),
+        PromptFragmentRow(
+            fragment_id="bash.chat.store",
+            owner="ailit.chat",
+            priority="append",
+            enabled_when="вкладка Меню → Shell",
+            where_defined="tools/ailit/bash_chat_store.py",
+            token_notes="ailit_bash_runs в session_state",
+        ),
+        PromptFragmentRow(
             fragment_id="workflow.extra_system_messages",
             owner="workflow_engine",
             priority="append",

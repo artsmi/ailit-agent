@@ -16,3 +16,4 @@ class TuiSessionState:
     max_turns: int
     agent_id: str = "default"
     workflow_ref: str | None = None
+    bash_tools: bool = False

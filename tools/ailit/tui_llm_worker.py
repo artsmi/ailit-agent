@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from agent_core.session.event_contract import SessionEvent
+from agent_core.shell_output_preview import LineTailSelector
 
 
 @dataclass(slots=True)
@@ -30,6 +31,7 @@ class TuiThreadUiSessionSink:
         self.turn_tools: list[str] = []
         self._stream_parts: list[str] = []
         self._last_preview_len: int = 0
+        self._bash_chunks: dict[str, list[str]] = {}
 
     def __call__(self, ev: SessionEvent) -> None:
         """Пробросить событие session loop в UI-поток."""
@@ -46,6 +48,22 @@ class TuiThreadUiSessionSink:
             return
         if et == "tool.call_finished":
             self._app.call_from_thread(self._app._ui_session_tool_finished, pl)
+            return
+        if et == "bash.output_delta":
+            cid = str(pl.get("call_id") or "")
+            ch = pl.get("chunk")
+            if cid and isinstance(ch, str):
+                self._bash_chunks.setdefault(cid, []).append(ch)
+            return
+        if et == "bash.finished":
+            cid = str(pl.get("call_id") or "")
+            full = "".join(self._bash_chunks.pop(cid, []))
+            if full.strip():
+                tail = LineTailSelector.last_lines(full, 4)
+                self._app.call_from_thread(
+                    self._app._ui_bash_shell_preview,
+                    tail,
+                )
             return
         if et != "assistant.delta":
             return

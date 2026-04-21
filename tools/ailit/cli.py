@@ -331,6 +331,11 @@ def main(argv: list[str] | None = None) -> int:
         dest="max_turns",
         help="Лимит итераций session loop (как в ailit chat)",
     )
+    p_tui.add_argument(
+        "--bash-tools",
+        action="store_true",
+        help="Включить инструмент run_shell (bash -lc в AILIT_WORK_ROOT)",
+    )
     p_tui.set_defaults(func=_cmd_tui)
 
     p_agent = sub.add_parser(
@@ -361,6 +366,11 @@ def main(argv: list[str] | None = None) -> int:
         default=10_000,
         dest="max_turns",
         help="Лимит итераций session loop (как в ailit chat)",
+    )
+    p_agent.add_argument(
+        "--bash-tools",
+        action="store_true",
+        help="Включить инструмент run_shell в TUI (bash -lc)",
     )
     agent_sub = p_agent.add_subparsers(dest="agent_cmd", required=False)
     p_run = agent_sub.add_parser("run", help="Выполнить YAML workflow")

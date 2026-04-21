@@ -22,6 +22,7 @@ from agent_core.tool_runtime.permission import (
     PermissionDecision,
     PermissionEngine,
 )
+from agent_core.tool_runtime.bash_tools import bash_tool_registry
 from agent_core.tool_runtime.registry import default_builtin_registry
 
 from ailit.agent_provider_config import AgentRunProviderConfigBuilder
@@ -150,7 +151,16 @@ class TuiChatController:
         root = state.project_root.resolve()
         os.environ["AILIT_WORK_ROOT"] = str(root)
         reg = default_builtin_registry()
-        perm = PermissionEngine(write_default=PermissionDecision.ALLOW)
+        if state.bash_tools:
+            reg = reg.merge(bash_tool_registry())
+        perm = PermissionEngine(
+            write_default=PermissionDecision.ALLOW,
+            shell_default=(
+                PermissionDecision.ALLOW
+                if state.bash_tools
+                else PermissionDecision.DENY
+            ),
+        )
         runner = SessionRunner(provider_obj, reg, permission_engine=perm)
         settings = SessionSettings(
             model=model_eff,

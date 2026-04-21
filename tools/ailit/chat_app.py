@@ -16,12 +16,14 @@ from agent_core.session.loop import SessionRunner, SessionSettings
 from agent_core.session.state import SessionState
 from agent_core.tool_runtime.approval import ApprovalSession
 from agent_core.tool_runtime.permission import PermissionDecision, PermissionEngine
+from agent_core.shell_output_preview import LineTailSelector
 from agent_core.tool_runtime.bash_tools import bash_tool_registry
 from agent_core.tool_runtime.registry import (
     ToolRegistry,
     default_builtin_registry,
     empty_tool_registry,
 )
+from ailit.bash_chat_store import append_execution, runs_list, set_view_tail_lines, view_tail_lines
 from ailit.agent_provider_config import AgentRunProviderConfigBuilder
 from ailit.chat_handlers import (
     ProjectSessionFactory,
@@ -207,8 +209,17 @@ def _render_header_and_menu(
             help="Проект, контекст, workflow, adapter, debug, команды CLI",
             use_container_width=True,
         ):
-            tab_p, tab_team, tab_c, tab_w, tab_a, tab_d, tab_cmd = st.tabs(
-                ["Проект", "Команда", "Контекст", "Workflow", "Adapter", "Debug", "CLI"],
+            tab_p, tab_team, tab_shell, tab_c, tab_w, tab_a, tab_d, tab_cmd = st.tabs(
+                [
+                    "Проект",
+                    "Команда",
+                    "Shell",
+                    "Контекст",
+                    "Workflow",
+                    "Adapter",
+                    "Debug",
+                    "CLI",
+                ],
             )
             with tab_p:
                 st.text_input("Корень проекта", key="ailit_project_root")
@@ -235,6 +246,43 @@ def _render_header_and_menu(
                         )
                 else:
                     st.info("Нет загруженного project.yaml")
+            with tab_shell:
+                st.caption("История `run_shell` (последние N строк вывода)")
+                if not bash_tools:
+                    st.info("Включите чекбокс «Shell (run_shell)» слева.")
+                else:
+                    runs = runs_list(st.session_state)
+                    if not runs:
+                        st.caption("Пока нет завершённых shell-вызовов в этой сессии.")
+                    else:
+                        n_tail = st.number_input(
+                            "N строк в превью",
+                            min_value=1,
+                            max_value=5000,
+                            value=view_tail_lines(st.session_state),
+                            key="ailit_bash_tail_n",
+                        )
+                        set_view_tail_lines(st.session_state, int(n_tail))
+                        rev = list(reversed(runs))
+                        labels = [
+                            f"{str(r.get('call_id', ''))[:10]}… "
+                            f"{str(r.get('command', ''))[:36]}"
+                            for r in rev
+                        ]
+                        pick = st.selectbox(
+                            "Вызов",
+                            options=list(range(len(rev))),
+                            format_func=lambda i: labels[i],
+                            key="ailit_bash_pick_idx",
+                        )
+                        row = rev[int(pick)]
+                        out_txt = str(row.get("combined_output", ""))
+                        st.code(
+                            LineTailSelector.last_lines(out_txt, int(n_tail)),
+                            language="bash",
+                        )
+                        if row.get("detached_recommended"):
+                            st.caption("Помечен как длинный вывод (эвристика detached view).")
             with tab_team:
                 st.caption("Файловый mailbox: `.ailit/teams/<team_id>/inboxes/<agent>.json`")
                 root = Path(st.session_state.get("ailit_project_root", project_root))
@@ -570,6 +618,10 @@ def _execute_llm_turn(
                 if status_ph is not None and isinstance(t, str):
                     mark = "✓" if ok is True else "✗"
                     status_ph.markdown(f"_Шаг:_ **{t}** — {mark}")
+            return
+        if et == "bash.execution" and bash_tools:
+            if isinstance(payload, dict):
+                append_execution(st.session_state, payload)
             return
 
     settings = SessionSettings(

@@ -167,5 +167,7 @@
 - Добавлены утилиты превью вывода (`shell_output_preview.py`) и тесты — задел под этапы D/E.
 - **Этап A.2:** `tools/agent_core/shell_invocation_record.py`, тесты `tests/test_shell_invocation_record.py`.
 - **Этап B (MVP):** `tools/agent_core/bash_runner.py` (таймаут, killpg, spill), инструмент `run_shell` в `tools/agent_core/tool_runtime/bash_tools.py`, `SideEffectClass.SHELL`, `PermissionEngine.shell_default`, реестр `bash_tool_registry()`, чекбокс Shell в `tools/ailit/chat_app.py`, строки в `tools/ailit/prompt_map.py`; тесты `tests/test_bash_runner.py`.
-- Этапы **C–E** (события стрима, TUI, отдельный shell view) — в работе по плану.
+- **Этап C:** `tools/agent_core/session/bash_tool_events.py` — `bash.output_delta`, `bash.finished`, `bash.execution`; интеграция в `tools/agent_core/session/loop.py`; тесты `tests/test_bash_tool_events.py`, `tests/test_session_bash_telemetry.py`.
+- **Этап D.2–D.3:** `tools/ailit/bash_chat_store.py`, вкладка «Shell» в меню chat, запись по `bash.execution`; тест `tests/test_bash_chat_store.py`.
+- **Этап E (MVP):** `ailit tui` / `ailit agent --bash-tools`, merge `bash_tool_registry` в `tui_chat_controller.py`, превью хвоста run_shell в `tui_llm_worker.py` / `tui_app.py`.
 - Сессионный shell — этап **H** (после B–C).
