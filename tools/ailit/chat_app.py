@@ -1042,21 +1042,23 @@ def main() -> None:
             )
             with st.chat_message("assistant"):
                 worker_raw = st.session_state.get("ailit_chat_turn_worker")
-            if not isinstance(worker_raw, ChatStopWorker):
-                worker, base_system, prefix_len, up, loaded_local, tuning = _build_chat_turn_worker(
-                    cfg=cfg,
-                    snap=snap_raw,
-                )
-                st.session_state["ailit_chat_turn_worker"] = worker
-                st.session_state["ailit_chat_turn_worker_meta"] = {
-                    "base_system": base_system,
-                    "prefix_len": int(prefix_len),
-                    "use_project": bool(up),
-                    "has_loaded": loaded_local is not None,
-                    "has_tuning": tuning is not None,
-                }
-                worker.start()
-                worker_raw = worker
+                if not isinstance(worker_raw, ChatStopWorker):
+                    worker_new, base_system, prefix_len, up, loaded_local, tuning = (
+                        _build_chat_turn_worker(
+                            cfg=cfg,
+                            snap=snap_raw,
+                        )
+                    )
+                    st.session_state["ailit_chat_turn_worker"] = worker_new
+                    st.session_state["ailit_chat_turn_worker_meta"] = {
+                        "base_system": base_system,
+                        "prefix_len": int(prefix_len),
+                        "use_project": bool(up),
+                        "has_loaded": loaded_local is not None,
+                        "has_tuning": tuning is not None,
+                    }
+                    worker_new.start()
+                    worker_raw = worker_new
 
                 worker = worker_raw
 
@@ -1064,7 +1066,6 @@ def main() -> None:
                 txt = worker.state.assistant_text
                 status_line = worker.state.status_line
                 finished = worker.state.finished
-                cancelled = worker.state.cancelled
                 error = worker.state.error
                 bash_execs = list(worker.state.bash_executions)
 
@@ -1093,7 +1094,11 @@ def main() -> None:
                         key="ailit_chat_input_pending",
                     )
                 with cols2[1]:
-                    if st.button("■", key="ailit_chat_stop_btn", use_container_width=True):
+                    if st.button(
+                        "■",
+                        key="ailit_chat_stop_btn",
+                        use_container_width=True,
+                    ):
                         worker.request_cancel()
 
                 if error:
