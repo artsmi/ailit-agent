@@ -1,6 +1,6 @@
 # Стратегия: полноценные bash/shell-инструменты в ailit (`ailit-bash-strategy`)
 
-Документ задаёт этапы внедрения произвольного (в рамках политики безопасности) выполнения shell-команд в runtime **`ailit`**, с UX в **Streamlit Chat** и **Textual TUI**: отдельный просмотр длинного вывода, история нескольких команд, в TUI по умолчанию последние 3–4 строки.
+Документ задаёт этапы внедрения произвольного (в рамках политики безопасности) выполнения shell-команд в runtime **`ailit`**, с UX в **Streamlit Chat** и **Textual TUI**: отдельный просмотр длинного вывода, история нескольких команд, в TUI по умолчанию последние 3–4 строки. После эпизодического bash (этапы **B–E**) вводится **сессионный shell** (этап **H**): одна долгоживущая оболочка на логическую сессию чата/TUI с сохранением cwd/env между вызовами инструмента.
 
 Канон workflow: [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc).
 
@@ -53,6 +53,11 @@
 4. **TUI (Textual)**:
    - в основном чате по умолчанию **последние 3–4 строки** stdout/stderr (или общего merge) для каждого активного/завершённого вызова;
    - полный вывод — отдельный экран/panel по запросу (согласовать с паттернами `tui_app.py` / существующими экранами).
+5. **Сессионный shell (этап H, после B–C)**:
+   - между вызовами инструмента сохраняются **cwd**, **export** и разумное окружение в рамках одной логической сессии (ключ: id чата Streamlit / сессии TUI / при необходимости workflow run — зафиксировать в H.1);
+   - режим **опционален** или выбирается флагом tool / отдельным tool `bash_session`, чтобы не ломать эпизодический MVP;
+   - UI: для сессии показывать **общий rolling-буфер** (хвост N строк в ленте + полный буфер в отдельном view), кнопка/команда **сброса сессии**;
+   - жёсткие лимиты: **idle timeout**, **max wall time** на всю сессию, **max размер буфера** вывода.
 
 ---
 
@@ -122,6 +127,22 @@
 | G.1 Статический скан | Портировать **идеи** (не код дословно) из claude-code: heredoc, process substitution, опасные zsh builtins. | ```1:74:/home/artem/reps/claude-code/tools/BashTool/bashSecurity.ts``` |
 | G.2 Песочница (опционально) | Оценить `SandboxManager` из claude-code | ```35:40:/home/artem/reps/claude-code/utils/Shell.ts``` (import) + пакет `sandbox/` |
 
+### Этап H — Сессионный shell (после эпизодического bash B–C)
+
+**Зависимость:** закрыты **B.1–B.2** и **C.1–C.2** (одноразовый subprocess + события с `call_id`), иначе отладка смешивается с PTY/tmux.
+
+**Критерии приёмки (этап в целом):** под Linux в интеграционном тесте без сети: в одной сессии выполнить `export AILIT_SESS_TEST=1`, затем `printf %s "$AILIT_SESS_TEST"` — в ответе `1`; после `shell_reset` переменная отсутствует; teardown при закрытии сессии чата не оставляет висящих процессов.
+
+| Задача | Действия | Ссылки (локальные репозитории) |
+|--------|----------|--------------------------------|
+| H.1 Граница жизни и контракт | Зафиксировать `session_key` (chat session / TUI app lifetime / workflow task — таблица решений); API абстракции `ShellSessionHandle`: `send(command)`, `read_incremental()`, `reset()`, `dispose()`. | ailit: ```97:104:/home/artem/reps/ailit-agent/tools/ailit/chat_handlers.py``` (`store_after_run` — идея сжатого состояния UI-сессии); opencode: одноразовый запуск ```411:445:/home/artem/reps/opencode/packages/opencode/src/tool/bash.ts``` (сессия — расширение, не замена) |
+| H.2 Бэкенд: tmux **или** PTY | **Вариант A:** изолированный tmux-сервер и socket (не трогать пользовательский tmux), наследование env для дочерних процессов — как у Claude. **Вариант B:** один `bash` под PTY (`pty` stdlib + `Popen`) без внешнего tmux; проще на Linux, сложнее с detach. Выбрать один для MVP Linux; Windows — отдельная подзадача или «session только Linux». | claude: ```1:24:/home/artem/reps/claude-code/utils/tmuxSocket.ts``` (изоляция сокета), ```1:20:/home/artem/reps/claude-code/utils/terminalPanel.ts``` (персистентность панели); claude: ```161:194:/home/artem/reps/claude-code/utils/Shell.ts``` (`ExecOptions`, `exec` — новый процесс на команду vs сессия; сопоставить с дизайном) |
+| H.3 `ShellSessionManager` | Фабрика `get_or_create(session_key)`, лимит числа сессий на процесс, idle + wall clock, единая точка `dispose_all` при выходе из TUI / перезагрузке Streamlit session. | ailit: ```35:67:/home/artem/reps/ailit-agent/tools/ailit/chat_handlers.py``` (`ProjectSessionFactory`); ailit: `tools/ailit/tui_app.py` (lifecycle Textual `App`) |
+| H.4 Интеграция в tool / runner | Либо параметр `use_session: bool` у bash-tool, либо отдельный tool `bash_session`; контекст `session_key` из SessionRunner / env рядом с ```473:473:/home/artem/reps/ailit-agent/tools/ailit/chat_app.py``` (`AILIT_CHAT_AGENT_ID` — добавить согласованный ключ сессии чата). | ailit: ```77:106:/home/artem/reps/ailit-agent/tools/agent_core/tool_runtime/executor.py``` (`ToolExecutor.execute_one` — точка расширения для session-aware handler) |
+| H.5 Безопасность сессии | Каждая команда проходит те же статические проверки, что этап **G.1**; плюс явный **reset** в UI и из tool; запрет «вечной» сессии без активности. | claude: ```1:74:/home/artem/reps/claude-code/tools/BashTool/bashSecurity.ts``` |
+| H.6 События и UI | События с полем `shell_session_id` / `session_seq`; Chat: общий буфер сессии в том же view, что этап **D.3**; TUI: хвост 3–4 строки от **буфера сессии**, не только последней команды. | ailit: `tools/agent_core/shell_output_preview.py`; ailit: этапы **D**, **E** этого документа |
+| H.7 Документация и конфиг | `prompt_map_rows`: фрагменты `bash.session`, `bash.session.reset`; `project.yaml`: `bash_session: { idle_timeout_ms, max_session_ms, backend: tmux|pty }`. | ailit: ```29:113:/home/artem/reps/ailit-agent/tools/ailit/prompt_map.py```; ailit: `tools/project_layer/models.py` |
+
 ---
 
 ## 3. Нефункциональные требования
@@ -129,13 +150,15 @@
 - **Нет сети по умолчанию** в классификаторе: если команда требует сети — отдельный флаг или запрет до явной политики проекта.
 - **Логи**: не писать секреты из env в открытый лог; маскировать типичные ключи.
 - **Совместимость**: mock-провайдер в тестах не обязан реально вызывать bash; e2e с bash — только при пометке и в CI с осторожностью.
+- **Сессионный shell (H):** не наследовать пользовательский `TMUX`/`TMUX_PANE` без переопределения (см. claude ```3:18:/home/artem/reps/claude-code/utils/tmuxSocket.ts```); буфер вывода сессии ограничен по памяти; при `dispose` гарантированно завершать группу процессов (аналог ```15:44:/home/artem/reps/opencode/packages/opencode/src/shell/shell.ts``` `killTree`).
 
 ---
 
 ## 4. Связь с существующими стратегиями
 
-- Пересечение с [`plan/deploy-project-strategy.md`](deploy-project-strategy.md) (DP: инструменты, rollout): после закрытия этапов A–D обновить статус в корневом `README.md`.
+- Пересечение с [`plan/deploy-project-strategy.md`](deploy-project-strategy.md) (DP: инструменты, rollout): после закрытия этапов A–D и при старте **H** обновить статус в корневом `README.md`.
 - Глобальные команды и оркестрация (если понадобится общий pool процессов): см. [`plan/project-orchestrator-strategy.md`](project-orchestrator-strategy.md) на уровне постановки, не блокирует MVP bash в одном work root.
+- **Мультиагент:** если teammate-агенты должны разделять shell — отдельный `session_key` на `agent_id` / `team_id`; ориентир по изоляции и мультиагентной оболочке — репозиторий `/home/artem/reps/ai-multi-agents` (конкретные файлы и паттерны уточнить при интеграции, без копипаста).
 
 ---
 
@@ -143,3 +166,4 @@
 
 - Добавлены утилиты превью вывода (`shell_output_preview.py`) и тесты — задел под этапы D/E.
 - Настоящий bash-tool, UI и политика — по этапам B–E выше.
+- Сессионный shell — этап **H** (план зафиксирован; реализация после B–C).

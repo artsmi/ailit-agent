@@ -7,7 +7,7 @@
 | Область | Состояние |
 |---------|-----------|
 | Актуальная стратегия продукта | [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md): этапы **DP-1…DP-5** закрыты; проект перешёл в **этап тестирования** (сбор багов → фиксы). |
-| Bash / shell в runtime | [`plan/ailit-bash-strategy.md`](plan/ailit-bash-strategy.md): этапы **A–G** (инструменты, безопасность, UX Chat/TUI); задел в `agent_core.shell_output_preview`. |
+| Bash / shell в runtime | [`plan/ailit-bash-strategy.md`](plan/ailit-bash-strategy.md): этапы **A–G** и **H** (сессионный shell после B–C); задел в `agent_core.shell_output_preview`. |
 | [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md) | Этапы **G–Q** закрыты; документ архивен как ориентир закрытой ветки. |
 
 ## Как работать по проекту

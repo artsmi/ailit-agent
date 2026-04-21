@@ -109,7 +109,7 @@
 ### Деплой, проекты на диске, TUI как основной агент (актуально)
 
 - [`../plan/deploy-project-strategy.md`](../plan/deploy-project-strategy.md)
-- [`../plan/ailit-bash-strategy.md`](../plan/ailit-bash-strategy.md) — bash/shell tools, превью вывода, UX Chat и TUI
+- [`../plan/ailit-bash-strategy.md`](../plan/ailit-bash-strategy.md) — bash/shell tools, превью вывода, UX Chat и TUI, этап **H** (сессионный shell)
 
 Фиксирует:
 
