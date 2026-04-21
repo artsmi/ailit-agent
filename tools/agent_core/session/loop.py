@@ -29,6 +29,7 @@ from agent_core.session.tool_choice_policy import (
     default_tool_choice_policy,
     last_batch_had_successful_write_file,
 )
+from agent_core.session.bash_tool_events import emit_bash_shell_telemetry
 from agent_core.session.event_contract import SessionEvent, SessionEventSink
 from agent_core.tool_runtime.approval import ApprovalSession
 from agent_core.tool_runtime.executor import (
@@ -455,6 +456,11 @@ class SessionRunner:
                         reason=f"rejected:{exc.tool_name}",
                     )
                 for inv, res in zip(invs, results, strict=True):
+
+                    def _emit_bash_et(et: str, pl: dict[str, Any]) -> None:
+                        self._emit(events, et, pl, diag_sink, event_sink)
+
+                    emit_bash_shell_telemetry(_emit_bash_et, inv, res)
                     self._emit(
                         events,
                         "tool.call_finished",
@@ -608,6 +614,11 @@ class SessionRunner:
                         reason=f"rejected:{exc.tool_name}",
                     )
                 for inv, res in zip(invs, results, strict=True):
+
+                    def _emit_bash_et2(et: str, pl: dict[str, Any]) -> None:
+                        self._emit(events, et, pl, diag_sink, event_sink)
+
+                    emit_bash_shell_telemetry(_emit_bash_et2, inv, res)
                     self._emit(
                         events,
                         "tool.call_finished",
