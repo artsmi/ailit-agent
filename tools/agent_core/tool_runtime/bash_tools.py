@@ -13,6 +13,11 @@ from agent_core.bash_runner import (
     BashRunOutcome,
     run_bash_command,
 )
+from agent_core.shell_security import (
+    BashSecurityFormatter,
+    BashSecuritySeverity,
+    BashSecurityScanner,
+)
 from agent_core.tool_runtime.spec import SideEffectClass, ToolSpec
 from agent_core.tool_runtime.registry import ToolRegistry
 from agent_core.tool_runtime.workdir_paths import work_root
@@ -88,6 +93,13 @@ def builtin_run_shell(arguments: Mapping[str, Any]) -> str:
     if not cmd:
         msg = "run_shell: command is required"
         raise ValueError(msg)
+    findings = BashSecurityScanner().scan(cmd)
+    denies = [f for f in findings if f.severity is BashSecuritySeverity.DENY]
+    if denies:
+        joined = "; ".join(f"{d.rule_id}: {d.message}" for d in denies)
+        raise ValueError(
+            f"run_shell: blocked by static security scan ({joined})",
+        )
     if os_cfg.allow_patterns and not _command_matches_allowlist(
         cmd,
         os_cfg.allow_patterns,
@@ -113,7 +125,8 @@ def builtin_run_shell(arguments: Mapping[str, Any]) -> str:
         timeout_ms=timeout_ms,
         max_capture_bytes=os_cfg.max_capture_bytes,
     )
-    return _format_outcome(outcome)
+    warn_block = BashSecurityFormatter.warnings_block(findings)
+    return warn_block + _format_outcome(outcome)
 
 
 def run_shell_tool_spec() -> ToolSpec:

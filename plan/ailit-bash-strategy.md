@@ -173,4 +173,5 @@
 - **Этап D.4:** отдельный блок подсказок для shell (`ChatToolSystemHintComposer`), без дублирования file_tools.
 - **Этап F.1:** строки `bash.permission`, `project.bash` в `tools/ailit/prompt_map.py`.
 - **Этап F.2:** секция `bash:` в `project.yaml` → `BashSectionModel`, синхронизация в env через `tools/ailit/bash_project_env.py`, учёт в `builtin_run_shell` (project в чате).
+- **Этап G.1:** статический скан `run_shell` (deny+warn эвристики) в `tools/agent_core/shell_security.py`, интеграция в `builtin_run_shell`.
 - Сессионный shell — этап **H** (после B–C).

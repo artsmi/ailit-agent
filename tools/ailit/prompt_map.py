@@ -165,6 +165,20 @@ def prompt_map_rows() -> tuple[PromptFragmentRow, ...]:
             ),
         ),
         PromptFragmentRow(
+            fragment_id="bash.security.scan",
+            owner="agent_core",
+            priority="runtime",
+            enabled_when="перед каждым run_shell",
+            where_defined=(
+                "tools/agent_core/shell_security.py:"
+                "BashSecurityScanner.scan"
+            ),
+            token_notes=(
+                "deny: control chars/newlines/zsh builtins; "
+                "warn: heredoc/subst"
+            ),
+        ),
+        PromptFragmentRow(
             fragment_id="project.bash",
             owner="project_layer",
             priority="config",
