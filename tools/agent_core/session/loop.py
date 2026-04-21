@@ -495,7 +495,11 @@ class SessionRunner:
                         self._emit(
                             events,
                             "tool.call_started",
-                            {"tool": inv.tool_name, "call_id": inv.call_id},
+                            {
+                                "tool": inv.tool_name,
+                                "call_id": inv.call_id,
+                                "arguments_json": inv.arguments_json,
+                            },
                             diag_sink,
                             event_sink,
                         )
@@ -654,7 +658,11 @@ class SessionRunner:
                         self._emit(
                             events,
                             "tool.call_started",
-                            {"tool": inv.tool_name, "call_id": inv.call_id},
+                            {
+                                "tool": inv.tool_name,
+                                "call_id": inv.call_id,
+                                "arguments_json": inv.arguments_json,
+                            },
                             diag_sink,
                             event_sink,
                         )

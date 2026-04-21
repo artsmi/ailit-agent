@@ -25,7 +25,17 @@ from agent_core.tool_runtime.registry import (
     ToolRegistry,
     default_builtin_registry,
 )
-from ailit.bash_chat_store import append_execution, runs_list, set_view_tail_lines, view_tail_lines
+from ailit.bash_chat_store import (
+    append_execution,
+    append_output_delta,
+    chat_tail_lines,
+    mark_finished,
+    runs_list,
+    set_chat_tail_lines,
+    set_view_tail_lines,
+    upsert_running_call,
+    view_tail_lines,
+)
 from ailit.bash_project_env import BashProjectEnvSync, BashSessionProjectEnvSync
 from ailit.chat_stop_worker import ChatStopWorker
 from ailit.agent_provider_config import AgentRunProviderConfigBuilder
@@ -270,6 +280,16 @@ def _render_header_and_menu(
                         st.caption(
                             "Помечен как длинный вывод (эвристика detached view).",
                         )
+                st.divider()
+                st.caption("Превью в чате")
+                n_chat = st.number_input(
+                    "N строк в превью (по умолчанию 5)",
+                    min_value=1,
+                    max_value=200,
+                    value=chat_tail_lines(st.session_state),
+                    key="ailit_bash_chat_tail_n",
+                )
+                set_chat_tail_lines(st.session_state, int(n_chat))
             with tab_team:
                 st.caption("Файловый mailbox: `.ailit/teams/<team_id>/inboxes/<agent>.json`")
                 root = Path(st.session_state.get("ailit_project_root", project_root))
@@ -610,13 +630,37 @@ def _execute_llm_turn(
         if et == "tool.call_started":
             if isinstance(payload, dict):
                 t = payload.get("tool")
+                cid = payload.get("call_id")
+                args_json = payload.get("arguments_json")
                 if status_ph is not None and isinstance(t, str):
                     status_ph.markdown(f"_Шаг:_ **{t}** …")
+                if (
+                    isinstance(t, str)
+                    and t in ("run_shell", "run_shell_session", "shell_reset")
+                    and isinstance(cid, str)
+                    and isinstance(args_json, str)
+                ):
+                    cmd = ""
+                    try:
+                        import json as _json
+
+                        raw = _json.loads(args_json)
+                        if isinstance(raw, dict):
+                            cmd = str(raw.get("command", "") or "").strip()
+                    except Exception:
+                        cmd = ""
+                    upsert_running_call(
+                        st.session_state,
+                        call_id=cid,
+                        command=cmd,
+                        tool_name=t,
+                    )
             return
         if et == "tool.call_finished":
             if isinstance(payload, dict):
                 t = payload.get("tool")
                 ok = payload.get("ok")
+                cid = payload.get("call_id")
                 if status_ph is not None and isinstance(t, str):
                     mark = "✓" if ok is True else "✗"
                     extra = ""
@@ -633,6 +677,17 @@ def _execute_llm_turn(
                     status_ph.markdown(f"_Шаг:_ **{t}** — {mark}{extra}")
                 if (
                     isinstance(t, str)
+                    and t in ("run_shell", "run_shell_session", "shell_reset")
+                    and isinstance(cid, str)
+                ):
+                    mark_finished(
+                        st.session_state,
+                        call_id=cid,
+                        ok=bool(ok is True),
+                        error=str(payload.get("error")) if payload.get("error") else None,
+                    )
+                if (
+                    isinstance(t, str)
                     and t == "write_file"
                     and ok is True
                     and isinstance(payload.get("relative_path"), str)
@@ -646,6 +701,30 @@ def _execute_llm_turn(
         if et == "bash.execution":
             if isinstance(payload, dict):
                 append_execution(st.session_state, payload)
+            return
+        if et == "bash.output_delta":
+            if isinstance(payload, dict):
+                cid = payload.get("call_id")
+                ch = payload.get("chunk")
+                if isinstance(cid, str) and isinstance(ch, str):
+                    append_output_delta(
+                        st.session_state,
+                        call_id=cid,
+                        chunk=ch,
+                    )
+            return
+        if et == "bash.finished":
+            if isinstance(payload, dict):
+                cid = payload.get("call_id")
+                ok = payload.get("ok")
+                err = payload.get("error")
+                if isinstance(cid, str):
+                    mark_finished(
+                        st.session_state,
+                        call_id=cid,
+                        ok=bool(ok is True),
+                        error=str(err) if err else None,
+                    )
             return
 
     settings = SessionSettings(
@@ -847,6 +926,53 @@ def main() -> None:
     msgs = st.session_state[_ChatPageState.MESSAGES]
     pending = bool(st.session_state.get(_ChatPageState.PENDING_LLM, False))
 
+    # Нижняя панель активности shell (всегда видна).
+    st.session_state.setdefault("ailit_bash_open_call_id", "")
+    open_cid = str(st.session_state.get("ailit_bash_open_call_id", "") or "")
+    runs = list(reversed(runs_list(st.session_state)))
+    if runs:
+        st.markdown("### Shell activity")
+        n_tail = chat_tail_lines(st.session_state)
+        for row in runs[:10]:
+            cid = str(row.get("call_id", "") or "")
+            cmd = str(row.get("command", "") or "")
+            tool_name = str(row.get("tool_name", "") or "")
+            stt = str(row.get("status", "") or "")
+            head = f"`{tool_name}` **{stt or '—'}**"
+            if cid:
+                head += f" · `{cid[:10]}…`"
+            st.markdown(head)
+            if cmd.strip():
+                st.code(cmd.strip(), language="bash")
+            out_txt = str(row.get("combined_output", "") or "")
+            if out_txt.strip():
+                st.caption(f"Последние {n_tail} строк")
+                st.code(
+                    LineTailSelector.last_lines(out_txt, int(n_tail)),
+                    language="bash",
+                )
+            cols = st.columns([2, 8])
+            with cols[0]:
+                if cid and st.button(
+                    "Лог",
+                    key=f"bash_open_{cid}",
+                    use_container_width=True,
+                ):
+                    st.session_state["ailit_bash_open_call_id"] = cid
+                    open_cid = cid
+            with cols[1]:
+                err = row.get("error")
+                if err:
+                    st.caption(f"error: `{str(err)[:200]}`")
+        if open_cid:
+            for row in runs:
+                if str(row.get("call_id", "")) == open_cid:
+                    full = str(row.get("combined_output", "") or "")
+                    st.markdown("### Shell log (full)")
+                    with st.expander(f"call_id={open_cid}", expanded=True):
+                        st.code(full or "(empty)", language="bash")
+                    break
+
     if pending:
         snap_raw = st.session_state.get(_ChatPageState.LLM_WIDGET_SNAPSHOT)
         if not isinstance(snap_raw, dict):
@@ -873,8 +999,8 @@ def main() -> None:
                 worker_raw = worker
 
             worker = worker_raw
-            st.caption("Выполняется ход агента. Нажмите Stop, чтобы прервать.")
-            if st.button("Stop", key="ailit_chat_stop_btn"):
+            st.caption("Выполняется ход агента.")
+            if st.button("Stop", key="ailit_chat_stop_btn", use_container_width=True):
                 worker.request_cancel()
 
             txt = worker.state.assistant_text
@@ -949,6 +1075,8 @@ def main() -> None:
     _render_dialogue_messages(msgs)
     _render_usage_tokens_panel()
 
+    if pending:
+        return
     prompt = st.chat_input("Сообщение…")
     if not prompt:
         return

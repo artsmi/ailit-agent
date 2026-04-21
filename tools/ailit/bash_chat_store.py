@@ -11,6 +11,7 @@ from agent_core.shell_output_preview import DetachedViewHeuristic
 SESSION_KEY_RUNS = "ailit_bash_runs"
 SESSION_KEY_VIEW_LINES = "ailit_bash_view_tail_lines"
 SESSION_KEY_SELECTED = "ailit_bash_selected_call_id"
+SESSION_KEY_CHAT_TAIL_LINES = "ailit_bash_chat_tail_lines"
 _MAX_RUNS_DEFAULT = 50
 
 
@@ -24,6 +25,85 @@ def runs_list(store: MutableMapping[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(raw, list):
         return []
     return [dict(x) for x in raw if isinstance(x, dict)]
+
+
+def chat_tail_lines(store: MutableMapping[str, Any]) -> int:
+    """N строк превью прямо в чате (по умолчанию 5)."""
+    raw = store.get(SESSION_KEY_CHAT_TAIL_LINES)
+    if isinstance(raw, int) and raw >= 1:
+        return min(raw, 200)
+    return 5
+
+
+def set_chat_tail_lines(store: MutableMapping[str, Any], n: int) -> None:
+    """Установить N строк превью прямо в чате."""
+    store[SESSION_KEY_CHAT_TAIL_LINES] = max(1, min(int(n), 200))
+
+
+def upsert_running_call(
+    store: MutableMapping[str, Any],
+    *,
+    call_id: str,
+    command: str,
+    tool_name: str,
+) -> None:
+    """Создать/обновить запись вызова, пока он в процессе."""
+    lst = store.setdefault(SESSION_KEY_RUNS, [])
+    if not isinstance(lst, list):
+        lst = []
+        store[SESSION_KEY_RUNS] = lst
+    for row in lst:
+        if isinstance(row, dict) and str(row.get("call_id", "")) == call_id:
+            row.setdefault("tool_name", tool_name)
+            row["command"] = command
+            row.setdefault("status", "running")
+            row.setdefault("combined_output", "")
+            return
+    lst.append(
+        {
+            "call_id": call_id,
+            "tool_name": tool_name,
+            "command": command,
+            "status": "running",
+            "combined_output": "",
+        },
+    )
+
+
+def append_output_delta(
+    store: MutableMapping[str, Any],
+    *,
+    call_id: str,
+    chunk: str,
+) -> None:
+    """Добавить stdout/stderr чанк к записи (для превью в процессе)."""
+    lst = store.get(SESSION_KEY_RUNS)
+    if not isinstance(lst, list):
+        return
+    for row in lst:
+        if isinstance(row, dict) and str(row.get("call_id", "")) == call_id:
+            prev = str(row.get("combined_output", "") or "")
+            row["combined_output"] = prev + str(chunk)
+            return
+
+
+def mark_finished(
+    store: MutableMapping[str, Any],
+    *,
+    call_id: str,
+    ok: bool,
+    error: str | None,
+) -> None:
+    """Пометить запись завершённой (до bash.execution)."""
+    lst = store.get(SESSION_KEY_RUNS)
+    if not isinstance(lst, list):
+        return
+    for row in lst:
+        if isinstance(row, dict) and str(row.get("call_id", "")) == call_id:
+            row["status"] = "ok" if ok else "error"
+            if error:
+                row["error"] = str(error)
+            return
 
 
 def append_execution(
@@ -83,7 +163,23 @@ def append_execution(
     if not isinstance(lst, list):
         lst = []
         store[SESSION_KEY_RUNS] = lst
-    lst.append(rec.to_dict())
+    # Replace existing row (running) if present.
+    replaced = False
+    for i, row in enumerate(lst):
+        if (
+            isinstance(row, dict)
+            and str(row.get("call_id", "")) == rec.call_id
+        ):
+            merged = dict(row)
+            merged.update(rec.to_dict())
+            merged["status"] = "ok" if ok else "error"
+            lst[i] = merged
+            replaced = True
+            break
+    if not replaced:
+        row2 = rec.to_dict()
+        row2["status"] = "ok" if ok else "error"
+        lst.append(row2)
     while len(lst) > max_runs:
         lst.pop(0)
     store[SESSION_KEY_SELECTED] = rec.call_id
