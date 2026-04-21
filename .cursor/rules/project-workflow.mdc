@@ -50,6 +50,10 @@ alwaysApply: true
 | `/home/artem/reps/ai-multi-agents` | текущая мультиагентная оболочка под Cursor |
 | `/home/artem/reps/context-mode` | пример плагина для Claude - MCP для экономии контекста |
 | `/home/artem/reps/ruflo` | пример плагина для Claude с экономией токенов и агентной работой |
+| `/home/artem/reps/obsidian-memory-mcp` | MCP: память как Markdown в vault, `[[links]]`, frontmatter |
+| `/home/artem/reps/hindsight` | обучаемая долговременная память агента (API/SDK, не только чат) |
+| `/home/artem/reps/letta` | stateful agents, memory blocks, API/клиенты |
+| `/home/artem/reps/graphiti` | временные контекст-графы, hybrid retrieval, MCP-слой |
 
 ## Внешние документы и спецификации
 
