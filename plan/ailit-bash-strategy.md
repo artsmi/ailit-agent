@@ -165,5 +165,7 @@
 ## 5. Выполнено в рамках постановки этого документа (инкремент 2026-04)
 
 - Добавлены утилиты превью вывода (`shell_output_preview.py`) и тесты — задел под этапы D/E.
-- Настоящий bash-tool, UI и политика — по этапам B–E выше.
-- Сессионный shell — этап **H** (план зафиксирован; реализация после B–C).
+- **Этап A.2:** `tools/agent_core/shell_invocation_record.py`, тесты `tests/test_shell_invocation_record.py`.
+- **Этап B (MVP):** `tools/agent_core/bash_runner.py` (таймаут, killpg, spill), инструмент `run_shell` в `tools/agent_core/tool_runtime/bash_tools.py`, `SideEffectClass.SHELL`, `PermissionEngine.shell_default`, реестр `bash_tool_registry()`, чекбокс Shell в `tools/ailit/chat_app.py`, строки в `tools/ailit/prompt_map.py`; тесты `tests/test_bash_runner.py`.
+- Этапы **C–E** (события стрима, TUI, отдельный shell view) — в работе по плану.
+- Сессионный shell — этап **H** (после B–C).

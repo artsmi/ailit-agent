@@ -52,3 +52,14 @@ def test_tool_spec_roundtrip_dict() -> None:
     )
     restored = ToolSpec.from_dict(orig.to_dict())
     assert restored == orig
+
+
+def test_tool_spec_shell_roundtrip() -> None:
+    """SideEffectClass.SHELL сериализуется."""
+    orig = ToolSpec(
+        name="run_shell",
+        description="d",
+        parameters_schema={"type": "object", "properties": {}},
+        side_effect=SideEffectClass.SHELL,
+    )
+    assert ToolSpec.from_dict(orig.to_dict()) == orig

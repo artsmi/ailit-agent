@@ -103,6 +103,27 @@ def prompt_map_rows() -> tuple[PromptFragmentRow, ...]:
             token_notes="короткая подсказка; не дублировать в других режимах",
         ),
         PromptFragmentRow(
+            fragment_id="bash.run_shell",
+            owner="agent_core",
+            priority="tool",
+            enabled_when="если включён чекбокс Shell в ailit chat",
+            where_defined=(
+                "tools/agent_core/tool_runtime/"
+                "bash_tools.py:run_shell_tool_spec"
+            ),
+            token_notes="SHELL side effect; shell_default в PermissionEngine",
+        ),
+        PromptFragmentRow(
+            fragment_id="bash.chat.hint",
+            owner="ailit.chat",
+            priority="append",
+            enabled_when="если включён чекбокс Shell в ailit chat",
+            where_defined=(
+                "tools/ailit/chat_app.py:_inject_bash_tools_system_hint"
+            ),
+            token_notes="короткая подсказка для run_shell",
+        ),
+        PromptFragmentRow(
             fragment_id="workflow.extra_system_messages",
             owner="workflow_engine",
             priority="append",

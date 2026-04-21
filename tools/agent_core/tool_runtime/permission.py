@@ -24,18 +24,25 @@ class PermissionEngine:
         destructive_default: PermissionDecision = PermissionDecision.DENY,
         write_default: PermissionDecision = PermissionDecision.ASK,
         network_default: PermissionDecision = PermissionDecision.ASK,
+        shell_default: PermissionDecision = PermissionDecision.ASK,
     ) -> None:
         """Инициализировать политику по умолчанию для классов эффектов."""
         self._destructive_default = destructive_default
         self._write_default = write_default
         self._network_default = network_default
+        self._shell_default = shell_default
 
     def evaluate(self, spec: ToolSpec) -> PermissionDecision:
-        """Оценить разрешён ли вызов до исполнения (без учёта session approvals)."""
+        """Оценить вызов до исполнения (без учёта session approvals)."""
         if spec.requires_approval:
             return PermissionDecision.ASK
         effect = spec.side_effect
-        if effect in (SideEffectClass.NONE, SideEffectClass.READ_ONLY, SideEffectClass.READ):
+        read_like = (
+            SideEffectClass.NONE,
+            SideEffectClass.READ_ONLY,
+            SideEffectClass.READ,
+        )
+        if effect in read_like:
             return PermissionDecision.ALLOW
         if effect is SideEffectClass.WRITE:
             return self._write_default
@@ -43,4 +50,6 @@ class PermissionEngine:
             return self._network_default
         if effect is SideEffectClass.DESTRUCTIVE:
             return self._destructive_default
+        if effect is SideEffectClass.SHELL:
+            return self._shell_default
         return PermissionDecision.DENY

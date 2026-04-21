@@ -16,6 +16,7 @@ class SideEffectClass(str, Enum):
     WRITE = "write"
     NETWORK = "network"
     DESTRUCTIVE = "destructive"
+    SHELL = "shell"
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,7 +46,8 @@ class ToolSpec:
     @staticmethod
     def from_dict(data: Mapping[str, Any]) -> ToolSpec:
         """Восстановление из dict."""
-        se = SideEffectClass(str(data.get("side_effect", SideEffectClass.READ_ONLY.value)))
+        se_raw = data.get("side_effect", SideEffectClass.READ_ONLY.value)
+        se = SideEffectClass(str(se_raw))
         return ToolSpec(
             name=str(data["name"]),
             description=str(data.get("description", "")),

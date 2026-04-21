@@ -55,3 +55,27 @@ def test_requires_approval_forces_ask() -> None:
         requires_approval=True,
     )
     assert eng.evaluate(spec) is PermissionDecision.ASK
+
+
+def test_shell_asks_by_default() -> None:
+    """SHELL по умолчанию ASK."""
+    eng = PermissionEngine()
+    spec = ToolSpec(
+        name="run_shell",
+        description="",
+        parameters_schema={"type": "object", "properties": {}},
+        side_effect=SideEffectClass.SHELL,
+    )
+    assert eng.evaluate(spec) is PermissionDecision.ASK
+
+
+def test_shell_allow_when_configured() -> None:
+    """SHELL можно разрешить по умолчанию."""
+    eng = PermissionEngine(shell_default=PermissionDecision.ALLOW)
+    spec = ToolSpec(
+        name="run_shell",
+        description="",
+        parameters_schema={"type": "object", "properties": {}},
+        side_effect=SideEffectClass.SHELL,
+    )
+    assert eng.evaluate(spec) is PermissionDecision.ALLOW

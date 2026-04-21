@@ -16,6 +16,7 @@ from agent_core.session.loop import SessionRunner, SessionSettings
 from agent_core.session.state import SessionState
 from agent_core.tool_runtime.approval import ApprovalSession
 from agent_core.tool_runtime.permission import PermissionDecision, PermissionEngine
+from agent_core.tool_runtime.bash_tools import bash_tool_registry
 from agent_core.tool_runtime.registry import (
     ToolRegistry,
     default_builtin_registry,
@@ -102,17 +103,22 @@ def _make_provider(choice: str, cfg: dict) -> tuple[object, str]:
 def _registry_for_chat(
     *,
     file_tools: bool,
+    bash_tools: bool,
     work_root: Path | None,
     teammate_tools: bool,
 ) -> ToolRegistry:
-    """Собрать реестр: file tools + опционально ``send_teammate_message``."""
-    reg: ToolRegistry
+    """Собрать реестр: file tools, shell, teammate."""
+    root = (work_root or _REPO).resolve()
+    reg = empty_tool_registry()
     if file_tools:
-        root = (work_root or _REPO).resolve()
         os.environ["AILIT_WORK_ROOT"] = str(root)
         reg = default_builtin_registry()
-    else:
-        reg = empty_tool_registry()
+    elif bash_tools:
+        os.environ["AILIT_WORK_ROOT"] = str(root)
+        reg = bash_tool_registry()
+    if bash_tools and file_tools:
+        os.environ["AILIT_WORK_ROOT"] = str(root)
+        reg = reg.merge(bash_tool_registry())
     if teammate_tools and work_root is not None:
         pr = work_root.resolve()
         os.environ["AILIT_TEAM_PROJECT_ROOT"] = str(pr)
@@ -145,7 +151,7 @@ def _render_header_and_menu(
     project_root: Path,
     loaded: LoadedProject | None,
     load_error: str | None,
-) -> tuple[str, int, bool, str, bool, bool]:
+) -> tuple[str, int, bool, bool, str, bool, bool]:
     """Верхняя строка: настройки чата + заметная кнопка «Меню» (popover с вкладками)."""
     col_left, col_mid, col_menu = st.columns([5, 3, 3])
     with col_left:
@@ -180,6 +186,11 @@ def _render_header_and_menu(
             help=_mt_help,
         )
         file_tools = st.checkbox("Файловые tools", value=True)
+        bash_tools = st.checkbox(
+            "Shell (run_shell)",
+            value=False,
+            help="bash -lc в AILIT_WORK_ROOT; таймаут и усечение вывода.",
+        )
     with col_mid:
         use_project = st.toggle("Проект", value=True)
         agent_id = st.text_input("agent_id", value="default", label_visibility="visible")
@@ -398,7 +409,7 @@ def _render_header_and_menu(
                     f"ailit debug bundle --project-root {root} --out {root / '.ailit' / 'debug-bundle.zip'}",
                     language="bash",
                 )
-    return choice, max_turns, file_tools, agent_id, use_project, teammate_tools
+    return choice, max_turns, file_tools, bash_tools, agent_id, use_project, teammate_tools
 
 
 def _render_usage_tokens_panel() -> None:
@@ -439,6 +450,12 @@ _FS_TOOLS_SYSTEM_HINT = (
     "Поиск по содержимому: grep (нужен `rg` в PATH); не выдумывай вывод grep."
 )
 
+_BASH_TOOLS_SYSTEM_HINT = (
+    "Инструмент run_shell выполняет команду через bash -lc только внутри "
+    "AILIT_WORK_ROOT. Не утверждай результат команды без вызова run_shell. "
+    "Для длинного вывода возможна усечённая сводка и файл под .ailit/."
+)
+
 
 def _inject_file_tools_system_hint(runner_msgs: list[ChatMessage], file_tools: bool) -> None:
     """Подсказки модели: write_file и обзор/поиск по Claude-style."""
@@ -457,6 +474,22 @@ def _inject_file_tools_system_hint(runner_msgs: list[ChatMessage], file_tools: b
             return
 
 
+def _inject_bash_tools_system_hint(
+    runner_msgs: list[ChatMessage],
+    bash_tools: bool,
+) -> None:
+    """Подсказка модели для run_shell."""
+    if not bash_tools:
+        return
+    for i, m in enumerate(runner_msgs):
+        if m.role is MessageRole.USER:
+            runner_msgs.insert(
+                i,
+                ChatMessage(role=MessageRole.SYSTEM, content=_BASH_TOOLS_SYSTEM_HINT),
+            )
+            return
+
+
 def _execute_llm_turn(
     *,
     cfg: dict,
@@ -466,6 +499,7 @@ def _execute_llm_turn(
     choice = str(snap["choice"])
     max_turns = int(snap["max_turns"])
     file_tools = bool(snap["file_tools"])
+    bash_tools = bool(snap.get("bash_tools", False))
     use_project = bool(snap["use_project"])
     teammate_tools = bool(snap.get("teammate_tools", False))
     agent_id = str(snap["agent_id"])
@@ -489,6 +523,7 @@ def _execute_llm_turn(
         runner_msgs = list(msgs_src)
 
     _inject_file_tools_system_hint(runner_msgs, file_tools)
+    _inject_bash_tools_system_hint(runner_msgs, bash_tools)
 
     provider, model = _make_provider(choice, cfg)
     status_ph = st.session_state.get("ailit_stream_status_ph")
@@ -545,15 +580,28 @@ def _execute_llm_turn(
         use_stream=True,
     )
     work_for_tools = project_root if use_project else _REPO
+    need_perm = bool(file_tools or teammate_tools or bash_tools)
     perm = (
-        PermissionEngine(write_default=PermissionDecision.ALLOW)
-        if file_tools or teammate_tools
+        PermissionEngine(
+            write_default=(
+                PermissionDecision.ALLOW
+                if (file_tools or teammate_tools)
+                else PermissionDecision.DENY
+            ),
+            shell_default=(
+                PermissionDecision.ALLOW
+                if bash_tools
+                else PermissionDecision.DENY
+            ),
+        )
+        if need_perm
         else None
     )
     runner = SessionRunner(
         provider,
         _registry_for_chat(
             file_tools=file_tools,
+            bash_tools=bash_tools,
             work_root=work_for_tools,
             teammate_tools=teammate_tools,
         ),
@@ -642,7 +690,15 @@ def main() -> None:
     loaded = plr.loaded
     load_error = plr.error
 
-    choice, max_turns, file_tools, agent_id, use_project, teammate_tools = _render_header_and_menu(
+    (
+        choice,
+        max_turns,
+        file_tools,
+        bash_tools,
+        agent_id,
+        use_project,
+        teammate_tools,
+    ) = _render_header_and_menu(
         project_root=project_root,
         loaded=loaded,
         load_error=load_error,
@@ -687,6 +743,7 @@ def main() -> None:
         "choice": choice,
         "max_turns": max_turns,
         "file_tools": file_tools,
+        "bash_tools": bash_tools,
         "use_project": use_project,
         "teammate_tools": teammate_tools,
         "agent_id": agent_id,
