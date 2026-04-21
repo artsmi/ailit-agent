@@ -153,6 +153,7 @@ class TuiChatController:
         )
         root = state.project_root.resolve()
         os.environ["AILIT_WORK_ROOT"] = str(root)
+        os.environ["AILIT_SHELL_SESSION_KEY"] = f"tui:{state.agent_id}"
         reg = default_builtin_registry().merge(bash_tool_registry())
         perm = PermissionEngine(
             write_default=PermissionDecision.ALLOW,

@@ -174,4 +174,5 @@
 - **Этап F.1:** строки `bash.permission`, `project.bash` в `tools/ailit/prompt_map.py`.
 - **Этап F.2:** секция `bash:` в `project.yaml` → `BashSectionModel`, синхронизация в env через `tools/ailit/bash_project_env.py`, учёт в `builtin_run_shell` (project в чате).
 - **Этап G.1:** статический скан `run_shell` (deny+warn эвристики) в `tools/agent_core/shell_security.py`, интеграция в `builtin_run_shell`.
+- **Этап H (частично):** `run_shell_session` + `shell_reset`, `ShellSessionManager` (stdin/stdout MVP) и ключ `AILIT_SHELL_SESSION_KEY` в chat/TUI.
 - Сессионный shell — этап **H** (после B–C).

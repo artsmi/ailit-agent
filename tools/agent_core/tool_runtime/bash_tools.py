@@ -18,6 +18,7 @@ from agent_core.shell_security import (
     BashSecuritySeverity,
     BashSecurityScanner,
 )
+from agent_core.shell_session import default_shell_session_manager
 from agent_core.tool_runtime.spec import SideEffectClass, ToolSpec
 from agent_core.tool_runtime.registry import ToolRegistry
 from agent_core.tool_runtime.workdir_paths import work_root
@@ -129,6 +130,70 @@ def builtin_run_shell(arguments: Mapping[str, Any]) -> str:
     return warn_block + _format_outcome(outcome)
 
 
+def _session_key_from_env() -> str:
+    key = str(os.environ.get("AILIT_SHELL_SESSION_KEY", "")).strip()
+    return key if key else "default"
+
+
+def builtin_run_shell_session(arguments: Mapping[str, Any]) -> str:
+    """Выполнить команду в долгоживущей bash-сессии."""
+    os_cfg = BashToolOsConfig.current()
+    cmd = str(arguments.get("command", "")).strip()
+    if not cmd:
+        msg = "run_shell_session: command is required"
+        raise ValueError(msg)
+    findings = BashSecurityScanner().scan(cmd)
+    denies = [f for f in findings if f.severity is BashSecuritySeverity.DENY]
+    if denies:
+        joined = "; ".join(f"{d.rule_id}: {d.message}" for d in denies)
+        raise ValueError(
+            f"run_shell_session: blocked by static security scan ({joined})",
+        )
+    if os_cfg.allow_patterns and not _command_matches_allowlist(
+        cmd,
+        os_cfg.allow_patterns,
+    ):
+        pat_repr = list(os_cfg.allow_patterns)
+        msg = (
+            "run_shell_session: command is not allowed by project "
+            f"bash.allow_patterns (patterns={pat_repr!r})"
+        )
+        raise ValueError(msg)
+    raw_timeout = arguments.get("timeout_ms")
+    if raw_timeout is None or raw_timeout == "":
+        timeout_ms = os_cfg.default_timeout_ms
+    else:
+        timeout_ms = int(raw_timeout)
+    if timeout_ms < 1:
+        msg = "run_shell_session: timeout_ms must be >= 1"
+        raise ValueError(msg)
+    root = work_root()
+    mgr = default_shell_session_manager()
+    sess = mgr.get_or_create(_session_key_from_env(), cwd=root)
+    out = sess.run(cmd, timeout_ms=timeout_ms)
+    warn_block = BashSecurityFormatter.warnings_block(findings)
+    hdr = [
+        f"exit_code: {out.exit_code!s}",
+        f"timed_out: {str(out.timed_out).lower()}",
+        "truncated: false",
+        "",
+        "--- stdout ---",
+        out.combined_output or "(empty)",
+        "",
+        "--- stderr ---",
+        "(empty)",
+    ]
+    return warn_block + "\n".join(hdr)
+
+
+def builtin_shell_reset(arguments: Mapping[str, Any]) -> str:
+    """Сбросить текущую shell-сессию (перезапуск процесса bash)."""
+    _ = arguments
+    mgr = default_shell_session_manager()
+    mgr.reset(_session_key_from_env())
+    return "shell_reset: ok"
+
+
 def run_shell_tool_spec() -> ToolSpec:
     """Спецификация инструмента для провайдера."""
     return ToolSpec(
@@ -169,9 +234,56 @@ def run_shell_tool_spec() -> ToolSpec:
 
 
 def bash_tool_registry() -> ToolRegistry:
-    """Реестр только с ``run_shell``."""
-    specs = {"run_shell": run_shell_tool_spec()}
+    """Реестр bash tools (одноразовый и сессионный shell)."""
+    specs = {
+        "run_shell": run_shell_tool_spec(),
+        "run_shell_session": ToolSpec(
+            name="run_shell_session",
+            description=(
+                "Execute a shell command under AILIT_WORK_ROOT in a "
+                "long-lived bash session (cwd/env persist between calls). "
+                "Respects timeout_ms (default 120000)."
+            ),
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "type": "string",
+                        "description": (
+                            "Single-line command for the session bash."
+                        ),
+                    },
+                    "timeout_ms": {
+                        "type": "integer",
+                        "description": (
+                            "Wall-clock limit in ms (default "
+                            f"{_DEFAULT_TIMEOUT_MS})."
+                        ),
+                    },
+                },
+                "required": ["command"],
+                "additionalProperties": False,
+            },
+            side_effect=SideEffectClass.SHELL,
+            requires_approval=False,
+            allow_parallel=False,
+        ),
+        "shell_reset": ToolSpec(
+            name="shell_reset",
+            description="Reset the current long-lived bash session.",
+            parameters_schema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+            side_effect=SideEffectClass.SHELL,
+            requires_approval=False,
+            allow_parallel=False,
+        ),
+    }
     handlers: dict[str, Callable[[Mapping[str, Any]], str]] = {
         "run_shell": builtin_run_shell,
+        "run_shell_session": builtin_run_shell_session,
+        "shell_reset": builtin_shell_reset,
     }
     return ToolRegistry(specs=specs, handlers=handlers)

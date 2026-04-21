@@ -179,6 +179,30 @@ def prompt_map_rows() -> tuple[PromptFragmentRow, ...]:
             ),
         ),
         PromptFragmentRow(
+            fragment_id="bash.session",
+            owner="agent_core",
+            priority="tool",
+            enabled_when="всегда (run_shell_session в реестре bash tools)",
+            where_defined=(
+                "tools/agent_core/tool_runtime/bash_tools.py:"
+                "builtin_run_shell_session + ToolSpec('run_shell_session')"
+            ),
+            token_notes=(
+                "persist cwd/env per session_key (AILIT_SHELL_SESSION_KEY)"
+            ),
+        ),
+        PromptFragmentRow(
+            fragment_id="bash.session.reset",
+            owner="agent_core",
+            priority="tool",
+            enabled_when="всегда (shell_reset в реестре bash tools)",
+            where_defined=(
+                "tools/agent_core/tool_runtime/bash_tools.py:"
+                "builtin_shell_reset + ToolSpec('shell_reset')"
+            ),
+            token_notes="сбрасывает процесс bash для текущего session_key",
+        ),
+        PromptFragmentRow(
             fragment_id="project.bash",
             owner="project_layer",
             priority="config",

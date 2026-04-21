@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 from io import StringIO
 from pathlib import Path
+import uuid
 
 import streamlit as st
 
@@ -736,11 +737,15 @@ def main() -> None:
     if isinstance(_banner, str) and _banner.strip():
         st.warning(_banner)
     st.markdown("### ailit chat")
+    st.session_state.setdefault("ailit_shell_session_key", uuid.uuid4().hex)
     root_default = Path.cwd().resolve()
     if "ailit_project_root" not in st.session_state:
         st.session_state["ailit_project_root"] = str(root_default)
     project_root = Path(str(st.session_state.get("ailit_project_root", root_default)))
     cfg = _load_merged_chat_cfg(project_root)
+    os.environ["AILIT_SHELL_SESSION_KEY"] = str(
+        st.session_state.get("ailit_shell_session_key", "default"),
+    )
 
     st.session_state.setdefault("ailit_wf_ref", "minimal")
     st.session_state.setdefault("ailit_wf_model", "deepseek-chat")
