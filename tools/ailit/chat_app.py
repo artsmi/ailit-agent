@@ -259,6 +259,76 @@ def _scroll_streamlit_main_to_bottom() -> None:
     )
 
 
+def _pin_chat_composer_to_viewport() -> None:
+    """Закрепить строку ввода у нижнего края окна; история прокручивается в main выше."""
+    components.html(
+        r"""
+        <script>
+        const doc = window.parent.document;
+        const main = doc.querySelector(
+            '[data-testid="stAppViewContainer"] [data-testid="stMain"]',
+        );
+        doc.querySelectorAll('.ailit-composer-pinned').forEach((el) => {
+            el.classList.remove('ailit-composer-pinned');
+            el.style.position = '';
+            el.style.left = '';
+            el.style.right = '';
+            el.style.bottom = '';
+            el.style.transform = '';
+            el.style.width = '';
+            el.style.maxWidth = '';
+            el.style.zIndex = '';
+            el.style.backgroundColor = '';
+            el.style.borderTop = '';
+            el.style.boxShadow = '';
+            el.style.paddingTop = '';
+            el.style.paddingBottom = '';
+        });
+        const inputs = [];
+        doc.querySelectorAll('input, textarea').forEach((inp) => {
+            const ph = inp.getAttribute('placeholder') || '';
+            const al = inp.getAttribute('aria-label') || '';
+            if (
+                (ph.indexOf('Сообщение') >= 0 || al.indexOf('Сообщение') >= 0)
+                && inp.offsetParent !== null
+            ) {
+                inputs.push(inp);
+            }
+        });
+        if (!inputs.length || !main) {
+            return;
+        }
+        const inp = inputs[inputs.length - 1];
+        let row = inp.closest('[data-testid="stHorizontalBlock"]');
+        if (!row) {
+            row = inp.closest('[data-testid="stVerticalBlock"]');
+        }
+        if (!row) {
+            return;
+        }
+        row.classList.add('ailit-composer-pinned');
+        const bg = window.getComputedStyle(main).backgroundColor || '#fff';
+        row.style.position = 'fixed';
+        row.style.left = '50%';
+        row.style.right = 'auto';
+        row.style.bottom = '0';
+        row.style.transform = 'translateX(-50%)';
+        row.style.width = 'min(920px, calc(100vw - 2rem))';
+        row.style.maxWidth = '100%';
+        row.style.zIndex = '1002';
+        row.style.backgroundColor = bg;
+        row.style.borderTop = '1px solid rgba(128,128,128,0.35)';
+        row.style.boxShadow = '0 -6px 18px rgba(0,0,0,0.12)';
+        row.style.paddingTop = '0.35rem';
+        row.style.paddingBottom = '0.65rem';
+        const h = Math.ceil(row.getBoundingClientRect().height + 20);
+        main.style.paddingBottom = h + 'px';
+        </script>
+        """,
+        height=0,
+    )
+
+
 def _render_chat_composer_row(
     *,
     pending: bool,
@@ -1193,6 +1263,7 @@ def main() -> None:
                     worker=worker,
                     on_request_send=None,
                 )
+                _pin_chat_composer_to_viewport()
                 _scroll_streamlit_main_to_bottom()
                 time.sleep(0.2)
                 st.rerun()
@@ -1271,6 +1342,7 @@ def main() -> None:
             worker=None,
             on_request_send=_request_send,
         )
+        _pin_chat_composer_to_viewport()
         if bool(st.session_state.get(_ChatPageState.SCROLL_BOTTOM, False)):
             _scroll_streamlit_main_to_bottom()
             st.session_state[_ChatPageState.SCROLL_BOTTOM] = False
