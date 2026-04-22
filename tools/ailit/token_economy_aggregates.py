@@ -152,14 +152,16 @@ def format_cumulative_caption(
     if not isinstance(c, dict) or not c:
         return ""
     a = c
-    if not any(
+    has_te = any(
         int(a.get(k, 0) or 0)
         for k in (
             "pager_savings_bytes",
             "budget_chars_saved",
             "prune_bytes_freed",
         )
-    ):
+    )
+    has_restore = int(a.get("compaction_restore_files", 0) or 0) > 0
+    if not (has_te or has_restore):
         return ""
     parts = [
         f"pager≈{int(a.get('pager_savings_bytes', 0))} B",
@@ -170,4 +172,8 @@ def format_cumulative_caption(
     b = int(a.get("budget_chars_saved", 0)) // _BYTES_TO_PSEUDO_TOKENS
     r = int(a.get("prune_bytes_freed", 0)) // _BYTES_TO_PSEUDO_TOKENS
     parts.append(f"~Σtok≈{p + b + r}")
+    if has_restore:
+        rf = int(a.get("compaction_restore_files", 0) or 0)
+        inj = int(a.get("compaction_restore_injected_chars", 0) or 0)
+        parts.append(f"restore={rf}f/{inj}ch")
     return "Экономия (накопл.): " + " · ".join(parts)
