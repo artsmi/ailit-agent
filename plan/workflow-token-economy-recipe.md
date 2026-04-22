@@ -833,6 +833,8 @@ ailit agent run <workflow_prompt2.yaml> --provider deepseek --model deepseek-cha
 - возвращать preview + `page_id`;
 - добавить события `context.pager.*`.
 
+**Реализация в `ailit` (вкл.):** `export AILIT_CONTEXT_PAGER=1`. Порог длины (символы UTF-8): `AILIT_CONTEXT_PAGER_MIN_CHARS` (default 4000). Превью: `AILIT_CONTEXT_PAGER_PREVIEW_LINES`, `AILIT_CONTEXT_PAGER_PREVIEW_CHARS`. Инструмент догрузки: `read_context_page`. События: `context.pager.page_created`, `context.pager.page_used`.
+
 Проверки:
 
 - `pages_created > 0` на токеноёмких задачах;

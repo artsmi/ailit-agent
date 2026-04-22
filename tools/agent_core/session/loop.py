@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -23,6 +24,19 @@ from agent_core.models import (
 from agent_core.providers.protocol import ChatProvider
 from agent_core.session.budget import BudgetGovernance
 from agent_core.session.compaction import compact_messages
+from agent_core.session.context_pager import (
+    ContextPageStore,
+    ContextPagerConfig,
+    StoredPage,
+    build_context_pager_read_registry,
+    build_tool_message_for_page,
+    build_preview,
+    context_pager_config_from_env,
+    locator_from_invocation,
+    stable_page_id,
+    tool_to_source_key,
+)
+from agent_core.session.context_pager import READ_CONTEXT_PAGE_NAME
 from agent_core.session.shortlist import apply_keyword_shortlist
 from agent_core.session.state import SessionState
 from agent_core.session.tool_bridge import tool_definitions_from_registry
@@ -112,6 +126,9 @@ class SessionSettings:
     suppress_tools_after_write_file: bool = field(
         default_factory=_default_suppress_tools_after_write_file,
     )
+    context_pager: ContextPagerConfig = field(
+        default_factory=context_pager_config_from_env,
+    )
 
 
 def _effective_max_turns(settings: SessionSettings) -> int:
@@ -148,9 +165,22 @@ class SessionRunner:
     ) -> None:
         """Связать провайдер и реестр инструментов."""
         self._provider = provider
-        self._registry = registry
+        self._base_registry = registry
+        self._context_page_store = ContextPageStore()
         perm = permission_engine or PermissionEngine()
-        self._executor = ToolExecutor(registry, perm)
+        self._perm = perm
+
+    def _tool_registry_for_run(
+        self,
+        settings: SessionSettings,
+    ) -> ToolRegistry:
+        """Реестр на прогон: базовый + read_context_page если pager вкл."""
+        reg = self._base_registry
+        if settings.context_pager.enabled:
+            return reg.merge(
+                build_context_pager_read_registry(self._context_page_store),
+            )
+        return reg
 
     def _emit(
         self,
@@ -383,19 +413,130 @@ class SessionRunner:
             reason=None,
         )
 
+    def _emit_context_pager_page_used(
+        self,
+        inv: ToolInvocation,
+        res: ToolRunResult,
+        events: list[dict[str, Any]],
+        diag_sink: Callable[[dict[str, Any]], None] | None,
+        event_sink: SessionEventSink | None,
+    ) -> None:
+        """Событие context.pager.page_used после read_context_page."""
+        if res.error is not None:
+            return
+        if inv.tool_name != READ_CONTEXT_PAGE_NAME:
+            return
+        try:
+            args = (
+                json.loads(inv.arguments_json)
+                if (inv.arguments_json and inv.arguments_json.strip())
+                else {}
+            )
+        except json.JSONDecodeError:
+            return
+        if not isinstance(args, dict):
+            return
+        page_id = str(args.get("page_id", "") or "").strip()
+        if not page_id:
+            return
+        try:
+            off = int(args.get("offset_lines", 0) or 0)
+        except (TypeError, ValueError):
+            off = 0
+        try:
+            mlines = int(args.get("max_lines", 200) or 200)
+        except (TypeError, ValueError):
+            mlines = 200
+        content = res.content or ""
+        returned_lines = len(content.splitlines()) if content else 0
+        self._emit(
+            events,
+            "context.pager.page_used",
+            {
+                "page_id": page_id,
+                "reason": "read_context_page",
+                "offset_lines": off,
+                "max_lines": mlines,
+                "returned_lines": returned_lines,
+            },
+            diag_sink,
+            event_sink,
+        )
+
     def _append_tool_results(
         self,
         messages: list[ChatMessage],
-        tool_calls: Sequence[Any],
-        results: Sequence[Any],
+        invs: list[ToolInvocation],
+        results: list[ToolRunResult],
+        settings: SessionSettings,
+        events: list[dict[str, Any]],
+        diag_sink: Callable[[dict[str, Any]], None] | None,
+        event_sink: SessionEventSink | None,
     ) -> None:
-        for tc, tr in zip(tool_calls, results, strict=True):
+        """Добавить TOOL; при pager свернуть длинный вывод в страницу."""
+        cfg = settings.context_pager
+        for inv, tr in zip(invs, results, strict=True):
             body = tr.content if tr.error is None else f"error:{tr.error}"
+            if (
+                cfg.enabled
+                and tr.error is None
+                and len(body) >= cfg.min_body_chars
+            ):
+                page_id = stable_page_id(
+                    content=body,
+                    call_id=inv.call_id,
+                    tool_name=inv.tool_name,
+                )
+                source = tool_to_source_key(inv.tool_name)
+                loc = locator_from_invocation(
+                    inv.tool_name,
+                    inv.arguments_json,
+                )
+                preview = build_preview(
+                    body,
+                    max_lines=cfg.preview_max_lines,
+                    max_chars=cfg.preview_max_chars,
+                )
+                self._context_page_store.put(
+                    page_id,
+                    StoredPage(
+                        full_text=body,
+                        source=source,
+                        tool_name=inv.tool_name,
+                        locator=loc,
+                    ),
+                )
+                b_total = len(body.encode("utf-8"))
+                b_prev = len(preview.encode("utf-8"))
+                preview_line_count = len(preview.splitlines())
+                self._emit(
+                    events,
+                    "context.pager.page_created",
+                    {
+                        "page_id": page_id,
+                        "source": source,
+                        "tool_name": inv.tool_name,
+                        "locator": loc,
+                        "bytes_total": b_total,
+                        "bytes_preview": b_prev,
+                        "preview_lines": preview_line_count,
+                    },
+                    diag_sink,
+                    event_sink,
+                )
+                body = build_tool_message_for_page(
+                    page_id=page_id,
+                    source=source,
+                    locator=loc,
+                    full_text=tr.content,
+                    preview=preview,
+                    config=cfg,
+                )
             messages.append(
                 ChatMessage(
                     role=MessageRole.TOOL,
                     content=body,
-                    tool_call_id=tc.call_id,
+                    tool_call_id=inv.call_id,
                 )
             )
 
@@ -425,6 +566,10 @@ class SessionRunner:
     ) -> SessionOutcome:
         """Цикл до FINISHED, бюджета, ошибки или паузы на approval."""
         events: list[dict[str, Any]] = []
+        if settings.context_pager.enabled:
+            self._context_page_store.clear()
+        active_reg = self._tool_registry_for_run(settings)
+        executor = ToolExecutor(active_reg, self._perm)
         bud = budget or BudgetGovernance(
             max_total_tokens=settings.max_total_tokens,
             max_context_units=settings.max_context_units,
@@ -503,7 +648,7 @@ class SessionRunner:
                             diag_sink,
                             event_sink,
                         )
-                    results = self._executor.execute_serial(
+                    results = executor.execute_serial(
                         invs,
                         approvals,
                         cancel=cancel,
@@ -542,17 +687,28 @@ class SessionRunner:
                         diag_sink,
                         event_sink,
                     )
+                    self._emit_context_pager_page_used(
+                        inv, res, events, diag_sink, event_sink
+                    )
                 self._maybe_set_suppress_after_write_file(
                     invs,
                     results,
                     settings,
                     suppress_next,
                 )
-                self._append_tool_results(messages, ast.tool_calls, results)
+                self._append_tool_results(
+                    messages,
+                    invs,
+                    results,
+                    settings,
+                    events,
+                    diag_sink,
+                    event_sink,
+                )
                 continue
 
             ctx = self._prepare_context(messages, settings)
-            tools_defs = tool_definitions_from_registry(self._registry)
+            tools_defs = tool_definitions_from_registry(active_reg)
             st_sup = settings.suppress_tools_after_write_file
             should_use_suppress = suppress_next[0] and st_sup
             if suppress_next[0]:
@@ -666,7 +822,7 @@ class SessionRunner:
                             diag_sink,
                             event_sink,
                         )
-                    results = self._executor.execute_serial(
+                    results = executor.execute_serial(
                         invs,
                         approvals,
                         cancel=cancel,
@@ -705,13 +861,24 @@ class SessionRunner:
                         diag_sink,
                         event_sink,
                     )
+                    self._emit_context_pager_page_used(
+                        inv, res, events, diag_sink, event_sink
+                    )
                 self._maybe_set_suppress_after_write_file(
                     invs,
                     results,
                     settings,
                     suppress_next,
                 )
-                self._append_tool_results(messages, resp.tool_calls, results)
+                self._append_tool_results(
+                    messages,
+                    invs,
+                    results,
+                    settings,
+                    events,
+                    diag_sink,
+                    event_sink,
+                )
                 if resp.finish_reason is not FinishReason.TOOL_CALLS:
                     pass
                 continue
