@@ -125,6 +125,7 @@ def _make_provider(choice: str, cfg: dict) -> tuple[object, str]:
 
 def _registry_for_chat(
     *,
+    cfg: dict,
     work_root: Path | None,
     teammate_tools: bool,
 ) -> ToolRegistry:
@@ -132,6 +133,18 @@ def _registry_for_chat(
     root = (work_root or _REPO).resolve()
     os.environ["AILIT_WORK_ROOT"] = str(root)
     reg = default_builtin_registry().merge(bash_tool_registry())
+    mem = cfg.get("memory")
+    if isinstance(mem, dict) and bool(mem.get("enabled", False)):
+        # H4.1: local-first KB scaffold (sqlite tools).
+        os.environ.setdefault("AILIT_KB", "1")
+        ns = str(mem.get("namespace") or "default").strip() or "default"
+        os.environ["AILIT_KB_NAMESPACE"] = ns
+        from agent_core.memory.kb_tools import (
+            build_kb_tool_registry,
+            kb_tools_config_from_env,
+        )
+
+        reg = reg.merge(build_kb_tool_registry(kb_tools_config_from_env()))
     if teammate_tools and work_root is not None:
         pr = work_root.resolve()
         os.environ["AILIT_TEAM_PROJECT_ROOT"] = str(pr)
@@ -996,6 +1009,7 @@ def _execute_llm_turn(
     runner = SessionRunner(
         provider,
         _registry_for_chat(
+            cfg=cfg,
             work_root=work_for_tools,
             teammate_tools=teammate_tools,
         ),
@@ -1129,6 +1143,7 @@ def _build_chat_turn_worker(
     runner = SessionRunner(
         provider,
         _registry_for_chat(
+            cfg=cfg,
             work_root=work_for_tools,
             teammate_tools=teammate_tools,
         ),

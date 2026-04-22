@@ -60,6 +60,11 @@ def _default_ailit_config() -> dict[str, Any]:
         "live": {"run": False},
         "deepseek": {},
         "kimi": {},
+        "memory": {
+            "enabled": False,
+            "backend": "sqlite",
+            "namespace": "default",
+        },
         "tests": {},
     }
 
