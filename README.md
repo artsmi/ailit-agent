@@ -9,7 +9,7 @@
 | Актуальная стратегия продукта | [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md): этапы **DP-1…DP-5** закрыты; проект перешёл в **этап тестирования** (сбор багов → фиксы). |
 | Bash / shell в runtime | [`plan/ailit-bash-strategy.md`](plan/ailit-bash-strategy.md): **B–E**, **D.4**, **F.1–F.2** — `run_shell` и file tools включены по умолчанию, `bash:` в `project.yaml`, **H** — сессионный shell позже. |
 | [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md) | Этапы **G–Q** закрыты; документ архивен как ориентир закрытой ветки. |
-| Токен-экономия и внешняя память (ветка) | **Порядок:** сначала [`plan/workflow-token-economy-recipe.md`](plan/workflow-token-economy-recipe.md) (этапы **TE-0…TE-5**, постановка и история), затем по критерию перехода — [`plan/workflow-hybrid-memory-mcp.md`](plan/workflow-hybrid-memory-mcp.md) (этапы **H0…H4**, интеграция в `ailit`), затем [`plan/workflow-memory-3.md`](plan/workflow-memory-3.md) (этапы **M3-0…M3-5**, сравнительные улучшения и следующий слой memory governance / retrieval). |
+| Токен-экономия и внешняя память (ветка) | **Порядок:** [`plan/workflow-token-economy-recipe.md`](plan/workflow-token-economy-recipe.md) — постановка **TE-0.0…TE-5.2** и handoff **§9** закрыты в документе (код **W-TE-1…4** — отдельно); по **§10** можно переходить ко второму файлу; открытые вопросы для `H0` — **DEFERRED** с датой в [`plan/workflow-hybrid-memory-mcp.md`](plan/workflow-hybrid-memory-mcp.md). Далее **H0…H4**, затем [`plan/workflow-memory-3.md`](plan/workflow-memory-3.md) (**M3-0…M3-5**). |
 
 ## Как работать по проекту
 
