@@ -177,6 +177,23 @@ def _cmd_agent_token_econ_report(args: argparse.Namespace) -> int:
     return run_token_econ_from_explicit_or_latest(explicit)
 
 
+def _cmd_session_usage_list(_args: argparse.Namespace) -> int:
+    """Список ailit-*.log с временем process.start."""
+    from ailit.session_usage_cli import print_session_list
+
+    return print_session_list()
+
+
+def _cmd_session_usage_show(args: argparse.Namespace) -> int:
+    """Сводка usage + token-economy по одному .log."""
+    from pathlib import Path
+
+    from ailit.session_usage_cli import print_session_show
+
+    p = Path(str(getattr(args, "log_file", ""))).resolve()
+    return print_session_show(p)
+
+
 def _cmd_agent_run(args: argparse.Namespace) -> int:
     """Исполнить workflow YAML, печать JSONL в stdout."""
     from ailit.agent_provider_config import AgentRunProviderConfigBuilder
@@ -380,6 +397,38 @@ def main(argv: list[str] | None = None) -> int:
         help="Показать, какие каталоги сохраняются/удаляются",
     )
     p_doc_pol.set_defaults(func=_cmd_doctor_data_policy)
+
+    p_session = sub.add_parser(
+        "session",
+        help="Сессии: usage и token-economy по JSONL-логам",
+    )
+    sess_sub = p_session.add_subparsers(
+        dest="session_cmd",
+        required=True,
+    )
+    p_sess_use = sess_sub.add_parser(
+        "usage",
+        help="Сводка usage + механизмы экономии по лог-файлу",
+    )
+    sess_use_sub = p_sess_use.add_subparsers(
+        dest="session_usage_cmd",
+        required=True,
+    )
+    p_sess_list = sess_use_sub.add_parser(
+        "list",
+        help="Список ailit-*.log (роль, время start, путь)",
+    )
+    p_sess_list.set_defaults(func=_cmd_session_usage_list)
+    p_sess_show = sess_use_sub.add_parser(
+        "show",
+        help="Агрегаты usage + синтетика по одному .log",
+    )
+    p_sess_show.add_argument(
+        "log_file",
+        type=str,
+        help="Путь к JSONL (ailit-chat-*.log / ailit-agent-*.log)",
+    )
+    p_sess_show.set_defaults(func=_cmd_session_usage_show)
 
     p_chat = sub.add_parser(
         "chat",

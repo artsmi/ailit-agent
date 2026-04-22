@@ -1,0 +1,161 @@
+"""CLI: ailit session usage list|show — логи и сводка usage + token-economy."""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+from ailit.token_economy_aggregates import analyze_log_rows
+from ailit.user_paths import global_logs_dir
+
+
+def _read_jsonl_file(
+    path: Path,
+    *,
+    max_bytes: int = 50_000_000,
+) -> list[dict[str, Any]]:
+    raw = path.read_bytes()
+    if len(raw) > max_bytes:
+        raw = raw[-max_bytes:]
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("utf-8", errors="replace")
+    out: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            out.append(row)
+    return out
+
+
+def _role_from_name(name: str) -> str:
+    if "ailit-chat-" in name:
+        return "chat"
+    if "ailit-agent-" in name:
+        return "agent"
+    return "?"
+
+
+def list_session_logs(logs_dir: Path | None = None) -> list[dict[str, Any]]:
+    """Список файлов ailit-*.log с временем старта (первый process.start)."""
+    base = (logs_dir or global_logs_dir()).resolve()
+    if not base.is_dir():
+        return []
+    items: list[Path] = sorted(
+        base.glob("ailit-*.log"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    result: list[dict[str, Any]] = []
+    for path in items:
+        start_ts: str | None = None
+        try:
+            with path.open(encoding="utf-8", errors="replace") as fh:
+                for _ in range(32):
+                    line = fh.readline()
+                    if not line:
+                        break
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if not isinstance(row, dict):
+                        continue
+                    if row.get("event_type") == "process.start":
+                        ts = row.get("ts")
+                        if isinstance(ts, str):
+                            start_ts = ts
+                        break
+        except OSError:
+            start_ts = None
+        st = path.stat()
+        result.append(
+            {
+                "path": path,
+                "role": _role_from_name(path.name),
+                "start_ts": start_ts,
+                "mtime_iso": st.st_mtime,
+            },
+        )
+    return result
+
+
+def print_session_list() -> int:
+    rows = list_session_logs()
+    if not rows:
+        sys.stdout.write(
+            f"В {global_logs_dir()} нет файлов ailit-*.log\n",
+        )
+        return 0
+    sys.stdout.write(
+        f"# каталог: {global_logs_dir()}\n"
+        f"{'роль':<6} {'старт (process.start)':<32} путь\n",
+    )
+    for r in rows:
+        p = r["path"]
+        role = str(r.get("role", ""))
+        ts = r.get("start_ts") or "—"
+        sys.stdout.write(f"{role:<6} {str(ts)[:32]:<32} {p}\n")
+    return 0
+
+
+def print_session_show(path: Path) -> int:
+    if not path.is_file():
+        sys.stderr.write(f"Файл не найден: {path}\n")
+        return 1
+    rows = _read_jsonl_file(path)
+    an = analyze_log_rows(rows)
+    u = an.get("usage") or {}
+    s = an.get("synthetic_est") or {}
+    c = an.get("cumulative") or {}
+    sys.stdout.write(f"# log: {path}\n")
+    st = an.get("log_start")
+    if st:
+        sys.stdout.write(f"start_ts (header): {st}\n")
+    n_resp = an.get("model_response_n", 0)
+    sys.stdout.write(
+        f"model.response событий: {n_resp}\n\n",
+    )
+    sys.stdout.write("## Суммарно usage (по всем model.response в файле)\n")
+    inp = u.get("input_tokens")
+    out_t = u.get("output_tokens")
+    cr = u.get("cache_read_tokens")
+    cw = u.get("cache_write_tokens")
+    sys.stdout.write(
+        f"  input={inp}  output={out_t}  cache_r={cr}  cache_w={cw}\n",
+    )
+    sys.stdout.write("\n## События механизмов (счётчики в логе)\n")
+    sys.stdout.write(
+        f"  pager: page_created={c.get('pager_page_created')}, "
+        f"page_used={c.get('pager_page_used')}\n"
+        f"  budget: событий={c.get('budget_events')}, "
+        f"символов сжато~={c.get('budget_chars_saved')}\n"
+        f"  prune: проходов={c.get('prune_passes')}, "
+        f"tool={c.get('prune_tools')}, bytes~={c.get('prune_bytes_freed')}\n",
+    )
+    sys.stdout.write(
+        "\n## Синтетика нагрузки, снятой слоями (оценка)\n",
+    )
+    sys.stdout.write(
+        f"  pager:   bytes≈{s.get('pager_bytes')}  "
+        f"pseudo_tok~={s.get('pager_pseudo_tokens')}\n"
+        f"  budget:  saved_chars={s.get('budget_chars_saved')}  "
+        f"pseudo_tok~={s.get('budget_pseudo_tokens')}\n"
+        f"  prune:   bytes_freed={s.get('prune_bytes_freed')}  "
+        f"pseudo_tok~={s.get('prune_pseudo_tokens')}\n"
+        f"  сумма псевдо-токенов (слои): {s.get('layers_sum_pseudo_tokens')}\n"
+        f"  ({s.get('note', '')})\n",
+    )
+    return 0

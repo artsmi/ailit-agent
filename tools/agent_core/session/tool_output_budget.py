@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Final
 
+from agent_core.session.token_economy_env import (
+    env_flag,
+    token_economy_globally_disabled,
+)
 from agent_core.session.context_pager import (
     ContextPageStore,
     ContextPagerConfig,
@@ -35,11 +39,15 @@ class ToolOutputBudgetConfig:
 
 
 def tool_output_budget_config_from_env() -> ToolOutputBudgetConfig:
-    """AILIT_TOOL_OUTPUT_BUDGET* (workflow-token-economy W-TE-2)."""
+    """AILIT_TOOL_OUTPUT_BUDGET* (W-TE-2). По умолчанию вкл."""
     import os
 
-    raw = os.environ.get("AILIT_TOOL_OUTPUT_BUDGET", "").strip().lower()
-    enabled = raw in ("1", "true", "yes", "on")
+    if token_economy_globally_disabled():
+        return ToolOutputBudgetConfig(
+            enabled=False,
+            max_total_chars=48_000,
+        )
+    enabled = env_flag("AILIT_TOOL_OUTPUT_BUDGET", default=True)
     max_total = int(
         os.environ.get("AILIT_TOOL_OUTPUT_BUDGET_MAX_CHARS", "48000"),
     )

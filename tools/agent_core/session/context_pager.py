@@ -7,6 +7,10 @@ import json
 from dataclasses import dataclass
 from typing import Any, Final, Mapping
 
+from agent_core.session.token_economy_env import (
+    env_flag,
+    token_economy_globally_disabled,
+)
 from agent_core.tool_runtime.registry import ToolRegistry
 from agent_core.tool_runtime.spec import SideEffectClass, ToolSpec
 
@@ -24,11 +28,20 @@ class ContextPagerConfig:
 
 
 def context_pager_config_from_env() -> ContextPagerConfig:
-    """Разобрать AILIT_CONTEXT_PAGER* (plan workflow-token-economy W-TE-1)."""
+    """Разобрать AILIT_CONTEXT_PAGER* (plan workflow-token-economy W-TE-1).
+
+    По умолчанию **вкл.**, `AILIT_TOKEN_ECONOMY=0` отключает все слои.
+    """
     import os
 
-    raw = os.environ.get("AILIT_CONTEXT_PAGER", "").strip().lower()
-    enabled = raw in ("1", "true", "yes", "on")
+    if token_economy_globally_disabled():
+        return ContextPagerConfig(
+            enabled=False,
+            min_body_chars=4000,
+            preview_max_lines=24,
+            preview_max_chars=3500,
+        )
+    enabled = env_flag("AILIT_CONTEXT_PAGER", default=True)
     min_body = int(os.environ.get("AILIT_CONTEXT_PAGER_MIN_CHARS", "4000"))
     max_lines = int(os.environ.get("AILIT_CONTEXT_PAGER_PREVIEW_LINES", "24"))
     max_chars = int(

@@ -55,6 +55,10 @@
 
 - [`../context/INDEX.md`](../context/INDEX.md)
 
+### Память и экономия контекста (канон уровней)
+
+- [`memory-canon.md`](memory-canon.md) — три уровня (сессия `run` / локальный ПК / MCP), глоссарий методик, соотнесение с репозиториями-донорами и планами `workflow-token-economy` / `workflow-hybrid-memory-mcp` / `workflow-memory-3`.
+
 ### Provider layer (код, этап 3)
 
 - реализация: каталог [`../tools/agent_core/`](../tools/agent_core/) (pytest: `python3 -m pytest` из корня репозитория).
@@ -140,6 +144,7 @@
 1. Сначала прочитать [`runtime-development-with-ai-multi-agents.md`](runtime-development-with-ai-multi-agents.md)
 2. Затем использовать [`../plan/agent-core-workflow.md`](../plan/agent-core-workflow.md) как основной список задач
 3. При необходимости уточнять детали через:
+   - [`memory-canon.md`](memory-canon.md) — модель памяти и токен-экономии по уровням
    - [`../plan/agent-core-architecture.md`](../plan/agent-core-architecture.md)
    - [`../plan/agent-core-provider-strategy.md`](../plan/agent-core-provider-strategy.md)
    - [`../plan/deploy-project-strategy.md`](../plan/deploy-project-strategy.md) для текущей ветки деплоя, TUI и промптов

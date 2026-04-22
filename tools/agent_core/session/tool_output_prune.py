@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agent_core.models import ChatMessage, MessageRole
+from agent_core.session.token_economy_env import (
+    env_flag,
+    token_economy_globally_disabled,
+)
 from agent_core.session.budget import BudgetGovernance
 
 
@@ -19,11 +23,17 @@ class ToolOutputPruneConfig:
 
 
 def tool_output_prune_config_from_env() -> ToolOutputPruneConfig:
-    """AILIT_TOOL_PRUNE* (workflow-token-economy W-TE-3)."""
+    """AILIT_TOOL_PRUNE* (W-TE-3). По умолчанию вкл."""
     import os
 
-    raw = os.environ.get("AILIT_TOOL_PRUNE", "").strip().lower()
-    enabled = raw in ("1", "true", "yes", "on")
+    if token_economy_globally_disabled():
+        return ToolOutputPruneConfig(
+            enabled=False,
+            keep_last_tool_messages=6,
+            min_messages_to_act=28,
+            min_context_units=0,
+        )
+    enabled = env_flag("AILIT_TOOL_PRUNE", default=True)
     keep = int(os.environ.get("AILIT_TOOL_PRUNE_KEEP_LAST", "6"))
     min_msg = int(os.environ.get("AILIT_TOOL_PRUNE_MIN_MESSAGES", "28"))
     min_u = int(os.environ.get("AILIT_TOOL_PRUNE_AT_CONTEXT_UNITS", "0"))
