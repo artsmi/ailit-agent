@@ -65,6 +65,11 @@ from ailit.process_log import ensure_process_log
 from ailit.compat_adapter import read_status, run_compat_workflow
 from ailit.debug_bundle import build_debug_bundle, default_rollout_phase
 from ailit.defaults_resolver import DefaultProviderModelResolver
+from ailit.token_economy_aggregates import (
+    empty_cumulative,
+    format_cumulative_caption,
+    merge_events_into_cumulative,
+)
 from ailit.usage_display import (
     SessionEventsUsageExtractor,
     UsageSummaryMarkdownFormatter,
@@ -177,6 +182,19 @@ def _parse_tool_output(text: str) -> tuple[str, str]:
     return ("\n".join(so).rstrip(), "\n".join(se).rstrip())
 
 
+def _strip_shell_ui_noise(text: str) -> str:
+    """Убрать служебные строки, не несущие пользы в UI."""
+    if not text:
+        return ""
+    out: list[str] = []
+    for ln in str(text).splitlines():
+        s = ln.strip()
+        if s.startswith("Agent pid ") and s[10:].strip().isdigit():
+            continue
+        out.append(ln)
+    return "\n".join(out).rstrip()
+
+
 def _render_shell_runs_inline(
     runs: list[dict[str, Any]],
     *,
@@ -192,6 +210,8 @@ def _render_shell_runs_inline(
         out_txt = str(row.get("combined_output", "") or "")
         err = row.get("error")
         stdout_txt, stderr_txt = _parse_tool_output(out_txt)
+        stdout_txt = _strip_shell_ui_noise(stdout_txt)
+        stderr_txt = _strip_shell_ui_noise(stderr_txt)
         out_lines = stdout_txt.splitlines() if stdout_txt else []
         more_than_tail = len(out_lines) > int(n_tail)
 
@@ -260,129 +280,28 @@ def _scroll_streamlit_main_to_bottom() -> None:
 
 
 def _pin_chat_composer_to_viewport() -> None:
-    """Закрепить строку ввода у нижнего края окна; история прокручивается в main выше."""
-    components.html(
-        r"""
-        <script>
-        const parentWin = window.parent;
-        if (!parentWin.__ailitResetComposerPin) {
-            parentWin.__ailitResetComposerPin = (el) => {
-                if (!el) {
-                    return;
-                }
-                el.classList.remove('ailit-composer-pinned');
-                [
-                    'position',
-                    'left',
-                    'right',
-                    'bottom',
-                    'transform',
-                    'width',
-                    'max-width',
-                    'z-index',
-                    'background-color',
-                    'border-top',
-                    'box-shadow',
-                    'padding-top',
-                    'padding-bottom',
-                ].forEach((name) => el.style.removeProperty(name));
-            };
-        }
-        if (!parentWin.__ailitPinComposerNow) {
-            parentWin.__ailitPinComposerNow = () => {
-                const doc = parentWin.document;
-                const main = doc.querySelector(
-                    '[data-testid="stAppViewContainer"] [data-testid="stMain"]',
-                );
-                if (!main) {
-                    return;
-                }
-                let row = null;
-                const keyed = [
-                    ...doc.querySelectorAll('.st-key-ailit_chat_input_pending_bottom'),
-                    ...doc.querySelectorAll('.st-key-ailit_chat_input'),
-                ].filter((el) => el.offsetParent !== null);
-                if (keyed.length) {
-                    row = keyed[keyed.length - 1];
-                } else {
-                    const inputs = [];
-                    doc.querySelectorAll('input, textarea').forEach((inp) => {
-                        const ph = inp.getAttribute('placeholder') || '';
-                        const al = inp.getAttribute('aria-label') || '';
-                        if (
-                            (ph.indexOf('Сообщение') >= 0 || al.indexOf('Сообщение') >= 0)
-                            && inp.offsetParent !== null
-                        ) {
-                            inputs.push(inp);
-                        }
-                    });
-                    if (inputs.length) {
-                        const inp = inputs[inputs.length - 1];
-                        row = inp.closest('[data-testid="stHorizontalBlock"]');
-                        if (!row) {
-                            row = inp.closest('[data-testid="stVerticalBlock"]');
-                        }
-                    }
-                }
-                if (!row) {
-                    return;
-                }
-                doc.querySelectorAll('.ailit-composer-pinned').forEach((el) => {
-                    if (el !== row) {
-                        parentWin.__ailitResetComposerPin(el);
-                    }
-                });
-                row.classList.add('ailit-composer-pinned');
-                const bg = parentWin.getComputedStyle(main).backgroundColor || '#fff';
-                row.style.setProperty('position', 'fixed', 'important');
-                row.style.setProperty('left', '50%', 'important');
-                row.style.setProperty('right', 'auto', 'important');
-                row.style.setProperty('bottom', '0', 'important');
-                row.style.setProperty('transform', 'translateX(-50%)', 'important');
-                row.style.setProperty(
-                    'width',
-                    'min(920px, calc(100vw - 2rem))',
-                    'important',
-                );
-                row.style.setProperty('max-width', '100%', 'important');
-                row.style.setProperty('z-index', '1002', 'important');
-                row.style.setProperty('background-color', bg, 'important');
-                row.style.setProperty(
-                    'border-top',
-                    '1px solid rgba(128,128,128,0.35)',
-                    'important',
-                );
-                row.style.setProperty(
-                    'box-shadow',
-                    '0 -6px 18px rgba(0,0,0,0.12)',
-                    'important',
-                );
-                row.style.setProperty('padding-top', '0.35rem', 'important');
-                row.style.setProperty('padding-bottom', '0.65rem', 'important');
-                const h = Math.ceil(row.getBoundingClientRect().height + 20);
-                main.style.setProperty('padding-bottom', h + 'px', 'important');
-            };
-        }
-        if (!parentWin.__ailitPinComposerObserver) {
-            const observer = new parentWin.MutationObserver(() => {
-                parentWin.__ailitPinComposerNow();
-            });
-            observer.observe(parentWin.document.body, {
-                childList: true,
-                subtree: true,
-                attributes: true,
-            });
-            parentWin.__ailitPinComposerObserver = observer;
-        }
-        if (!parentWin.__ailitPinComposerTimer) {
-            parentWin.__ailitPinComposerTimer = parentWin.setInterval(() => {
-                parentWin.__ailitPinComposerNow();
-            }, 250);
-        }
-        parentWin.__ailitPinComposerNow();
-        </script>
+    """Закрепить строку ввода у нижнего края окна безопасным CSS sticky."""
+    st.markdown(
+        """
+<style>
+.st-key-ailit_chat_composer_container {
+  position: sticky;
+  bottom: 0;
+  z-index: 20;
+  background: var(--background-color, white);
+  border-top: 1px solid rgba(128, 128, 128, 0.25);
+  padding-top: 0.35rem;
+  padding-bottom: 0.5rem;
+}
+.st-key-ailit_chat_composer_container > div {
+  background: inherit;
+}
+[data-testid="stMain"] .block-container {
+  padding-bottom: 7rem;
+}
+</style>
         """,
-        height=0,
+        unsafe_allow_html=True,
     )
 
 
@@ -393,50 +312,51 @@ def _render_chat_composer_row(
     on_request_send: Callable[[], None] | None,
 ) -> tuple[str, bool]:
     """Одна строка: поле ввода + кнопка отправки или стоп. Возвращает (prompt, send_clicked)."""
-    if pending and worker is not None:
+    with st.container(key="ailit_chat_composer_container"):
+        if pending and worker is not None:
+            cols = st.columns([30, 1])
+            with cols[0]:
+                st.text_input(
+                    "Сообщение…",
+                    value="",
+                    disabled=True,
+                    key="ailit_chat_input_pending_bottom",
+                )
+            with cols[1]:
+                stop = st.button(
+                    "■",
+                    key="ailit_chat_stop_btn",
+                    use_container_width=True,
+                )
+                if stop:
+                    worker.request_cancel()
+            if worker.state.stop_requested and not worker.state.finished:
+                st.caption("Останавливаю…")
+            return ("", False)
+
         cols = st.columns([30, 1])
         with cols[0]:
-            st.text_input(
+            if bool(st.session_state.get(_ChatPageState.CLEAR_INPUT, False)):
+                st.session_state["ailit_chat_input"] = ""
+                st.session_state[_ChatPageState.CLEAR_INPUT] = False
+            if on_request_send is None:
+                msg = "on_request_send is required when pending is False"
+                raise ValueError(msg)
+            prompt = st.text_input(
                 "Сообщение…",
                 value="",
-                disabled=True,
-                key="ailit_chat_input_pending_bottom",
+                key="ailit_chat_input",
+                on_change=on_request_send,
             )
         with cols[1]:
-            stop = st.button(
-                "■",
-                key="ailit_chat_stop_btn",
+            send_btn = st.button(
+                "➤",
+                key="ailit_chat_send_btn",
                 use_container_width=True,
             )
-            if stop:
-                worker.request_cancel()
-        if worker.state.stop_requested and not worker.state.finished:
-            st.caption("Останавливаю…")
-        return ("", False)
-
-    cols = st.columns([30, 1])
-    with cols[0]:
-        if bool(st.session_state.get(_ChatPageState.CLEAR_INPUT, False)):
-            st.session_state["ailit_chat_input"] = ""
-            st.session_state[_ChatPageState.CLEAR_INPUT] = False
-        if on_request_send is None:
-            msg = "on_request_send is required when pending is False"
-            raise ValueError(msg)
-        prompt = st.text_input(
-            "Сообщение…",
-            value="",
-            key="ailit_chat_input",
-            on_change=on_request_send,
-        )
-    with cols[1]:
-        send_btn = st.button(
-            "➤",
-            key="ailit_chat_send_btn",
-            use_container_width=True,
-        )
-    send_enter = bool(st.session_state.pop(_ChatPageState.SEND_REQUEST, False))
-    send = bool(send_btn or send_enter)
-    return (str(prompt), send)
+        send_enter = bool(st.session_state.pop(_ChatPageState.SEND_REQUEST, False))
+        send = bool(send_btn or send_enter)
+        return (str(prompt), send)
 
 
 def _init_messages() -> None:
@@ -568,6 +488,7 @@ def _render_header_and_menu(
                     )
                     row = rev[int(pick)]
                     out_txt = str(row.get("combined_output", ""))
+                    out_txt = _strip_shell_ui_noise(out_txt)
                     st.code(
                         LineTailSelector.last_lines(out_txt, int(n_tail)),
                         language="bash",
@@ -787,6 +708,27 @@ def _render_usage_tokens_panel() -> None:
         st.markdown(
             fmt.expander_markdown(last_usage=lu_raw, session_totals=st_raw),
         )
+
+
+def _render_token_economy_panel() -> None:
+    """Накопленные события token-economy (pager / budget / prune) в сессии UI."""
+    c = st.session_state.get("ailit_token_econ_cumulative")
+    if not isinstance(c, dict):
+        return
+    cap = format_cumulative_caption(c)
+    st.caption("**Экономия** (оценка по `bytes/chars/4` по накопленным событиям)")
+    if not cap:
+        st.caption(
+            "Пока нет событий `context.pager` / `tool.output_budget` / "
+            "`tool.output_prune` (выполните ход с tool-вызовами).",
+        )
+    else:
+        st.caption(cap)
+    with st.expander("Экономия: JSON (сессия браузера)", expanded=False):
+        st.json(c)
+    ph = st.session_state.get("ailit_chat_log_path")
+    if isinstance(ph, str) and ph:
+        st.caption(f"Process log: `{ph}` — `ailit session usage show` для файла")
 
 
 def _render_dialogue_messages(
@@ -1104,6 +1046,14 @@ def _execute_llm_turn(
         st.session_state["ailit_last_usage_pair"] = pair
     else:
         st.session_state.pop("ailit_last_usage_pair", None)
+    _acc0 = st.session_state.get("ailit_token_econ_cumulative")
+    if not isinstance(_acc0, dict):
+        _acc0 = empty_cumulative()
+    st.session_state["ailit_token_econ_cumulative"] = merge_events_into_cumulative(
+        _acc0,
+        out.events,
+    )
+    st.session_state["ailit_chat_log_path"] = log_path
 
     hz = OutcomeReasonHumanizer()
     hint = hz.humanize(out.reason)
@@ -1221,6 +1171,7 @@ def main() -> None:
     st.session_state.setdefault("ailit_wf_model", "deepseek-chat")
     st.session_state.setdefault("ailit_wf_max_turns", 10_000)
     st.session_state.setdefault("ailit_wf_dry_run", True)
+    st.session_state.setdefault("ailit_token_econ_cumulative", empty_cumulative())
 
     fac = ProjectSessionFactory(project_root)
     plr = fac.load()
@@ -1374,6 +1325,17 @@ def main() -> None:
                     st.session_state["ailit_last_usage_pair"] = pair
                 else:
                     st.session_state.pop("ailit_last_usage_pair", None)
+                _acc1 = st.session_state.get("ailit_token_econ_cumulative")
+                if not isinstance(_acc1, dict):
+                    _acc1 = empty_cumulative()
+                st.session_state["ailit_token_econ_cumulative"] = (
+                    merge_events_into_cumulative(
+                        _acc1,
+                        outcome2.events,
+                    )
+                )
+                _lh = ensure_process_log("chat")
+                st.session_state["ailit_chat_log_path"] = str(_lh.path)
 
             st.session_state.pop("ailit_chat_turn_worker", None)
             st.session_state.pop("ailit_chat_turn_worker_meta", None)
@@ -1389,6 +1351,7 @@ def main() -> None:
             n_tail=n_tail,
         )
         _render_usage_tokens_panel()
+        _render_token_economy_panel()
 
         def _request_send() -> None:
             st.session_state[_ChatPageState.SEND_REQUEST] = True
