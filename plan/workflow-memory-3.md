@@ -5,6 +5,15 @@
 Канон процесса разработки репозитория: [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc).  
 Предыдущие workflow: [`workflow-token-economy-recipe.md`](workflow-token-economy-recipe.md), [`workflow-hybrid-memory-mcp.md`](workflow-hybrid-memory-mcp.md).
 
+## Статус предусловий (перед стартом M3)
+
+Этот workflow начинается после закрытия двух предыдущих. На текущем состоянии репозитория:
+
+- `workflow-token-economy-recipe.md`: постановка TE‑0…TE‑5 закрыта в документе, runtime‑механизмы pager/budget/prune реализованы (см. историю коммитов вокруг `W-TE-*`).
+- `workflow-hybrid-memory-mcp.md`: H0…H4 закрыты в документе; в коде реализован local‑first KB scaffold (SQLite) и инструменты `kb_*` для `ailit chat`; наблюдаемость `memory.access` и редактирование аргументов памяти в JSONL включены.
+
+Важно: M3 всё равно требуется как следующий слой — governance, multi-layer memory, orchestration и evaluation. То есть наличие SQLite‑scaffold **не** означает, что M3 можно пропустить.
+
 ## Порядок выполнения
 
 ```mermaid
