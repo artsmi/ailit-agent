@@ -146,6 +146,10 @@ def print_session_show(path: Path) -> int:
         f"tool={c.get('prune_tools')}, bytes~={c.get('prune_bytes_freed')}\n",
     )
     sys.stdout.write(
+        f"  compaction: restored_files={c.get('compaction_restore_files')}, "
+        f"injected_chars={c.get('compaction_restore_injected_chars')}\n",
+    )
+    sys.stdout.write(
         "\n## Синтетика нагрузки, снятой слоями (оценка)\n",
     )
     sys.stdout.write(

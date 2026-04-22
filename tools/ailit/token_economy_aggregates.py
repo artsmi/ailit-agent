@@ -30,6 +30,8 @@ def empty_cumulative() -> dict[str, Any]:
         "prune_passes": 0,
         "prune_tools": 0,
         "prune_bytes_freed": 0,
+        "compaction_restore_files": 0,
+        "compaction_restore_injected_chars": 0,
     }
 
 
@@ -69,6 +71,13 @@ def merge_events_into_cumulative(
             acc["prune_bytes_freed"] = int(
                 acc.get("prune_bytes_freed", 0),
             ) + _i(row, "pruned_bytes_estimate")
+        elif et == "compaction.restore_files":
+            acc["compaction_restore_files"] = int(
+                acc.get("compaction_restore_files", 0),
+            ) + _i(row, "restored_files")
+            acc["compaction_restore_injected_chars"] = int(
+                acc.get("compaction_restore_injected_chars", 0),
+            ) + _i(row, "injected_chars")
     return acc
 
 
