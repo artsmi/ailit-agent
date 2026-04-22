@@ -295,6 +295,43 @@ Scope должен быть выражен **явно** одним из спос
 - Markdown + frontmatter + секции: `/home/artem/reps/obsidian-memory-mcp/README.md` строки 29–55.
 - Временные факты и эпизоды: `/home/artem/reps/graphiti/README.md` строки 65–70 (определение context graph и validity).
 
+#### Шаблон записи (v1)
+
+Цель: запись должна быть **retrieval‑ready**, **краткой**, с **provenance**, и не содержать сырого лога чата. Формат зависит от backend (vault vs SQLite), но поля одинаковые.
+
+Минимальные поля:
+
+- `id` (генерируется storage; человеко‑читаемый slug допустим как alias)
+- `kind`: `entity` | `fact` | `procedure` | `episode_ref`
+- `scope`: `org|workspace|project|agent|run`
+- `namespace` (для мульти‑KB, см. H0.2)
+- `title`
+- `summary` (1–3 предложения, обязателен)
+- `body` (опционально; структурированный текст, без «простыни»)
+- `tags[]`
+- `links[]` (ссылки на связанные записи по `id`)
+- `provenance` (см. H2.2: run_id, tool, source refs)
+- `created_at`, `updated_at`, `author`
+
+Пример (vault markdown + frontmatter; без сырого чата):
+
+```markdown
+---
+kind: fact
+scope: project
+namespace: default
+title: \"Shell tools включены по умолчанию\"
+summary: \"В ailit включены run_shell и file tools по умолчанию; сессионный shell будет позже (этап H).\" 
+tags: [runtime, shell, defaults]
+provenance:
+  repo: /home/artem/reps/ailit-agent
+  ref: README.md#статус-разработки
+  commit: <git sha>
+  run_id: <optional run id>
+created_at: 2026-04-22T00:00:00Z
+author: human
+---
+\n## Details\n\n- Источник: `README.md`, таблица \"Статус разработки\".\n- Ограничение: не хранить в KB сырые логи чата; только нормализованный факт.\n+```\n+
 ### Задача H2.2 — Происхождение (provenance)
 
 **Содержание:** откуда взялась запись (run id, tool, человек), как помечается устаревание.
