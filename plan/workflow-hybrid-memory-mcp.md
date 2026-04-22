@@ -218,6 +218,31 @@ Scope должен быть выражен **явно** одним из спос
 - MCP + `MEMORY_DIR` для vault: `/home/artem/reps/obsidian-memory-mcp/README.md` строки 71–79 (фрагмент конфигурации Claude Desktop).
 - MCP-слой для графа: `/home/artem/reps/graphiti/README.md` строки 38–40 (указание на `mcp_server/README.md`).
 
+#### Карта MCP tools (v1, минимальный набор)
+
+Цель: обеспечить **index-first** доступ к памяти без вывода сырого контента в окно по умолчанию. Инструменты делятся на:
+
+- **индекс/поиск** (дешёвый ответ, top‑k);
+- **fetch-by-id** (догрузка выбранного фрагмента);
+- **write** (нормализованная запись с provenance);
+- **link** (связи/граф, если backend поддерживает).
+
+Общий принцип: **write никогда не принимает сырой чат**, а `fetch` возвращает **не больше лимита** (в токенах/символах) и всегда указывает provenance/ID.
+
+| Tool | Вход (пример) | Выход | Scope | Запреты / замечания |
+|------|---------------|-------|-------|---------------------|
+| `kb.search` | `{query, scope, namespace, top_k, filters}` | `[{id, score, title, summary, scope, provenance_hint}]` | `org/workspace/project/agent/run` | Не возвращать полные тела; только summary+ID. |
+| `kb.fetch` | `{id, max_chars, max_tokens}` | `{id, body_snippet, fields, provenance}` | наследует scope записи | Ограничить размер; по умолчанию отдавать фрагмент/поля, не весь документ. |
+| `kb.write_fact` | `{scope, namespace, title, summary, body, provenance, tags}` | `{id, status}` | `workspace/project/agent/run` (org — только при policy) | Запрещено: сырой чат, секреты, PII; body должен быть нормализован. |
+| `kb.write_entity` | `{scope, namespace, entity_type, name, summary, observations[], provenance}` | `{id, status}` | `workspace/project` | Аналог vault/graphiti «entity management». |
+| `kb.link` | `{from_id, rel, to_id, provenance}` | `{status}` | по scope сущностей | Только для backends с графом/links; должен быть provenance. |
+| `kb.delete` | `{id, reason}` | `{status}` | по policy | По умолчанию запрещать агенту без человеческого approval. |
+
+##### Транспорт и примеры конфигурации (доноры)
+
+- Vault‑MCP (`obsidian-memory-mcp`) использует `MEMORY_DIR` и stdio‑запуск node‑сервера (см. `/home/artem/reps/obsidian-memory-mcp/README.md` 71–79).
+- Graphiti MCP поддерживает группы (`group_id`) и HTTP transport `/mcp/` (см. `/home/artem/reps/graphiti/mcp_server/README.md` 16–29, 56–76).
+
 ### Задача H1.2 — Политика прав и изоляция
 
 **Содержание:** описать, кто может писать в `org` vs `project`, нужен ли review-путь для promoted записей.
