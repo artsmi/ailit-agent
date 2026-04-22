@@ -231,7 +231,7 @@ class SessionRunner:
     ) -> str:
         """Redact potentially sensitive tool arguments for diagnostics."""
         name = str(tool_name or "")
-        if name.startswith("kb."):
+        if name.startswith("kb_"):
             return "<redacted>"
         return arguments_json
 
@@ -247,7 +247,7 @@ class SessionRunner:
     ) -> None:
         """Emit a safe, non-content memory access event (H4.2)."""
         name = str(tool_name or "")
-        if not name.startswith("kb."):
+        if not name.startswith("kb_"):
             return
         try:
             raw = json.loads(arguments_json) if arguments_json.strip() else {}

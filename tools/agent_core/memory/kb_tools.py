@@ -43,7 +43,12 @@ def kb_tools_config_from_env() -> KbToolsConfig:
 
 
 def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
-    """Build tool registry for kb.* tools."""
+    """Build tool registry for kb_* tools.
+
+    Важно: некоторые OpenAI-совместимые провайдеры (DeepSeek) ограничивают
+    имя function/tool паттерном ``^[a-zA-Z0-9_-]+$`` — точки запрещены.
+    Поэтому используем имена вида ``kb_search`` вместо ``kb.search``.
+    """
     if not cfg.enabled:
         return ToolRegistry(specs={}, handlers={})
     kb = SqliteKb(cfg.db_path)
@@ -65,8 +70,8 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
     specs: dict[str, ToolSpec] = {}
     handlers: dict[str, Any] = {}
 
-    specs["kb.search"] = ToolSpec(
-        name="kb.search",
+    specs["kb_search"] = ToolSpec(
+        name="kb_search",
         description=(
             "Поиск по KB: вернуть top-k кандидатов (id, title, summary). "
             "Не возвращает полный текст."
@@ -95,10 +100,10 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
         rows = kb.search(query=q, scope=scope, namespace=ns, top_k=top_k)
         return _json_out(rows)
 
-    handlers["kb.search"] = _kb_search
+    handlers["kb_search"] = _kb_search
 
-    specs["kb.fetch"] = ToolSpec(
-        name="kb.fetch",
+    specs["kb_fetch"] = ToolSpec(
+        name="kb_fetch",
         description="Получить запись KB по id (ограниченный фрагмент body).",
         parameters_schema={
             "type": "object",
@@ -136,10 +141,10 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
             },
         )
 
-    handlers["kb.fetch"] = _kb_fetch
+    handlers["kb_fetch"] = _kb_fetch
 
-    specs["kb.write_fact"] = ToolSpec(
-        name="kb.write_fact",
+    specs["kb_write_fact"] = ToolSpec(
+        name="kb_write_fact",
         description=(
             "Записать нормализованный факт в KB (без сырого чата). "
             "Возвращает id."
@@ -192,6 +197,6 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
         )
         return _json_out({"id": rid, "status": "ok"})
 
-    handlers["kb.write_fact"] = _kb_write_fact
+    handlers["kb_write_fact"] = _kb_write_fact
 
     return ToolRegistry(specs=specs, handlers=handlers)

@@ -11,7 +11,7 @@ def test_kb_write_search_fetch_roundtrip(tmp_path: Path) -> None:
     cfg = KbToolsConfig(enabled=True, db_path=db, namespace="default")
     reg = build_kb_tool_registry(cfg)
 
-    out_w = reg.get_handler("kb.write_fact")(
+    out_w = reg.get_handler("kb_write_fact")(
         {
             "id": "f_1",
             "scope": "project",
@@ -27,7 +27,7 @@ def test_kb_write_search_fetch_roundtrip(tmp_path: Path) -> None:
     assert j["status"] == "ok"
     assert j["id"] == "f_1"
 
-    out_s = reg.get_handler("kb.search")(
+    out_s = reg.get_handler("kb_search")(
         {
             "query": "token",
             "scope": "project",
@@ -39,7 +39,7 @@ def test_kb_write_search_fetch_roundtrip(tmp_path: Path) -> None:
     assert isinstance(rows, list)
     assert rows and rows[0]["id"] == "f_1"
 
-    out_f = reg.get_handler("kb.fetch")({"id": "f_1", "max_chars": 10})
+    out_f = reg.get_handler("kb_fetch")({"id": "f_1", "max_chars": 10})
     rec = json.loads(out_f)
     assert rec["id"] == "f_1"
     assert rec["title"] == "Test fact"

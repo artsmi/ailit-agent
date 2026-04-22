@@ -15,8 +15,8 @@ from test_session_loop import ScriptedProvider
 
 def test_kb_arguments_are_redacted_in_tool_call_started() -> None:
     specs = {
-        "kb.write_fact": ToolSpec(
-            name="kb.write_fact",
+        "kb_write_fact": ToolSpec(
+            name="kb_write_fact",
             description="test",
             parameters_schema={"type": "object"},
             side_effect=SideEffectClass.WRITE,
@@ -26,13 +26,13 @@ def test_kb_arguments_are_redacted_in_tool_call_started() -> None:
     def _handler(_args: object) -> str:
         return "ok"
 
-    reg = ToolRegistry(specs=specs, handlers={"kb.write_fact": _handler})
+    reg = ToolRegistry(specs=specs, handlers={"kb_write_fact": _handler})
     resp = NormalizedChatResponse(
         text_parts=(),
         tool_calls=(
             ToolCallNormalized(
                 call_id="c1",
-                tool_name="kb.write_fact",
+                tool_name="kb_write_fact",
                 arguments_json='{"id":"x","body":"secret"}',
                 stream_index=0,
                 provider_name="scripted",

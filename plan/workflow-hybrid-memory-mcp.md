@@ -231,12 +231,12 @@ Scope должен быть выражен **явно** одним из спос
 
 | Tool | Вход (пример) | Выход | Scope | Запреты / замечания |
 |------|---------------|-------|-------|---------------------|
-| `kb.search` | `{query, scope, namespace, top_k, filters}` | `[{id, score, title, summary, scope, provenance_hint}]` | `org/workspace/project/agent/run` | Не возвращать полные тела; только summary+ID. |
-| `kb.fetch` | `{id, max_chars, max_tokens}` | `{id, body_snippet, fields, provenance}` | наследует scope записи | Ограничить размер; по умолчанию отдавать фрагмент/поля, не весь документ. |
-| `kb.write_fact` | `{scope, namespace, title, summary, body, provenance, tags}` | `{id, status}` | `workspace/project/agent/run` (org — только при policy) | Запрещено: сырой чат, секреты, PII; body должен быть нормализован. |
-| `kb.write_entity` | `{scope, namespace, entity_type, name, summary, observations[], provenance}` | `{id, status}` | `workspace/project` | Аналог vault/graphiti «entity management». |
-| `kb.link` | `{from_id, rel, to_id, provenance}` | `{status}` | по scope сущностей | Только для backends с графом/links; должен быть provenance. |
-| `kb.delete` | `{id, reason}` | `{status}` | по policy | По умолчанию запрещать агенту без человеческого approval. |
+| `kb_search` | `{query, scope, namespace, top_k, filters}` | `[{id, score, title, summary, scope, provenance_hint}]` | `org/workspace/project/agent/run` | Не возвращать полные тела; только summary+ID. |
+| `kb_fetch` | `{id, max_chars, max_tokens}` | `{id, body_snippet, fields, provenance}` | наследует scope записи | Ограничить размер; по умолчанию отдавать фрагмент/поля, не весь документ. |
+| `kb_write_fact` | `{scope, namespace, title, summary, body, provenance, tags}` | `{id, status}` | `workspace/project/agent/run` (org — только при policy) | Запрещено: сырой чат, секреты, PII; body должен быть нормализован. |
+| `kb_write_entity` | `{scope, namespace, entity_type, name, summary, observations[], provenance}` | `{id, status}` | `workspace/project` | Аналог vault/graphiti «entity management». |
+| `kb_link` | `{from_id, rel, to_id, provenance}` | `{status}` | по scope сущностей | Только для backends с графом/links; должен быть provenance. |
+| `kb_delete` | `{id, reason}` | `{status}` | по policy | По умолчанию запрещать агенту без человеческого approval. |
 
 ##### Транспорт и примеры конфигурации (доноры)
 
@@ -274,7 +274,7 @@ Scope должен быть выражен **явно** одним из спос
 
 - **Promotion gate**: запись в `org` со стороны агента требует человеческого approval и явной причины.
 - **PII/секреты**: запрещены на всех scopes для агента; хранение — только человеком в защищённом канале (вне KB).
-- **Удаление (`kb.delete`)**: запрещено агенту по умолчанию; допускается человеку и (опционально) CI через отдельный процесс.
+- **Удаление (`kb_delete`)**: запрещено агенту по умолчанию; допускается человеку и (опционально) CI через отдельный процесс.
 - **Наблюдаемость**: публичные логи по умолчанию не содержат body KB‑записей, только IDs/метаданные (см. H4.2).
 
 ---
@@ -394,14 +394,14 @@ author: human
 
 - `KB_MAX_TOKENS_PER_TURN = 800` (жёсткий лимит на суммарные фрагменты из KB в один turn).
 - `KB_TOP_K = 8` (кандидаты из индекса; затем модель/ранкер выбирает 0–3 для догрузки).
-- `KB_FETCH_MAX_CHARS = 2400` (ограничение на один фрагмент при `kb.fetch`).
+- `KB_FETCH_MAX_CHARS = 2400` (ограничение на один фрагмент при `kb_fetch`).
 
 Алгоритм:
 
 1) Сформировать запрос `q` (короткий, 1–2 предложения) и определить scope/namespace по контексту задачи.  
-2) `kb.search(q, top_k=KB_TOP_K, filters=scope/namespace)` → получить список кандидатов `{id, score, summary, provenance_hint}`.  
+2) `kb_search(q, top_k=KB_TOP_K, filters=scope/namespace)` → получить список кандидатов `{id, score, summary, provenance_hint}`.  
 3) Выбрать 0–3 кандидата для догрузки (если none — не подмешивать KB).  
-4) Для каждого выбранного: `kb.fetch(id, max_chars=KB_FETCH_MAX_CHARS)` → получить `body_snippet` + `provenance`.  
+4) Для каждого выбранного: `kb_fetch(id, max_chars=KB_FETCH_MAX_CHARS)` → получить `body_snippet` + `provenance`.  
 5) Собрать `context_pack` из фрагментов так, чтобы суммарно ≤ `KB_MAX_TOKENS_PER_TURN`.  
 6) В prompt подмешать **только** `context_pack`, а не индексы/сырые документы.
 
@@ -410,11 +410,11 @@ Mermaid:
 ```mermaid
 flowchart TD
   A[User turn] --> B[Build query q + decide scope/ns]
-  B --> C[kb.search top_k]
+  B --> C[kb_search top_k]
   C --> D{Any candidates?}
   D -- no --> Z[Proceed without KB]
   D -- yes --> E[Select 0-3 ids]
-  E --> F[kb.fetch id (max_chars)]
+  E --> F[kb_fetch id (max_chars)]
   F --> G[Assemble context_pack (<= KB_MAX_TOKENS_PER_TURN)]
   G --> H[LLM request]
 ```
@@ -440,14 +440,14 @@ flowchart TD
 
 - **Setup:** в KB есть запись `fact` в `project` scope с уникальным ключевым словом в `title/summary`.
 - **Запрос:** пользователь спрашивает про этот факт одним предложением.
-- **Ожидание:** `kb.search` возвращает запись в top‑k; затем происходит `kb.fetch` и в prompt подмешан фрагмент ≤ `KB_MAX_TOKENS_PER_TURN`.
-- **Проверка:** в логах видны `kb.search` и `kb.fetch` (без body), ответ модели опирается на факт и включает provenance (commit/ref или id).
+- **Ожидание:** `kb_search` возвращает запись в top‑k; затем происходит `kb_fetch` и в prompt подмешан фрагмент ≤ `KB_MAX_TOKENS_PER_TURN`.
+- **Проверка:** в логах видны `kb_search` и `kb_fetch` (без body), ответ модели опирается на факт и включает provenance (commit/ref или id).
 
 2) **Partial miss (индекс нашёл частично/не уверен)**
 
 - **Setup:** в KB есть 2 похожие записи (смежные темы) и одна нужная, но с менее очевидным названием.
 - **Запрос:** сформулирован двусмысленно.
-- **Ожидание:** `kb.search` возвращает кандидаты; модель выбирает 0–1 `fetch` и задаёт уточняющий вопрос вместо уверенного утверждения.
+- **Ожидание:** `kb_search` возвращает кандидаты; модель выбирает 0–1 `fetch` и задаёт уточняющий вопрос вместо уверенного утверждения.
 - **Проверка:** нет «простыни» из KB; ответ короткий и просит уточнить, либо явно маркирует неопределённость.
 
 3) **Conflict (есть supersedes/устаревание)**
