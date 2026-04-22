@@ -386,6 +386,44 @@ author: human
 - Hybrid retrieval в Graphiti: `/home/artem/reps/graphiti/README.md` строка 55.
 - Экономия контекста и index-first через MCP: `/home/artem/reps/context-mode/README.md` строки 36–40 (sandbox, SQLite/FTS5, BM25, выборка релевантного вместо «сырого» дампа в окно).
 
+#### Контракт retrieval (v1, index-first)
+
+**Цель:** никогда не подмешивать в prompt «всю память»; сначала получить **индекс** (кандидаты), затем догрузить только выбранные фрагменты.
+
+Параметры (глобальные лимиты):
+
+- `KB_MAX_TOKENS_PER_TURN = 800` (жёсткий лимит на суммарные фрагменты из KB в один turn).
+- `KB_TOP_K = 8` (кандидаты из индекса; затем модель/ранкер выбирает 0–3 для догрузки).
+- `KB_FETCH_MAX_CHARS = 2400` (ограничение на один фрагмент при `kb.fetch`).
+
+Алгоритм:
+
+1) Сформировать запрос `q` (короткий, 1–2 предложения) и определить scope/namespace по контексту задачи.  
+2) `kb.search(q, top_k=KB_TOP_K, filters=scope/namespace)` → получить список кандидатов `{id, score, summary, provenance_hint}`.  
+3) Выбрать 0–3 кандидата для догрузки (если none — не подмешивать KB).  
+4) Для каждого выбранного: `kb.fetch(id, max_chars=KB_FETCH_MAX_CHARS)` → получить `body_snippet` + `provenance`.  
+5) Собрать `context_pack` из фрагментов так, чтобы суммарно ≤ `KB_MAX_TOKENS_PER_TURN`.  
+6) В prompt подмешать **только** `context_pack`, а не индексы/сырые документы.
+
+Mermaid:
+
+```mermaid
+flowchart TD
+  A[User turn] --> B[Build query q + decide scope/ns]
+  B --> C[kb.search top_k]
+  C --> D{Any candidates?}
+  D -- no --> Z[Proceed without KB]
+  D -- yes --> E[Select 0-3 ids]
+  E --> F[kb.fetch id (max_chars)]
+  F --> G[Assemble context_pack (<= KB_MAX_TOKENS_PER_TURN)]
+  G --> H[LLM request]
+```
+
+Поведение при конфликте (см. H2.2):
+
+- Если `fetch` возвращает запись с `deprecated=true`, по умолчанию не использовать её как источник истины; искать `superseded_by`.
+- Если найдены конфликтующие факты, подмешать оба **кратко** и попросить модель выбрать/уточнить по provenance.
+
 ### Задача H3.2 — Оценка качества retrieval
 
 **Содержание:** минимальный чеклист ручной проверки (3 сценария: hit, partial miss, conflict).
