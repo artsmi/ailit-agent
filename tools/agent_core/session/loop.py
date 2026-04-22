@@ -223,6 +223,62 @@ class SessionRunner:
             }
             diag_sink(enriched)
 
+    def _safe_arguments_json(
+        self,
+        *,
+        tool_name: str,
+        arguments_json: str,
+    ) -> str:
+        """Redact potentially sensitive tool arguments for diagnostics."""
+        name = str(tool_name or "")
+        if name.startswith("kb."):
+            return "<redacted>"
+        return arguments_json
+
+    def _emit_memory_access(
+        self,
+        *,
+        tool_name: str,
+        call_id: str,
+        arguments_json: str,
+        events: list[dict[str, Any]],
+        diag_sink: Callable[[dict[str, Any]], None] | None,
+        event_sink: SessionEventSink | None,
+    ) -> None:
+        """Emit a safe, non-content memory access event (H4.2)."""
+        name = str(tool_name or "")
+        if not name.startswith("kb."):
+            return
+        try:
+            raw = json.loads(arguments_json) if arguments_json.strip() else {}
+        except json.JSONDecodeError:
+            raw = {}
+        data: dict[str, Any] = {}
+        if isinstance(raw, dict):
+            for k in ("scope", "namespace", "top_k", "id"):
+                v = raw.get(k)
+                if v is None:
+                    continue
+                if isinstance(v, (str, int)):
+                    data[k] = v
+            q = raw.get("query")
+            if isinstance(q, str):
+                data["query_len"] = len(q)
+            body = raw.get("body")
+            if isinstance(body, str):
+                data["body_len"] = len(body)
+        self._emit(
+            events,
+            "memory.access",
+            {
+                "tool": name,
+                "call_id": str(call_id),
+                **data,
+            },
+            diag_sink,
+            event_sink,
+        )
+
     def _prepare_context(
         self,
         messages: list[ChatMessage],
@@ -728,10 +784,21 @@ class SessionRunner:
                             {
                                 "tool": inv.tool_name,
                                 "call_id": inv.call_id,
-                                "arguments_json": inv.arguments_json,
+                                "arguments_json": self._safe_arguments_json(
+                                    tool_name=inv.tool_name,
+                                    arguments_json=inv.arguments_json,
+                                ),
                             },
                             diag_sink,
                             event_sink,
+                        )
+                        self._emit_memory_access(
+                            tool_name=inv.tool_name,
+                            call_id=inv.call_id,
+                            arguments_json=inv.arguments_json,
+                            events=events,
+                            diag_sink=diag_sink,
+                            event_sink=event_sink,
                         )
                     results = executor.execute_serial(
                         invs,
@@ -902,10 +969,21 @@ class SessionRunner:
                             {
                                 "tool": inv.tool_name,
                                 "call_id": inv.call_id,
-                                "arguments_json": inv.arguments_json,
+                                "arguments_json": self._safe_arguments_json(
+                                    tool_name=inv.tool_name,
+                                    arguments_json=inv.arguments_json,
+                                ),
                             },
                             diag_sink,
                             event_sink,
+                        )
+                        self._emit_memory_access(
+                            tool_name=inv.tool_name,
+                            call_id=inv.call_id,
+                            arguments_json=inv.arguments_json,
+                            events=events,
+                            diag_sink=diag_sink,
+                            event_sink=event_sink,
                         )
                     results = executor.execute_serial(
                         invs,
