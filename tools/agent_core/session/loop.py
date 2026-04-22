@@ -25,18 +25,18 @@ from agent_core.providers.protocol import ChatProvider
 from agent_core.session.budget import BudgetGovernance
 from agent_core.session.compaction import compact_messages
 from agent_core.session.context_pager import (
+    READ_CONTEXT_PAGE_NAME,
     ContextPageStore,
     ContextPagerConfig,
     StoredPage,
     build_context_pager_read_registry,
-    build_tool_message_for_page,
     build_preview,
+    build_tool_message_for_page,
     context_pager_config_from_env,
     locator_from_invocation,
     stable_page_id,
     tool_to_source_key,
 )
-from agent_core.session.context_pager import READ_CONTEXT_PAGE_NAME
 from agent_core.session.shortlist import apply_keyword_shortlist
 from agent_core.session.tool_output_budget import (
     ToolOutputBudgetConfig,
@@ -497,9 +497,13 @@ class SessionRunner:
         rows: list[tuple[ToolInvocation, ToolRunResult, str]] = []
         for inv, tr in zip(invs, results, strict=True):
             body = tr.content if tr.error is None else f"error:{tr.error}"
+            # Не пагинировать вывод read_context_page: иначе каждый чанк
+            # становится новой «страницей» → модель снова вызывает
+            # read_context_page(offset=0) → бесконечная цепочка page_id.
             if (
                 pcfg.enabled
                 and tr.error is None
+                and inv.tool_name != READ_CONTEXT_PAGE_NAME
                 and len(body) >= pcfg.min_body_chars
             ):
                 page_id = stable_page_id(
