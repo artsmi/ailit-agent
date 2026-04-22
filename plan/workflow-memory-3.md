@@ -14,6 +14,107 @@
 
 Важно: M3 всё равно требуется как следующий слой — governance, multi-layer memory, orchestration и evaluation. То есть наличие SQLite‑scaffold **не** означает, что M3 можно пропустить.
 
+## Доноры: уточнённые ссылки на best practices (для “киллер‑фич” M3)
+
+Этот раздел фиксирует **конкретные файлы и диапазоны строк** в донорах, которые нужно использовать как ориентиры (без копипаста). Он дополняет ссылки из §1–§2.
+
+### Claude Code (`/home/artem/reps/claude-code`)
+
+- **Post-compact restore “read file state”**: после компактации подмешиваются “recently accessed files” в пределах токен-бюджета, чтобы модель не перечитывала файлы заново.
+
+```1398:1449:/home/artem/reps/claude-code/services/compact/compact.ts
+Creates attachment messages for recently accessed files to restore them after compaction.
+...
+Files are selected based on recency, but constrained by both file count and token budget limits.
+```
+
+- **Сборка system prompts по приоритетам** (слои override/coordinator/agent/custom/default).
+
+```28:74:/home/artem/reps/claude-code/utils/systemPrompt.ts
+Builds the effective system prompt array based on priority:
+0. Override ...
+1. Coordinator ...
+2. Agent ...
+3. Custom ...
+4. Default ...
+```
+
+- **Range read + метрики чтения**: чтение текста через `readFileInRange` с offset/limit и логированием `readLines/readBytes`.
+
+```1019:1055:/home/artem/reps/claude-code/tools/FileReadTool/FileReadTool.ts
+// Text file (single async read via readFileInRange) ...
+logEvent(... { totalLines, readLines, totalBytes, readBytes, offset, limit })
+```
+
+### OpenCode (`/home/artem/reps/opencode`)
+
+- **Модульные prompt-фрагменты по провайдерам** (раздельные `.txt`, чтобы не держать “простыню” в одном модуле).
+
+```5:33:/home/artem/reps/opencode/packages/opencode/src/session/system.ts
+import PROMPT_ANTHROPIC from \"./prompt/anthropic.txt\"
+...
+export function provider(model: Provider.Model) { ... }
+```
+
+- **Типизированная шина событий** как ориентир для stream/UI и проверяемого event contract.
+
+```29:40:/home/artem/reps/opencode/packages/opencode/src/bus/index.ts
+publish/subscribe интерфейсы (typed events)
+```
+
+### Context-mode (`/home/artem/reps/context-mode`)
+
+- **Unified report**: один “полный отчёт” `FullReport` (savings + continuity + DB analytics) как единый источник для stats.
+
+```70:114:/home/artem/reps/context-mode/src/session/analytics.ts
+FullReport ... savings ... continuity ... resume_ready ...
+```
+
+```229:235:/home/artem/reps/context-mode/src/session/analytics.ts
+queryAll — single unified report from ONE source
+This is the ONE call that ctx_stats should use.
+```
+
+### RuFlo (`/home/artem/reps/ruflo`)
+
+- **Token governance layer** как набор отдельных компонентов (BudgetManager, ContextPackBuilder, PromptProfileRegistry, SemanticResponseCache, ToolExposurePolicy).
+
+```34:70:/home/artem/reps/ruflo/plan/03_token_optimization.md
+Нужны 5 отдельных компонента ...
+```
+
+```50:54:/home/artem/reps/ruflo/plan/03_token_optimization.md
+ContextPackBuilder: index -> fetch-by-id -> full file on demand
+```
+
+### ai-multi-agents (`/home/artem/reps/ai-multi-agents`)
+
+- **Canonical files = source of truth; DB/index = acceleration layer** (rebuildable, не истина).
+
+```160:199:/home/artem/reps/ai-multi-agents/plans/ai-memory.md
+Canonical project memory ... Derived retrieval memory ... files are source of truth, DB is acceleration layer
+```
+
+### Graphiti (`/home/artem/reps/graphiti`)
+
+- **Temporal/provenance**: facts имеют validity window и `superseded`, всё трассируется к episodes.
+
+```65:82:/home/artem/reps/graphiti/README.md
+context graph ... validity window ... superseded ... traces back to episodes
+```
+
+### Hindsight / Letta
+
+Ориентиры остаются как в §1.2 (learning over time / memory blocks); конкретные “киллер‑фичи” должны быть отражены в evaluation suite (M3‑5.2) и в governance (M3‑4.2).
+
+---
+
+## Вопросы к пользователю (если нужна постановка точнее)
+
+1) Нужна ли цель “resume after compaction” в `ailit` как в Claude Code (восстановление recently-read files), или достаточно существующей истории + pager?  
+2) Хотим ли мы “единый отчёт” по savings/continuity как в context-mode (одна команда/панель), или разделяем по подсистемам?  
+3) Какие live e2e допустимы по квотам (DeepSeek) и какие должны быть строго mock-only?
+
 ## Порядок выполнения
 
 ```mermaid
@@ -396,6 +497,80 @@ flowchart LR
 - **review checklist**: нет смешения memory layers, нет raw dump promotion, есть provenance и cost-aware retrieval;
 - **pytest / flake8** обязательны только при последующих кодовых задачах этой ветки;
 - **memory benchmark draft** должен расширять benchmark из [`workflow-token-economy-recipe.md`](workflow-token-economy-recipe.md), а не конфликтовать с ним.
+
+### 5.1. E2E / ручные сценарии (обязательные)
+
+Эти сценарии нужны, чтобы M3 был “проверяемым” и сравнимым с донорами (Claude Code / context-mode / ruflo).
+
+#### E2E-M3-01: index-first чтение и range reads (без чтения “всё целиком” по умолчанию)
+
+**Setup:** новый проект с 1–2 большими файлами (5k+ строк) и 1–2 средними (200–500 строк).  
+**Шаги:**
+
+1) Запустить `ailit chat`, попросить: «найди где определяется X и объясни кратко, не читая целиком крупные файлы».  
+2) Проверить по логу `ailit session usage show <log>`:
+   - есть вызовы `read_file` с `offset`/`limit` (chunked reads);
+   - нет массового чтения больших файлов целиком в первые 1–2 хода.
+
+**Критерии приёмки:**
+
+- agent делает **range reads** по умолчанию для больших файлов (аналогично `readFileInRange` у Claude Code).
+- если всё же нужен full read, это обосновано (например: “нехватает контекста для изменения нескольких функций”) и происходит **после** index-first попытки.
+
+**Ссылки-доноры:**
+
+- range reads + метрики: `/home/artem/reps/claude-code/tools/FileReadTool/FileReadTool.ts`, строки `1019–1076`.
+
+#### E2E-M3-02: unified report по экономии + continuity (один источник правды)
+
+**Setup:** запустить 1 сессию `ailit chat` с несколькими tool-вызовами и остановить.  
+**Шаги:**
+
+1) В UI `ailit chat` должен быть один блок/панель/команда, которая отвечает на вопрос: «что мы сэкономили и почему сессия resume-ready».  
+2) Сверить структуру отчёта с единым контрактом (внутренний формат может отличаться, но должен быть “single call / one source”).
+
+**Критерии приёмки:**
+
+- нет 2–3 разных “полупанелей” с частично пересекающимися метриками;
+- есть признак “resume-ready” (или эквивалент), основанный на наблюдаемости M3.
+
+**Ссылки-доноры:**
+
+- `FullReport` и “ONE call”: `/home/artem/reps/context-mode/src/session/analytics.ts`, строки `70–114` и `229–235`.
+
+#### E2E-M3-03: post-compact / resume без повторного чтения “тех же” файлов
+
+**Setup:** сессия, где агент уже прочитал 3–5 файлов и затем был вынужден “сжаться”/перезапуститься (любая форма compaction или рестарта).  
+**Шаги:**
+
+1) Инициировать ситуацию “после compaction”: продолжить работу и попросить продолжить изменения “с места”.  
+2) Проверить, что агент **не перечитывает** заново ранее прочитанные файлы “с нуля”, если их содержимое уже восстановлено/прикреплено/доступно.
+
+**Критерии приёмки:**
+
+- re-read происходит только если изменился mtime или требуется свежая версия (обоснованно);
+- количество повторных `read_file` по тем же путям значительно меньше, чем до M3.
+
+**Ссылки-доноры:**
+
+- post-compact restore: `/home/artem/reps/claude-code/services/compact/compact.ts`, строки `1398–1449`.
+
+#### E2E-M3-04: selective tool exposure (минимизация tool schemas)
+
+**Setup:** сценарий, где агенту для задачи достаточно 2–3 tools.  
+**Шаги:**
+
+1) Запустить `ailit chat` и дать задачу “только анализ”, без права на запись/terminal.  
+2) Проверить, что agent видит ограниченный набор tools (family index или ограниченная выдача) и получает расширение только по мере необходимости.
+
+**Критерии приёмки:**
+
+- экономия на “tool schema size” измерима и попадает в unified report;
+- failure mode: если tool не выдан, agent запрашивает раскрытие family/tool detail, а не “ломается”.
+
+**Ссылки-доноры:**
+
+- selective tool exposure: `/home/artem/reps/ruflo/plan/03_token_optimization.md`, строки `66–70` и `129–133`.
 
 ---
 
