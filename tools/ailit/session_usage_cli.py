@@ -7,7 +7,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ailit.token_economy_aggregates import analyze_log_rows
+from ailit.token_economy_aggregates import (
+    analyze_log_rows,
+    build_session_summary,
+)
 from ailit.user_paths import global_logs_dir
 
 
@@ -239,3 +242,65 @@ def print_session_subsystem(path: Path, subsystem: str) -> int:
         f"Ожидается: usage|pager|budget|prune|compaction|memory|exposure\n",
     )
     return 2
+
+
+def print_session_summary(path: Path, *, as_json: bool) -> int:
+    """Единый отчёт (M3): usage + подсистемы + resume_ready."""
+    if not path.is_file():
+        sys.stderr.write(f"Файл не найден: {path}\n")
+        return 1
+    rows = _read_jsonl_file(path)
+    summary = build_session_summary(rows)
+    if as_json:
+        sys.stdout.write(json.dumps(summary, ensure_ascii=False, indent=2))
+        sys.stdout.write("\n")
+        return 0
+    u = summary.get("usage") or {}
+    c = summary.get("cumulative") or {}
+    s = summary.get("synthetic_est") or {}
+    rs = summary.get("resume") or {}
+    sys.stdout.write(f"# unified session summary\n# log: {path}\n")
+    st = summary.get("log_start")
+    if st:
+        sys.stdout.write(f"start_ts (header): {st}\n")
+    sys.stdout.write(
+        f"resume_ready: {bool(rs.get('resume_ready'))}\n"
+        f"  last_event: {rs.get('last_event_type')!r}\n"
+        f"  notes: {rs.get('notes')}\n\n",
+    )
+    sys.stdout.write("## usage (суммарно по model.response)\n")
+    uline = (
+        f"  input={u.get('input_tokens')}  "
+        f"output={u.get('output_tokens')}  "
+        f"cache_r={u.get('cache_read_tokens')}  "
+        f"cache_w={u.get('cache_write_tokens')}\n\n"
+    )
+    sys.stdout.write(uline)
+    sys.stdout.write("## token-economy (счётчики в логе)\n")
+    sys.stdout.write(
+        f"  pager: page_created={c.get('pager_page_created')}, "
+        f"page_used={c.get('pager_page_used')}\n"
+        f"  budget: events={c.get('budget_events')}, "
+        f"saved_chars~={c.get('budget_chars_saved')}\n"
+        f"  prune: passes={c.get('prune_passes')}, "
+        f"tools={c.get('prune_tools')}, "
+        f"bytes~={c.get('prune_bytes_freed')}\n"
+        f"  compaction: files={c.get('compaction_restore_files')}, "
+        f"injected_chars={c.get('compaction_restore_injected_chars')}\n"
+        f"  tool exposure: applied={c.get('tool_exposure_applied')}, "
+        f"schema_chars~={c.get('tool_exposure_schema_chars_sum')}\n",
+    )
+    sys.stdout.write(
+        f"  memory.access (счётчик): {rs.get('memory_access_n', 0)}\n\n",
+    )
+    sys.stdout.write("## synthetic (оценка слоёв)\n")
+    sys.stdout.write(
+        f"  pager bytes≈{s.get('pager_bytes')}  "
+        f"pseudo_tok~={s.get('pager_pseudo_tokens')}\n"
+        f"  budget saved_chars={s.get('budget_chars_saved')}  "
+        f"pseudo_tok~={s.get('budget_pseudo_tokens')}\n"
+        f"  prune bytes_freed={s.get('prune_bytes_freed')}  "
+        f"pseudo_tok~={s.get('prune_pseudo_tokens')}\n"
+        f"  layers sum pseudo_tok: {s.get('layers_sum_pseudo_tokens')}\n",
+    )
+    return 0

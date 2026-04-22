@@ -90,6 +90,79 @@ def merge_events_into_cumulative(
     return acc
 
 
+def compute_resume_signals(
+    rows: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Эвристика «можно продолжать сессию» по JSONL (M3 continuity)."""
+    cancelled = False
+    n_model_ok = 0
+    n_model_err = 0
+    n_mem = 0
+    last_sig: str | None = None
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        et = row.get("event_type")
+        if not isinstance(et, str) or not et:
+            continue
+        if et == "session.cancelled":
+            cancelled = True
+        if et == "model.response":
+            n_model_ok += 1
+        if et == "model.error":
+            n_model_err += 1
+        if et == "memory.access":
+            n_mem += 1
+    for row in reversed(rows):
+        if not isinstance(row, Mapping):
+            continue
+        et = row.get("event_type")
+        if isinstance(et, str) and et:
+            last_sig = et
+            break
+    trailing_error = last_sig == "model.error"
+    resume_ready = (
+        n_model_ok > 0
+        and not cancelled
+        and not trailing_error
+    )
+    notes: list[str] = []
+    if cancelled:
+        notes.append("в логе есть session.cancelled")
+    if trailing_error:
+        notes.append("последнее событие: model.error")
+    if n_model_ok == 0:
+        notes.append("нет model.response")
+    return {
+        "resume_ready": resume_ready,
+        "last_event_type": last_sig,
+        "cancelled": cancelled,
+        "model_response_n": n_model_ok,
+        "model_error_n": n_model_err,
+        "memory_access_n": n_mem,
+        "trailing_error": trailing_error,
+        "notes": notes,
+    }
+
+
+def build_session_summary(
+    rows: list[Mapping[str, Any]],
+) -> dict[str, Any]:
+    """Единый отчёт по логу: usage, token-economy, resume, счётчики."""
+    base = analyze_log_rows(rows)
+    resume = compute_resume_signals(rows)
+    c = base.get("cumulative")
+    c_dict = c if isinstance(c, dict) else {}
+    return {
+        "log_start": base.get("log_start"),
+        "model_response_n": base.get("model_response_n"),
+        "usage": base.get("usage"),
+        "cumulative": c_dict,
+        "synthetic_est": base.get("synthetic_est"),
+        "resume": resume,
+    }
+
+
 def analyze_log_rows(
     rows: list[Mapping[str, Any]],
 ) -> dict[str, Any]:

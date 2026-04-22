@@ -194,6 +194,16 @@ def _cmd_session_usage_show(args: argparse.Namespace) -> int:
     return print_session_show(p)
 
 
+def _cmd_session_usage_summary(args: argparse.Namespace) -> int:
+    """Единый summary: usage + подсистемы + resume_ready."""
+    from pathlib import Path
+
+    from ailit.session_usage_cli import print_session_summary
+
+    p = Path(str(getattr(args, "log_file", ""))).resolve()
+    return print_session_summary(p, as_json=bool(getattr(args, "json", False)))
+
+
 def _make_cmd_session_usage_subsystem(subsystem: str):
     """Фабрика: отдельный отчёт по подсистеме (M3: разные команды)."""
 
@@ -443,6 +453,17 @@ def main(argv: list[str] | None = None) -> int:
         help="Путь к JSONL (ailit-chat-*.log / ailit-agent-*.log)",
     )
     p_sess_show.set_defaults(func=_cmd_session_usage_show)
+    p_sum = sess_use_sub.add_parser(
+        "summary",
+        help="Единый отчёт: usage, подсистемы, resume_ready (эвристика)",
+    )
+    p_sum.add_argument("log_file", type=str, help="Путь к JSONL")
+    p_sum.add_argument(
+        "--json",
+        action="store_true",
+        help="Вывести JSON (один объект)",
+    )
+    p_sum.set_defaults(func=_cmd_session_usage_summary)
     p_usg = sess_use_sub.add_parser(
         "tokens",
         help="Только сводка usage/tokens (по model.response)",
