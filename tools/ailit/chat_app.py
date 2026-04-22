@@ -264,65 +264,122 @@ def _pin_chat_composer_to_viewport() -> None:
     components.html(
         r"""
         <script>
-        const doc = window.parent.document;
-        const main = doc.querySelector(
-            '[data-testid="stAppViewContainer"] [data-testid="stMain"]',
-        );
-        doc.querySelectorAll('.ailit-composer-pinned').forEach((el) => {
-            el.classList.remove('ailit-composer-pinned');
-            el.style.position = '';
-            el.style.left = '';
-            el.style.right = '';
-            el.style.bottom = '';
-            el.style.transform = '';
-            el.style.width = '';
-            el.style.maxWidth = '';
-            el.style.zIndex = '';
-            el.style.backgroundColor = '';
-            el.style.borderTop = '';
-            el.style.boxShadow = '';
-            el.style.paddingTop = '';
-            el.style.paddingBottom = '';
-        });
-        const inputs = [];
-        doc.querySelectorAll('input, textarea').forEach((inp) => {
-            const ph = inp.getAttribute('placeholder') || '';
-            const al = inp.getAttribute('aria-label') || '';
-            if (
-                (ph.indexOf('Сообщение') >= 0 || al.indexOf('Сообщение') >= 0)
-                && inp.offsetParent !== null
-            ) {
-                inputs.push(inp);
-            }
-        });
-        if (!inputs.length || !main) {
-            return;
+        const parentWin = window.parent;
+        if (!parentWin.__ailitResetComposerPin) {
+            parentWin.__ailitResetComposerPin = (el) => {
+                if (!el) {
+                    return;
+                }
+                el.classList.remove('ailit-composer-pinned');
+                [
+                    'position',
+                    'left',
+                    'right',
+                    'bottom',
+                    'transform',
+                    'width',
+                    'max-width',
+                    'z-index',
+                    'background-color',
+                    'border-top',
+                    'box-shadow',
+                    'padding-top',
+                    'padding-bottom',
+                ].forEach((name) => el.style.removeProperty(name));
+            };
         }
-        const inp = inputs[inputs.length - 1];
-        let row = inp.closest('[data-testid="stHorizontalBlock"]');
-        if (!row) {
-            row = inp.closest('[data-testid="stVerticalBlock"]');
+        if (!parentWin.__ailitPinComposerNow) {
+            parentWin.__ailitPinComposerNow = () => {
+                const doc = parentWin.document;
+                const main = doc.querySelector(
+                    '[data-testid="stAppViewContainer"] [data-testid="stMain"]',
+                );
+                if (!main) {
+                    return;
+                }
+                let row = null;
+                const keyed = [
+                    ...doc.querySelectorAll('.st-key-ailit_chat_input_pending_bottom'),
+                    ...doc.querySelectorAll('.st-key-ailit_chat_input'),
+                ].filter((el) => el.offsetParent !== null);
+                if (keyed.length) {
+                    row = keyed[keyed.length - 1];
+                } else {
+                    const inputs = [];
+                    doc.querySelectorAll('input, textarea').forEach((inp) => {
+                        const ph = inp.getAttribute('placeholder') || '';
+                        const al = inp.getAttribute('aria-label') || '';
+                        if (
+                            (ph.indexOf('Сообщение') >= 0 || al.indexOf('Сообщение') >= 0)
+                            && inp.offsetParent !== null
+                        ) {
+                            inputs.push(inp);
+                        }
+                    });
+                    if (inputs.length) {
+                        const inp = inputs[inputs.length - 1];
+                        row = inp.closest('[data-testid="stHorizontalBlock"]');
+                        if (!row) {
+                            row = inp.closest('[data-testid="stVerticalBlock"]');
+                        }
+                    }
+                }
+                if (!row) {
+                    return;
+                }
+                doc.querySelectorAll('.ailit-composer-pinned').forEach((el) => {
+                    if (el !== row) {
+                        parentWin.__ailitResetComposerPin(el);
+                    }
+                });
+                row.classList.add('ailit-composer-pinned');
+                const bg = parentWin.getComputedStyle(main).backgroundColor || '#fff';
+                row.style.setProperty('position', 'fixed', 'important');
+                row.style.setProperty('left', '50%', 'important');
+                row.style.setProperty('right', 'auto', 'important');
+                row.style.setProperty('bottom', '0', 'important');
+                row.style.setProperty('transform', 'translateX(-50%)', 'important');
+                row.style.setProperty(
+                    'width',
+                    'min(920px, calc(100vw - 2rem))',
+                    'important',
+                );
+                row.style.setProperty('max-width', '100%', 'important');
+                row.style.setProperty('z-index', '1002', 'important');
+                row.style.setProperty('background-color', bg, 'important');
+                row.style.setProperty(
+                    'border-top',
+                    '1px solid rgba(128,128,128,0.35)',
+                    'important',
+                );
+                row.style.setProperty(
+                    'box-shadow',
+                    '0 -6px 18px rgba(0,0,0,0.12)',
+                    'important',
+                );
+                row.style.setProperty('padding-top', '0.35rem', 'important');
+                row.style.setProperty('padding-bottom', '0.65rem', 'important');
+                const h = Math.ceil(row.getBoundingClientRect().height + 20);
+                main.style.setProperty('padding-bottom', h + 'px', 'important');
+            };
         }
-        if (!row) {
-            return;
+        if (!parentWin.__ailitPinComposerObserver) {
+            const observer = new parentWin.MutationObserver(() => {
+                parentWin.__ailitPinComposerNow();
+            });
+            observer.observe(parentWin.document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+            });
+            parentWin.__ailitPinComposerObserver = observer;
         }
-        row.classList.add('ailit-composer-pinned');
-        const bg = window.getComputedStyle(main).backgroundColor || '#fff';
-        row.style.position = 'fixed';
-        row.style.left = '50%';
-        row.style.right = 'auto';
-        row.style.bottom = '0';
-        row.style.transform = 'translateX(-50%)';
-        row.style.width = 'min(920px, calc(100vw - 2rem))';
-        row.style.maxWidth = '100%';
-        row.style.zIndex = '1002';
-        row.style.backgroundColor = bg;
-        row.style.borderTop = '1px solid rgba(128,128,128,0.35)';
-        row.style.boxShadow = '0 -6px 18px rgba(0,0,0,0.12)';
-        row.style.paddingTop = '0.35rem';
-        row.style.paddingBottom = '0.65rem';
-        const h = Math.ceil(row.getBoundingClientRect().height + 20);
-        main.style.paddingBottom = h + 'px';
+        if (!parentWin.__ailitPinComposerTimer) {
+            parentWin.__ailitPinComposerTimer = parentWin.setInterval(() => {
+                parentWin.__ailitPinComposerNow();
+            }, 250);
+        }
+        parentWin.__ailitPinComposerNow();
         </script>
         """,
         height=0,
