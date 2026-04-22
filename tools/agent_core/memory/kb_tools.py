@@ -10,6 +10,7 @@ from typing import Any, Mapping
 from agent_core.tool_runtime.registry import ToolRegistry
 from agent_core.tool_runtime.spec import SideEffectClass, ToolSpec
 
+from agent_core.memory.layers import MemoryLayer, parse_memory_layer
 from agent_core.memory.sqlite_kb import SqliteKb
 
 
@@ -67,6 +68,26 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
         except (TypeError, ValueError):
             return int(default)
 
+    def _b(args: Mapping[str, object], key: str, default: bool) -> bool:
+        v = args.get(key)
+        if isinstance(v, bool):
+            return v
+        if v in (None, ""):
+            return default
+        s = str(v).strip().lower()
+        if s in ("1", "true", "yes", "on"):
+            return True
+        if s in ("0", "false", "no", "off"):
+            return False
+        return default
+
+    def _memory_layer(args: Mapping[str, object]) -> str:
+        raw = _s(args, "memory_layer").strip().lower()
+        if not raw:
+            return MemoryLayer.SEMANTIC.value
+        p = parse_memory_layer(raw)
+        return p.value if p is not None else MemoryLayer.SEMANTIC.value
+
     specs: dict[str, ToolSpec] = {}
     handlers: dict[str, Any] = {}
 
@@ -86,6 +107,11 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
                 },
                 "namespace": {"type": "string"},
                 "top_k": {"type": "integer", "default": 8},
+                "include_expired": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Включать записи вне valid_from/valid_to",
+                },
             },
             "required": ["query"],
         },
@@ -97,7 +123,14 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
         scope = _s(args, "scope").strip() or None
         ns = _s(args, "namespace").strip() or cfg.namespace
         top_k = _i(args, "top_k", 8)
-        rows = kb.search(query=q, scope=scope, namespace=ns, top_k=top_k)
+        inc = _b(args, "include_expired", False)
+        rows = kb.search(
+            query=q,
+            scope=scope,
+            namespace=ns,
+            top_k=top_k,
+            include_expired=inc,
+        )
         return _json_out(rows)
 
     handlers["kb_search"] = _kb_search
@@ -137,6 +170,13 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
                 "tags": list(rec.tags),
                 "links": list(rec.links),
                 "provenance": rec.provenance,
+                "memory_layer": rec.memory_layer,
+                "valid_from": rec.valid_from,
+                "valid_to": rec.valid_to,
+                "supersedes_id": rec.supersedes_id,
+                "source": rec.source,
+                "episode_id": rec.episode_id,
+                "promotion_status": rec.promotion_status,
                 "updated_at": rec.updated_at,
             },
         )
@@ -162,6 +202,33 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
                 "links": {"type": "array", "items": {"type": "string"}},
                 "provenance": {"type": "object"},
                 "author": {"type": "string"},
+                "memory_layer": {
+                    "type": "string",
+                    "description": "working|episodic|semantic|procedural",
+                },
+                "valid_from": {
+                    "type": "string",
+                    "description": "ISO-8601 UTC",
+                },
+                "valid_to": {
+                    "type": "string",
+                    "description": "ISO-8601 UTC",
+                },
+                "supersedes_id": {
+                    "type": "string",
+                    "description": "id записи, которую эта запись суперседит",
+                },
+                "source": {
+                    "type": "string",
+                    "description": "источник (путь, run, commit, …)",
+                },
+                "episode_id": {"type": "string"},
+                "promotion_status": {
+                    "type": "string",
+                    "description": (
+                        "draft|reviewed|promoted|superseded|deprecated"
+                    ),
+                },
             },
             "required": ["id", "scope", "title", "summary"],
         },
@@ -179,6 +246,13 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
         links = args.get("links")
         prov = args.get("provenance")
         author = _s(args, "author").strip() or "agent"
+        ml = _memory_layer(args)
+        vf = _s(args, "valid_from").strip() or None
+        vt = _s(args, "valid_to").strip() or None
+        sid = _s(args, "supersedes_id").strip() or None
+        src = _s(args, "source").strip() or None
+        epid = _s(args, "episode_id").strip() or None
+        pstat = _s(args, "promotion_status").strip() or "draft"
         tags_lst = list(tags) if isinstance(tags, list) else []
         links_lst = list(links) if isinstance(links, list) else []
         prov_map = dict(prov) if isinstance(prov, dict) else {}
@@ -194,6 +268,13 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
             links=(str(x) for x in links_lst),
             provenance=prov_map,
             author=author,
+            memory_layer=ml,
+            valid_from=vf,
+            valid_to=vt,
+            supersedes_id=sid,
+            source=src,
+            episode_id=epid,
+            promotion_status=pstat,
         )
         return _json_out({"id": rid, "status": "ok"})
 
