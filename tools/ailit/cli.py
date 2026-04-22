@@ -194,6 +194,20 @@ def _cmd_session_usage_show(args: argparse.Namespace) -> int:
     return print_session_show(p)
 
 
+def _make_cmd_session_usage_subsystem(subsystem: str):
+    """Фабрика: отдельный отчёт по подсистеме (M3: разные команды)."""
+
+    def _cmd(args: argparse.Namespace) -> int:
+        from pathlib import Path
+
+        from ailit.session_usage_cli import print_session_subsystem
+
+        p = Path(str(getattr(args, "log_file", ""))).resolve()
+        return print_session_subsystem(p, subsystem)
+
+    return _cmd
+
+
 def _cmd_agent_run(args: argparse.Namespace) -> int:
     """Исполнить workflow YAML, печать JSONL в stdout."""
     from ailit.agent_provider_config import AgentRunProviderConfigBuilder
@@ -429,6 +443,48 @@ def main(argv: list[str] | None = None) -> int:
         help="Путь к JSONL (ailit-chat-*.log / ailit-agent-*.log)",
     )
     p_sess_show.set_defaults(func=_cmd_session_usage_show)
+    p_usg = sess_use_sub.add_parser(
+        "tokens",
+        help="Только сводка usage/tokens (по model.response)",
+    )
+    p_usg.add_argument("log_file", type=str, help="Путь к JSONL")
+    p_usg.set_defaults(func=_make_cmd_session_usage_subsystem("usage"))
+    p_pg = sess_use_sub.add_parser(
+        "pager",
+        help="Только context.pager (счётчики в логе)",
+    )
+    p_pg.add_argument("log_file", type=str, help="Путь к JSONL")
+    p_pg.set_defaults(func=_make_cmd_session_usage_subsystem("pager"))
+    p_bd = sess_use_sub.add_parser(
+        "budget",
+        help="Только tool output budget",
+    )
+    p_bd.add_argument("log_file", type=str, help="Путь к JSONL")
+    p_bd.set_defaults(func=_make_cmd_session_usage_subsystem("budget"))
+    p_pr = sess_use_sub.add_parser(
+        "prune",
+        help="Только tool output prune",
+    )
+    p_pr.add_argument("log_file", type=str, help="Путь к JSONL")
+    p_pr.set_defaults(func=_make_cmd_session_usage_subsystem("prune"))
+    p_co = sess_use_sub.add_parser(
+        "compaction",
+        help="Только post-compaction restore файлов",
+    )
+    p_co.add_argument("log_file", type=str, help="Путь к JSONL")
+    p_co.set_defaults(func=_make_cmd_session_usage_subsystem("compaction"))
+    p_mem = sess_use_sub.add_parser(
+        "memory",
+        help="Только memory.access (счётчик)",
+    )
+    p_mem.add_argument("log_file", type=str, help="Путь к JSONL")
+    p_mem.set_defaults(func=_make_cmd_session_usage_subsystem("memory"))
+    p_exp = sess_use_sub.add_parser(
+        "exposure",
+        help="Только tool.exposure.applied (selective tool schema)",
+    )
+    p_exp.add_argument("log_file", type=str, help="Путь к JSONL")
+    p_exp.set_defaults(func=_make_cmd_session_usage_subsystem("exposure"))
 
     p_chat = sub.add_parser(
         "chat",

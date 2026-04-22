@@ -153,6 +153,19 @@ def _registry_for_chat(
     return reg
 
 
+def _default_tool_exposure(cfg: dict) -> str:
+    """Профиль selective tool exposure: config → env → full."""
+    ag = cfg.get("agent")
+    if isinstance(ag, dict):
+        raw = ag.get("tool_exposure")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip().lower()
+    env_te = os.environ.get("AILIT_TOOL_EXPOSURE", "").strip().lower()
+    if env_te:
+        return env_te
+    return "full"
+
+
 class _ChatPageState:
     """Ключи session_state."""
 
@@ -389,7 +402,7 @@ def _render_header_and_menu(
     project_root: Path,
     loaded: LoadedProject | None,
     load_error: str | None,
-) -> tuple[str, int, str, bool]:
+) -> tuple[str, int, str, bool, str]:
     """Настройки в popover (бургер), без левой панели."""
     col_l, col_mid, col_r = st.columns([1, 6, 1])
     with col_mid:
@@ -425,6 +438,25 @@ def _render_header_and_menu(
                 20_000,
                 10_000,
                 help=_mt_help,
+            )
+            te_order = ("full", "read_only", "filesystem")
+            te_labels = {
+                "full": "full — все tools",
+                "read_only": "read_only — без write/shell",
+                "filesystem": "filesystem — только обзор/чтение файлов",
+            }
+            te_def = _default_tool_exposure(cfg_for_defaults)
+            te_idx = te_order.index(te_def) if te_def in te_order else 0
+            tool_exposure = st.selectbox(
+                "Tool exposure (M3)",
+                options=te_order,
+                index=te_idx,
+                format_func=lambda k: te_labels.get(str(k), str(k)),
+                help=(
+                    "Снижает размер схемы tool-calling. "
+                    "Переменная окружения `AILIT_TOOL_EXPOSURE` задаёт значение "
+                    "по умолчанию; здесь можно переопределить для UI-сессии."
+                ),
             )
             st.caption("tools включены по умолчанию")
             use_project = st.toggle("Проект", value=True)
@@ -702,7 +734,7 @@ def _render_header_and_menu(
                     f"ailit debug bundle --project-root {root} --out {root / '.ailit' / 'debug-bundle.zip'}",
                     language="bash",
                 )
-    return choice, max_turns, agent_id, use_project
+    return choice, max_turns, agent_id, use_project, str(tool_exposure)
 
 
 def _render_usage_tokens_panel() -> None:
@@ -733,7 +765,8 @@ def _render_token_economy_panel() -> None:
     if not cap:
         st.caption(
             "Пока нет событий `context.pager` / `tool.output_budget` / "
-            "`tool.output_prune` (выполните ход с tool-вызовами).",
+            "`tool.output_prune` / `compaction.restore` / `tool.exposure` "
+            "(выполните ход с tool-вызовами).",
         )
     else:
         st.caption(cap)
@@ -833,6 +866,7 @@ def _execute_llm_turn(
     max_turns = int(snap["max_turns"])
     use_project = bool(snap["use_project"])
     teammate_tools = bool(snap.get("teammate_tools", False))
+    tool_exposure = str(snap.get("tool_exposure") or "full").strip().lower()
     agent_id = str(snap["agent_id"])
     project_root = Path(str(snap["project_root"]))
     os.environ["AILIT_CHAT_AGENT_ID"] = agent_id.strip() or "default"
@@ -999,6 +1033,7 @@ def _execute_llm_turn(
         max_turns=tuning.max_turns if tuning and tuning.max_turns is not None else max_turns,
         temperature=tuning.temperature if tuning and tuning.temperature is not None else 0.3,
         shortlist_keywords=tuning.shortlist_keywords if tuning else None,
+        tool_exposure=tool_exposure,
         use_stream=True,
     )
     work_for_tools = project_root if use_project else _REPO
@@ -1096,6 +1131,7 @@ def _build_chat_turn_worker(
     max_turns = int(snap["max_turns"])
     use_project = bool(snap["use_project"])
     teammate_tools = bool(snap.get("teammate_tools", False))
+    tool_exposure = str(snap.get("tool_exposure") or "full").strip().lower()
     agent_id = str(snap["agent_id"])
     project_root = Path(str(snap["project_root"]))
     os.environ["AILIT_CHAT_AGENT_ID"] = agent_id.strip() or "default"
@@ -1133,6 +1169,7 @@ def _build_chat_turn_worker(
         max_turns=tuning.max_turns if tuning and tuning.max_turns is not None else max_turns,
         temperature=tuning.temperature if tuning and tuning.temperature is not None else 0.3,
         shortlist_keywords=tuning.shortlist_keywords if tuning else None,
+        tool_exposure=tool_exposure,
         use_stream=True,
     )
     work_for_tools = project_root if use_project else _REPO
@@ -1198,6 +1235,7 @@ def main() -> None:
         max_turns,
         agent_id,
         use_project,
+        tool_exposure,
     ) = _render_header_and_menu(
         project_root=project_root,
         loaded=loaded,
@@ -1395,6 +1433,7 @@ def main() -> None:
             "max_turns": max_turns,
             "use_project": use_project,
             "teammate_tools": teammate_tools,
+            "tool_exposure": str(tool_exposure),
             "agent_id": agent_id,
             "project_root": str(project_root),
             "turn_id": uuid.uuid4().hex,

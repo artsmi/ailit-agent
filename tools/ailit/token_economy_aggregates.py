@@ -32,6 +32,8 @@ def empty_cumulative() -> dict[str, Any]:
         "prune_bytes_freed": 0,
         "compaction_restore_files": 0,
         "compaction_restore_injected_chars": 0,
+        "tool_exposure_applied": 0,
+        "tool_exposure_schema_chars_sum": 0,
     }
 
 
@@ -78,6 +80,13 @@ def merge_events_into_cumulative(
             acc["compaction_restore_injected_chars"] = int(
                 acc.get("compaction_restore_injected_chars", 0),
             ) + _i(row, "injected_chars")
+        elif et == "tool.exposure.applied":
+            acc["tool_exposure_applied"] = int(
+                acc.get("tool_exposure_applied", 0),
+            ) + 1
+            acc["tool_exposure_schema_chars_sum"] = int(
+                acc.get("tool_exposure_schema_chars_sum", 0),
+            ) + _i(row, "schema_chars")
     return acc
 
 
@@ -161,7 +170,8 @@ def format_cumulative_caption(
         )
     )
     has_restore = int(a.get("compaction_restore_files", 0) or 0) > 0
-    if not (has_te or has_restore):
+    has_exp = int(a.get("tool_exposure_applied", 0) or 0) > 0
+    if not (has_te or has_restore or has_exp):
         return ""
     parts = [
         f"pager≈{int(a.get('pager_savings_bytes', 0))} B",
@@ -176,4 +186,8 @@ def format_cumulative_caption(
         rf = int(a.get("compaction_restore_files", 0) or 0)
         inj = int(a.get("compaction_restore_injected_chars", 0) or 0)
         parts.append(f"restore={rf}f/{inj}ch")
+    if has_exp:
+        exn = int(a.get("tool_exposure_applied", 0) or 0)
+        sch = int(a.get("tool_exposure_schema_chars_sum", 0) or 0)
+        parts.append(f"exposure×{exn} schema≈{sch}ch")
     return "Экономия (накопл.): " + " · ".join(parts)

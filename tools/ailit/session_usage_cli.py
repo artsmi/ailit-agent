@@ -150,6 +150,10 @@ def print_session_show(path: Path) -> int:
         f"injected_chars={c.get('compaction_restore_injected_chars')}\n",
     )
     sys.stdout.write(
+        f"  tool exposure: applied={c.get('tool_exposure_applied')}, "
+        f"schema_chars~={c.get('tool_exposure_schema_chars_sum')}\n",
+    )
+    sys.stdout.write(
         "\n## Синтетика нагрузки, снятой слоями (оценка)\n",
     )
     sys.stdout.write(
@@ -163,3 +167,75 @@ def print_session_show(path: Path) -> int:
         f"  ({s.get('note', '')})\n",
     )
     return 0
+
+
+def print_session_subsystem(path: Path, subsystem: str) -> int:
+    """Отчёт по одной подсистеме (отдельная команда CLI)."""
+    if not path.is_file():
+        sys.stderr.write(f"Файл не найден: {path}\n")
+        return 1
+    sub = (subsystem or "").strip().lower()
+    rows = _read_jsonl_file(path)
+    an = analyze_log_rows(rows)
+    c = an.get("cumulative") or {}
+    sys.stdout.write(f"# subsystem={sub}\n# log: {path}\n\n")
+    if sub in ("usage", "tokens", "model"):
+        u = an.get("usage") or {}
+        sys.stdout.write("## usage (суммарно по model.response)\n")
+        line = (
+            f"  input={u.get('input_tokens')}  "
+            f"output={u.get('output_tokens')}  "
+            f"cache_r={u.get('cache_read_tokens')}  "
+            f"cache_w={u.get('cache_write_tokens')}\n"
+        )
+        sys.stdout.write(line)
+        return 0
+    if sub == "pager":
+        sys.stdout.write("## pager (context.pager)\n")
+        sys.stdout.write(
+            f"  page_created={c.get('pager_page_created')}, "
+            f"page_used={c.get('pager_page_used')}\n",
+        )
+        return 0
+    if sub in ("budget", "tool-budget", "output_budget"):
+        sys.stdout.write("## tool output budget\n")
+        sys.stdout.write(
+            f"  событий={c.get('budget_events')}, "
+            f"символов сжато~={c.get('budget_chars_saved')}\n",
+        )
+        return 0
+    if sub in ("prune", "tool_prune"):
+        sys.stdout.write("## tool output prune\n")
+        sys.stdout.write(
+            f"  проходов={c.get('prune_passes')}, "
+            f"tool={c.get('prune_tools')}, "
+            f"bytes~={c.get('prune_bytes_freed')}\n",
+        )
+        return 0
+    if sub in ("compaction", "restore", "post_compact"):
+        sys.stdout.write("## post-compaction file restore\n")
+        sys.stdout.write(
+            f"  restored_files={c.get('compaction_restore_files')}, "
+            f"injected_chars={c.get('compaction_restore_injected_chars')}\n",
+        )
+        return 0
+    if sub in ("memory", "kb", "mcp"):
+        n = 0
+        for row in rows:
+            if row.get("event_type") == "memory.access":
+                n += 1
+        sys.stdout.write("## memory.access\n")
+        sys.stdout.write(f"  событий: {n}\n")
+        return 0
+    if sub in ("exposure", "tools", "tool_exposure"):
+        sys.stdout.write("## tool.exposure (selective schema)\n")
+        sys.stdout.write(
+            f"  applied={c.get('tool_exposure_applied')}, "
+            f"schema_chars~={c.get('tool_exposure_schema_chars_sum')}\n",
+        )
+        return 0
+    sys.stderr.write(
+        f"Неизвестная подсистема: {subsystem!r}. "
+        f"Ожидается: usage|pager|budget|prune|compaction|memory|exposure\n",
+    )
+    return 2

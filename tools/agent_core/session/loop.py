@@ -50,7 +50,7 @@ from agent_core.session.tool_output_prune import (
     tool_output_prune_config_from_env,
 )
 from agent_core.session.state import SessionState
-from agent_core.session.tool_bridge import tool_definitions_from_registry
+from agent_core.session.tool_exposure import tool_definitions_for_settings
 from agent_core.session.tool_choice_policy import (
     default_tool_choice_policy,
     last_batch_had_successful_write_file,
@@ -136,6 +136,7 @@ class SessionSettings:
     post_compact_restore_max_files: int = 5
     post_compact_restore_max_chars_per_file: int = 2500
     post_compact_restore_max_total_chars: int = 9000
+    tool_exposure: str = "full"
     shortlist_keywords: frozenset[str] | None = None
     use_stream: bool = False
     suppress_tools_after_write_file: bool = field(
@@ -911,7 +912,22 @@ class SessionRunner:
                 diag_sink,
                 event_sink,
             )
-            tools_defs = tool_definitions_from_registry(active_reg)
+            tools_defs, tex = tool_definitions_for_settings(
+                active_reg,
+                settings.tool_exposure,
+            )
+            self._emit(
+                events,
+                "tool.exposure.applied",
+                {
+                    "mode": tex.mode,
+                    "tools_total": tex.tools_total,
+                    "tools_exposed": tex.tools_exposed,
+                    "schema_chars": tex.schema_chars,
+                },
+                diag_sink,
+                event_sink,
+            )
             st_sup = settings.suppress_tools_after_write_file
             should_use_suppress = suppress_next[0] and st_sup
             if suppress_next[0]:

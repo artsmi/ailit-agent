@@ -65,6 +65,9 @@ def _default_ailit_config() -> dict[str, Any]:
             "backend": "sqlite",
             "namespace": "default",
         },
+        "agent": {
+            "tool_exposure": "full",
+        },
         "tests": {},
     }
 
