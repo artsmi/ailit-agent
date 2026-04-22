@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Единая точка входа для ручного e2e-прогона.
+#
+# Запускает ВСЕ существующие проверки репозитория:
+# - быстрые unit/functional (без e2e/integration)
+# - e2e (tests/e2e/*)
+#
+# Важно: этот скрипт предназначен для запуска пользователем вручную.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+cd "${REPO_ROOT}"
+
+echo "[start-e2e] repo: ${REPO_ROOT}"
+
+echo "[start-e2e] 1/2: быстрые тесты (без e2e/integration)"
+"${SCRIPT_DIR}/test"
+
+echo "[start-e2e] 2/2: e2e"
+"${SCRIPT_DIR}/test-e2e"
+
+echo "[start-e2e] OK"
