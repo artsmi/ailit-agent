@@ -5,6 +5,14 @@ from agent_core.session.context_pager import (
     ContextPagerConfig,
     context_pager_config_from_env,
 )
+from agent_core.session.tool_output_budget import (
+    ToolOutputBudgetConfig,
+    tool_output_budget_config_from_env,
+)
+from agent_core.session.tool_output_prune import (
+    ToolOutputPruneConfig,
+    tool_output_prune_config_from_env,
+)
 from agent_core.session.loop import (
     SessionOutcome,
     SessionRunner,
@@ -21,5 +29,9 @@ __all__ = [
     "SessionSettings",
     "SessionState",
     "StreamReducer",
+    "ToolOutputBudgetConfig",
+    "ToolOutputPruneConfig",
     "context_pager_config_from_env",
+    "tool_output_budget_config_from_env",
+    "tool_output_prune_config_from_env",
 ]

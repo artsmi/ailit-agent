@@ -851,6 +851,8 @@ ailit agent run <workflow_prompt2.yaml> --provider deepseek --model deepseek-cha
 - per-turn/per-message лимит на суммарный tool output;
 - стабильные решения о замещении.
 
+**Реализация в `ailit`:** `export AILIT_TOOL_OUTPUT_BUDGET=1`, лимит суммы за батч: `AILIT_TOOL_OUTPUT_BUDGET_MAX_CHARS` (default 48000). Событие `tool.output_budget.enforced` (limit, total_before/after, replaced_count, page_id). Жадное сжатие детерминировано (max длина, затем `call_id`). См. `agent_core.session.tool_output_budget`.
+
 Проверки:
 
 - при повторном прогоне на той же задаче структура замещений совпадает (детерминизм);
@@ -864,6 +866,10 @@ ailit agent run <workflow_prompt2.yaml> --provider deepseek --model deepseek-cha
 - prune по давности и/или токено-оценке;
 - protected tools;
 - резерв под compaction.
+
+**Реализация в `ailit` (MVP):** `export AILIT_TOOL_PRUNE=1`. Оставляем «живыми» последние `AILIT_TOOL_PRUNE_KEEP_LAST` (default 6) TOOL-сообщений; срабатывание при `len(messages) >= AILIT_TOOL_PRUNE_MIN_MESSAGES` (default 28) и, если задано, `AILIT_TOOL_PRUNE_AT_CONTEXT_UNITS > 0` — ещё по оценке `BudgetGovernance.estimate_context_units`. `write_file` пропускается (без обрезки). Событие `tool.output_prune.applied`. См. `agent_core.session.tool_output_prune`. Резерв под compaction — по-прежнему через существующий `compact_messages` в `SessionSettings`.
+
+**CLI (обзор):** `ailit agent token-econ report` — сводка по `ailit-agent-*.log` (счётчики `context.pager.*`, `tool.output_budget.*`, `tool.output_prune.*`).
 
 Проверки:
 

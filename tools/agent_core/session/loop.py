@@ -38,6 +38,16 @@ from agent_core.session.context_pager import (
 )
 from agent_core.session.context_pager import READ_CONTEXT_PAGE_NAME
 from agent_core.session.shortlist import apply_keyword_shortlist
+from agent_core.session.tool_output_budget import (
+    ToolOutputBudgetConfig,
+    apply_tool_output_batch_budget,
+    tool_output_budget_config_from_env,
+)
+from agent_core.session.tool_output_prune import (
+    ToolOutputPruneConfig,
+    apply_tool_output_prune,
+    tool_output_prune_config_from_env,
+)
 from agent_core.session.state import SessionState
 from agent_core.session.tool_bridge import tool_definitions_from_registry
 from agent_core.session.tool_choice_policy import (
@@ -129,6 +139,12 @@ class SessionSettings:
     context_pager: ContextPagerConfig = field(
         default_factory=context_pager_config_from_env,
     )
+    tool_output_budget: ToolOutputBudgetConfig = field(
+        default_factory=tool_output_budget_config_from_env,
+    )
+    tool_output_prune: ToolOutputPruneConfig = field(
+        default_factory=tool_output_prune_config_from_env,
+    )
 
 
 def _effective_max_turns(settings: SessionSettings) -> int:
@@ -176,7 +192,10 @@ class SessionRunner:
     ) -> ToolRegistry:
         """Реестр на прогон: базовый + read_context_page если pager вкл."""
         reg = self._base_registry
-        if settings.context_pager.enabled:
+        if (
+            settings.context_pager.enabled
+            or settings.tool_output_budget.enabled
+        ):
             return reg.merge(
                 build_context_pager_read_registry(self._context_page_store),
             )
@@ -473,14 +492,15 @@ class SessionRunner:
         diag_sink: Callable[[dict[str, Any]], None] | None,
         event_sink: SessionEventSink | None,
     ) -> None:
-        """Добавить TOOL; при pager свернуть длинный вывод в страницу."""
-        cfg = settings.context_pager
+        """Добавить TOOL: pager → char budget (батч) → сообщения."""
+        pcfg = settings.context_pager
+        rows: list[tuple[ToolInvocation, ToolRunResult, str]] = []
         for inv, tr in zip(invs, results, strict=True):
             body = tr.content if tr.error is None else f"error:{tr.error}"
             if (
-                cfg.enabled
+                pcfg.enabled
                 and tr.error is None
-                and len(body) >= cfg.min_body_chars
+                and len(body) >= pcfg.min_body_chars
             ):
                 page_id = stable_page_id(
                     content=body,
@@ -494,8 +514,8 @@ class SessionRunner:
                 )
                 preview = build_preview(
                     body,
-                    max_lines=cfg.preview_max_lines,
-                    max_chars=cfg.preview_max_chars,
+                    max_lines=pcfg.preview_max_lines,
+                    max_chars=pcfg.preview_max_chars,
                 )
                 self._context_page_store.put(
                     page_id,
@@ -530,14 +550,52 @@ class SessionRunner:
                     locator=loc,
                     full_text=tr.content,
                     preview=preview,
-                    config=cfg,
+                    config=pcfg,
                 )
+            rows.append((inv, tr, body))
+
+        bcfg = settings.tool_output_budget
+        bodies, t0, t1, nrep, extra_pager = apply_tool_output_batch_budget(
+            rows,
+            budget=bcfg,
+            page_store=self._context_page_store,
+        )
+        for pev in extra_pager:
+            self._emit(
+                events,
+                "context.pager.page_created",
+                pev,
+                diag_sink,
+                event_sink,
+            )
+        if bcfg.enabled and nrep > 0:
+            page_ids = [
+                e.get("page_id")
+                for e in extra_pager
+                if e.get("page_id")
+            ]
+            self._emit(
+                events,
+                "tool.output_budget.enforced",
+                {
+                    "limit": bcfg.max_total_chars,
+                    "total_before": t0,
+                    "total_after": t1,
+                    "replaced_count": nrep,
+                    "page_id": [x for x in page_ids if isinstance(x, str)],
+                },
+                diag_sink,
+                event_sink,
+            )
+        for inv, body in zip(
+            (r[0] for r in rows), bodies, strict=True,
+        ):
             messages.append(
                 ChatMessage(
                     role=MessageRole.TOOL,
                     content=body,
                     tool_call_id=inv.call_id,
-                )
+                ),
             )
 
     def _maybe_set_suppress_after_write_file(
@@ -566,7 +624,10 @@ class SessionRunner:
     ) -> SessionOutcome:
         """Цикл до FINISHED, бюджета, ошибки или паузы на approval."""
         events: list[dict[str, Any]] = []
-        if settings.context_pager.enabled:
+        if (
+            settings.context_pager.enabled
+            or settings.tool_output_budget.enabled
+        ):
             self._context_page_store.clear()
         active_reg = self._tool_registry_for_run(settings)
         executor = ToolExecutor(active_reg, self._perm)
@@ -598,6 +659,26 @@ class SessionRunner:
                 diag_sink,
                 event_sink,
             )
+            if settings.tool_output_prune.enabled:
+                pr = apply_tool_output_prune(
+                    messages,
+                    settings.tool_output_prune,
+                )
+                pcount = int(pr.get("pruned_tools_count", 0) or 0)
+                if pcount > 0:
+                    self._emit(
+                        events,
+                        "tool.output_prune.applied",
+                        {
+                            "pruned_tools_count": pcount,
+                            "pruned_bytes_estimate": int(
+                                pr.get("pruned_bytes_estimate", 0) or 0,
+                            ),
+                            "protected_tools": pr.get("protected_skipped", []),
+                        },
+                        diag_sink,
+                        event_sink,
+                    )
             exc = bud.check_exceeded(messages)
             if exc is not None:
                 self._emit(

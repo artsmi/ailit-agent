@@ -164,6 +164,19 @@ def _cmd_agent_usage_last(args: argparse.Namespace) -> int:
     return print_last_usage_from_log(explicit)
 
 
+def _cmd_agent_token_econ_report(args: argparse.Namespace) -> int:
+    """Сводка pager / budget / prune по JSONL."""
+    from pathlib import Path
+
+    from ailit.agent_token_econ_cli import (
+        run_token_econ_from_explicit_or_latest,
+    )
+
+    raw = getattr(args, "token_econ_log_file", None)
+    explicit = Path(str(raw)).resolve() if raw else None
+    return run_token_econ_from_explicit_or_latest(explicit)
+
+
 def _cmd_agent_run(args: argparse.Namespace) -> int:
     """Исполнить workflow YAML, печать JSONL в stdout."""
     from ailit.agent_provider_config import AgentRunProviderConfigBuilder
@@ -519,6 +532,24 @@ def main(argv: list[str] | None = None) -> int:
         help="Путь к JSONL (иначе последний ailit-agent-*.log в global logs)",
     )
     p_usage_last.set_defaults(func=_cmd_agent_usage_last)
+
+    p_tok = agent_sub.add_parser(
+        "token-econ",
+        help="Сводка pager / tool budget / prune по JSONL-логу",
+    )
+    tok_sub = p_tok.add_subparsers(dest="token_econ_cmd", required=True)
+    p_tok_rep = tok_sub.add_parser(
+        "report",
+        help="Счётчики и примеры payload (ailit_session_diag_v1 в логе)",
+    )
+    p_tok_rep.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        dest="token_econ_log_file",
+        help="JSONL (иначе последний ailit-agent-*.log в global logs)",
+    )
+    p_tok_rep.set_defaults(func=_cmd_agent_token_econ_report)
 
     p_agent.set_defaults(func=_cmd_agent_tui)
 
