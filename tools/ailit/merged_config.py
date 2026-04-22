@@ -61,7 +61,7 @@ def _default_ailit_config() -> dict[str, Any]:
         "deepseek": {},
         "kimi": {},
         "memory": {
-            "enabled": False,
+            "enabled": True,
             "backend": "sqlite",
             "namespace": "default",
         },
