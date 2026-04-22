@@ -37,6 +37,7 @@ from agent_core.session.context_pager import (
     stable_page_id,
     tool_to_source_key,
 )
+from agent_core.session.post_compact_restore import RecentFileReadStore
 from agent_core.session.shortlist import apply_keyword_shortlist
 from agent_core.session.tool_output_budget import (
     ToolOutputBudgetConfig,
@@ -131,6 +132,10 @@ class SessionSettings:
     max_total_tokens: int | None = None
     compaction_tail_messages: int = 40
     compaction_max_tool_chars: int = 2000
+    post_compact_restore_enabled: bool = True
+    post_compact_restore_max_files: int = 5
+    post_compact_restore_max_chars_per_file: int = 2500
+    post_compact_restore_max_total_chars: int = 9000
     shortlist_keywords: frozenset[str] | None = None
     use_stream: bool = False
     suppress_tools_after_write_file: bool = field(
@@ -183,6 +188,7 @@ class SessionRunner:
         self._provider = provider
         self._base_registry = registry
         self._context_page_store = ContextPageStore()
+        self._recent_reads = RecentFileReadStore()
         perm = permission_engine or PermissionEngine()
         self._perm = perm
 
@@ -283,12 +289,40 @@ class SessionRunner:
         self,
         messages: list[ChatMessage],
         settings: SessionSettings,
+        events: list[dict[str, Any]],
+        diag_sink: Callable[[dict[str, Any]], None] | None,
+        event_sink: SessionEventSink | None,
     ) -> list[ChatMessage]:
         compacted = compact_messages(
             messages,
             tail_max=settings.compaction_tail_messages,
             max_tool_chars=settings.compaction_max_tool_chars,
         )
+        if (
+            settings.post_compact_restore_enabled
+            and len(messages) > settings.compaction_tail_messages
+        ):
+            already = "\n".join(m.content for m in compacted[-8:]).strip()
+            restore_msg, plan = self._recent_reads.build_restore_message(
+                already_in_context=already,
+                max_files=settings.post_compact_restore_max_files,
+                max_chars_per_file=(
+                    settings.post_compact_restore_max_chars_per_file
+                ),
+                max_total_chars=settings.post_compact_restore_max_total_chars,
+            )
+            if restore_msg is not None and plan.restored:
+                compacted.append(restore_msg)
+                self._emit(
+                    events,
+                    "compaction.restore_files",
+                    {
+                        "restored_files": len(plan.restored),
+                        "injected_chars": plan.injected_chars,
+                    },
+                    diag_sink,
+                    event_sink,
+                )
         if settings.shortlist_keywords:
             return apply_keyword_shortlist(
                 compacted,
@@ -384,7 +418,13 @@ class SessionRunner:
             diag_sink,
             event_sink,
         )
-        ctx_base = self._prepare_context(messages, settings)
+        ctx_base = self._prepare_context(
+            messages,
+            settings,
+            events,
+            diag_sink,
+            event_sink,
+        )
         cap_msg = (
             "The maximum number of agent steps for this session was reached. "
             "Reply in natural language only: brief summary of progress, "
@@ -553,6 +593,11 @@ class SessionRunner:
         rows: list[tuple[ToolInvocation, ToolRunResult, str]] = []
         for inv, tr in zip(invs, results, strict=True):
             body = tr.content if tr.error is None else f"error:{tr.error}"
+            if tr.error is None and inv.tool_name == "read_file":
+                self._recent_reads.observe_read_file(
+                    arguments_json=inv.arguments_json,
+                    tool_output=tr.content or "",
+                )
             # Не пагинировать вывод read_context_page: иначе каждый чанк
             # становится новой «страницей» → модель снова вызывает
             # read_context_page(offset=0) → бесконечная цепочка page_id.
@@ -859,7 +904,13 @@ class SessionRunner:
                 )
                 continue
 
-            ctx = self._prepare_context(messages, settings)
+            ctx = self._prepare_context(
+                messages,
+                settings,
+                events,
+                diag_sink,
+                event_sink,
+            )
             tools_defs = tool_definitions_from_registry(active_reg)
             st_sup = settings.suppress_tools_after_write_file
             should_use_suppress = suppress_next[0] and st_sup
