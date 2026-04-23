@@ -53,6 +53,7 @@ def test_resume_ready_true_when_clean_tail() -> None:
     assert mem.get("doom_loop_total") == 0
     assert mem.get("auto_write_skipped") == 0
     assert mem.get("retrieval_fallback_total") == 1
+    assert mem.get("auto_write_done") == 0
     fb = s.get("memory_retrieval_fallback")
     assert isinstance(fb, dict)
     assert fb.get("policy") == "branch_first_default_fallback"
@@ -69,6 +70,23 @@ def test_resume_ready_false_after_cancel() -> None:
     s = build_session_summary(rows)
     assert s["resume"]["resume_ready"] is False
     assert s["resume"]["cancelled"] is True
+
+
+def test_auto_write_done_counted_in_subsystems() -> None:
+    rows: list[dict[str, Any]] = [
+        {
+            "event_type": "memory.auto_write.done",
+            "tool": "kb_write_fact",
+            "kind": "repo_identity",
+        },
+    ]
+    s = build_session_summary(rows)
+    mem = s.get("subsystems", {}).get("memory")
+    assert isinstance(mem, dict)
+    assert mem.get("auto_write_done") == 1
+    by = mem.get("auto_write_done_by_kind")
+    assert isinstance(by, dict)
+    assert by.get("repo_identity") == 1
 
 
 def test_resume_ready_false_trailing_model_error() -> None:

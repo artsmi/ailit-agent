@@ -76,6 +76,9 @@ def empty_cumulative() -> dict[str, Any]:
         "doom_loop_total": 0,
         "memory_auto_write_skipped": 0,
         "memory_retrieval_fallback_total": 0,
+        "memory_auto_write_done_total": 0,
+        "memory_auto_write_done_by_kind": {},
+        "memory_auto_write_skipped_by_kind": {},
     }
 
 
@@ -169,6 +172,28 @@ def merge_events_into_cumulative(
             acc["memory_auto_write_skipped"] = int(
                 acc.get("memory_auto_write_skipped", 0),
             ) + 1
+            raw_sk = acc.get("memory_auto_write_skipped_by_kind")
+            sk: dict[str, int] = (
+                {str(k): int(v) for k, v in raw_sk.items()}
+                if isinstance(raw_sk, dict)
+                else {}
+            )
+            kind = str(row.get("kind") or "unknown")
+            sk[kind] = int(sk.get(kind, 0)) + 1
+            acc["memory_auto_write_skipped_by_kind"] = sk
+        elif et == "memory.auto_write.done":
+            acc["memory_auto_write_done_total"] = int(
+                acc.get("memory_auto_write_done_total", 0),
+            ) + 1
+            raw_ok = acc.get("memory_auto_write_done_by_kind")
+            ok: dict[str, int] = (
+                {str(k): int(v) for k, v in raw_ok.items()}
+                if isinstance(raw_ok, dict)
+                else {}
+            )
+            kind = str(row.get("kind") or "unknown")
+            ok[kind] = int(ok.get(kind, 0)) + 1
+            acc["memory_auto_write_done_by_kind"] = ok
         elif et == "memory.retrieval.fallback":
             acc["memory_retrieval_fallback_total"] = int(
                 acc.get("memory_retrieval_fallback_total", 0),
@@ -488,6 +513,15 @@ def build_subsystems_block(
             ),
             "auto_write_skipped": int(
                 cumulative.get("memory_auto_write_skipped", 0) or 0,
+            ),
+            "auto_write_done": int(
+                cumulative.get("memory_auto_write_done_total", 0) or 0,
+            ),
+            "auto_write_done_by_kind": dict(
+                cumulative.get("memory_auto_write_done_by_kind", {}) or {},
+            ),
+            "auto_write_skipped_by_kind": dict(
+                cumulative.get("memory_auto_write_skipped_by_kind", {}) or {},
             ),
             "doom_loop_total": int(
                 cumulative.get("doom_loop_total", 0) or 0,

@@ -1265,6 +1265,7 @@ class SessionRunner:
                             {
                                 "tool": "kb_write_fact",
                                 "reason": "approval_pending",
+                                "kind": "repo_identity",
                             },
                             diag_sink,
                             event_sink,
@@ -1283,6 +1284,16 @@ class SessionRunner:
                             [resw],
                             settings,
                             events,
+                            diag_sink,
+                            event_sink,
+                        )
+                        self._emit(
+                            events,
+                            "memory.auto_write.done",
+                            {
+                                "tool": "kb_write_fact",
+                                "kind": "repo_identity",
+                            },
                             diag_sink,
                             event_sink,
                         )
@@ -1417,6 +1428,16 @@ class SessionRunner:
                             [res_tree],
                             settings,
                             events,
+                            diag_sink,
+                            event_sink,
+                        )
+                        self._emit(
+                            events,
+                            "memory.auto_write.done",
+                            {
+                                "tool": "kb_write_fact",
+                                "kind": "repo_tree_root",
+                            },
                             diag_sink,
                             event_sink,
                         )
@@ -1569,6 +1590,16 @@ class SessionRunner:
                             [res_sig],
                             settings,
                             events,
+                            diag_sink,
+                            event_sink,
+                        )
+                        self._emit(
+                            events,
+                            "memory.auto_write.done",
+                            {
+                                "tool": "kb_write_fact",
+                                "kind": "repo_signals",
+                            },
                             diag_sink,
                             event_sink,
                         )

@@ -836,6 +836,12 @@ def _render_memory_stack_panel() -> None:
             f"Fallback на default branch: {fb_total} (последний: "
             f"`{mem_fb.get('from_namespace')}` → `{mem_fb.get('to_namespace')}`)",
         )
+    aw_ok = int(c_m.get("memory_auto_write_done_total", 0) or 0)
+    aw_sk = int(c_m.get("memory_auto_write_skipped", 0) or 0)
+    if aw_ok or aw_sk:
+        st.caption(
+            f"Auto-write: ok={aw_ok} · skipped={aw_sk}",
+        )
     by = stats.get("access_by_tool")
     if isinstance(by, dict) and by:
         line = " · ".join(
