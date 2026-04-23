@@ -69,6 +69,8 @@ def empty_cumulative() -> dict[str, Any]:
         "tool_exposure_schema_savings_sum": 0,
         "fs_read_file_calls": 0,
         "fs_read_file_range_calls": 0,
+        "memory_access_total": 0,
+        "memory_access_by_tool": {},
         "memory_promotion_applied": 0,
         "memory_promotion_denied": 0,
     }
@@ -135,6 +137,19 @@ def merge_events_into_cumulative(
                 acc["fs_read_file_range_calls"] = int(
                     acc.get("fs_read_file_range_calls", 0),
                 ) + 1
+        elif et == "memory.access":
+            acc["memory_access_total"] = int(
+                acc.get("memory_access_total", 0),
+            ) + 1
+            tname = str(row.get("tool") or "unknown")
+            raw_by = acc.get("memory_access_by_tool")
+            by: dict[str, int]
+            if isinstance(raw_by, dict):
+                by = {str(k): int(v) for k, v in raw_by.items()}
+            else:
+                by = {}
+            by[tname] = int(by.get(tname, 0)) + 1
+            acc["memory_access_by_tool"] = by
         elif et == "memory.promotion.applied":
             acc["memory_promotion_applied"] = int(
                 acc.get("memory_promotion_applied", 0),
@@ -144,6 +159,156 @@ def merge_events_into_cumulative(
                 acc.get("memory_promotion_denied", 0),
             ) + 1
     return acc
+
+
+def _norm_memory_access_by_tool(raw: object) -> dict[str, int]:
+    """Словарь `tool` → количество из `memory_access_by_tool`."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, int] = {}
+    for k, v in raw.items():
+        try:
+            out[str(k)] = int(v) if v is not None else 0
+        except (TypeError, ValueError):
+            out[str(k)] = 0
+    return out
+
+
+def _is_mergeable_cumulative_count(x: object) -> bool:
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
+def merge_cumulative_for_display(
+    c_live: Mapping[str, Any] | None,
+    c_file: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Streamlit+JSONL: max по счётчикам; KB — max по каждому tool."""
+    a: dict[str, Any] = dict(c_file) if isinstance(c_file, dict) else {}
+    b: dict[str, Any] = dict(c_live) if isinstance(c_live, dict) else {}
+    keys = set(a) | set(b)
+    out: dict[str, Any] = {}
+    for k in keys:
+        if k == "memory_access_by_tool":
+            ma = _norm_memory_access_by_tool(a.get(k))
+            mb = _norm_memory_access_by_tool(b.get(k))
+            tkeys = set(ma) | set(mb)
+            out[k] = {
+                str(tk): max(ma.get(tk, 0), mb.get(tk, 0))
+                for tk in tkeys
+            }
+            continue
+        in_a = k in a
+        in_b = k in b
+        if in_a and in_b:
+            va, vb = a[k], b[k]
+            if _is_mergeable_cumulative_count(
+                va,
+            ) and _is_mergeable_cumulative_count(vb):
+                out[k] = max(int(va), int(vb))
+            else:
+                out[k] = vb
+        elif in_b:
+            out[k] = b[k]
+        else:
+            out[k] = a[k]
+    return out
+
+
+def build_memory_stats(
+    cumulative: Mapping[str, Any],
+    resume: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Агрегаты памяти по логу: обращения по инструментам KB, FS, promotion."""
+    c = cumulative
+    r = resume
+    by = _norm_memory_access_by_tool(c.get("memory_access_by_tool"))
+    total = int(c.get("memory_access_total", 0) or 0)
+    res_n = int(r.get("memory_access_n", 0) or 0)
+    if not by and res_n > total:
+        total = res_n
+    elif by and not total:
+        total = sum(int(x) for x in by.values())
+    access_total = max(total, res_n)
+    by_sorted: dict[str, int] = dict(
+        sorted(by.items(), key=lambda kv: (-kv[1], kv[0])),
+    )
+    return {
+        "kind": "ailit_memory_stats_v1",
+        "access_total": int(access_total),
+        "access_by_tool": by_sorted,
+        "promotion": {
+            "applied": int(c.get("memory_promotion_applied", 0) or 0),
+            "denied": int(c.get("memory_promotion_denied", 0) or 0),
+        },
+        "fs": {
+            "read_file_calls": int(c.get("fs_read_file_calls", 0) or 0),
+            "read_file_range_calls": int(
+                c.get("fs_read_file_range_calls", 0) or 0,
+            ),
+        },
+        "compaction": {
+            "restored_files": int(
+                c.get("compaction_restore_files", 0) or 0,
+            ),
+        },
+    }
+
+
+def build_memory_efficiency_score(
+    cumulative: Mapping[str, Any],
+    resume: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Оценка 0–100 по read/KB/promotion/continuity/pager."""
+    c = cumulative
+    r = resume
+    parts: dict[str, float] = {}
+    fs_t = int(c.get("fs_read_file_calls", 0) or 0)
+    fs_r = int(c.get("fs_read_file_range_calls", 0) or 0)
+    if fs_t > 0:
+        parts["read_range_discipline"] = 28.0 * (fs_r / float(fs_t))
+    else:
+        parts["read_range_discipline"] = 14.0
+    mat = int(c.get("memory_access_total", 0) or 0)
+    res_m = int(r.get("memory_access_n", 0) or 0)
+    m_use = max(mat, res_m)
+    parts["kb_tooling_activity"] = min(22.0, float(m_use) * 2.75)
+    p_ok = int(c.get("memory_promotion_applied", 0) or 0)
+    p_den = int(c.get("memory_promotion_denied", 0) or 0)
+    denom = p_ok + p_den
+    if denom > 0:
+        parts["promotion_benefit"] = 20.0 * (p_ok / float(denom))
+    else:
+        parts["promotion_benefit"] = 8.0
+    rr = bool(r.get("resume_ready"))
+    cref = int(c.get("compaction_restore_files", 0) or 0)
+    parts["continuity"] = (12.0 if rr else 2.0) + min(
+        8.0,
+        float(cref) * 2.0,
+    )
+    p_used = int(c.get("pager_page_used", 0) or 0)
+    p_cre = int(c.get("pager_page_created", 0) or 0)
+    te = int(c.get("tool_exposure_applied", 0) or 0)
+    sav = int(c.get("tool_exposure_schema_savings_sum", 0) or 0)
+    parts["stack_aux"] = min(5.0, float(p_used + p_cre) * 0.5) + min(
+        5.0,
+        (float(te) * 0.4) + (min(3.0, float(sav) / 200_000.0 * 3.0)),
+    )
+    raw = float(sum(parts.values()))
+    score = int(max(0, min(100, round(raw))))
+    if score >= 80:
+        label = "сильный стек: память и M3-метрики в плюс"
+    elif score >= 55:
+        label = "нормально, можно усилить KB/дискipline"
+    elif score >= 35:
+        label = "смешанно: мало сигналов от KB и range-read"
+    else:
+        label = "слабо: мало обращений к памяти и вспомогательного стека"
+    return {
+        "kind": "ailit_memory_efficiency_v1",
+        "score_0_100": score,
+        "label": label,
+        "components": {k: round(v, 2) for k, v in parts.items()},
+    }
 
 
 def compute_resume_signals(
@@ -256,7 +421,13 @@ def build_subsystems_block(
             ),
         },
         "memory": {
-            "access_n": int(resume.get("memory_access_n", 0) or 0),
+            "access_n": max(
+                int(cumulative.get("memory_access_total", 0) or 0),
+                int(resume.get("memory_access_n", 0) or 0),
+            ),
+            "access_by_tool": _norm_memory_access_by_tool(
+                cumulative.get("memory_access_by_tool"),
+            ),
             "promotion_applied": int(
                 cumulative.get("memory_promotion_applied", 0) or 0,
             ),
@@ -336,6 +507,8 @@ def build_session_summary(
         resume=r_dict,
     )
     ev = build_m3_eval_signals(c_dict, r_dict)
+    mem_s = build_memory_stats(c_dict, r_dict)
+    mem_e = build_memory_efficiency_score(c_dict, r_dict)
     return {
         "contract": SESSION_SUMMARY_CONTRACT,
         "log_start": base.get("log_start"),
@@ -346,6 +519,8 @@ def build_session_summary(
         "resume": r_dict,
         "subsystems": sub,
         "m3_eval_signals": ev,
+        "memory_stats": mem_s,
+        "memory_efficiency": mem_e,
     }
 
 

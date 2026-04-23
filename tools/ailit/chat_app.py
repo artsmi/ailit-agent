@@ -66,9 +66,14 @@ from ailit.compat_adapter import read_status, run_compat_workflow
 from ailit.debug_bundle import build_debug_bundle, default_rollout_phase
 from ailit.defaults_resolver import DefaultProviderModelResolver
 from ailit.token_economy_aggregates import (
+    analyze_log_rows,
+    build_memory_efficiency_score,
+    build_memory_stats,
     build_session_summary,
+    compute_resume_signals,
     empty_cumulative,
     format_cumulative_caption,
+    merge_cumulative_for_display,
     merge_events_into_cumulative,
     read_jsonl_session_log,
 )
@@ -779,6 +784,58 @@ def _render_token_economy_panel() -> None:
         st.caption(f"Process log: `{ph}` — `ailit session usage show` для файла")
 
 
+def _render_memory_stack_panel() -> None:
+    """Память M3: обращения по инструментам KB + эвристика эффективности (live ⊕ лог)."""
+    c_live_raw = st.session_state.get("ailit_token_econ_cumulative")
+    c_live: dict[str, Any] = c_live_raw if isinstance(c_live_raw, dict) else {}
+    ph = st.session_state.get("ailit_chat_log_path")
+    rows: list[dict[str, Any]] = []
+    if isinstance(ph, str) and ph.strip():
+        p = Path(ph)
+        if p.is_file():
+            try:
+                rows = read_jsonl_session_log(p)
+            except OSError:
+                rows = []
+    c_file: dict[str, Any] = {}
+    if rows:
+        ar = analyze_log_rows(rows)
+        c_raw = ar.get("cumulative")
+        if isinstance(c_raw, dict):
+            c_file = c_raw
+    c_m = merge_cumulative_for_display(c_live, c_file)
+    r = compute_resume_signals(rows)
+    stats = build_memory_stats(c_m, r)
+    eff = build_memory_efficiency_score(c_m, r)
+    sc = int(eff.get("score_0_100", 0) or 0)
+    label = str(eff.get("label", "") or "")
+    st.caption(
+        f"**Память (M3):** оценка **{sc}/100** — {label}",
+    )
+    by = stats.get("access_by_tool")
+    if isinstance(by, dict) and by:
+        line = " · ".join(
+            f"`{k}`: {v}" for k, v in by.items()
+        )
+        st.caption(f"KB по инструментам: {line}")
+    else:
+        st.caption(
+            "Пока нет событий `memory.access` (поиск/запись в факты/промоуция).",
+        )
+    with st.expander("Память: детали (эвристика + merge)", expanded=False):
+        st.json(
+            {
+                "tooling": stats,
+                "efficiency": eff,
+                "cumulative_merged": c_m,
+            },
+        )
+        st.caption(
+            "Слитые счётчики: live (браузер) и JSONL-лог; по числу — max, "
+            "по `tool` в KB — max по каждому ключу.",
+        )
+
+
 def _render_unified_session_summary_panel() -> None:
     """E2E-M3-02: тот же отчёт, что `ailit session usage summary` (one source)."""
     ph = st.session_state.get("ailit_chat_log_path")
@@ -1441,6 +1498,7 @@ def main() -> None:
         )
         _render_usage_tokens_panel()
         _render_token_economy_panel()
+        _render_memory_stack_panel()
         _render_unified_session_summary_panel()
 
         def _request_send() -> None:
