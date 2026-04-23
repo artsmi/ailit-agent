@@ -79,6 +79,8 @@ def empty_cumulative() -> dict[str, Any]:
         "memory_auto_write_done_total": 0,
         "memory_auto_write_done_by_kind": {},
         "memory_auto_write_skipped_by_kind": {},
+        "memory_retrieval_match_total": 0,
+        "memory_retrieval_match_by_level": {},
     }
 
 
@@ -198,6 +200,19 @@ def merge_events_into_cumulative(
             acc["memory_retrieval_fallback_total"] = int(
                 acc.get("memory_retrieval_fallback_total", 0),
             ) + 1
+        elif et == "memory.retrieval.match":
+            acc["memory_retrieval_match_total"] = int(
+                acc.get("memory_retrieval_match_total", 0),
+            ) + 1
+            raw_lv = acc.get("memory_retrieval_match_by_level")
+            lv: dict[str, int] = (
+                {str(k): int(v) for k, v in raw_lv.items()}
+                if isinstance(raw_lv, dict)
+                else {}
+            )
+            level = str(row.get("level") or "unknown")
+            lv[level] = int(lv.get(level, 0)) + 1
+            acc["memory_retrieval_match_by_level"] = lv
     return acc
 
 
@@ -388,6 +403,26 @@ def extract_memory_retrieval_fallback(
     return last
 
 
+def extract_memory_retrieval_match(
+    rows: list[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    """Последнее memory.retrieval.match (commit_exact/default_fallback/...)."""
+    last: dict[str, Any] | None = None
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        if row.get("event_type") != "memory.retrieval.match":
+            continue
+        last = {
+            "level": row.get("level"),
+            "id": row.get("id"),
+            "namespace": row.get("namespace"),
+            "fact_commit": row.get("fact_commit"),
+            "repo_commit": row.get("repo_commit"),
+        }
+    return last
+
+
 def compute_resume_signals(
     rows: list[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -529,6 +564,12 @@ def build_subsystems_block(
             "retrieval_fallback_total": int(
                 cumulative.get("memory_retrieval_fallback_total", 0) or 0,
             ),
+            "retrieval_match_total": int(
+                cumulative.get("memory_retrieval_match_total", 0) or 0,
+            ),
+            "retrieval_match_by_level": dict(
+                cumulative.get("memory_retrieval_match_by_level", {}) or {},
+            ),
         },
     }
 
@@ -606,6 +647,7 @@ def build_session_summary(
     mem_e = build_memory_efficiency_score(c_dict, r_dict)
     mem_p = extract_memory_policy(rows)
     mem_fb = extract_memory_retrieval_fallback(rows)
+    mem_m = extract_memory_retrieval_match(rows)
     return {
         "contract": SESSION_SUMMARY_CONTRACT,
         "log_start": base.get("log_start"),
@@ -620,6 +662,7 @@ def build_session_summary(
         "memory_efficiency": mem_e,
         "memory_policy": mem_p,
         "memory_retrieval_fallback": mem_fb,
+        "memory_retrieval_match": mem_m,
     }
 
 

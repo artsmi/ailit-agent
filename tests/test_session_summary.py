@@ -89,6 +89,29 @@ def test_auto_write_done_counted_in_subsystems() -> None:
     assert by.get("repo_identity") == 1
 
 
+def test_memory_retrieval_match_in_summary() -> None:
+    rows: list[dict[str, Any]] = [
+        {
+            "event_type": "memory.retrieval.match",
+            "level": "commit_exact",
+            "id": "x",
+            "namespace": "n",
+            "fact_commit": "a",
+            "repo_commit": "a",
+        },
+    ]
+    s = build_session_summary(rows)
+    mem = s.get("subsystems", {}).get("memory")
+    assert isinstance(mem, dict)
+    assert mem.get("retrieval_match_total") == 1
+    by = mem.get("retrieval_match_by_level")
+    assert isinstance(by, dict)
+    assert by.get("commit_exact") == 1
+    last = s.get("memory_retrieval_match")
+    assert isinstance(last, dict)
+    assert last.get("level") == "commit_exact"
+
+
 def test_resume_ready_false_trailing_model_error() -> None:
     rows: list[dict[str, Any]] = [
         {

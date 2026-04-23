@@ -809,6 +809,7 @@ def _render_memory_stack_panel() -> None:
     eff = build_memory_efficiency_score(c_m, r)
     mem_pol = None
     mem_fb = None
+    mem_match = None
     if rows:
         try:
             sm2 = build_session_summary(rows)
@@ -816,6 +817,7 @@ def _render_memory_stack_panel() -> None:
             sm2 = {}
         mem_pol = sm2.get("memory_policy")
         mem_fb = sm2.get("memory_retrieval_fallback")
+        mem_match = sm2.get("memory_retrieval_match")
     sc = int(eff.get("score_0_100", 0) or 0)
     label = str(eff.get("label", "") or "")
     st.caption(
@@ -835,6 +837,10 @@ def _render_memory_stack_panel() -> None:
         st.caption(
             f"Fallback на default branch: {fb_total} (последний: "
             f"`{mem_fb.get('from_namespace')}` → `{mem_fb.get('to_namespace')}`)",
+        )
+    if isinstance(mem_match, dict):
+        st.caption(
+            f"Match: `{mem_match.get('level')}` · id=`{mem_match.get('id')}`",
         )
     aw_ok = int(c_m.get("memory_auto_write_done_total", 0) or 0)
     aw_sk = int(c_m.get("memory_auto_write_skipped", 0) or 0)
@@ -859,6 +865,7 @@ def _render_memory_stack_panel() -> None:
                 "efficiency": eff,
                 "policy": mem_pol,
                 "retrieval_fallback": mem_fb,
+                "retrieval_match": mem_match,
                 "cumulative_merged": c_m,
             },
         )

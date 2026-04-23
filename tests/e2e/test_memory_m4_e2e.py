@@ -116,3 +116,15 @@ def test_m4_auto_memory_emits_repo_context_and_kb_access(
     ]
     assert "kb_search" in tools
     assert "kb_write_fact" in tools
+
+    out2 = runner.run(
+        [ChatMessage(role=MessageRole.USER, content="Repo")],
+        ApprovalSession(),
+        SessionSettings(model="m"),
+    )
+    assert out2.state is SessionState.FINISHED
+    assert any(
+        e.get("event_type") == "memory.retrieval.match"
+        and e.get("level") in ("commit_exact", "branch_namespace")
+        for e in out2.events
+    )

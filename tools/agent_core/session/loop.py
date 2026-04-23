@@ -1708,6 +1708,65 @@ class SessionRunner:
                         diag_sink,
                         event_sink,
                     )
+                    if "kb_fetch" in active_reg.specs and rc3 is not None:
+                        try:
+                            payload = json.loads(res.content or "[]")
+                        except json.JSONDecodeError:
+                            payload = []
+                        if isinstance(payload, list) and payload:
+                            top = payload[0]
+                            rid = (
+                                str(top.get("id") or "")
+                                if isinstance(top, dict)
+                                else ""
+                            )
+                            if rid:
+                                invf = ToolInvocation(
+                                    call_id=f"auto_kb_fetch_{turn}",
+                                    tool_name="kb_fetch",
+                                    arguments_json=json.dumps(
+                                        {"id": rid, "max_chars": 0},
+                                        ensure_ascii=False,
+                                    ),
+                                )
+                                resf = executor.execute_one(
+                                    invf,
+                                    approvals,
+                                    cancel=cancel,
+                                )
+                                if resf.error is None:
+                                    try:
+                                        fr = json.loads(resf.content or "{}")
+                                    except json.JSONDecodeError:
+                                        fr = {}
+                                    prov = (
+                                        fr.get("provenance")
+                                        if isinstance(fr, dict)
+                                        else None
+                                    )
+                                    fcommit = (
+                                        str(prov.get("commit") or "")
+                                        if isinstance(prov, dict)
+                                        else ""
+                                    )
+                                    level = (
+                                        "commit_exact"
+                                        if rc3.commit and fcommit == rc3.commit
+                                        else "branch_namespace"
+                                    )
+                                    self._emit(
+                                        events,
+                                        "memory.retrieval.match",
+                                        {
+                                            "level": level,
+                                            "id": rid,
+                                            "namespace": ns_branch,
+                                            "fact_commit": fcommit or None,
+                                            "repo_commit": rc3.commit or None,
+                                        },
+                                        diag_sink,
+                                        event_sink,
+                                    )
                     if ns_def:
                         try:
                             payload = json.loads(res.content or "[]")
@@ -1799,6 +1858,79 @@ class SessionRunner:
                                 diag_sink,
                                 event_sink,
                             )
+                            if (
+                                "kb_fetch" in active_reg.specs
+                                and rc3 is not None
+                            ):
+                                try:
+                                    payload2 = json.loads(res2.content or "[]")
+                                except json.JSONDecodeError:
+                                    payload2 = []
+                                if isinstance(payload2, list) and payload2:
+                                    top2 = payload2[0]
+                                    rid2 = (
+                                        str(top2.get("id") or "")
+                                        if isinstance(top2, dict)
+                                        else ""
+                                    )
+                                    if rid2:
+                                        invf2 = ToolInvocation(
+                                            call_id=(
+                                                f"auto_kb_fetch_def_{turn}"
+                                            ),
+                                            tool_name="kb_fetch",
+                                            arguments_json=json.dumps(
+                                                {"id": rid2, "max_chars": 0},
+                                                ensure_ascii=False,
+                                            ),
+                                        )
+                                        resf2 = executor.execute_one(
+                                            invf2,
+                                            approvals,
+                                            cancel=cancel,
+                                        )
+                                        if resf2.error is None:
+                                            try:
+                                                fr2 = json.loads(
+                                                    resf2.content or "{}",
+                                                )
+                                            except json.JSONDecodeError:
+                                                fr2 = {}
+                                            prov2 = (
+                                                fr2.get("provenance")
+                                                if isinstance(fr2, dict)
+                                                else None
+                                            )
+                                            fcommit2 = (
+                                                str(prov2.get("commit") or "")
+                                                if isinstance(prov2, dict)
+                                                else ""
+                                            )
+                                            level2 = (
+                                                "commit_exact"
+                                                if (
+                                                    rc3.commit
+                                                    and fcommit2 == rc3.commit
+                                                )
+                                                else "default_fallback"
+                                            )
+                                            self._emit(
+                                                events,
+                                                "memory.retrieval.match",
+                                                {
+                                                    "level": level2,
+                                                    "id": rid2,
+                                                    "namespace": ns_def,
+                                                    "fact_commit": (
+                                                        fcommit2 or None
+                                                    ),
+                                                    "repo_commit": (
+                                                        rc3.commit or None
+                                                    ),
+                                                },
+                                                diag_sink,
+                                                event_sink,
+                                            )
 
             ctx = self._prepare_context(
                 messages,
