@@ -255,7 +255,7 @@ def _emit_memory_access(...):
 
 **Цель:** у пользователя всегда есть ответ «как сработала память» без ручного анализа.
 
-- ⏳ **Задача M4-3.1 — единый “Memory FullReport”** (частично: есть `subsystems.memory`, нет отдельного блока `memory_full_report`)
+- ✅ **Задача M4-3.1 — единый “Memory FullReport”** (выполнено: `memory_full_report` в unified summary)
   - **Описание:** расширить unified summary: статистика по памяти (retrieval/write),
     loop‑guards (сколько раз сработали caps), эффективность (эвристика) + причины.
   - **Критерии приёмки:**
@@ -286,7 +286,7 @@ def _emit_memory_access(...):
     - e2e используют `config/test.local.yaml` (через env или явный флаг), и запускаются
       через `scripts/test-e2e` (e2e-only) и `scripts/start-e2e` (полный прогон).
 
-- **Задача M4-4.2 — offline regression на JSONL**
+- ✅ **Задача M4-4.2 — offline regression на JSONL** (выполнено: минимальный fixture + тест)
   - **Описание:** фиксировать expected поля summary на 1–2 эталонных логах и сравнивать.
   - **Критерии приёмки:**
     - при изменении runtime отчёт меняется предсказуемо и покрыт тестом.
