@@ -1,0 +1,8 @@
+{"event_type":"process.start","ts":"2026-04-23T00:00:00Z"}
+{"event_type":"model.response","usage":{"input_tokens":10,"output_tokens":2,"cache_read_tokens":0,"cache_write_tokens":0}}
+{"event_type":"memory.policy","enabled":true,"repo":{"repo_path":"/tmp/repo","repo_uri":"github.com/acme/repo","branch":"develop","commit":"abc","default_branch":"develop","default_branch_source":"origin_head"}}
+{"event_type":"memory.auto_write.done","tool":"kb_write_fact","kind":"repo_identity"}
+{"event_type":"memory.auto_write.done","tool":"kb_write_fact","kind":"repo_entrypoints"}
+{"event_type":"memory.auto_write.skipped","tool":"kb_write_fact","reason":"approval_pending","kind":"repo_safe_commands"}
+{"event_type":"memory.auto_kb.rate_limited","tool":"kb_search","cap":1,"count":1,"reason":"auto_kb_search_branch"}
+{"event_type":"memory.retrieval.match","level":"commit_exact","id":"x","namespace":"n","fact_commit":"abc","repo_commit":"abc"}
