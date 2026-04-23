@@ -250,6 +250,16 @@ def _env_int(name: str, default: int) -> int:
         return int(default)
 
 
+def _normalize_user_intent(raw: str, max_chars: int = 280) -> str:
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    s = " ".join(s.split())
+    if len(s) > max_chars:
+        s = s[:max_chars].rstrip() + "…"
+    return s
+
+
 @dataclass(frozen=True, slots=True)
 class SessionOutcome:
     """Результат прогона или пауза на approval."""
@@ -975,6 +985,7 @@ class SessionRunner:
         wrote_repo_fact = False
         wrote_repo_tree_fact = False
         wrote_repo_signals_fact = False
+        wrote_session_intent_fact = False
         auto_kb_search_n = 0
         auto_kb_fetch_n = 0
         auto_kb_write_n = 0
@@ -1330,6 +1341,189 @@ class SessionRunner:
                             event_sink,
                         )
                         wrote_repo_fact = True
+
+            if (
+                not wrote_session_intent_fact
+                and "kb_write_fact" in active_reg.specs
+            ):
+                last_user_intent = next(
+                    (
+                        m
+                        for m in reversed(messages)
+                        if (
+                            m.role is MessageRole.USER
+                            and (m.content or "").strip()
+                        )
+                    ),
+                    None,
+                )
+                intent = (
+                    _normalize_user_intent(last_user_intent.content)
+                    if last_user_intent is not None
+                    else ""
+                )
+                if intent:
+                    if auto_kb_write_n >= cap_write:
+                        self._emit(
+                            events,
+                            "memory.auto_kb.rate_limited",
+                            {
+                                "tool": "kb_write_fact",
+                                "cap": cap_write,
+                                "count": auto_kb_write_n,
+                                "reason": "auto_write_session_intent",
+                            },
+                            diag_sink,
+                            event_sink,
+                        )
+                        wrote_session_intent_fact = True
+                    else:
+                        try:
+                            rc_int = detect_repo_context(Path(work_root()))
+                        except Exception:  # noqa: BLE001
+                            rc_int = None
+                        ns_int: str | None = None
+                        stable = None
+                        if rc_int is not None:
+                            ns_int = namespace_for_repo(
+                                repo_uri=rc_int.repo_uri,
+                                repo_path=rc_int.repo_path,
+                                branch=rc_int.branch,
+                            )
+                            stable = rc_int.repo_uri or rc_int.repo_path
+                        else:
+                            stable = str(work_root())
+                        rid_int = (
+                            "session_intent:"
+                            + str(stable).replace("/", "_").replace(":", "_")
+                        )
+                        if rc_int is not None and rc_int.branch:
+                            rid_int = (
+                                rid_int
+                                + ":"
+                                + rc_int.branch.replace("/", "_")
+                            )
+                        body_int = "\n".join(
+                            [
+                                f"user_intent={intent}",
+                                (
+                                    f"repo_uri="
+                                    f"{rc_int.repo_uri if rc_int else ''}"
+                                ),
+                                (
+                                    f"repo_path="
+                                    f"{rc_int.repo_path if rc_int else ''}"
+                                ),
+                                f"branch={rc_int.branch if rc_int else ''}",
+                                f"commit={rc_int.commit if rc_int else ''}",
+                            ],
+                        ).strip()
+                        inv_int = ToolInvocation(
+                            call_id=f"auto_kb_write_intent_{turn}",
+                            tool_name="kb_write_fact",
+                            arguments_json=json.dumps(
+                                {
+                                    "id": rid_int,
+                                    "scope": "run",
+                                    "namespace": ns_int,
+                                    "title": "Session intent",
+                                    "summary": intent,
+                                    "body": body_int[:2000],
+                                    "author": "auto_memory",
+                                    "provenance": (
+                                        rc_int.to_event_payload()
+                                        if rc_int is not None
+                                        else {}
+                                    ),
+                                    "source": "auto_session_intent",
+                                },
+                                ensure_ascii=False,
+                            ),
+                        )
+                        self._emit(
+                            events,
+                            "tool.batch",
+                            {
+                                "count": 1,
+                                "tool_names": ["kb_write_fact"],
+                                "reason": "auto_kb_intent",
+                            },
+                            diag_sink,
+                            event_sink,
+                        )
+                        self._emit(
+                            events,
+                            "tool.call_started",
+                            {
+                                "tool": inv_int.tool_name,
+                                "call_id": inv_int.call_id,
+                                "arguments_json": self._safe_arguments_json(
+                                    tool_name=inv_int.tool_name,
+                                    arguments_json=inv_int.arguments_json,
+                                ),
+                                "reason": "auto_kb_intent",
+                            },
+                            diag_sink,
+                            event_sink,
+                        )
+                        self._emit_memory_access(
+                            tool_name=inv_int.tool_name,
+                            call_id=inv_int.call_id,
+                            arguments_json=inv_int.arguments_json,
+                            events=events,
+                            diag_sink=diag_sink,
+                            event_sink=event_sink,
+                        )
+                        try:
+                            res_int = executor.execute_one(
+                                inv_int,
+                                approvals,
+                                cancel=cancel,
+                            )
+                        except ApprovalPending:
+                            self._emit(
+                                events,
+                                "memory.auto_write.skipped",
+                                {
+                                    "tool": "kb_write_fact",
+                                    "reason": "approval_pending",
+                                    "kind": "session_intent",
+                                },
+                                diag_sink,
+                                event_sink,
+                            )
+                        else:
+                            auto_kb_write_n += 1
+                            self._emit(
+                                events,
+                                "tool.call_finished",
+                                _tool_call_finished_payload(
+                                    inv_int,
+                                    res_int,
+                                ),
+                                diag_sink,
+                                event_sink,
+                            )
+                            self._append_tool_results(
+                                messages,
+                                [inv_int],
+                                [res_int],
+                                settings,
+                                events,
+                                diag_sink,
+                                event_sink,
+                            )
+                            self._emit(
+                                events,
+                                "memory.auto_write.done",
+                                {
+                                    "tool": "kb_write_fact",
+                                    "kind": "session_intent",
+                                },
+                                diag_sink,
+                                event_sink,
+                            )
+                        wrote_session_intent_fact = True
 
             if (
                 not wrote_repo_tree_fact
