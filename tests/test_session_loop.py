@@ -507,6 +507,46 @@ def test_loop_auto_kb_write_tree_fact_emits_memory_access(
     )
 
 
+def test_loop_auto_kb_write_signals_fact_emits_memory_access(
+    tmp_path: object,
+    monkeypatch: object,
+) -> None:
+    """Auto repo signals write via glob_file + kb_write_fact."""
+    monkeypatch.setenv("AILIT_WORK_ROOT", str(tmp_path))
+    (tmp_path / "pyproject.toml").write_text("[x]\n", encoding="utf-8")
+    reg = default_builtin_registry().merge(
+        build_kb_tool_registry(
+            KbToolsConfig(
+                enabled=True,
+                db_path=(tmp_path / "kb.sqlite3"),
+                namespace="t",
+            ),
+        ),
+    )
+    r1 = NormalizedChatResponse(
+        text_parts=("done",),
+        tool_calls=(),
+        finish_reason=FinishReason.STOP,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    runner = SessionRunner(
+        ScriptedProvider([r1]),
+        reg,
+        permission_engine=PermissionEngine(
+            write_default=PermissionDecision.ALLOW,
+        ),
+    )
+    messages = [ChatMessage(role=MessageRole.USER, content="go")]
+    out = runner.run(messages, ApprovalSession(), SessionSettings(model="m"))
+    assert out.state is SessionState.FINISHED
+    assert any(
+        e.get("event_type") == "memory.access"
+        and e.get("tool") == "kb_write_fact"
+        for e in out.events
+    )
+
+
 def test_effective_max_turns_respects_hard_cap_env(
     tmp_path: object,
     monkeypatch: object,
