@@ -59,6 +59,10 @@
 
 - [`memory-canon.md`](memory-canon.md) — три уровня (сессия `run` / локальный ПК / MCP), глоссарий методик, соотнесение с репозиториями-донорами и планами `workflow-token-economy` / `workflow-hybrid-memory-mcp` / `workflow-memory-3`.
 
+### Реализация AI memory в ailit (снимок + доноры)
+
+- [`ailit-ai-memory-implementation.md`](ailit-ai-memory-implementation.md) — **актуальная** реализация (код, CLI, события), **сопоставление с донорами** (сильные/слабые стороны), ссылки на `plan/`. **Workflow M3** по документации **завершён**; детальная стратегия — в `plan/workflow-memory-3.md` и `plan/m3-*.md`.
+
 ### Provider layer (код, этап 3)
 
 - реализация: каталог [`../tools/agent_core/`](../tools/agent_core/) (pytest: `python3 -m pytest` из корня репозитория).

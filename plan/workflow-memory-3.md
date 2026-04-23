@@ -5,6 +5,12 @@
 Канон процесса разработки репозитория: [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc).  
 Предыдущие workflow: [`workflow-token-economy-recipe.md`](workflow-token-economy-recipe.md), [`workflow-hybrid-memory-mcp.md`](workflow-hybrid-memory-mcp.md).
 
+## Статус: workflow M3 **завершён** (2026-04-22)
+
+По репозиторию `ailit-agent` **закрыта** третья итерация (M3) в смысле: реализация ключевых механизмов, CLI/отчёты, отдельные plan-документы M3-4 / M3-5, **сводка с донорами** в [`docs/ailit-ai-memory-implementation.md`](../docs/ailit-ai-memory-implementation.md), пометка в [корневом `README.md`](../README.md).
+
+Дальнейшая работа по «памяти как продукту» — только через **новую** research/постановку (см. раздел «Конец workflow» ниже и `.cursor/rules/project-workflow.mdc`).
+
 ## Статус предусловий (перед стартом M3)
 
 Этот workflow начинается после закрытия двух предыдущих. На текущем состоянии репозитория:
@@ -599,4 +605,6 @@ flowchart LR
 
 ## Конец workflow
 
-Если этот workflow закрыт и нет следующей утверждённой ветки, агент останавливается и запрашивает research и постановку следующей цели по [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc).
+**Текущее состояние:** workflow **закрыт** (см. «Статус» в начале файла). Сводка реализации и сравнение с донорами: [`docs/ailit-ai-memory-implementation.md`](../docs/ailit-ai-memory-implementation.md).
+
+Следующие шаги (организационно): **research** и **постановка** новой цели по [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc) (отдельный plan/workflow), не расширение M3 post-factum без согласования.
