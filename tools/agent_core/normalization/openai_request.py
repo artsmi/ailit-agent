@@ -4,7 +4,38 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_core.models import ChatMessage, ChatRequest, MessageRole, ToolDefinition
+from agent_core.models import (
+    ChatMessage,
+    ChatRequest,
+    MessageRole,
+    ToolDefinition,
+)
+
+
+def _sanitize_tool_messages(
+    messages: tuple[ChatMessage, ...],
+) -> list[ChatMessage]:
+    """Drop orphan TOOL messages without preceding assistant tool_calls.
+
+    OpenAI-compat APIs require TOOL messages to be responses to tool_calls.
+    Compaction/prune may drop the assistant tool_calls message while leaving
+    TOOL messages behind; such orphans must not be sent.
+    """
+    seen_call_ids: set[str] = set()
+    out: list[ChatMessage] = []
+    for m in messages:
+        if m.role is MessageRole.ASSISTANT and m.tool_calls:
+            for tc in m.tool_calls:
+                if tc.call_id:
+                    seen_call_ids.add(str(tc.call_id))
+            out.append(m)
+            continue
+        if m.role is MessageRole.TOOL and m.tool_call_id:
+            if str(m.tool_call_id) in seen_call_ids:
+                out.append(m)
+            continue
+        out.append(m)
+    return out
 
 
 def _message_to_openai_dict(message: ChatMessage) -> dict[str, Any]:
@@ -47,9 +78,10 @@ def _tool_to_openai_dict(tool: ToolDefinition) -> dict[str, Any]:
 
 def build_openai_chat_completion_body(request: ChatRequest) -> dict[str, Any]:
     """Построить JSON-тело для POST /v1/chat/completions."""
+    sanitized = _sanitize_tool_messages(tuple(request.messages))
     body: dict[str, Any] = {
         "model": request.model,
-        "messages": [_message_to_openai_dict(m) for m in request.messages],
+        "messages": [_message_to_openai_dict(m) for m in sanitized],
         "temperature": request.temperature,
         "stream": request.stream,
     }

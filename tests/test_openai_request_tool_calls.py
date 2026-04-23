@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from agent_core.models import ChatMessage, MessageRole, ToolCallNormalized
-from agent_core.normalization.openai_request import build_openai_chat_completion_body
+from agent_core.normalization.openai_request import (
+    build_openai_chat_completion_body,
+)
 from agent_core.models import ChatRequest
 
 
@@ -22,3 +24,16 @@ def test_assistant_tool_calls_serialized() -> None:
     assert m0["role"] == "assistant"
     assert m0.get("content") is None
     assert "tool_calls" in m0
+
+
+def test_orphan_tool_message_dropped() -> None:
+    """TOOL без предшествующего assistant tool_calls нельзя отправлять."""
+    tool = ChatMessage(
+        role=MessageRole.TOOL,
+        content="x",
+        tool_call_id="orphan",
+    )
+    body = build_openai_chat_completion_body(
+        ChatRequest(messages=(tool,), model="m"),
+    )
+    assert body["messages"] == []
