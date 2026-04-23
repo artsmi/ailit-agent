@@ -425,6 +425,80 @@ def build_memory_diagnosis(
     }
 
 
+def build_memory_full_report(
+    *,
+    cumulative: Mapping[str, Any],
+    resume: Mapping[str, Any],
+    memory_policy: Mapping[str, Any] | None,
+    memory_retrieval_fallback: Mapping[str, Any] | None,
+    memory_retrieval_match: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Единый отчёт по памяти (M4-3.1).
+
+    Содержит policy, retrieval/write, rate-limit и loop guards.
+    """
+    c = cumulative
+    r = resume
+    stats = build_memory_stats(c, r)
+    eff = build_memory_efficiency_score(c, r)
+    diag = build_memory_diagnosis(
+        cumulative=c,
+        resume=r,
+        memory_policy=memory_policy,
+    )
+    by_tool = stats.get("access_by_tool")
+    by_tool_out: dict[str, int] = (
+        {str(k): int(v) for k, v in by_tool.items()}
+        if isinstance(by_tool, dict)
+        else {}
+    )
+    return {
+        "kind": "ailit_memory_full_report_v1",
+        "policy": (
+            dict(memory_policy) if isinstance(memory_policy, Mapping) else None
+        ),
+        "retrieval": {
+            "fallback_last": (
+                dict(memory_retrieval_fallback)
+                if isinstance(memory_retrieval_fallback, Mapping)
+                else None
+            ),
+            "match_last": (
+                dict(memory_retrieval_match)
+                if isinstance(memory_retrieval_match, Mapping)
+                else None
+            ),
+        },
+        "access": {
+            "access_total": int(stats.get("access_total", 0) or 0),
+            "access_by_tool": by_tool_out,
+        },
+        "auto_write": {
+            "done_total": int(c.get("memory_auto_write_done_total", 0) or 0),
+            "skipped_total": int(c.get("memory_auto_write_skipped", 0) or 0),
+            "done_by_kind": dict(
+                c.get("memory_auto_write_done_by_kind", {}) or {},
+            ),
+            "skipped_by_kind": dict(
+                c.get("memory_auto_write_skipped_by_kind", {}) or {},
+            ),
+        },
+        "rate_limit": {
+            "rate_limited_total": int(
+                c.get("memory_auto_kb_rate_limited_total", 0) or 0,
+            ),
+            "rate_limited_by_tool": dict(
+                c.get("memory_auto_kb_rate_limited_by_tool", {}) or {},
+            ),
+        },
+        "loop_guards": {
+            "doom_loop_total": int(c.get("doom_loop_total", 0) or 0),
+        },
+        "efficiency": eff,
+        "diagnosis": diag,
+    }
+
+
 def extract_memory_policy(
     rows: list[Mapping[str, Any]],
 ) -> dict[str, Any] | None:
@@ -714,6 +788,13 @@ def build_session_summary(
     mem_p = extract_memory_policy(rows)
     mem_fb = extract_memory_retrieval_fallback(rows)
     mem_m = extract_memory_retrieval_match(rows)
+    mem_fr = build_memory_full_report(
+        cumulative=c_dict,
+        resume=r_dict,
+        memory_policy=mem_p,
+        memory_retrieval_fallback=mem_fb,
+        memory_retrieval_match=mem_m,
+    )
     return {
         "contract": SESSION_SUMMARY_CONTRACT,
         "log_start": base.get("log_start"),
@@ -729,6 +810,7 @@ def build_session_summary(
         "memory_policy": mem_p,
         "memory_retrieval_fallback": mem_fb,
         "memory_retrieval_match": mem_m,
+        "memory_full_report": mem_fr,
     }
 
 

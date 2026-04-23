@@ -139,6 +139,30 @@ def test_memory_rate_limited_counted_in_subsystems() -> None:
     assert by.get("kb_fetch") == 1
 
 
+def test_memory_full_report_present() -> None:
+    rows: list[dict[str, Any]] = [
+        {
+            "event_type": "memory.policy",
+            "enabled": True,
+            "repo": {"repo_path": "/tmp/x"},
+        },
+        {
+            "event_type": "memory.auto_kb.rate_limited",
+            "tool": "kb_search",
+            "cap": 1,
+            "count": 1,
+            "reason": "auto_kb_search_branch",
+        },
+    ]
+    s = build_session_summary(rows)
+    fr = s.get("memory_full_report")
+    assert isinstance(fr, dict)
+    assert fr.get("kind") == "ailit_memory_full_report_v1"
+    rl = fr.get("rate_limit")
+    assert isinstance(rl, dict)
+    assert rl.get("rate_limited_total") == 1
+
+
 def test_resume_ready_false_trailing_model_error() -> None:
     rows: list[dict[str, Any]] = [
         {
