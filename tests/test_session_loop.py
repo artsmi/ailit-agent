@@ -293,6 +293,58 @@ def test_loop_agent_steps_cap_finalize_text_only(
     assert "final" in (messages[-1].content or "")
 
 
+def test_loop_doom_loop_finalize_text_only(
+    tmp_path: object,
+    monkeypatch: object,
+) -> None:
+    """Повтор одного и того же tool_calls → session.doom_loop и финализация."""
+    monkeypatch.setenv("AILIT_WORK_ROOT", str(tmp_path))
+    reg = default_builtin_registry()
+    tc = ToolCallNormalized(
+        call_id="t1",
+        tool_name="echo",
+        arguments_json='{"message":"hi"}',
+        stream_index=0,
+        provider_name="scripted",
+    )
+    r_tool = NormalizedChatResponse(
+        text_parts=(),
+        tool_calls=(tc,),
+        finish_reason=FinishReason.TOOL_CALLS,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    r_tool2 = NormalizedChatResponse(
+        text_parts=(),
+        tool_calls=(tc,),
+        finish_reason=FinishReason.TOOL_CALLS,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    r_tool3 = NormalizedChatResponse(
+        text_parts=(),
+        tool_calls=(tc,),
+        finish_reason=FinishReason.TOOL_CALLS,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    r_final = NormalizedChatResponse(
+        text_parts=("final",),
+        tool_calls=(),
+        finish_reason=FinishReason.STOP,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    runner = SessionRunner(
+        ScriptedProvider([r_tool, r_tool2, r_tool3, r_final]),
+        reg,
+    )
+    messages = [ChatMessage(role=MessageRole.USER, content="go")]
+    out = runner.run(messages, ApprovalSession(), SessionSettings(model="m"))
+    assert out.state is SessionState.FINISHED
+    assert any(e.get("event_type") == "session.doom_loop" for e in out.events)
+
+
 def test_loop_auto_kb_search_emits_memory_access(
     tmp_path: object,
     monkeypatch: object,

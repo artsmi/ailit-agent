@@ -910,6 +910,8 @@ class SessionRunner:
         wrote_repo_fact = False
         steps_cap = _effective_agent_steps_cap(settings)
         agent_steps = 0
+        last_model_tool_sig: str | None = None
+        same_tool_sig_n = 0
 
         for turn in range(_effective_max_turns(settings)):
             if cancel is not None and cancel.is_set():
@@ -1401,6 +1403,34 @@ class SessionRunner:
                         tool_calls=tuple(resp.tool_calls),
                     )
                 )
+                sig = "|".join(
+                    f"{tc.tool_name}:{tc.arguments_json}"
+                    for tc in resp.tool_calls
+                )
+                if sig and sig == last_model_tool_sig:
+                    same_tool_sig_n += 1
+                else:
+                    last_model_tool_sig = sig
+                    same_tool_sig_n = 0
+                if same_tool_sig_n >= 2:
+                    self._emit(
+                        events,
+                        "session.doom_loop",
+                        {
+                            "policy": "finalize_text_only",
+                            "same_signature_n": same_tool_sig_n,
+                        },
+                        diag_sink,
+                        event_sink,
+                    )
+                    return self._finalize_after_turn_cap(
+                        messages,
+                        settings,
+                        events,
+                        diag_sink,
+                        event_sink,
+                        bud,
+                    )
                 invs = [
                     ToolInvocation(tc.call_id, tc.tool_name, tc.arguments_json)
                     for tc in resp.tool_calls
@@ -1505,6 +1535,8 @@ class SessionRunner:
                     pass
                 continue
             agent_steps = 0
+            last_model_tool_sig = None
+            same_tool_sig_n = 0
 
             messages.append(
                 ChatMessage(role=MessageRole.ASSISTANT, content=text),
