@@ -25,6 +25,7 @@ from agent_core.tool_runtime.permission import (
     PermissionEngine,
 )
 from agent_core.tool_runtime.registry import default_builtin_registry
+from agent_core.memory.kb_tools import KbToolsConfig, build_kb_tool_registry
 
 
 class ScriptedProvider:
@@ -251,6 +252,34 @@ def test_loop_turn_cap_text_only_finalize(
     assert out.state is SessionState.FINISHED
     assert messages[-1].role is MessageRole.ASSISTANT
     assert "cap summary done" in messages[-1].content
+
+
+def test_loop_auto_kb_search_emits_memory_access(
+    tmp_path: object,
+    monkeypatch: object,
+) -> None:
+    """Если KB tools включены, loop делает авто kb_search."""
+    monkeypatch.setenv("AILIT_WORK_ROOT", str(tmp_path))
+    kb_cfg = KbToolsConfig(
+        enabled=True,
+        db_path=(tmp_path / "kb.sqlite3"),
+        namespace="t",
+    )
+    reg = default_builtin_registry().merge(build_kb_tool_registry(kb_cfg))
+    r1 = NormalizedChatResponse(
+        text_parts=("done",),
+        tool_calls=(),
+        finish_reason=FinishReason.STOP,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    runner = SessionRunner(ScriptedProvider([r1]), reg)
+    messages = [
+        ChatMessage(role=MessageRole.USER, content="remember this repo"),
+    ]
+    out = runner.run(messages, ApprovalSession(), SessionSettings(model="m"))
+    assert out.state is SessionState.FINISHED
+    assert any(e.get("event_type") == "memory.access" for e in out.events)
 
 
 def test_effective_max_turns_respects_hard_cap_env(

@@ -889,6 +889,7 @@ class SessionRunner:
             max_context_units=settings.max_context_units,
         )
         suppress_next: list[bool] = [False]
+        last_auto_kb_query: str | None = None
 
         for turn in range(_effective_max_turns(settings)):
             if cancel is not None and cancel.is_set():
@@ -1058,6 +1059,86 @@ class SessionRunner:
                     event_sink,
                 )
                 continue
+
+            if "kb_search" in active_reg.specs:
+                last_user = next(
+                    (
+                        m
+                        for m in reversed(messages)
+                        if (
+                            m.role is MessageRole.USER
+                            and (m.content or "").strip()
+                        )
+                    ),
+                    None,
+                )
+                q = (last_user.content or "").strip() if last_user else ""
+                q = q[:200]
+                if q and q != last_auto_kb_query:
+                    last_auto_kb_query = q
+                    inv = ToolInvocation(
+                        call_id=f"auto_kb_search_{turn}",
+                        tool_name="kb_search",
+                        arguments_json=json.dumps(
+                            {
+                                "query": q,
+                                "scope": "project",
+                                "top_k": 5,
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+                    self._emit(
+                        events,
+                        "tool.batch",
+                        {
+                            "count": 1,
+                            "tool_names": ["kb_search"],
+                            "reason": "auto_kb",
+                        },
+                        diag_sink,
+                        event_sink,
+                    )
+                    self._emit(
+                        events,
+                        "tool.call_started",
+                        {
+                            "tool": inv.tool_name,
+                            "call_id": inv.call_id,
+                            "arguments_json": self._safe_arguments_json(
+                                tool_name=inv.tool_name,
+                                arguments_json=inv.arguments_json,
+                            ),
+                            "reason": "auto_kb",
+                        },
+                        diag_sink,
+                        event_sink,
+                    )
+                    self._emit_memory_access(
+                        tool_name=inv.tool_name,
+                        call_id=inv.call_id,
+                        arguments_json=inv.arguments_json,
+                        events=events,
+                        diag_sink=diag_sink,
+                        event_sink=event_sink,
+                    )
+                    res = executor.execute_one(inv, approvals, cancel=cancel)
+                    self._emit(
+                        events,
+                        "tool.call_finished",
+                        _tool_call_finished_payload(inv, res),
+                        diag_sink,
+                        event_sink,
+                    )
+                    self._append_tool_results(
+                        messages,
+                        [inv],
+                        [res],
+                        settings,
+                        events,
+                        diag_sink,
+                        event_sink,
+                    )
 
             ctx = self._prepare_context(
                 messages,
