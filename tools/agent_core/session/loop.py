@@ -131,6 +131,7 @@ class SessionSettings:
     temperature: float = 0.0
     max_tokens: int | None = None
     max_turns: int = 10_000
+    agent_steps_cap: int | None = None
     max_context_units: int | None = None
     max_total_tokens: int | None = None
     compaction_tail_messages: int = 40
@@ -166,6 +167,22 @@ def _effective_max_turns(settings: SessionSettings) -> int:
     hard = max(1, hard)
     configured = max(1, settings.max_turns)
     return min(configured, hard)
+
+
+def _effective_agent_steps_cap(settings: SessionSettings) -> int | None:
+    """Жёсткий cap agentic tool-итераций (OpenCode `steps`-аналог)."""
+    raw = os.environ.get("AILIT_AGENT_STEPS_CAP", "").strip()
+    if raw:
+        try:
+            v = int(raw)
+        except ValueError:
+            v = 0
+        if v > 0:
+            return v
+    cap = settings.agent_steps_cap
+    if cap is None:
+        return None
+    return cap if cap > 0 else None
 
 
 @dataclass(frozen=True, slots=True)
@@ -891,6 +908,8 @@ class SessionRunner:
         suppress_next: list[bool] = [False]
         last_auto_kb_query: str | None = None
         wrote_repo_fact = False
+        steps_cap = _effective_agent_steps_cap(settings)
+        agent_steps = 0
 
         for turn in range(_effective_max_turns(settings)):
             if cancel is not None and cancel.is_set():
@@ -914,6 +933,15 @@ class SessionRunner:
                 diag_sink,
                 event_sink,
             )
+            if steps_cap is not None and agent_steps >= steps_cap:
+                return self._finalize_after_turn_cap(
+                    messages,
+                    settings,
+                    events,
+                    diag_sink,
+                    event_sink,
+                    bud,
+                )
             if settings.tool_output_prune.enabled:
                 pr = apply_tool_output_prune(
                     messages,
@@ -1365,6 +1393,7 @@ class SessionRunner:
 
             text = "".join(resp.text_parts)
             if resp.tool_calls:
+                agent_steps += 1
                 messages.append(
                     ChatMessage(
                         role=MessageRole.ASSISTANT,
@@ -1475,6 +1504,7 @@ class SessionRunner:
                 if resp.finish_reason is not FinishReason.TOOL_CALLS:
                     pass
                 continue
+            agent_steps = 0
 
             messages.append(
                 ChatMessage(role=MessageRole.ASSISTANT, content=text),

@@ -254,6 +254,45 @@ def test_loop_turn_cap_text_only_finalize(
     assert "cap summary done" in messages[-1].content
 
 
+def test_loop_agent_steps_cap_finalize_text_only(
+    tmp_path: object,
+    monkeypatch: object,
+) -> None:
+    """agent_steps_cap: после N tool-turn → финализация text-only."""
+    monkeypatch.setenv("AILIT_WORK_ROOT", str(tmp_path))
+    reg = default_builtin_registry()
+    tc1 = ToolCallNormalized(
+        call_id="t1",
+        tool_name="echo",
+        arguments_json='{"message":"hi"}',
+        stream_index=0,
+        provider_name="scripted",
+    )
+    r_tool1 = NormalizedChatResponse(
+        text_parts=(),
+        tool_calls=(tc1,),
+        finish_reason=FinishReason.TOOL_CALLS,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    r_final = NormalizedChatResponse(
+        text_parts=("final",),
+        tool_calls=(),
+        finish_reason=FinishReason.STOP,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    runner = SessionRunner(ScriptedProvider([r_tool1, r_final]), reg)
+    messages = [ChatMessage(role=MessageRole.USER, content="go")]
+    out = runner.run(
+        messages,
+        ApprovalSession(),
+        SessionSettings(model="m", agent_steps_cap=1, max_turns=50),
+    )
+    assert out.state is SessionState.FINISHED
+    assert "final" in (messages[-1].content or "")
+
+
 def test_loop_auto_kb_search_emits_memory_access(
     tmp_path: object,
     monkeypatch: object,
