@@ -66,9 +66,11 @@ from ailit.compat_adapter import read_status, run_compat_workflow
 from ailit.debug_bundle import build_debug_bundle, default_rollout_phase
 from ailit.defaults_resolver import DefaultProviderModelResolver
 from ailit.token_economy_aggregates import (
+    build_session_summary,
     empty_cumulative,
     format_cumulative_caption,
     merge_events_into_cumulative,
+    read_jsonl_session_log,
 )
 from ailit.usage_display import (
     SessionEventsUsageExtractor,
@@ -777,6 +779,38 @@ def _render_token_economy_panel() -> None:
         st.caption(f"Process log: `{ph}` — `ailit session usage show` для файла")
 
 
+def _render_unified_session_summary_panel() -> None:
+    """E2E-M3-02: тот же отчёт, что `ailit session usage summary` (one source)."""
+    ph = st.session_state.get("ailit_chat_log_path")
+    if not isinstance(ph, str) or not ph.strip():
+        return
+    p = Path(ph)
+    if not p.is_file():
+        return
+    try:
+        rows = read_jsonl_session_log(p)
+        sm = build_session_summary(rows)
+    except OSError:
+        return
+    res = sm.get("resume") or {}
+    rr = bool(res.get("resume_ready"))
+    notes = res.get("notes")
+    if isinstance(notes, list) and notes:
+        note_s = "; ".join(str(x) for x in notes)
+    else:
+        note_s = "—"
+    st.caption(
+        f"**Сводка лога (unified):** contract={sm.get('contract', '')!s} · "
+        f"resume_ready={rr} · {note_s}",
+    )
+    with st.expander("Сводка сессии: JSON (как `session usage summary --json`)", expanded=False):
+        st.json(sm)
+        st.code(
+            f"ailit session usage summary {p}",
+            language="bash",
+        )
+
+
 def _render_dialogue_messages(
     messages: list[ChatMessage],
     *,
@@ -1405,6 +1439,7 @@ def main() -> None:
         )
         _render_usage_tokens_panel()
         _render_token_economy_panel()
+        _render_unified_session_summary_panel()
 
         def _request_send() -> None:
             st.session_state[_ChatPageState.SEND_REQUEST] = True

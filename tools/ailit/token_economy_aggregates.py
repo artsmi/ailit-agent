@@ -2,9 +2,41 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any, Mapping
 
 _BYTES_TO_PSEUDO_TOKENS = 4
+
+# E2E-M3-02: «one source»; ориентир: context-mode FullReport.
+SESSION_SUMMARY_CONTRACT = "ailit_session_summary_v1"
+
+
+def read_jsonl_session_log(
+    path: Path,
+    *,
+    max_bytes: int = 50_000_000,
+) -> list[dict[str, Any]]:
+    """Прочитать JSONL-лог сессии (тот же формат, что и CLI session usage)."""
+    raw = path.read_bytes()
+    if len(raw) > max_bytes:
+        raw = raw[-max_bytes:]
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        text = raw.decode("utf-8", errors="replace")
+    out: list[dict[str, Any]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(row, dict):
+            out.append(row)
+    return out
 
 
 def _i(row: Mapping[str, Any], key: str) -> int:
@@ -155,21 +187,90 @@ def compute_resume_signals(
     }
 
 
+def build_subsystems_block(
+    *,
+    usage: Mapping[str, Any],
+    cumulative: Mapping[str, Any],
+    resume: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Срез подсистем; то же, что отдельные команды `session usage <sub>`."""
+    return {
+        "usage": {
+            "input_tokens": _i(usage, "input_tokens"),
+            "output_tokens": _i(usage, "output_tokens"),
+            "cache_read_tokens": _i(usage, "cache_read_tokens"),
+            "cache_write_tokens": _i(usage, "cache_write_tokens"),
+        },
+        "pager": {
+            "page_created": int(cumulative.get("pager_page_created", 0) or 0),
+            "page_used": int(cumulative.get("pager_page_used", 0) or 0),
+        },
+        "budget": {
+            "events": int(cumulative.get("budget_events", 0) or 0),
+            "saved_chars": int(cumulative.get("budget_chars_saved", 0) or 0),
+        },
+        "prune": {
+            "passes": int(cumulative.get("prune_passes", 0) or 0),
+            "tools": int(cumulative.get("prune_tools", 0) or 0),
+            "bytes_freed": int(cumulative.get("prune_bytes_freed", 0) or 0),
+        },
+        "compaction": {
+            "restored_files": int(
+                cumulative.get("compaction_restore_files", 0) or 0,
+            ),
+            "injected_chars": int(
+                cumulative.get("compaction_restore_injected_chars", 0) or 0,
+            ),
+        },
+        "tool_exposure": {
+            "applied": int(
+                cumulative.get("tool_exposure_applied", 0) or 0,
+            ),
+            "schema_chars_sum": int(
+                cumulative.get("tool_exposure_schema_chars_sum", 0) or 0,
+            ),
+        },
+        "memory": {
+            "access_n": int(resume.get("memory_access_n", 0) or 0),
+            "promotion_applied": int(
+                cumulative.get("memory_promotion_applied", 0) or 0,
+            ),
+            "promotion_denied": int(
+                cumulative.get("memory_promotion_denied", 0) or 0,
+            ),
+        },
+    }
+
+
 def build_session_summary(
     rows: list[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    """Единый отчёт по логу: usage, token-economy, resume, счётчики."""
+    """Единый отчёт: usage, TE, resume, subsystems (один проход, E2E-M3-02)."""
     base = analyze_log_rows(rows)
     resume = compute_resume_signals(rows)
     c = base.get("cumulative")
-    c_dict = c if isinstance(c, dict) else {}
+    c_dict: dict[str, Any] = dict(c) if isinstance(c, dict) else {}
+    u = base.get("usage")
+    u_dict: dict[str, Any] = dict(u) if isinstance(u, dict) else {}
+    s = base.get("synthetic_est")
+    s_dict: dict[str, Any] = dict(s) if isinstance(s, dict) else {}
+    r_dict: dict[str, Any] = (
+        dict(resume) if isinstance(resume, dict) else {}
+    )
+    sub = build_subsystems_block(
+        usage=u_dict,
+        cumulative=c_dict,
+        resume=r_dict,
+    )
     return {
+        "contract": SESSION_SUMMARY_CONTRACT,
         "log_start": base.get("log_start"),
         "model_response_n": base.get("model_response_n"),
-        "usage": base.get("usage"),
+        "usage": u_dict,
         "cumulative": c_dict,
-        "synthetic_est": base.get("synthetic_est"),
-        "resume": resume,
+        "synthetic_est": s_dict,
+        "resume": r_dict,
+        "subsystems": sub,
     }
 
 

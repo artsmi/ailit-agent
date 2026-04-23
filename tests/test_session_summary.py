@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from ailit.token_economy_aggregates import build_session_summary
+from ailit.token_economy_aggregates import (
+    SESSION_SUMMARY_CONTRACT,
+    build_session_summary,
+)
 
 
 def test_resume_ready_true_when_clean_tail() -> None:
@@ -15,6 +18,8 @@ def test_resume_ready_true_when_clean_tail() -> None:
         },
     ]
     s = build_session_summary(rows)
+    assert s.get("contract") == SESSION_SUMMARY_CONTRACT
+    assert "subsystems" in s
     assert s["resume"]["resume_ready"] is True
     assert s["resume"]["trailing_error"] is False
 

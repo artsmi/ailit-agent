@@ -496,7 +496,7 @@ def main(argv: list[str] | None = None) -> int:
     p_co.set_defaults(func=_make_cmd_session_usage_subsystem("compaction"))
     p_mem = sess_use_sub.add_parser(
         "memory",
-        help="Только memory.access (счётчик)",
+        help="Memory: access + promotion (срез unified summary)",
     )
     p_mem.add_argument("log_file", type=str, help="Путь к JSONL")
     p_mem.set_defaults(func=_make_cmd_session_usage_subsystem("memory"))
