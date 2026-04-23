@@ -890,6 +890,7 @@ class SessionRunner:
         )
         suppress_next: list[bool] = [False]
         last_auto_kb_query: str | None = None
+        wrote_repo_fact = False
 
         for turn in range(_effective_max_turns(settings)):
             if cancel is not None and cancel.is_set():
@@ -1059,6 +1060,124 @@ class SessionRunner:
                     event_sink,
                 )
                 continue
+
+            if (
+                not wrote_repo_fact
+                and "kb_write_fact" in active_reg.specs
+            ):
+                try:
+                    rc2 = detect_repo_context(Path(work_root()))
+                except Exception:  # noqa: BLE001
+                    rc2 = None
+                if rc2 is not None:
+                    stable = rc2.repo_uri or rc2.repo_path
+                    rid = (
+                        "repo:"
+                        + stable.replace("/", "_").replace(":", "_")
+                    )
+                    if rc2.branch:
+                        rid = rid + ":" + rc2.branch.replace("/", "_")
+                    title = f"Repo: {rc2.repo_uri or rc2.repo_path}"
+                    parts = []
+                    if rc2.branch:
+                        parts.append(f"branch={rc2.branch}")
+                    if rc2.commit:
+                        parts.append(f"commit={rc2.commit[:10]}")
+                    summary = "; ".join(parts) if parts else "repo identity"
+                    body = "\n".join(
+                        [
+                            f"repo_uri={rc2.repo_uri}",
+                            f"repo_path={rc2.repo_path}",
+                            f"branch={rc2.branch or ''}",
+                            f"commit={rc2.commit or ''}",
+                            f"default_branch={rc2.default_branch or ''}",
+                        ],
+                    ).strip()
+                    invw = ToolInvocation(
+                        call_id=f"auto_kb_write_repo_{turn}",
+                        tool_name="kb_write_fact",
+                        arguments_json=json.dumps(
+                            {
+                                "id": rid,
+                                "scope": "project",
+                                "title": title,
+                                "summary": summary,
+                                "body": body,
+                                "author": "auto_memory",
+                                "provenance": rc2.to_event_payload(),
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+                    self._emit(
+                        events,
+                        "tool.batch",
+                        {
+                            "count": 1,
+                            "tool_names": ["kb_write_fact"],
+                            "reason": "auto_kb",
+                        },
+                        diag_sink,
+                        event_sink,
+                    )
+                    self._emit(
+                        events,
+                        "tool.call_started",
+                        {
+                            "tool": invw.tool_name,
+                            "call_id": invw.call_id,
+                            "arguments_json": self._safe_arguments_json(
+                                tool_name=invw.tool_name,
+                                arguments_json=invw.arguments_json,
+                            ),
+                            "reason": "auto_kb",
+                        },
+                        diag_sink,
+                        event_sink,
+                    )
+                    self._emit_memory_access(
+                        tool_name=invw.tool_name,
+                        call_id=invw.call_id,
+                        arguments_json=invw.arguments_json,
+                        events=events,
+                        diag_sink=diag_sink,
+                        event_sink=event_sink,
+                    )
+                    try:
+                        resw = executor.execute_one(
+                            invw,
+                            approvals,
+                            cancel=cancel,
+                        )
+                    except ApprovalPending:
+                        self._emit(
+                            events,
+                            "memory.auto_write.skipped",
+                            {
+                                "tool": "kb_write_fact",
+                                "reason": "approval_pending",
+                            },
+                            diag_sink,
+                            event_sink,
+                        )
+                    else:
+                        self._emit(
+                            events,
+                            "tool.call_finished",
+                            _tool_call_finished_payload(invw, resw),
+                            diag_sink,
+                            event_sink,
+                        )
+                        self._append_tool_results(
+                            messages,
+                            [invw],
+                            [resw],
+                            settings,
+                            events,
+                            diag_sink,
+                            event_sink,
+                        )
+                        wrote_repo_fact = True
 
             if "kb_search" in active_reg.specs:
                 last_user = next(
