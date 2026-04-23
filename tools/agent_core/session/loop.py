@@ -963,6 +963,7 @@ class SessionRunner:
         suppress_next: list[bool] = [False]
         last_auto_kb_query: str | None = None
         wrote_repo_fact = False
+        wrote_repo_tree_fact = False
         steps_cap = _effective_agent_steps_cap(settings)
         agent_steps = 0
         last_model_tool_sig: str | None = None
@@ -1285,6 +1286,140 @@ class SessionRunner:
                             event_sink,
                         )
                         wrote_repo_fact = True
+
+            if (
+                not wrote_repo_tree_fact
+                and "list_dir" in active_reg.specs
+                and "kb_write_fact" in active_reg.specs
+            ):
+                try:
+                    rc4 = detect_repo_context(Path(work_root()))
+                except Exception:  # noqa: BLE001
+                    rc4 = None
+                if rc4 is not None:
+                    ns_tree = namespace_for_repo(
+                        repo_uri=rc4.repo_uri,
+                        repo_path=rc4.repo_path,
+                        branch=rc4.branch,
+                    )
+                    inv_ls = ToolInvocation(
+                        call_id=f"auto_list_dir_root_{turn}",
+                        tool_name="list_dir",
+                        arguments_json=json.dumps(
+                            {"path": "."},
+                            ensure_ascii=False,
+                        ),
+                    )
+                    try:
+                        res_ls = executor.execute_one(
+                            inv_ls,
+                            approvals,
+                            cancel=cancel,
+                        )
+                    except ApprovalPending:
+                        res_ls = ToolRunResult(
+                            call_id=inv_ls.call_id,
+                            tool_name=inv_ls.tool_name,
+                            content="",
+                            error="approval_pending",
+                            extras=None,
+                        )
+                    tree_body = ""
+                    if res_ls.error is None and res_ls.content:
+                        tree_body = str(res_ls.content)
+                    inv_tree = ToolInvocation(
+                        call_id=f"auto_kb_write_tree_{turn}",
+                        tool_name="kb_write_fact",
+                        arguments_json=json.dumps(
+                            {
+                                "id": f"repo_tree:{ns_tree}",
+                                "scope": "project",
+                                "namespace": ns_tree,
+                                "title": "Repo tree (root)",
+                                "summary": (
+                                    "Root directory entries (list_dir)."
+                                ),
+                                "body": tree_body[:8000],
+                                "author": "auto_memory",
+                                "provenance": (
+                                    rc4.to_event_payload()
+                                    if rc4 is not None
+                                    else {}
+                                ),
+                            },
+                            ensure_ascii=False,
+                        ),
+                    )
+                    self._emit(
+                        events,
+                        "tool.batch",
+                        {
+                            "count": 1,
+                            "tool_names": ["kb_write_fact"],
+                            "reason": "auto_kb_tree",
+                        },
+                        diag_sink,
+                        event_sink,
+                    )
+                    self._emit(
+                        events,
+                        "tool.call_started",
+                        {
+                            "tool": inv_tree.tool_name,
+                            "call_id": inv_tree.call_id,
+                            "arguments_json": self._safe_arguments_json(
+                                tool_name=inv_tree.tool_name,
+                                arguments_json=inv_tree.arguments_json,
+                            ),
+                            "reason": "auto_kb_tree",
+                        },
+                        diag_sink,
+                        event_sink,
+                    )
+                    self._emit_memory_access(
+                        tool_name=inv_tree.tool_name,
+                        call_id=inv_tree.call_id,
+                        arguments_json=inv_tree.arguments_json,
+                        events=events,
+                        diag_sink=diag_sink,
+                        event_sink=event_sink,
+                    )
+                    try:
+                        res_tree = executor.execute_one(
+                            inv_tree,
+                            approvals,
+                            cancel=cancel,
+                        )
+                    except ApprovalPending:
+                        self._emit(
+                            events,
+                            "memory.auto_write.skipped",
+                            {
+                                "tool": "kb_write_fact",
+                                "reason": "approval_pending",
+                                "kind": "repo_tree_root",
+                            },
+                            diag_sink,
+                            event_sink,
+                        )
+                    else:
+                        self._emit(
+                            events,
+                            "tool.call_finished",
+                            _tool_call_finished_payload(inv_tree, res_tree),
+                            diag_sink,
+                            event_sink,
+                        )
+                        self._append_tool_results(
+                            messages,
+                            [inv_tree],
+                            [res_tree],
+                            settings,
+                            events,
+                            diag_sink,
+                            event_sink,
+                        )
+                        wrote_repo_tree_fact = True
 
             if "kb_search" in active_reg.specs:
                 last_user = next(
