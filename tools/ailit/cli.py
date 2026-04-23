@@ -394,6 +394,11 @@ def main(argv: list[str] | None = None) -> int:
     _bootstrap_repo_venv_if_needed(args_in)
 
     from ailit.config_cli import register_config_parser
+    from ailit.kb_cli import (
+        cmd_kb_dump_audit,
+        cmd_kb_rebuild_index,
+        cmd_kb_ttl_apply,
+    )
     from ailit.models_cli import register_models_parser
     from ailit.setup_cli import register_setup_parser
 
@@ -760,6 +765,36 @@ def main(argv: list[str] | None = None) -> int:
         help="Корень проекта (создаётся .ailit/plugins)",
     )
     p_pin.set_defaults(func=_cmd_plugin_install)
+
+    p_kb = sub.add_parser(
+        "kb",
+        help="KB: governance/maintenance utilities (M4-5)",
+    )
+    kb_sub = p_kb.add_subparsers(dest="kb_cmd", required=True)
+    p_ttl = kb_sub.add_parser(
+        "ttl-apply",
+        help="Применить TTL к deprecated (ставит valid_to, не удаляет)",
+    )
+    p_ttl.add_argument(
+        "--ttl-days",
+        type=int,
+        default=30,
+        help="Через сколько дней считать deprecated истёкшим",
+    )
+    p_ttl.set_defaults(func=cmd_kb_ttl_apply)
+
+    p_reb = kb_sub.add_parser(
+        "rebuild-index",
+        help="Пересобрать acceleration index (FTS5/BM25), если поддерживается",
+    )
+    p_reb.set_defaults(func=cmd_kb_rebuild_index)
+
+    p_aud = kb_sub.add_parser(
+        "audit",
+        help="Показать audit trail для KB записи",
+    )
+    p_aud.add_argument("id", type=str, help="KB record id")
+    p_aud.set_defaults(func=cmd_kb_dump_audit)
 
     args = parser.parse_args(args_in)
     func = getattr(args, "func", None)

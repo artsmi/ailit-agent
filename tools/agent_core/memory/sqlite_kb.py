@@ -127,6 +127,119 @@ class SqliteKb:
                 "ON kb_records(namespace)",
             )
 
+            # Optional acceleration layer (rebuildable).
+            self._ensure_fts_schema(con)
+
+    def _ensure_fts_schema(self, con: sqlite3.Connection) -> None:
+        """Создать структуру для FTS5, если SQLite её поддерживает."""
+        try:
+            con.execute(
+                """
+                CREATE VIRTUAL TABLE IF NOT EXISTS kb_records_fts
+                USING fts5(id, title, summary, body)
+                """,
+            )
+        except sqlite3.OperationalError:
+            # FTS5 может быть отключён в сборке SQLite.
+            return
+
+    def rebuild_fts_index(self) -> bool:
+        """Пересобрать acceleration index (FTS5/BM25).
+
+        Не является SoT: источник истины — kb_records.
+        """
+        with self._connect() as con:
+            try:
+                self._ensure_fts_schema(con)
+                con.execute("DELETE FROM kb_records_fts")
+                con.execute(
+                    """
+                    INSERT INTO kb_records_fts(id, title, summary, body)
+                    SELECT id, title, summary, body FROM kb_records
+                    """,
+                )
+                # Validate bm25() availability for this build.
+                con.execute(
+                    "SELECT bm25(kb_records_fts) FROM kb_records_fts LIMIT 1",
+                ).fetchone()
+            except sqlite3.OperationalError:
+                return False
+        return True
+
+    def apply_ttl_to_deprecated(self, *, valid_to_iso: str) -> tuple[int, int]:
+        """Проставить valid_to для deprecated записей без valid_to.
+
+        Returns:
+            (scanned, updated)
+        """
+        scanned = 0
+        updated = 0
+        vt = str(valid_to_iso).strip()
+        if not vt:
+            return 0, 0
+        with self._connect() as con:
+            rows = con.execute(
+                """
+                SELECT id, promotion_status, valid_to
+                FROM kb_records
+                WHERE promotion_status = 'deprecated'
+                """,
+            ).fetchall()
+            scanned = len(rows)
+            for r in rows:
+                rid = str(r["id"])
+                cur_vt = r["valid_to"]
+                if cur_vt is not None and str(cur_vt).strip():
+                    continue
+                con.execute(
+                    """
+                    UPDATE kb_records
+                    SET valid_to = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (vt, _utc_now_iso(), rid),
+                )
+                updated += 1
+        return scanned, updated
+
+    def append_audit_event(
+        self,
+        *,
+        record_id: str,
+        event: Mapping[str, Any],
+    ) -> bool:
+        """Append audit event into provenance_json['audit'] list."""
+        rid = str(record_id or "").strip()
+        if not rid:
+            return False
+        ev = dict(event) if isinstance(event, Mapping) else {}
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT provenance_json FROM kb_records WHERE id = ?",
+                (rid,),
+            ).fetchone()
+            if row is None:
+                return False
+            try:
+                prov = json.loads(str(row["provenance_json"] or "{}"))
+            except json.JSONDecodeError:
+                prov = {}
+            if not isinstance(prov, dict):
+                prov = {}
+            audit = prov.get("audit")
+            items: list[object] = audit if isinstance(audit, list) else []
+            items.append(ev)
+            prov["audit"] = items
+            con.execute(
+                """
+                UPDATE kb_records
+                SET provenance_json = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (json.dumps(prov, ensure_ascii=False), _utc_now_iso(), rid),
+            )
+        return True
+
     def _migrate_columns(self, con: sqlite3.Connection) -> None:
         """Добавить колонки M3 (temporal/provenance) к старым БД."""
         cur = con.execute("PRAGMA table_info(kb_records)")
@@ -308,7 +421,12 @@ class SqliteKb:
         top_k: int = 8,
         include_expired: bool = False,
     ) -> list[dict[str, Any]]:
-        """Search by LIKE over title/summary/body; returns lightweight rows."""
+        """Search by LIKE over title/summary/body; returns lightweight rows.
+
+        Acceleration layer (FTS5/BM25) может быть подключён отдельно
+        (rebuildable) и используется только при явном вызове
+        :meth:`search_fts`.
+        """
         q = str(query or "").strip()
         if not q:
             return []
@@ -336,6 +454,62 @@ class SqliteKb:
         params.append(k)
         with self._connect() as con:
             rows = con.execute(sql, tuple(params)).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            out.append(
+                {
+                    "id": str(r["id"]),
+                    "kind": str(r["kind"]),
+                    "scope": str(r["scope"]),
+                    "namespace": str(r["namespace"]),
+                    "title": str(r["title"]),
+                    "summary": str(r["summary"]),
+                    "updated_at": str(r["updated_at"]),
+                    "memory_layer": str(r["memory_layer"]),
+                    "valid_from": r["valid_from"],
+                    "valid_to": r["valid_to"],
+                    "promotion_status": str(r["promotion_status"]),
+                },
+            )
+        return out
+
+    def search_fts(
+        self,
+        *,
+        query: str,
+        scope: str | None,
+        namespace: str | None,
+        top_k: int = 8,
+    ) -> list[dict[str, Any]] | None:
+        """FTS5/BM25 search (если доступно), иначе None."""
+        q = str(query or "").strip()
+        if not q:
+            return []
+        k = max(1, min(int(top_k), 50))
+        where: list[str] = ["kb_records_fts MATCH ?"]
+        params: list[object] = [q]
+        if scope:
+            where.append("r.scope = ?")
+            params.append(str(scope))
+        if namespace:
+            where.append("r.namespace = ?")
+            params.append(str(namespace))
+        where_sql = " AND ".join(where)
+        sql = (
+            "SELECT r.id, r.kind, r.scope, r.namespace, r.title, r.summary, "
+            "r.updated_at, r.memory_layer, r.valid_from, r.valid_to, "
+            "r.promotion_status "
+            "FROM kb_records_fts f "
+            "JOIN kb_records r ON r.id = f.id "
+            f"WHERE {where_sql} "
+            "ORDER BY bm25(kb_records_fts) LIMIT ?"
+        )
+        params.append(k)
+        with self._connect() as con:
+            try:
+                rows = con.execute(sql, tuple(params)).fetchall()
+            except sqlite3.OperationalError:
+                return None
         out: list[dict[str, Any]] = []
         for r in rows:
             out.append(

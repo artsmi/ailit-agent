@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
@@ -125,13 +127,27 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
         ns = _s(args, "namespace").strip() or cfg.namespace
         top_k = _i(args, "top_k", 8)
         inc = _b(args, "include_expired", False)
-        rows = kb.search(
-            query=q,
-            scope=scope,
-            namespace=ns,
-            top_k=top_k,
-            include_expired=inc,
+        use_fts = os.environ.get("AILIT_KB_ACCEL", "").strip().lower() in (
+            "fts",
+            "fts5",
+            "bm25",
         )
+        rows: list[dict[str, Any]] | None = None
+        if use_fts and not inc:
+            rows = kb.search_fts(
+                query=q,
+                scope=scope,
+                namespace=ns,
+                top_k=top_k,
+            )
+        if rows is None:
+            rows = kb.search(
+                query=q,
+                scope=scope,
+                namespace=ns,
+                top_k=top_k,
+                include_expired=inc,
+            )
         return _json_out(rows)
 
     handlers["kb_search"] = _kb_search
@@ -331,6 +347,16 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
                     "type": "string",
                     "description": "если задан, совпадает с namespace записи",
                 },
+                "reviewer": {
+                    "type": "string",
+                    "description": (
+                        "кто подтвердил/промоутнул (для audit trail)"
+                    ),
+                },
+                "note": {
+                    "type": "string",
+                    "description": "короткая причина/комментарий для audit",
+                },
             },
             "required": ["id", "to_status"],
         },
@@ -341,6 +367,8 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
         rid = _s(args, "id").strip()
         to_s = _s(args, "to_status").strip().lower()
         ns_check = _s(args, "namespace").strip() or None
+        reviewer = _s(args, "reviewer").strip() or None
+        note = _s(args, "note").strip() or None
         if not rid or not to_s:
             return _json_out(
                 {"status": "error", "error": "missing_id_or_to_status"},
@@ -393,6 +421,17 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
                     "id": rid,
                 },
             )
+        kb.append_audit_event(
+            record_id=rid,
+            event={
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "action": "kb_promote",
+                "from_status": from_status,
+                "to_status": to_s,
+                "reviewer": reviewer,
+                "note": note,
+            },
+        )
         return _json_out(
             {
                 "status": "ok",
