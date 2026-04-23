@@ -224,11 +224,22 @@ def print_session_subsystem(path: Path, subsystem: str) -> int:
         return 0
     if sub in ("memory", "kb", "mcp"):
         n = 0
+        n_pok = 0
+        n_pden = 0
         for row in rows:
-            if row.get("event_type") == "memory.access":
+            et = row.get("event_type")
+            if et == "memory.access":
                 n += 1
+            elif et == "memory.promotion.applied":
+                n_pok += 1
+            elif et == "memory.promotion.denied":
+                n_pden += 1
         sys.stdout.write("## memory.access\n")
         sys.stdout.write(f"  событий: {n}\n")
+        sys.stdout.write("## memory.promotion\n")
+        sys.stdout.write(
+            f"  applied: {n_pok}  denied: {n_pden}\n",
+        )
         return 0
     if sub in ("exposure", "tools", "tool_exposure"):
         sys.stdout.write("## tool.exposure (selective schema)\n")
@@ -291,7 +302,9 @@ def print_session_summary(path: Path, *, as_json: bool) -> int:
         f"schema_chars~={c.get('tool_exposure_schema_chars_sum')}\n",
     )
     sys.stdout.write(
-        f"  memory.access (счётчик): {rs.get('memory_access_n', 0)}\n\n",
+        f"  memory.access (счётчик): {rs.get('memory_access_n', 0)}\n"
+        f"  memory.promotion applied={c.get('memory_promotion_applied', 0)} "
+        f"denied={c.get('memory_promotion_denied', 0)}\n\n",
     )
     sys.stdout.write("## synthetic (оценка слоёв)\n")
     sys.stdout.write(

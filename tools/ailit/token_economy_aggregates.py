@@ -34,6 +34,8 @@ def empty_cumulative() -> dict[str, Any]:
         "compaction_restore_injected_chars": 0,
         "tool_exposure_applied": 0,
         "tool_exposure_schema_chars_sum": 0,
+        "memory_promotion_applied": 0,
+        "memory_promotion_denied": 0,
     }
 
 
@@ -87,6 +89,14 @@ def merge_events_into_cumulative(
             acc["tool_exposure_schema_chars_sum"] = int(
                 acc.get("tool_exposure_schema_chars_sum", 0),
             ) + _i(row, "schema_chars")
+        elif et == "memory.promotion.applied":
+            acc["memory_promotion_applied"] = int(
+                acc.get("memory_promotion_applied", 0),
+            ) + 1
+        elif et == "memory.promotion.denied":
+            acc["memory_promotion_denied"] = int(
+                acc.get("memory_promotion_denied", 0),
+            ) + 1
     return acc
 
 

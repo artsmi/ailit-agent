@@ -182,6 +182,17 @@ class SqliteKb:
         src = _norm_opt_str(source)
         ep = _norm_opt_str(episode_id)
         with self._connect() as con:
+            ex_row = con.execute(
+                "SELECT promotion_status FROM kb_records WHERE id = ?",
+                (str(record_id),),
+            ).fetchone()
+            if ex_row is not None:
+                ex_ps = str(ex_row[0] or "draft").strip().lower() or "draft"
+                if ex_ps == "superseded":
+                    msg = f"запись {record_id!r} superseded; правки запрещены"
+                    raise ValueError(msg)
+                if ps == "draft" and ex_ps != "draft":
+                    ps = ex_ps
             if sid is not None:
                 ex = con.execute(
                     "SELECT id FROM kb_records WHERE id = ?",
@@ -257,6 +268,25 @@ class SqliteKb:
                 ),
             )
         return record_id
+
+    def update_record_promotion(
+        self,
+        record_id: str,
+        promotion_status: str,
+    ) -> bool:
+        """Обновить ``promotion_status`` и ``updated_at``."""
+        now = _utc_now_iso()
+        st = str(promotion_status or "draft").strip() or "draft"
+        with self._connect() as con:
+            cur = con.execute(
+                """
+                UPDATE kb_records
+                SET promotion_status = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (st, now, str(record_id)),
+            )
+            return int(getattr(cur, "rowcount", 0) or 0) > 0
 
     def fetch(self, record_id: str) -> KbRecord | None:
         """Fetch record by id."""

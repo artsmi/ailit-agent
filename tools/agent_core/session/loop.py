@@ -262,7 +262,7 @@ class SessionRunner:
             raw = {}
         data: dict[str, Any] = {}
         if isinstance(raw, dict):
-            for k in ("scope", "namespace", "top_k", "id"):
+            for k in ("scope", "namespace", "top_k", "id", "to_status"):
                 v = raw.get(k)
                 if v is None:
                     continue
@@ -285,6 +285,73 @@ class SessionRunner:
             diag_sink,
             event_sink,
         )
+
+    def _emit_memory_promotion(
+        self,
+        *,
+        inv: ToolInvocation,
+        res: ToolRunResult,
+        events: list[dict[str, Any]],
+        diag_sink: Callable[[dict[str, Any]], None] | None,
+        event_sink: SessionEventSink | None,
+    ) -> None:
+        """JSONL: memory.promotion.* по kb_promote / kb_write_fact."""
+        name = str(inv.tool_name or "")
+        if name not in ("kb_promote", "kb_write_fact"):
+            return
+        if res.error is not None:
+            return
+        try:
+            payload = json.loads(res.content or "{}")
+        except json.JSONDecodeError:
+            return
+        if not isinstance(payload, dict):
+            return
+        st = str(payload.get("status") or "")
+        if name == "kb_promote":
+            if st == "ok":
+                self._emit(
+                    events,
+                    "memory.promotion.applied",
+                    {
+                        "call_id": str(inv.call_id),
+                        "id": payload.get("id"),
+                        "from_status": payload.get("from_status"),
+                        "to_status": payload.get("to_status"),
+                        "no_op": bool(payload.get("no_op", False)),
+                    },
+                    diag_sink,
+                    event_sink,
+                )
+            elif st == "denied":
+                self._emit(
+                    events,
+                    "memory.promotion.denied",
+                    {
+                        "call_id": str(inv.call_id),
+                        "id": payload.get("id"),
+                        "rule": payload.get("rule"),
+                        "message": payload.get("message"),
+                    },
+                    diag_sink,
+                    event_sink,
+                )
+        elif name == "kb_write_fact" and st == "denied":
+            rule = str(payload.get("rule") or "")
+            if rule == "promotion_via_kb_promote_only":
+                self._emit(
+                    events,
+                    "memory.promotion.denied",
+                    {
+                        "call_id": str(inv.call_id),
+                        "id": None,
+                        "rule": rule,
+                        "message": payload.get("message"),
+                        "via": "kb_write_fact",
+                    },
+                    diag_sink,
+                    event_sink,
+                )
 
     def _prepare_context(
         self,
@@ -885,6 +952,13 @@ class SessionRunner:
                         diag_sink,
                         event_sink,
                     )
+                    self._emit_memory_promotion(
+                        inv=inv,
+                        res=res,
+                        events=events,
+                        diag_sink=diag_sink,
+                        event_sink=event_sink,
+                    )
                     self._emit_context_pager_page_used(
                         inv, res, events, diag_sink, event_sink
                     )
@@ -1090,6 +1164,13 @@ class SessionRunner:
                         _tool_call_finished_payload(inv, res),
                         diag_sink,
                         event_sink,
+                    )
+                    self._emit_memory_promotion(
+                        inv=inv,
+                        res=res,
+                        events=events,
+                        diag_sink=diag_sink,
+                        event_sink=event_sink,
                     )
                     self._emit_context_pager_page_used(
                         inv, res, events, diag_sink, event_sink

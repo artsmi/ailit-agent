@@ -11,6 +11,7 @@ from agent_core.tool_runtime.registry import ToolRegistry
 from agent_core.tool_runtime.spec import SideEffectClass, ToolSpec
 
 from agent_core.memory.layers import MemoryLayer, parse_memory_layer
+from agent_core.memory.promotion_policy import evaluate_promotion
 from agent_core.memory.sqlite_kb import SqliteKb
 
 
@@ -226,7 +227,7 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
                 "promotion_status": {
                     "type": "string",
                     "description": (
-                        "draft|reviewed|promoted|superseded|deprecated"
+                        "только draft; остальное через kb_promote"
                     ),
                 },
             },
@@ -253,31 +254,154 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
         src = _s(args, "source").strip() or None
         epid = _s(args, "episode_id").strip() or None
         pstat = _s(args, "promotion_status").strip() or "draft"
+        if pstat.lower() != "draft":
+            msg = "в kb_write_fact только draft; смена — kb_promote"
+            return _json_out(
+                {
+                    "status": "denied",
+                    "rule": "promotion_via_kb_promote_only",
+                    "message": msg,
+                },
+            )
+        if rid:
+            ex = kb.fetch(rid)
+            if ex is not None and (
+                (ex.promotion_status or "").strip().lower() == "superseded"
+            ):
+                return _json_out(
+                    {
+                        "status": "error",
+                        "error": "immutable_superseded",
+                        "id": rid,
+                    },
+                )
         tags_lst = list(tags) if isinstance(tags, list) else []
         links_lst = list(links) if isinstance(links, list) else []
         prov_map = dict(prov) if isinstance(prov, dict) else {}
-        kb.write(
-            record_id=rid,
-            kind="fact",
-            scope=scope,
-            namespace=ns,
-            title=title,
-            summary=summary,
-            body=body,
-            tags=(str(x) for x in tags_lst),
-            links=(str(x) for x in links_lst),
-            provenance=prov_map,
-            author=author,
-            memory_layer=ml,
-            valid_from=vf,
-            valid_to=vt,
-            supersedes_id=sid,
-            source=src,
-            episode_id=epid,
-            promotion_status=pstat,
-        )
+        try:
+            kb.write(
+                record_id=rid,
+                kind="fact",
+                scope=scope,
+                namespace=ns,
+                title=title,
+                summary=summary,
+                body=body,
+                tags=(str(x) for x in tags_lst),
+                links=(str(x) for x in links_lst),
+                provenance=prov_map,
+                author=author,
+                memory_layer=ml,
+                valid_from=vf,
+                valid_to=vt,
+                supersedes_id=sid,
+                source=src,
+                episode_id=epid,
+                promotion_status="draft",
+            )
+        except ValueError as e:
+            if "superseded" in str(e).lower():
+                return _json_out(
+                    {
+                        "status": "error",
+                        "error": "immutable_superseded",
+                        "id": rid,
+                    },
+                )
+            raise
         return _json_out({"id": rid, "status": "ok"})
 
     handlers["kb_write_fact"] = _kb_write_fact
+
+    specs["kb_promote"] = ToolSpec(
+        name="kb_promote",
+        description=(
+            "Смена promotion_status: reviewed / promoted / deprecated. "
+            "Допустимые шаги; не обходить через kb_write_fact."
+        ),
+        parameters_schema={
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "id записи в KB"},
+                "to_status": {
+                    "type": "string",
+                    "description": "reviewed|promoted|deprecated",
+                },
+                "namespace": {
+                    "type": "string",
+                    "description": "если задан, совпадает с namespace записи",
+                },
+            },
+            "required": ["id", "to_status"],
+        },
+        side_effect=SideEffectClass.WRITE,
+    )
+
+    def _kb_promote(args: Mapping[str, object]) -> str:
+        rid = _s(args, "id").strip()
+        to_s = _s(args, "to_status").strip().lower()
+        ns_check = _s(args, "namespace").strip() or None
+        if not rid or not to_s:
+            return _json_out(
+                {"status": "error", "error": "missing_id_or_to_status"},
+            )
+        rec = kb.fetch(rid)
+        if rec is None:
+            return _json_out(
+                {
+                    "status": "error",
+                    "error": "not_found",
+                    "id": rid,
+                },
+            )
+        if ns_check is not None and rec.namespace != ns_check:
+            return _json_out(
+                {
+                    "status": "denied",
+                    "id": rid,
+                    "rule": "namespace_mismatch",
+                    "message": "namespace не совпадает с записью",
+                },
+            )
+        cur = (rec.promotion_status or "").strip().lower() or "draft"
+        from_status = rec.promotion_status
+        if cur == to_s:
+            return _json_out(
+                {
+                    "status": "ok",
+                    "id": rid,
+                    "from_status": from_status,
+                    "to_status": to_s,
+                    "no_op": True,
+                },
+            )
+        dec = evaluate_promotion(rec, to_s)
+        if not dec.ok:
+            return _json_out(
+                {
+                    "status": "denied",
+                    "id": rid,
+                    "rule": dec.rule_id,
+                    "message": dec.message,
+                },
+            )
+        if not kb.update_record_promotion(rid, to_s):
+            return _json_out(
+                {
+                    "status": "error",
+                    "error": "update_failed",
+                    "id": rid,
+                },
+            )
+        return _json_out(
+            {
+                "status": "ok",
+                "id": rid,
+                "from_status": from_status,
+                "to_status": to_s,
+            },
+        )
+
+    handlers["kb_promote"] = _kb_promote
 
     return ToolRegistry(specs=specs, handlers=handlers)
