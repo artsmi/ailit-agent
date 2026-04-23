@@ -7,4 +7,7 @@ cd "${REPO_ROOT}"
 export PYTHONPATH="${REPO_ROOT}/tools${PYTHONPATH:+:${PYTHONPATH}}"
 python3 -c \
   'from ailit.demo_workspace import default_demo_app_path, materialize_demo_app; materialize_demo_app(default_demo_app_path(), overwrite=True)'
-exec python3 -m pytest tests/e2e/test_demo_workspace.py "$@"
+exec python3 -m pytest \
+  tests/e2e/test_demo_workspace.py \
+  tests/e2e/test_memory_m4_e2e.py \
+  "$@"
