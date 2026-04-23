@@ -848,6 +848,9 @@ def _render_memory_stack_panel() -> None:
         st.caption(
             f"Auto-write: ok={aw_ok} · skipped={aw_sk}",
         )
+    rl = int(c_m.get("memory_auto_kb_rate_limited_total", 0) or 0)
+    if rl:
+        st.caption(f"Rate-limited: {rl} (auto‑KB)")
     by = stats.get("access_by_tool")
     if isinstance(by, dict) and by:
         line = " · ".join(

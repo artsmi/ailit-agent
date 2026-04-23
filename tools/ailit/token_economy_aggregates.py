@@ -81,6 +81,8 @@ def empty_cumulative() -> dict[str, Any]:
         "memory_auto_write_skipped_by_kind": {},
         "memory_retrieval_match_total": 0,
         "memory_retrieval_match_by_level": {},
+        "memory_auto_kb_rate_limited_total": 0,
+        "memory_auto_kb_rate_limited_by_tool": {},
     }
 
 
@@ -213,6 +215,19 @@ def merge_events_into_cumulative(
             level = str(row.get("level") or "unknown")
             lv[level] = int(lv.get(level, 0)) + 1
             acc["memory_retrieval_match_by_level"] = lv
+        elif et == "memory.auto_kb.rate_limited":
+            acc["memory_auto_kb_rate_limited_total"] = int(
+                acc.get("memory_auto_kb_rate_limited_total", 0),
+            ) + 1
+            raw_rt = acc.get("memory_auto_kb_rate_limited_by_tool")
+            rt: dict[str, int] = (
+                {str(k): int(v) for k, v in raw_rt.items()}
+                if isinstance(raw_rt, dict)
+                else {}
+            )
+            tool = str(row.get("tool") or "unknown")
+            rt[tool] = int(rt.get(tool, 0)) + 1
+            acc["memory_auto_kb_rate_limited_by_tool"] = rt
     return acc
 
 
@@ -569,6 +584,13 @@ def build_subsystems_block(
             ),
             "retrieval_match_by_level": dict(
                 cumulative.get("memory_retrieval_match_by_level", {}) or {},
+            ),
+            "auto_kb_rate_limited_total": int(
+                cumulative.get("memory_auto_kb_rate_limited_total", 0) or 0,
+            ),
+            "auto_kb_rate_limited_by_tool": dict(
+                cumulative.get("memory_auto_kb_rate_limited_by_tool", {})
+                or {},
             ),
         },
     }

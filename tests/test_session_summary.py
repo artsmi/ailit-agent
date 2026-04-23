@@ -112,6 +112,33 @@ def test_memory_retrieval_match_in_summary() -> None:
     assert last.get("level") == "commit_exact"
 
 
+def test_memory_rate_limited_counted_in_subsystems() -> None:
+    rows: list[dict[str, Any]] = [
+        {
+            "event_type": "memory.auto_kb.rate_limited",
+            "tool": "kb_search",
+            "cap": 30,
+            "count": 30,
+            "reason": "auto_kb_search_branch",
+        },
+        {
+            "event_type": "memory.auto_kb.rate_limited",
+            "tool": "kb_fetch",
+            "cap": 30,
+            "count": 30,
+            "reason": "auto_kb_fetch_match",
+        },
+    ]
+    s = build_session_summary(rows)
+    mem = s.get("subsystems", {}).get("memory")
+    assert isinstance(mem, dict)
+    assert mem.get("auto_kb_rate_limited_total") == 2
+    by = mem.get("auto_kb_rate_limited_by_tool")
+    assert isinstance(by, dict)
+    assert by.get("kb_search") == 1
+    assert by.get("kb_fetch") == 1
+
+
 def test_resume_ready_false_trailing_model_error() -> None:
     rows: list[dict[str, Any]] = [
         {

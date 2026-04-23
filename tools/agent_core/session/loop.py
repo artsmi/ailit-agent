@@ -240,6 +240,16 @@ def _prune_none_keys(d: dict[str, object]) -> dict[str, object]:
     return {k: v for k, v in d.items() if v is not None}
 
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return int(default)
+    try:
+        return int(raw)
+    except ValueError:
+        return int(default)
+
+
 @dataclass(frozen=True, slots=True)
 class SessionOutcome:
     """Результат прогона или пауза на approval."""
@@ -965,6 +975,12 @@ class SessionRunner:
         wrote_repo_fact = False
         wrote_repo_tree_fact = False
         wrote_repo_signals_fact = False
+        auto_kb_search_n = 0
+        auto_kb_fetch_n = 0
+        auto_kb_write_n = 0
+        cap_search = max(1, _env_int("AILIT_AUTO_KB_SEARCH_CAP", 30))
+        cap_fetch = max(1, _env_int("AILIT_AUTO_KB_FETCH_CAP", 30))
+        cap_write = max(1, _env_int("AILIT_AUTO_KB_WRITE_CAP", 10))
         steps_cap = _effective_agent_steps_cap(settings)
         agent_steps = 0
         last_model_tool_sig: str | None = None
@@ -1173,6 +1189,21 @@ class SessionRunner:
                 except Exception:  # noqa: BLE001
                     rc2 = None
                 if rc2 is not None:
+                    if auto_kb_write_n >= cap_write:
+                        self._emit(
+                            events,
+                            "memory.auto_kb.rate_limited",
+                            {
+                                "tool": "kb_write_fact",
+                                "cap": cap_write,
+                                "count": auto_kb_write_n,
+                                "reason": "auto_write_repo_identity",
+                            },
+                            diag_sink,
+                            event_sink,
+                        )
+                        wrote_repo_fact = True
+                        continue
                     stable = rc2.repo_uri or rc2.repo_path
                     rid = (
                         "repo:"
@@ -1271,6 +1302,7 @@ class SessionRunner:
                             event_sink,
                         )
                     else:
+                        auto_kb_write_n += 1
                         self._emit(
                             events,
                             "tool.call_finished",
@@ -1309,6 +1341,21 @@ class SessionRunner:
                 except Exception:  # noqa: BLE001
                     rc4 = None
                 if rc4 is not None:
+                    if auto_kb_write_n >= cap_write:
+                        self._emit(
+                            events,
+                            "memory.auto_kb.rate_limited",
+                            {
+                                "tool": "kb_write_fact",
+                                "cap": cap_write,
+                                "count": auto_kb_write_n,
+                                "reason": "auto_write_repo_tree_root",
+                            },
+                            diag_sink,
+                            event_sink,
+                        )
+                        wrote_repo_tree_fact = True
+                        continue
                     ns_tree = namespace_for_repo(
                         repo_uri=rc4.repo_uri,
                         repo_path=rc4.repo_path,
@@ -1415,6 +1462,7 @@ class SessionRunner:
                             event_sink,
                         )
                     else:
+                        auto_kb_write_n += 1
                         self._emit(
                             events,
                             "tool.call_finished",
@@ -1453,6 +1501,21 @@ class SessionRunner:
                 except Exception:  # noqa: BLE001
                     rc5 = None
                 if rc5 is not None:
+                    if auto_kb_write_n >= cap_write:
+                        self._emit(
+                            events,
+                            "memory.auto_kb.rate_limited",
+                            {
+                                "tool": "kb_write_fact",
+                                "cap": cap_write,
+                                "count": auto_kb_write_n,
+                                "reason": "auto_write_repo_signals",
+                            },
+                            diag_sink,
+                            event_sink,
+                        )
+                        wrote_repo_signals_fact = True
+                        continue
                     ns_sig = namespace_for_repo(
                         repo_uri=rc5.repo_uri,
                         repo_path=rc5.repo_path,
@@ -1577,6 +1640,7 @@ class SessionRunner:
                             event_sink,
                         )
                     else:
+                        auto_kb_write_n += 1
                         self._emit(
                             events,
                             "tool.call_finished",
@@ -1621,6 +1685,20 @@ class SessionRunner:
                 q = q[:200]
                 if q and q != last_auto_kb_query:
                     last_auto_kb_query = q
+                    if auto_kb_search_n >= cap_search:
+                        self._emit(
+                            events,
+                            "memory.auto_kb.rate_limited",
+                            {
+                                "tool": "kb_search",
+                                "cap": cap_search,
+                                "count": auto_kb_search_n,
+                                "reason": "auto_kb_search_branch",
+                            },
+                            diag_sink,
+                            event_sink,
+                        )
+                        continue
                     try:
                         rc3 = detect_repo_context(Path(work_root()))
                     except Exception:  # noqa: BLE001
@@ -1692,6 +1770,7 @@ class SessionRunner:
                         event_sink=event_sink,
                     )
                     res = executor.execute_one(inv, approvals, cancel=cancel)
+                    auto_kb_search_n += 1
                     self._emit(
                         events,
                         "tool.call_finished",
@@ -1708,7 +1787,11 @@ class SessionRunner:
                         diag_sink,
                         event_sink,
                     )
-                    if "kb_fetch" in active_reg.specs and rc3 is not None:
+                    if (
+                        "kb_fetch" in active_reg.specs
+                        and rc3 is not None
+                        and auto_kb_fetch_n < cap_fetch
+                    ):
                         try:
                             payload = json.loads(res.content or "[]")
                         except json.JSONDecodeError:
@@ -1735,6 +1818,7 @@ class SessionRunner:
                                     cancel=cancel,
                                 )
                                 if resf.error is None:
+                                    auto_kb_fetch_n += 1
                                     try:
                                         fr = json.loads(resf.content or "{}")
                                     except json.JSONDecodeError:
@@ -1767,6 +1851,23 @@ class SessionRunner:
                                         diag_sink,
                                         event_sink,
                                     )
+                    elif (
+                        "kb_fetch" in active_reg.specs
+                        and rc3 is not None
+                        and auto_kb_fetch_n >= cap_fetch
+                    ):
+                        self._emit(
+                            events,
+                            "memory.auto_kb.rate_limited",
+                            {
+                                "tool": "kb_fetch",
+                                "cap": cap_fetch,
+                                "count": auto_kb_fetch_n,
+                                "reason": "auto_kb_fetch_match",
+                            },
+                            diag_sink,
+                            event_sink,
+                        )
                     if ns_def:
                         try:
                             payload = json.loads(res.content or "[]")
@@ -1777,6 +1878,22 @@ class SessionRunner:
                             or len(payload) == 0
                         )
                         if no_hits:
+                            if auto_kb_search_n >= cap_search:
+                                self._emit(
+                                    events,
+                                    "memory.auto_kb.rate_limited",
+                                    {
+                                        "tool": "kb_search",
+                                        "cap": cap_search,
+                                        "count": auto_kb_search_n,
+                                        "reason": (
+                                            "auto_kb_search_default_fallback"
+                                        ),
+                                    },
+                                    diag_sink,
+                                    event_sink,
+                                )
+                                continue
                             self._emit(
                                 events,
                                 "memory.retrieval.fallback",
@@ -1842,6 +1959,7 @@ class SessionRunner:
                                 approvals,
                                 cancel=cancel,
                             )
+                            auto_kb_search_n += 1
                             self._emit(
                                 events,
                                 "tool.call_finished",
@@ -1861,6 +1979,7 @@ class SessionRunner:
                             if (
                                 "kb_fetch" in active_reg.specs
                                 and rc3 is not None
+                                and auto_kb_fetch_n < cap_fetch
                             ):
                                 try:
                                     payload2 = json.loads(res2.content or "[]")
@@ -1890,6 +2009,7 @@ class SessionRunner:
                                             cancel=cancel,
                                         )
                                         if resf2.error is None:
+                                            auto_kb_fetch_n += 1
                                             try:
                                                 fr2 = json.loads(
                                                     resf2.content or "{}",
@@ -1931,6 +2051,25 @@ class SessionRunner:
                                                 diag_sink,
                                                 event_sink,
                                             )
+                            elif (
+                                "kb_fetch" in active_reg.specs
+                                and rc3 is not None
+                                and auto_kb_fetch_n >= cap_fetch
+                            ):
+                                self._emit(
+                                    events,
+                                    "memory.auto_kb.rate_limited",
+                                    {
+                                        "tool": "kb_fetch",
+                                        "cap": cap_fetch,
+                                        "count": auto_kb_fetch_n,
+                                        "reason": (
+                                            "auto_kb_fetch_match_fallback"
+                                        ),
+                                    },
+                                    diag_sink,
+                                    event_sink,
+                                )
 
             ctx = self._prepare_context(
                 messages,

@@ -429,6 +429,86 @@ def test_loop_auto_kb_search_emits_memory_access(
     assert any(e.get("event_type") == "memory.access" for e in out.events)
 
 
+def test_loop_auto_kb_search_rate_limited_emits_event(
+    tmp_path: object,
+    monkeypatch: object,
+) -> None:
+    """AILIT_AUTO_KB_SEARCH_CAP=1: fallback search → rate limited."""
+    import subprocess
+    from pathlib import Path
+
+    assert isinstance(tmp_path, Path)
+    repo = tmp_path / "repo"
+    repo.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["git", "init"],
+        cwd=str(repo),
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.email", "unit@example.com"],
+        cwd=str(repo),
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "unit"],
+        cwd=str(repo),
+        check=True,
+        capture_output=True,
+    )
+    (repo / "README.md").write_text("x\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=str(repo), check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=str(repo), check=True)
+    subprocess.run(
+        ["git", "checkout", "-b", "develop"],
+        cwd=str(repo),
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "checkout", "-b", "new_feature"],
+        cwd=str(repo),
+        check=True,
+        capture_output=True,
+    )
+
+    monkeypatch.setenv("AILIT_WORK_ROOT", str(repo))
+    monkeypatch.setenv("AILIT_AUTO_KB_SEARCH_CAP", "1")
+
+    kb_cfg = KbToolsConfig(
+        enabled=True,
+        db_path=(tmp_path / "kb.sqlite3"),
+        namespace="t",
+    )
+    reg = default_builtin_registry().merge(build_kb_tool_registry(kb_cfg))
+    r1 = NormalizedChatResponse(
+        text_parts=("done",),
+        tool_calls=(),
+        finish_reason=FinishReason.STOP,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    runner = SessionRunner(
+        ScriptedProvider([r1, r1]),
+        reg,
+        permission_engine=PermissionEngine(
+            write_default=PermissionDecision.ALLOW,
+        ),
+    )
+    assert any(
+        e.get("event_type") == "memory.auto_kb.rate_limited"
+        and e.get("tool") == "kb_search"
+        and e.get("reason") == "auto_kb_search_default_fallback"
+        for e in runner.run(
+            [ChatMessage(role=MessageRole.USER, content="q1")],
+            ApprovalSession(),
+            SessionSettings(model="m"),
+        ).events
+    )
+
+
 def test_loop_auto_kb_write_fact_emits_memory_access(
     tmp_path: object,
     monkeypatch: object,

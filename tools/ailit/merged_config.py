@@ -64,6 +64,11 @@ def _default_ailit_config() -> dict[str, Any]:
             "enabled": True,
             "backend": "sqlite",
             "namespace": "default",
+            "auto_kb_caps": {
+                "kb_search": 30,
+                "kb_fetch": 30,
+                "kb_write_fact": 10,
+            },
         },
         "agent": {
             "tool_exposure": "full",
@@ -104,6 +109,31 @@ class ProviderEnvOverlay:
             )
             base_live["run"] = True
             out["live"] = base_live
+
+        caps_env = (
+            ("AILIT_AUTO_KB_SEARCH_CAP", "kb_search"),
+            ("AILIT_AUTO_KB_FETCH_CAP", "kb_fetch"),
+            ("AILIT_AUTO_KB_WRITE_CAP", "kb_write_fact"),
+        )
+        mem = out.get("memory")
+        base_mem: dict[str, Any] = dict(mem) if isinstance(mem, dict) else {}
+        caps0 = base_mem.get("auto_kb_caps")
+        base_caps: dict[str, Any] = (
+            dict(caps0) if isinstance(caps0, dict) else {}
+        )
+        changed = False
+        for env_name, key in caps_env:
+            raw = os.environ.get(env_name, "").strip()
+            if not raw:
+                continue
+            try:
+                base_caps[key] = max(1, int(raw))
+                changed = True
+            except ValueError:
+                continue
+        if changed:
+            base_mem["auto_kb_caps"] = base_caps
+            out["memory"] = base_mem
         return out
 
 
