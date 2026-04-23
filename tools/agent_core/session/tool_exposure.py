@@ -14,12 +14,14 @@ from agent_core.tool_runtime.spec import SideEffectClass
 
 @dataclass(frozen=True, slots=True)
 class ToolExposureMeta:
-    """Сводка применения профиля exposure."""
+    """Сводка применения профиля exposure (E2E-M3-04: экономия схемы)."""
 
     mode: str
     tools_total: int
     tools_exposed: int
     schema_chars: int
+    schema_chars_full: int
+    schema_savings: int
 
 
 def _schema_chars(defs: tuple[ToolDefinition, ...]) -> int:
@@ -97,18 +99,24 @@ def tool_definitions_for_settings(
     full = tool_definitions_from_registry(registry)
     m = (tool_exposure or "full").strip().lower()
     exposed = tool_definitions_exposed(registry, m)
+    full_chars = _schema_chars(full)
+    exp_chars = _schema_chars(exposed)
     if m in ("", "full", "all") or not m:
         meta = ToolExposureMeta(
             mode="full",
             tools_total=len(full),
             tools_exposed=len(exposed),
-            schema_chars=_schema_chars(exposed),
+            schema_chars=exp_chars,
+            schema_chars_full=full_chars,
+            schema_savings=0,
         )
         return full, meta
     meta2 = ToolExposureMeta(
         mode=m,
         tools_total=len(full),
         tools_exposed=len(exposed),
-        schema_chars=_schema_chars(exposed),
+        schema_chars=exp_chars,
+        schema_chars_full=full_chars,
+        schema_savings=max(0, full_chars - exp_chars),
     )
     return exposed, meta2

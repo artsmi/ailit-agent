@@ -646,6 +646,65 @@ class SessionRunner:
             event_sink,
         )
 
+    def _emit_fs_read_file_completed(
+        self,
+        inv: ToolInvocation,
+        res: ToolRunResult,
+        events: list[dict[str, Any]],
+        diag_sink: Callable[[dict[str, Any]], None] | None,
+        event_sink: SessionEventSink | None,
+    ) -> None:
+        """Наблюдаемость range-read (E2E-M3-01); path — только basename."""
+        if res.error is not None:
+            return
+        try:
+            raw = (
+                json.loads(inv.arguments_json)
+                if (inv.arguments_json and inv.arguments_json.strip())
+                else {}
+            )
+        except json.JSONDecodeError:
+            return
+        if not isinstance(raw, dict):
+            return
+        p = raw.get("path")
+        rel = str(p) if isinstance(p, str) else ""
+        tail = os.path.basename(rel.replace("\\", "/")) if rel else "?"
+        try:
+            off = int(raw.get("offset", 1) or 1)
+        except (TypeError, ValueError):
+            off = 1
+        lim_raw = raw.get("limit")
+        limit: int | None
+        if lim_raw is None or lim_raw == "":
+            limit = None
+        else:
+            try:
+                limit = int(lim_raw)
+            except (TypeError, ValueError):
+                limit = None
+        body = res.content or ""
+        stub = body.startswith(
+            "File unchanged since last read in this process:",
+        )
+        returned_lines = len(body.splitlines()) if body else 0
+        range_read = (off > 1) or (limit is not None)
+        self._emit(
+            events,
+            "fs.read_file.completed",
+            {
+                "call_id": str(inv.call_id),
+                "path_tail": tail,
+                "offset_line": off,
+                "limit_line": limit,
+                "returned_lines": returned_lines,
+                "range_read": range_read,
+                "unchanged_stub": stub,
+            },
+            diag_sink,
+            event_sink,
+        )
+
     def _append_tool_results(
         self,
         messages: list[ChatMessage],
@@ -665,6 +724,9 @@ class SessionRunner:
                 self._recent_reads.observe_read_file(
                     arguments_json=inv.arguments_json,
                     tool_output=tr.content or "",
+                )
+                self._emit_fs_read_file_completed(
+                    inv, tr, events, diag_sink, event_sink,
                 )
             # Не пагинировать вывод read_context_page: иначе каждый чанк
             # становится новой «страницей» → модель снова вызывает
@@ -998,6 +1060,8 @@ class SessionRunner:
                     "tools_total": tex.tools_total,
                     "tools_exposed": tex.tools_exposed,
                     "schema_chars": tex.schema_chars,
+                    "schema_chars_full": tex.schema_chars_full,
+                    "schema_savings": tex.schema_savings,
                 },
                 diag_sink,
                 event_sink,

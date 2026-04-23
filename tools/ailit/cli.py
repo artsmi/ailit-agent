@@ -502,10 +502,16 @@ def main(argv: list[str] | None = None) -> int:
     p_mem.set_defaults(func=_make_cmd_session_usage_subsystem("memory"))
     p_exp = sess_use_sub.add_parser(
         "exposure",
-        help="Только tool.exposure.applied (selective tool schema)",
+        help="Только tool.exposure (schema + savings vs full)",
     )
     p_exp.add_argument("log_file", type=str, help="Путь к JSONL")
     p_exp.set_defaults(func=_make_cmd_session_usage_subsystem("exposure"))
+    p_fs = sess_use_sub.add_parser(
+        "fs",
+        help="Только fs.read_file.completed (range-read метрики)",
+    )
+    p_fs.add_argument("log_file", type=str, help="Путь к JSONL")
+    p_fs.set_defaults(func=_make_cmd_session_usage_subsystem("fs"))
 
     p_chat = sub.add_parser(
         "chat",

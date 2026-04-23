@@ -124,7 +124,10 @@ def _write_unified_summary_text_block(summary: dict[str, Any]) -> None:
         f"  compaction: files={c.get('compaction_restore_files')}, "
         f"injected_chars={c.get('compaction_restore_injected_chars')}\n"
         f"  tool exposure: applied={c.get('tool_exposure_applied')}, "
-        f"schema_chars~={c.get('tool_exposure_schema_chars_sum')}\n",
+        f"schema_chars~={c.get('tool_exposure_schema_chars_sum')}, "
+        f"savings~={c.get('tool_exposure_schema_savings_sum')}\n"
+        f"  fs read_file: calls={c.get('fs_read_file_calls')}, "
+        f"range_reads={c.get('fs_read_file_range_calls')}\n",
     )
     sys.stdout.write(
         f"  memory.access (счётчик): {rs.get('memory_access_n', 0)}\n"
@@ -242,12 +245,21 @@ def print_session_subsystem(path: Path, subsystem: str) -> int:
         sys.stdout.write("## tool.exposure (selective schema)\n")
         sys.stdout.write(
             f"  applied={e.get('applied')}, "
-            f"schema_chars~={e.get('schema_chars_sum')}\n",
+            f"schema_chars~={e.get('schema_chars_sum')}, "
+            f"savings~={e.get('schema_savings_sum')}\n",
+        )
+        return 0
+    if name in ("fs", "read_file", "fs_read"):
+        f = subs.get("fs") or {}
+        sys.stdout.write("## fs (события fs.read_file.completed)\n")
+        sys.stdout.write(
+            f"  read_file calls={f.get('read_file_calls')}, "
+            f"range_reads={f.get('read_file_range_calls')}\n",
         )
         return 0
     sys.stderr.write(
         f"Неизвестная подсистема: {subsystem!r}. "
-        f"Ожидается: usage|pager|budget|prune|compaction|memory|exposure\n",
+        f"Ожидается: usage|pager|budget|prune|compaction|memory|exposure|fs\n",
     )
     return 2
 

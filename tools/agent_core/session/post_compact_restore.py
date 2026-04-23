@@ -148,9 +148,9 @@ class RecentFileReadStore:
             return None, RestorePlan(restored=(), injected_chars=0)
 
         hdr = (
-            "Ниже — восстановленные фрагменты недавно прочитанных файлов "
-            "(post-compaction restore). Не перечитывай их заново, если этого "
-            "достаточно; запрашивай range read только при необходимости."
+            "Восстановленные фрагменты (post-compaction restore, E2E-M3-03). "
+            "path/offset/limit ниже — актуальны. Не дублируй read_file "
+            "с теми же параметрами; при нехватке — другой range."
         )
         root = Path(work_root())
         text = "\n\n".join(

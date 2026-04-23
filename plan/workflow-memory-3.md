@@ -447,6 +447,8 @@ flowchart LR
 
 #### Задача M3-4.2 — Определить governance rules
 
+**Черновик в репозитории:** [`m3-governance.md`](m3-governance.md).
+
 **Промпт исполнителю:**  
 «Опиши governance памяти: ownership, TTL, privacy/PII, review policy, deletion/update rules, bank_id/namespace boundaries.»
 

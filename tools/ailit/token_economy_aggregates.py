@@ -66,6 +66,9 @@ def empty_cumulative() -> dict[str, Any]:
         "compaction_restore_injected_chars": 0,
         "tool_exposure_applied": 0,
         "tool_exposure_schema_chars_sum": 0,
+        "tool_exposure_schema_savings_sum": 0,
+        "fs_read_file_calls": 0,
+        "fs_read_file_range_calls": 0,
         "memory_promotion_applied": 0,
         "memory_promotion_denied": 0,
     }
@@ -121,6 +124,17 @@ def merge_events_into_cumulative(
             acc["tool_exposure_schema_chars_sum"] = int(
                 acc.get("tool_exposure_schema_chars_sum", 0),
             ) + _i(row, "schema_chars")
+            acc["tool_exposure_schema_savings_sum"] = int(
+                acc.get("tool_exposure_schema_savings_sum", 0),
+            ) + _i(row, "schema_savings")
+        elif et == "fs.read_file.completed":
+            acc["fs_read_file_calls"] = int(
+                acc.get("fs_read_file_calls", 0),
+            ) + 1
+            if bool(row.get("range_read")):
+                acc["fs_read_file_range_calls"] = int(
+                    acc.get("fs_read_file_range_calls", 0),
+                ) + 1
         elif et == "memory.promotion.applied":
             acc["memory_promotion_applied"] = int(
                 acc.get("memory_promotion_applied", 0),
@@ -228,6 +242,17 @@ def build_subsystems_block(
             ),
             "schema_chars_sum": int(
                 cumulative.get("tool_exposure_schema_chars_sum", 0) or 0,
+            ),
+            "schema_savings_sum": int(
+                cumulative.get("tool_exposure_schema_savings_sum", 0) or 0,
+            ),
+        },
+        "fs": {
+            "read_file_calls": int(
+                cumulative.get("fs_read_file_calls", 0) or 0,
+            ),
+            "read_file_range_calls": int(
+                cumulative.get("fs_read_file_range_calls", 0) or 0,
             ),
         },
         "memory": {
@@ -355,7 +380,8 @@ def format_cumulative_caption(
     )
     has_restore = int(a.get("compaction_restore_files", 0) or 0) > 0
     has_exp = int(a.get("tool_exposure_applied", 0) or 0) > 0
-    if not (has_te or has_restore or has_exp):
+    has_fs = int(a.get("fs_read_file_calls", 0) or 0) > 0
+    if not (has_te or has_restore or has_exp or has_fs):
         return ""
     parts = [
         f"pager≈{int(a.get('pager_savings_bytes', 0))} B",
@@ -373,5 +399,12 @@ def format_cumulative_caption(
     if has_exp:
         exn = int(a.get("tool_exposure_applied", 0) or 0)
         sch = int(a.get("tool_exposure_schema_chars_sum", 0) or 0)
+        sav = int(a.get("tool_exposure_schema_savings_sum", 0) or 0)
         parts.append(f"exposure×{exn} schema≈{sch}ch")
+        if sav:
+            parts.append(f"save≈{sav}ch")
+    if has_fs:
+        rrc = int(a.get("fs_read_file_range_calls", 0) or 0)
+        tot = int(a.get("fs_read_file_calls", 0) or 0)
+        parts.append(f"fs {rrc}/{tot} range")
     return "Экономия (накопл.): " + " · ".join(parts)
