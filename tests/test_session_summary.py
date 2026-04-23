@@ -28,6 +28,12 @@ def test_resume_ready_true_when_clean_tail() -> None:
                 "default_branch_source": "origin_head",
             },
         },
+        {
+            "event_type": "memory.retrieval.fallback",
+            "policy": "branch_first_default_fallback",
+            "from_namespace": "x:feature",
+            "to_namespace": "x:develop",
+        },
     ]
     s = build_session_summary(rows)
     assert s.get("contract") == SESSION_SUMMARY_CONTRACT
@@ -46,6 +52,10 @@ def test_resume_ready_true_when_clean_tail() -> None:
     assert isinstance(mem, dict)
     assert mem.get("doom_loop_total") == 0
     assert mem.get("auto_write_skipped") == 0
+    assert mem.get("retrieval_fallback_total") == 1
+    fb = s.get("memory_retrieval_fallback")
+    assert isinstance(fb, dict)
+    assert fb.get("policy") == "branch_first_default_fallback"
 
 
 def test_resume_ready_false_after_cancel() -> None:

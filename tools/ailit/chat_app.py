@@ -807,11 +807,35 @@ def _render_memory_stack_panel() -> None:
     r = compute_resume_signals(rows)
     stats = build_memory_stats(c_m, r)
     eff = build_memory_efficiency_score(c_m, r)
+    mem_pol = None
+    mem_fb = None
+    if rows:
+        try:
+            sm2 = build_session_summary(rows)
+        except Exception:  # noqa: BLE001
+            sm2 = {}
+        mem_pol = sm2.get("memory_policy")
+        mem_fb = sm2.get("memory_retrieval_fallback")
     sc = int(eff.get("score_0_100", 0) or 0)
     label = str(eff.get("label", "") or "")
     st.caption(
         f"**Память (M3):** оценка **{sc}/100** — {label}",
     )
+    if isinstance(mem_pol, dict):
+        repo = mem_pol.get("repo")
+        if isinstance(repo, dict):
+            br = repo.get("branch")
+            dbr = repo.get("default_branch")
+            src = repo.get("default_branch_source")
+            st.caption(
+                f"Repo context: branch=`{br}` · default=`{dbr}` ({src})",
+            )
+    fb_total = int(c_m.get("memory_retrieval_fallback_total", 0) or 0)
+    if fb_total > 0 and isinstance(mem_fb, dict):
+        st.caption(
+            f"Fallback на default branch: {fb_total} (последний: "
+            f"`{mem_fb.get('from_namespace')}` → `{mem_fb.get('to_namespace')}`)",
+        )
     by = stats.get("access_by_tool")
     if isinstance(by, dict) and by:
         line = " · ".join(
@@ -827,6 +851,8 @@ def _render_memory_stack_panel() -> None:
             {
                 "tooling": stats,
                 "efficiency": eff,
+                "policy": mem_pol,
+                "retrieval_fallback": mem_fb,
                 "cumulative_merged": c_m,
             },
         )

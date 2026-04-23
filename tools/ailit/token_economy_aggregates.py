@@ -75,6 +75,7 @@ def empty_cumulative() -> dict[str, Any]:
         "memory_promotion_denied": 0,
         "doom_loop_total": 0,
         "memory_auto_write_skipped": 0,
+        "memory_retrieval_fallback_total": 0,
     }
 
 
@@ -167,6 +168,10 @@ def merge_events_into_cumulative(
         elif et == "memory.auto_write.skipped":
             acc["memory_auto_write_skipped"] = int(
                 acc.get("memory_auto_write_skipped", 0),
+            ) + 1
+        elif et == "memory.retrieval.fallback":
+            acc["memory_retrieval_fallback_total"] = int(
+                acc.get("memory_retrieval_fallback_total", 0),
             ) + 1
     return acc
 
@@ -340,6 +345,24 @@ def extract_memory_policy(
     return last
 
 
+def extract_memory_retrieval_fallback(
+    rows: list[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    """Последний fallback branch-first → default branch (если был)."""
+    last: dict[str, Any] | None = None
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        if row.get("event_type") != "memory.retrieval.fallback":
+            continue
+        last = {
+            "policy": row.get("policy"),
+            "from_namespace": row.get("from_namespace"),
+            "to_namespace": row.get("to_namespace"),
+        }
+    return last
+
+
 def compute_resume_signals(
     rows: list[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -469,6 +492,9 @@ def build_subsystems_block(
             "doom_loop_total": int(
                 cumulative.get("doom_loop_total", 0) or 0,
             ),
+            "retrieval_fallback_total": int(
+                cumulative.get("memory_retrieval_fallback_total", 0) or 0,
+            ),
         },
     }
 
@@ -545,6 +571,7 @@ def build_session_summary(
     mem_s = build_memory_stats(c_dict, r_dict)
     mem_e = build_memory_efficiency_score(c_dict, r_dict)
     mem_p = extract_memory_policy(rows)
+    mem_fb = extract_memory_retrieval_fallback(rows)
     return {
         "contract": SESSION_SUMMARY_CONTRACT,
         "log_start": base.get("log_start"),
@@ -558,6 +585,7 @@ def build_session_summary(
         "memory_stats": mem_s,
         "memory_efficiency": mem_e,
         "memory_policy": mem_p,
+        "memory_retrieval_fallback": mem_fb,
     }
 
 
