@@ -127,11 +127,11 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
         ns = _s(args, "namespace").strip() or cfg.namespace
         top_k = _i(args, "top_k", 8)
         inc = _b(args, "include_expired", False)
-        use_fts = os.environ.get("AILIT_KB_ACCEL", "").strip().lower() in (
-            "fts",
-            "fts5",
-            "bm25",
-        )
+        accel = os.environ.get("AILIT_KB_ACCEL", "").strip().lower()
+        force_off = accel in ("0", "off", "false", "no")
+        force_fts = accel in ("fts", "fts5", "bm25")
+        auto_fts = not accel
+        use_fts = (force_fts or auto_fts) and not force_off
         rows: list[dict[str, Any]] | None = None
         if use_fts and not inc:
             rows = kb.search_fts(

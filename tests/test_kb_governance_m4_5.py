@@ -7,6 +7,47 @@ from pathlib import Path
 from agent_core.memory.sqlite_kb import SqliteKb
 
 
+def test_kb_search_uses_fts_by_default_when_available(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """Если AILIT_KB_ACCEL не задан, пытается FTS и падает обратно."""
+    from agent_core.memory.kb_tools import (
+        KbToolsConfig,
+        build_kb_tool_registry,
+    )
+
+    monkeypatch.delenv("AILIT_KB_ACCEL", raising=False)
+    monkeypatch.setenv("AILIT_KB", "1")
+    monkeypatch.setenv("AILIT_KB_DB_PATH", str(tmp_path / "kb.sqlite3"))
+    monkeypatch.setenv("AILIT_KB_NAMESPACE", "t")
+
+    calls: dict[str, int] = {"fts": 0, "like": 0}
+
+    def _fts(self, **_kwargs):  # type: ignore[no-untyped-def]
+        calls["fts"] += 1
+        return []
+
+    def _like(self, **_kwargs):  # type: ignore[no-untyped-def]
+        calls["like"] += 1
+        return []
+
+    monkeypatch.setattr(SqliteKb, "search_fts", _fts, raising=True)
+    monkeypatch.setattr(SqliteKb, "search", _like, raising=True)
+
+    reg = build_kb_tool_registry(
+        KbToolsConfig(
+            enabled=True,
+            db_path=(tmp_path / "kb.sqlite3"),
+            namespace="t",
+        ),
+    )
+    out = reg.handlers["kb_search"]({"query": "x"})
+    assert isinstance(out, str)
+    assert calls["fts"] == 1
+    assert calls["like"] == 0
+
+
 def test_ttl_apply_sets_valid_to_for_deprecated(tmp_path: Path) -> None:
     kb = SqliteKb(tmp_path / "kb.sqlite3")
     kb.write(
