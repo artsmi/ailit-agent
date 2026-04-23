@@ -42,6 +42,10 @@ def test_resume_ready_true_when_clean_tail() -> None:
     repo = mp.get("repo")
     assert isinstance(repo, dict)
     assert repo.get("repo_uri") == "github.com/acme/repo"
+    mem = s.get("subsystems", {}).get("memory")
+    assert isinstance(mem, dict)
+    assert mem.get("doom_loop_total") == 0
+    assert mem.get("auto_write_skipped") == 0
 
 
 def test_resume_ready_false_after_cancel() -> None:

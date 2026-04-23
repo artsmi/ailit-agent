@@ -73,6 +73,8 @@ def empty_cumulative() -> dict[str, Any]:
         "memory_access_by_tool": {},
         "memory_promotion_applied": 0,
         "memory_promotion_denied": 0,
+        "doom_loop_total": 0,
+        "memory_auto_write_skipped": 0,
     }
 
 
@@ -157,6 +159,14 @@ def merge_events_into_cumulative(
         elif et == "memory.promotion.denied":
             acc["memory_promotion_denied"] = int(
                 acc.get("memory_promotion_denied", 0),
+            ) + 1
+        elif et == "session.doom_loop":
+            acc["doom_loop_total"] = int(
+                acc.get("doom_loop_total", 0),
+            ) + 1
+        elif et == "memory.auto_write.skipped":
+            acc["memory_auto_write_skipped"] = int(
+                acc.get("memory_auto_write_skipped", 0),
             ) + 1
     return acc
 
@@ -452,6 +462,12 @@ def build_subsystems_block(
             ),
             "promotion_denied": int(
                 cumulative.get("memory_promotion_denied", 0) or 0,
+            ),
+            "auto_write_skipped": int(
+                cumulative.get("memory_auto_write_skipped", 0) or 0,
+            ),
+            "doom_loop_total": int(
+                cumulative.get("doom_loop_total", 0) or 0,
             ),
         },
     }
