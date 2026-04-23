@@ -16,7 +16,10 @@ import streamlit.components.v1 as components
 from agent_core.models import ChatMessage, MessageRole
 from agent_core.providers.factory import ProviderFactory, ProviderKind
 from agent_core.providers.mock_provider import MockProvider
+from agent_core.memory.kb_tools import kb_tools_config_from_env
+from agent_core.memory.sqlite_kb import SqliteKb
 from agent_core.session.loop import SessionRunner, SessionSettings
+from agent_core.session.repo_context import detect_repo_context
 from agent_core.system_style_defaults import merge_with_base_system
 from agent_core.session.state import SessionState
 from agent_core.tool_runtime.approval import ApprovalSession
@@ -61,6 +64,12 @@ from ailit.session_outcome_user_copy import (
 from ailit.teams_panel_presenter import TeamMailboxPanelPresenter
 from ailit.teams_tools import teammate_tool_registry
 from ailit.chat_workflow_runner import run_workflow_capture_jsonl
+from ailit.perm_mode_chat import (
+    ChatPermModeCoordinator,
+    build_mode_kb_namespace,
+    memory_namespace_from_cfg,
+    perm_mode_enabled_from_env,
+)
 from ailit.process_log import ensure_process_log
 from ailit.compat_adapter import read_status, run_compat_workflow
 from ailit.debug_bundle import build_debug_bundle, default_rollout_phase
@@ -184,6 +193,7 @@ class _ChatPageState:
     SCROLL_BOTTOM = "ailit_scroll_to_bottom"
     SEND_REQUEST = "ailit_chat_send_request"
     CLEAR_INPUT = "ailit_chat_clear_input"
+    PERM_MODE_GATE = "ailit_perm_mode_gate"
 
 
 def _parse_tool_output(text: str) -> tuple[str, str]:
@@ -785,7 +795,7 @@ def _render_token_economy_panel() -> None:
 
 
 def _render_memory_stack_panel() -> None:
-    """Память M3: обращения по инструментам KB + эвристика эффективности (live ⊕ лог)."""
+    """Память M3/M4: KB, auto-write, perm-5, диагноз при нуле memory.access."""
     c_live_raw = st.session_state.get("ailit_token_econ_cumulative")
     c_live: dict[str, Any] = c_live_raw if isinstance(c_live_raw, dict) else {}
     ph = st.session_state.get("ailit_chat_log_path")
@@ -810,6 +820,8 @@ def _render_memory_stack_panel() -> None:
     mem_pol = None
     mem_fb = None
     mem_match = None
+    sm2: dict[str, Any] = {}
+    mfr: dict[str, Any] | None = None
     if rows:
         try:
             sm2 = build_session_summary(rows)
@@ -818,6 +830,8 @@ def _render_memory_stack_panel() -> None:
         mem_pol = sm2.get("memory_policy")
         mem_fb = sm2.get("memory_retrieval_fallback")
         mem_match = sm2.get("memory_retrieval_match")
+        mfr_raw = sm2.get("memory_full_report")
+        mfr = mfr_raw if isinstance(mfr_raw, dict) else None
     diag = build_memory_diagnosis(
         cumulative=c_m,
         resume=r,
@@ -826,8 +840,63 @@ def _render_memory_stack_panel() -> None:
     sc = int(eff.get("score_0_100", 0) or 0)
     label = str(eff.get("label", "") or "")
     st.caption(
-        f"**Память (M3):** оценка **{sc}/100** — {label}",
+        f"**Память (M3/M4):** оценка **{sc}/100** — {label}",
     )
+    acc_n = int(c_m.get("memory_access_total", 0) or 0)
+    fs_n = int(c_m.get("fs_read_file_calls", 0) or 0)
+    p_used = int(c_m.get("pager_page_used", 0) or 0)
+    if fs_n or p_used:
+        st.caption(
+            f"Слой чтения: `read_file`≈{fs_n} · context pager={p_used} — это **не** "
+            "вызовы KB; события KB только у инструментов `kb_*`.",
+        )
+    if isinstance(sm2, dict):
+        sub = sm2.get("subsystems")
+        if isinstance(sub, dict):
+            pmx = sub.get("perm_mode")
+            if isinstance(pmx, dict):
+                ltm = str(pmx.get("last_tool_mode") or "").strip()
+                if ltm or int(pmx.get("enforced_n", 0) or 0) > 0:
+                    st.caption(
+                        "Режим инструментов (perm-5): "
+                        f"last_mode=`{ltm or '—'}` · "
+                        f"classified={int(pmx.get('classified_n', 0) or 0)} · "
+                        f"user_choice={int(pmx.get('user_choice_n', 0) or 0)}",
+                    )
+    if isinstance(mfr, dict):
+        aw = mfr.get("auto_write")
+        if isinstance(aw, dict):
+            done_by = aw.get("done_by_kind")
+            if isinstance(done_by, dict) and done_by:
+                st.caption(
+                    "Автозапись в KB (по видам): "
+                    + " · ".join(
+                        f"{k}={int(v)}" for k, v in done_by.items()
+                    ),
+                )
+        lg = mfr.get("loop_guards")
+        if isinstance(lg, dict) and int(lg.get("doom_loop_total", 0) or 0) > 0:
+            st.caption(
+                f"Loop-guard: doom_loop={int(lg.get('doom_loop_total', 0) or 0)}",
+            )
+    kb_info_shown = False
+    if acc_n == 0:
+        hint_lines: list[str] = []
+        dsrc = mfr.get("diagnosis") if isinstance(mfr, dict) else None
+        if isinstance(dsrc, dict):
+            h = dsrc.get("hints")
+            if isinstance(h, list) and h:
+                hint_lines = [str(x) for x in h if str(x).strip()]
+        if not hint_lines and isinstance(diag, dict):
+            h2 = diag.get("hints")
+            if isinstance(h2, list) and h2:
+                hint_lines = [str(x) for x in h2 if str(x).strip()]
+        if hint_lines:
+            st.info(
+                "Нет событий **memory.access** (обращения к `kb_*`). "
+                + " ".join(hint_lines),
+            )
+            kb_info_shown = True
     if isinstance(mem_pol, dict):
         repo = mem_pol.get("repo")
         if isinstance(repo, dict):
@@ -862,27 +931,17 @@ def _render_memory_stack_panel() -> None:
             f"`{k}`: {v}" for k, v in by.items()
         )
         st.caption(f"KB по инструментам: {line}")
-    else:
-        if isinstance(diag, dict):
-            hints = diag.get("hints")
-            if isinstance(hints, list) and hints:
-                st.caption(
-                    "**Диагноз:** " + " · ".join(str(x) for x in hints[:3]),
-                )
-            else:
-                st.caption(
-                    "Пока нет событий `memory.access` (KB не использовалась).",
-                )
-        else:
-            st.caption(
-                "Пока нет событий `memory.access` (KB не использовалась).",
-            )
+    elif acc_n == 0 and not kb_info_shown:
+        st.caption(
+            "Пока нет событий `memory.access` (инструменты KB не вызывались).",
+        )
     with st.expander("Память: детали (эвристика + merge)", expanded=False):
         st.json(
             {
                 "tooling": stats,
                 "efficiency": eff,
                 "diagnosis": diag,
+                "memory_full_report": mfr,
                 "policy": mem_pol,
                 "retrieval_fallback": mem_fb,
                 "retrieval_match": mem_match,
@@ -1048,6 +1107,9 @@ def _execute_llm_turn(
     _inject_tool_hints_before_first_user(runner_msgs)
 
     provider, model = _make_provider(choice, cfg)
+    pm_en = perm_mode_enabled_from_env()
+    perm_mode_str = str(snap.get("perm_tool_mode") or "explore").strip().lower()
+    perm_bypass = bool(snap.get("perm_classifier_bypass", False))
     status_ph = st.session_state.get("ailit_stream_status_ph")
     delta_ph = st.session_state.get("ailit_stream_delta_ph")
     live_text: list[str] = []
@@ -1187,6 +1249,10 @@ def _execute_llm_turn(
         shortlist_keywords=tuning.shortlist_keywords if tuning else None,
         tool_exposure=tool_exposure,
         use_stream=True,
+        perm_mode_enabled=pm_en,
+        perm_tool_mode=perm_mode_str,
+        perm_classifier_bypass=perm_bypass,
+        perm_history_max=8,
     )
     work_for_tools = project_root if use_project else _REPO
     perm = PermissionEngine(
@@ -1316,6 +1382,9 @@ def _build_chat_turn_worker(
     _inject_tool_hints_before_first_user(runner_msgs)
     provider, model = _make_provider(choice, cfg)
 
+    pm_en = perm_mode_enabled_from_env()
+    perm_mode_str = str(snap.get("perm_tool_mode") or "explore").strip().lower()
+    perm_bypass = bool(snap.get("perm_classifier_bypass", False))
     settings = SessionSettings(
         model=model,
         max_turns=tuning.max_turns if tuning and tuning.max_turns is not None else max_turns,
@@ -1323,6 +1392,10 @@ def _build_chat_turn_worker(
         shortlist_keywords=tuning.shortlist_keywords if tuning else None,
         tool_exposure=tool_exposure,
         use_stream=True,
+        perm_mode_enabled=pm_en,
+        perm_tool_mode=perm_mode_str,
+        perm_classifier_bypass=perm_bypass,
+        perm_history_max=8,
     )
     work_for_tools = project_root if use_project else _REPO
     perm = PermissionEngine(
@@ -1405,6 +1478,64 @@ def main() -> None:
 
     col_l, col_mid, col_r = st.columns([1, 2, 1])
     with col_mid:
+        gate_raw = st.session_state.get(_ChatPageState.PERM_MODE_GATE)
+        if (
+            perm_mode_enabled_from_env()
+            and isinstance(gate_raw, dict)
+            and isinstance(gate_raw.get("snap"), dict)
+        ):
+            snap0 = dict(gate_raw["snap"])
+            prompt0 = str(gate_raw.get("prompt") or "")
+            _render_dialogue_messages(
+                msgs,
+                shell_by_assistant_seq=shell_map,
+                n_tail=n_tail,
+            )
+            st.warning(
+                "Режим инструментов не определён автоматически. "
+                "Выберите режим — ответ модели начнётся после выбора.",
+            )
+            opts = ("read", "read_plan", "explore", "edit")
+            mode_pick = st.radio(
+                "Режим",
+                opts,
+                index=2,
+                horizontal=True,
+                key="ailit_perm_gate_radio",
+            )
+            remember = st.checkbox(
+                "Запомнить для проекта",
+                key="ailit_perm_gate_remember",
+            )
+            if st.button("Продолжить", key="ailit_perm_gate_go"):
+                mem_ns = memory_namespace_from_cfg(cfg)
+                root_gate = Path(str(snap0.get("project_root") or project_root))
+                mode_ns = build_mode_kb_namespace(
+                    memory_namespace=mem_ns,
+                    project_root=root_gate,
+                )
+                rc_gate = detect_repo_context(root_gate)
+                coord = ChatPermModeCoordinator(
+                    kb_namespace=mode_ns,
+                    history_max=8,
+                    repo_payload=rc_gate.to_event_payload(),
+                )
+                log = ensure_process_log("chat")
+                coord.record_user_choice(
+                    user_intent=prompt0,
+                    mode=str(mode_pick),
+                    remember_project=bool(remember),
+                    diag_sink=log.sink,
+                )
+                snap0["perm_tool_mode"] = str(mode_pick)
+                snap0["perm_classifier_bypass"] = False
+                st.session_state.pop(_ChatPageState.PERM_MODE_GATE, None)
+                st.session_state[_ChatPageState.LLM_WIDGET_SNAPSHOT] = snap0
+                st.session_state[_ChatPageState.PENDING_LLM] = True
+                st.session_state[_ChatPageState.SCROLL_BOTTOM] = True
+                st.rerun()
+            return
+
         if pending:
             snap_raw = st.session_state.get(_ChatPageState.LLM_WIDGET_SNAPSHOT)
             if not isinstance(snap_raw, dict):
@@ -1582,7 +1713,8 @@ def main() -> None:
             ChatMessage(role=MessageRole.USER, content=prompt),
         )
         st.session_state[_ChatPageState.CLEAR_INPUT] = True
-        st.session_state[_ChatPageState.LLM_WIDGET_SNAPSHOT] = {
+
+        base_snap: dict[str, object] = {
             "choice": choice,
             "max_turns": max_turns,
             "use_project": use_project,
@@ -1592,6 +1724,51 @@ def main() -> None:
             "project_root": str(project_root),
             "turn_id": uuid.uuid4().hex,
         }
+        bypass = os.environ.get("AILIT_MULTI_AGENT", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        forced = os.environ.get("AILIT_PERM_TOOL_MODE", "").strip() or None
+        base_snap["perm_classifier_bypass"] = bypass
+
+        perm_tool_mode = "explore"
+        if perm_mode_enabled_from_env():
+            mem_ns = memory_namespace_from_cfg(cfg)
+            mode_ns = build_mode_kb_namespace(
+                memory_namespace=mem_ns,
+                project_root=project_root,
+            )
+            rc0 = detect_repo_context(project_root)
+            coord = ChatPermModeCoordinator(
+                kb_namespace=mode_ns,
+                history_max=8,
+                repo_payload=rc0.to_event_payload(),
+            )
+            prov, model_eff = _make_provider(choice, cfg)
+            res = coord.resolve_turn(
+                provider=prov,
+                model=model_eff,
+                temperature=0.3,
+                user_intent=prompt,
+                classifier_bypass=bypass,
+                forced_mode=forced,
+                diag_sink=ensure_process_log("chat").sink,
+            )
+            if not bypass and res.not_sure:
+                st.session_state[_ChatPageState.PERM_MODE_GATE] = {
+                    "snap": base_snap,
+                    "prompt": prompt,
+                }
+                st.session_state[_ChatPageState.SCROLL_BOTTOM] = True
+                st.rerun()
+                return
+            perm_tool_mode = res.final_mode
+
+        snap = dict(base_snap)
+        snap["perm_tool_mode"] = perm_tool_mode
+        st.session_state[_ChatPageState.LLM_WIDGET_SNAPSHOT] = snap
         st.session_state[_ChatPageState.PENDING_LLM] = True
         st.session_state[_ChatPageState.SCROLL_BOTTOM] = True
         st.rerun()

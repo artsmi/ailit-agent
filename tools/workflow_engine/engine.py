@@ -5,17 +5,22 @@ from __future__ import annotations
 import json
 import sys
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, TextIO
 
 from agent_core.models import ChatMessage, MessageRole
 from agent_core.providers.protocol import ChatProvider
 from agent_core.session.loop import SessionRunner, SessionSettings
+from agent_core.session.perm_tool_mode import normalize_perm_tool_mode
 from agent_core.system_prompt_builder import (
     SystemPromptLayers,
     build_effective_system_messages,
 )
 from agent_core.tool_runtime.approval import ApprovalSession
+from agent_core.tool_runtime.permission import (
+    PermissionDecision,
+    PermissionEngine,
+)
 from agent_core.tool_runtime.registry import ToolRegistry
 from .graph import Workflow
 from .hybrid import hybrid_event_payload
@@ -57,6 +62,9 @@ class WorkflowRunConfig:
     task_artifact_rel: str | None = None
     # Переопределяет SessionSettings.suppress_tools_after_write_file.
     suppress_tools_after_write_file: bool | None = None
+    # perm-5: явный режим инструментов без LLM-классификатора в worker.
+    perm_tool_mode: str = "edit"
+    perm_classifier_bypass: bool = True
 
 
 class WorkflowEngine:
@@ -133,8 +141,24 @@ class WorkflowEngine:
             settings_kw["suppress_tools_after_write_file"] = (
                 run_config.suppress_tools_after_write_file
             )
-        settings = SessionSettings(**settings_kw)
-        runner = SessionRunner(self._provider, self._registry)
+        settings_kw["perm_mode_enabled"] = True
+        ptm = normalize_perm_tool_mode(
+            str(run_config.perm_tool_mode or "edit"),
+        )
+        settings_kw["perm_tool_mode"] = ptm
+        settings_kw["perm_classifier_bypass"] = bool(
+            run_config.perm_classifier_bypass,
+        )
+        settings_base = SessionSettings(**settings_kw)
+        perm = PermissionEngine(
+            write_default=PermissionDecision.ALLOW,
+            shell_default=PermissionDecision.ALLOW,
+        )
+        runner = SessionRunner(
+            self._provider,
+            self._registry,
+            permission_engine=perm,
+        )
         approvals = ApprovalSession()
 
         for stage in self._workflow.stages:
@@ -158,6 +182,13 @@ class WorkflowEngine:
                     },
                 )
             for task in stage.tasks:
+                raw_override = task.metadata.get("perm_tool_mode")
+                if raw_override is not None and str(raw_override).strip():
+                    eff_ptm = normalize_perm_tool_mode(str(raw_override))
+                    settings = replace(settings_base, perm_tool_mode=eff_ptm)
+                else:
+                    settings = settings_base
+                    eff_ptm = ptm
                 yield self._emit(
                     out,
                     "task.started",
@@ -165,6 +196,10 @@ class WorkflowEngine:
                         "workflow_id": self._workflow.workflow_id,
                         "stage_id": stage.stage_id,
                         "task_id": task.task_id,
+                        "perm_tool_mode": eff_ptm,
+                        "perm_classifier_bypass": bool(
+                            run_config.perm_classifier_bypass,
+                        ),
                     },
                 )
                 if run_config.dry_run:
@@ -214,6 +249,7 @@ class WorkflowEngine:
                         "workflow_id": self._workflow.workflow_id,
                         "stage_id": stage.stage_id,
                         "task_id": task.task_id,
+                        "perm_tool_mode": eff_ptm,
                         "session_state": session_out.state.value,
                         "reason": session_out.reason,
                         "file_changes": _write_file_changes_from_events(

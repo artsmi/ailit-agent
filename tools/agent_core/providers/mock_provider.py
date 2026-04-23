@@ -21,11 +21,40 @@ from agent_core.models import (
 )
 
 
+_PERM_CLASSIFIER_MARKER = "[AILIT_PERM_MODE_CLASSIFIER_V1]"
+
+
 def _last_non_system(messages: Sequence[ChatMessage]) -> ChatMessage | None:
     for m in reversed(messages):
         if m.role is not MessageRole.SYSTEM:
             return m
     return None
+
+
+def _perm_classifier_prompt(messages: Sequence[ChatMessage]) -> bool:
+    for m in messages:
+        if m.role is not MessageRole.SYSTEM:
+            continue
+        if _PERM_CLASSIFIER_MARKER in (m.content or ""):
+            return True
+    return False
+
+
+def _mock_perm_classifier_output(last: ChatMessage | None) -> str:
+    text = (last.content if last and last.role is MessageRole.USER else "") or ""
+    low = text.lower()
+    if "not_sure" in low or "не уверен" in low:
+        mode = "not_sure"
+    elif ("точк" in low and "вход" in low) or "entry point" in low:
+        mode = "read"
+    elif "docs/" in low or "plan.md" in low:
+        mode = "read_plan"
+    else:
+        mode = "explore"
+    return json.dumps(
+        {"mode": mode, "confidence": 0.9, "reason": "mock heuristic"},
+        ensure_ascii=False,
+    )
 
 
 def _tool_names(request: ChatRequest) -> frozenset[str]:
@@ -117,6 +146,22 @@ class MockProvider:
                 usage=NormalizedUsage(
                     input_tokens=12,
                     output_tokens=8,
+                    total_tokens=20,
+                    usage_missing=False,
+                ),
+                provider_metadata={"provider_id": self.provider_id, "mock": True},
+                raw_debug_payload=None,
+            )
+
+        if not request.tools and _perm_classifier_prompt(request.messages):
+            body = _mock_perm_classifier_output(last)
+            return NormalizedChatResponse(
+                text_parts=(body,),
+                tool_calls=(),
+                finish_reason=FinishReason.STOP,
+                usage=NormalizedUsage(
+                    input_tokens=8,
+                    output_tokens=12,
                     total_tokens=20,
                     usage_missing=False,
                 ),

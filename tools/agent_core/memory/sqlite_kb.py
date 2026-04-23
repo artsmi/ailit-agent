@@ -412,6 +412,35 @@ class SqliteKb:
             return None
         return self._row_to_record(row)
 
+    def list_recent_by_kind(
+        self,
+        *,
+        kind: str,
+        namespace: str | None = None,
+        limit: int = 20,
+    ) -> list[KbRecord]:
+        """Последние записи по kind (для истории классификатора perm-5)."""
+        k = str(kind or "").strip()
+        if not k:
+            return []
+        lim = max(1, min(int(limit), 100))
+        ns_raw = str(namespace or "").strip()
+        if ns_raw:
+            sql = (
+                "SELECT * FROM kb_records WHERE kind = ? AND namespace = ? "
+                "ORDER BY updated_at DESC LIMIT ?"
+            )
+            params: tuple[object, ...] = (k, ns_raw, lim)
+        else:
+            sql = (
+                "SELECT * FROM kb_records WHERE kind = ? "
+                "ORDER BY updated_at DESC LIMIT ?"
+            )
+            params = (k, lim)
+        with self._connect() as con:
+            rows = con.execute(sql, params).fetchall()
+        return [self._row_to_record(row) for row in rows]
+
     def search(
         self,
         *,

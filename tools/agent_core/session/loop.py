@@ -56,6 +56,8 @@ from agent_core.session.tool_output_prune import (
     tool_output_prune_config_from_env,
 )
 from agent_core.session.state import SessionState
+from agent_core.session.mode_permission_policy import build_mode_permission_policy
+from agent_core.session.perm_tool_mode import tool_definitions_for_perm_mode
 from agent_core.session.tool_exposure import tool_definitions_for_settings
 from agent_core.session.tool_choice_policy import (
     default_tool_choice_policy,
@@ -158,6 +160,24 @@ class SessionSettings:
     )
     tool_output_prune: ToolOutputPruneConfig = field(
         default_factory=tool_output_prune_config_from_env,
+    )
+    # perm-5: режим инструментов + (опционально) классификатор в UI.
+    perm_mode_enabled: bool = False
+    perm_tool_mode: str = "explore"
+    perm_classifier_bypass: bool = False
+    perm_history_max: int = 8
+
+
+def _perm_engine_for_session(
+    init_perm: PermissionEngine,
+    settings: SessionSettings,
+) -> object:
+    """Политика разрешений с учётом perm-режима или legacy init_perm."""
+    if not settings.perm_mode_enabled:
+        return init_perm
+    return build_mode_permission_policy(
+        settings.perm_tool_mode,
+        legacy_engine=init_perm,
     )
 
 
@@ -1005,13 +1025,25 @@ class SessionRunner:
         except Exception:  # noqa: BLE001
             # Диагностика не должна ломать сессию.
             pass
+        if settings.perm_mode_enabled:
+            self._emit(
+                events,
+                "mode.enforced",
+                {
+                    "perm_tool_mode": settings.perm_tool_mode,
+                    "perm_classifier_bypass": settings.perm_classifier_bypass,
+                },
+                diag_sink,
+                event_sink,
+            )
         if (
             settings.context_pager.enabled
             or settings.tool_output_budget.enabled
         ):
             self._context_page_store.clear()
         active_reg = self._tool_registry_for_run(settings)
-        executor = ToolExecutor(active_reg, self._perm)
+        perm_engine = _perm_engine_for_session(self._perm, settings)
+        executor = ToolExecutor(active_reg, perm_engine)
         bud = budget or BudgetGovernance(
             max_total_tokens=settings.max_total_tokens,
             max_context_units=settings.max_context_units,
@@ -2494,24 +2526,44 @@ class SessionRunner:
                 diag_sink,
                 event_sink,
             )
-            tools_defs, tex = tool_definitions_for_settings(
-                active_reg,
-                settings.tool_exposure,
-            )
-            self._emit(
-                events,
-                "tool.exposure.applied",
-                {
-                    "mode": tex.mode,
-                    "tools_total": tex.tools_total,
-                    "tools_exposed": tex.tools_exposed,
-                    "schema_chars": tex.schema_chars,
-                    "schema_chars_full": tex.schema_chars_full,
-                    "schema_savings": tex.schema_savings,
-                },
-                diag_sink,
-                event_sink,
-            )
+            if settings.perm_mode_enabled:
+                tools_defs, pmeta = tool_definitions_for_perm_mode(
+                    active_reg,
+                    settings.perm_tool_mode,
+                )
+                self._emit(
+                    events,
+                    "tool.perm_mode.applied",
+                    {
+                        "perm_mode": pmeta.perm_mode,
+                        "tools_total": pmeta.tools_total,
+                        "tools_exposed": pmeta.tools_exposed,
+                        "schema_chars": pmeta.schema_chars,
+                        "schema_chars_full": pmeta.schema_chars_full,
+                        "schema_savings": pmeta.schema_savings,
+                    },
+                    diag_sink,
+                    event_sink,
+                )
+            else:
+                tools_defs, tex = tool_definitions_for_settings(
+                    active_reg,
+                    settings.tool_exposure,
+                )
+                self._emit(
+                    events,
+                    "tool.exposure.applied",
+                    {
+                        "mode": tex.mode,
+                        "tools_total": tex.tools_total,
+                        "tools_exposed": tex.tools_exposed,
+                        "schema_chars": tex.schema_chars,
+                        "schema_chars_full": tex.schema_chars_full,
+                        "schema_savings": tex.schema_savings,
+                    },
+                    diag_sink,
+                    event_sink,
+                )
             st_sup = settings.suppress_tools_after_write_file
             should_use_suppress = suppress_next[0] and st_sup
             if suppress_next[0]:

@@ -16,3 +16,5 @@ class TuiSessionState:
     max_turns: int
     agent_id: str = "default"
     workflow_ref: str | None = None
+    # perm-5: режим инструментов (TUI без классификатора; паритет с chat).
+    perm_tool_mode: str = "explore"

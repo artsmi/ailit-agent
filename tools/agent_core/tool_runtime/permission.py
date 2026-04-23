@@ -32,8 +32,16 @@ class PermissionEngine:
         self._network_default = network_default
         self._shell_default = shell_default
 
-    def evaluate(self, spec: ToolSpec) -> PermissionDecision:
-        """Оценить вызов до исполнения (без учёта session approvals)."""
+    def evaluate(
+        self,
+        spec: ToolSpec,
+        inv: object | None = None,
+    ) -> PermissionDecision:
+        """Оценить вызов до исполнения (без учёта session approvals).
+
+        ``inv`` зарезервирован для политик perm-5; базовый движок его игнорирует.
+        """
+        del inv
         if spec.requires_approval:
             return PermissionDecision.ASK
         effect = spec.side_effect

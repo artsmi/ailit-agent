@@ -11,7 +11,7 @@ def test_kb_search_uses_fts_by_default_when_available(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    """Если AILIT_KB_ACCEL не задан, пытается FTS и падает обратно."""
+    """Сначала FTS; пустой индекс — поиск LIKE в kb_records."""
     from agent_core.memory.kb_tools import (
         KbToolsConfig,
         build_kb_tool_registry,
@@ -45,7 +45,7 @@ def test_kb_search_uses_fts_by_default_when_available(
     out = reg.handlers["kb_search"]({"query": "x"})
     assert isinstance(out, str)
     assert calls["fts"] == 1
-    assert calls["like"] == 0
+    assert calls["like"] == 1
 
 
 def test_ttl_apply_sets_valid_to_for_deprecated(tmp_path: Path) -> None:

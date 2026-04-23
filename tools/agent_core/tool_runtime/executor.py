@@ -115,7 +115,7 @@ class ToolExecutor:
         """Исполнить один вызов с проверками."""
         self._guard_cancel(cancel)
         spec = self._registry.get_spec(inv.tool_name)
-        perm = self._permission.evaluate(spec)
+        perm = self._permission.evaluate(spec, inv)
         if perm is PermissionDecision.DENY:
             return ToolRunResult(
                 call_id=inv.call_id,
@@ -193,7 +193,7 @@ class ToolExecutor:
         for inv in invocations:
             spec = self._registry.get_spec(inv.tool_name)
             specs.append(spec)
-            perm = self._permission.evaluate(spec)
+            perm = self._permission.evaluate(spec, inv)
             if perm is not PermissionDecision.ALLOW:
                 msg = "parallel batch requires all ALLOW"
                 raise ValueError(msg)

@@ -186,7 +186,7 @@ def _emit_memory_access(...):
     - `PYTHONPATH=tools python3 -m pytest -q` (юнит);
     - новый e2e‑сценарий (см. M4-4) подтверждает рост `memory.access`.
 
-- ⏳ **Задача M4-1.2 — Авто‑summaries → KB write (anti‑raw‑chat)** (закрыть в этой итерации)
+- ✅ **Задача M4-1.2 — Авто‑summaries → KB write (anti‑raw‑chat)** (выполнено: kinds + `memory.auto_write.done`, тесты в `tests/test_session_loop.py`)
   - **Описание:** вместо сырого чата писать нормализованные факты: `title/summary/body`,
     provenance (repo, path, commit/mtime), `scope/namespace`.
   - **Обязательные kinds (минимум, 2026‑04):**
@@ -262,14 +262,12 @@ def _emit_memory_access(...):
     - `ailit session usage summary --json` содержит блок `memory_full_report` (или экв.)
       с breakdown по инструментам и по policy‑решениям.
 
-- ⏳ **Задача M4-3.2 — UI: «Память» как главный экран** (в работе)
-  - **Описание:** в `ailit chat` блок памяти должен объяснять:
-    - какие слои сработали (FS/pager/compaction vs KB);
-    - что было записано/не записано и почему;
-    - сколько токенов сэкономили.
-  - **Критерии приёмки:**
-    - при `memory_access_total=0` UI показывает **диагноз** (какой policy не включился),
-      а не только «пока нет событий».
+- ✅ **Задача M4-3.2 — UI: панель «Память» (продуктовая)** (выполнено: 2026‑04)
+  - **Описание:** в `ailit chat` блок памяти объясняет слой чтения (fs/pager) vs KB,
+    показывает `subsystems.perm_mode`, `memory_full_report` (auto-write по видам, loop_guards),
+    и при `memory_access_total=0` — `st.info` с диагнозом (policy/лог), без дублирования
+    в caption.
+  - **Критерии приёмки:** см. `_render_memory_stack_panel` в `chat_app.py`.
 
 ### Этап M4-4: Evaluation suite и e2e регрессии (автоматизировано)
 

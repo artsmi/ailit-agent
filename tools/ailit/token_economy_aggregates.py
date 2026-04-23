@@ -83,6 +83,10 @@ def empty_cumulative() -> dict[str, Any]:
         "memory_retrieval_match_by_level": {},
         "memory_auto_kb_rate_limited_total": 0,
         "memory_auto_kb_rate_limited_by_tool": {},
+        "perm_mode_enforced_n": 0,
+        "perm_mode_classified_n": 0,
+        "perm_mode_user_choice_n": 0,
+        "perm_last_tool_mode": "",
     }
 
 
@@ -139,6 +143,31 @@ def merge_events_into_cumulative(
             acc["tool_exposure_schema_savings_sum"] = int(
                 acc.get("tool_exposure_schema_savings_sum", 0),
             ) + _i(row, "schema_savings")
+        elif et == "tool.perm_mode.applied":
+            acc["tool_exposure_applied"] = int(
+                acc.get("tool_exposure_applied", 0),
+            ) + 1
+            acc["tool_exposure_schema_chars_sum"] = int(
+                acc.get("tool_exposure_schema_chars_sum", 0),
+            ) + _i(row, "schema_chars")
+            acc["tool_exposure_schema_savings_sum"] = int(
+                acc.get("tool_exposure_schema_savings_sum", 0),
+            ) + _i(row, "schema_savings")
+        elif et == "mode.enforced":
+            acc["perm_mode_enforced_n"] = int(
+                acc.get("perm_mode_enforced_n", 0),
+            ) + 1
+            pm = row.get("perm_tool_mode")
+            if isinstance(pm, str) and pm.strip():
+                acc["perm_last_tool_mode"] = pm.strip()
+        elif et == "mode.classified":
+            acc["perm_mode_classified_n"] = int(
+                acc.get("perm_mode_classified_n", 0),
+            ) + 1
+        elif et == "mode.user_choice":
+            acc["perm_mode_user_choice_n"] = int(
+                acc.get("perm_mode_user_choice_n", 0),
+            ) + 1
         elif et == "fs.read_file.completed":
             acc["fs_read_file_calls"] = int(
                 acc.get("fs_read_file_calls", 0),
@@ -664,6 +693,12 @@ def build_subsystems_block(
             "read_file_range_calls": int(
                 cumulative.get("fs_read_file_range_calls", 0) or 0,
             ),
+        },
+        "perm_mode": {
+            "enforced_n": int(cumulative.get("perm_mode_enforced_n", 0) or 0),
+            "classified_n": int(cumulative.get("perm_mode_classified_n", 0) or 0),
+            "user_choice_n": int(cumulative.get("perm_mode_user_choice_n", 0) or 0),
+            "last_tool_mode": str(cumulative.get("perm_last_tool_mode") or ""),
         },
         "memory": {
             "access_n": max(

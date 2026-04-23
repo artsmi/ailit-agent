@@ -11,11 +11,15 @@ from .graph import HumanGate, Stage, Task, Transition, Workflow
 
 
 def _task_from_dict(data: Mapping[str, Any]) -> Task:
+    md: dict[str, Any] = dict(data.get("metadata", {}))
+    raw_ptm = data.get("perm_tool_mode")
+    if raw_ptm is not None and str(raw_ptm).strip():
+        md["perm_tool_mode"] = str(raw_ptm).strip().lower()
     return Task(
         task_id=str(data["id"]),
         system_prompt=str(data.get("system_prompt", "")),
         user_text=str(data.get("user_text", "")),
-        metadata=dict(data.get("metadata", {})),
+        metadata=md,
     )
 
 
@@ -51,7 +55,9 @@ def _transitions_from_list(raw: Any) -> tuple[Transition, ...]:
             Transition(
                 from_stage=str(item["from"]),
                 to_stage=str(item["to"]),
-                condition=str(item["condition"]) if item.get("condition") else None,
+                condition=(
+                    str(item["condition"]) if item.get("condition") else None
+                ),
             )
         )
     return tuple(out)
@@ -67,7 +73,9 @@ def load_workflow_from_mapping(data: Mapping[str, Any]) -> Workflow:
     if not isinstance(stages_raw, list) or not stages_raw:
         msg = "workflow must contain non-empty stages list"
         raise ValueError(msg)
-    stages = tuple(_stage_from_dict(s) for s in stages_raw if isinstance(s, dict))
+    stages = tuple(
+        _stage_from_dict(s) for s in stages_raw if isinstance(s, dict)
+    )
     transitions = _transitions_from_list(data.get("transitions"))
     return Workflow(
         workflow_id=wid,

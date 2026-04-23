@@ -134,12 +134,19 @@ def build_kb_tool_registry(cfg: KbToolsConfig) -> ToolRegistry:
         use_fts = (force_fts or auto_fts) and not force_off
         rows: list[dict[str, Any]] | None = None
         if use_fts and not inc:
-            rows = kb.search_fts(
+            fts_rows = kb.search_fts(
                 query=q,
                 scope=scope,
                 namespace=ns,
                 top_k=top_k,
             )
+            if fts_rows is None:
+                rows = None
+            elif fts_rows:
+                rows = fts_rows
+            else:
+                # FTS пустой или не синхронизирован с kb_records — LIKE.
+                rows = None
         if rows is None:
             rows = kb.search(
                 query=q,

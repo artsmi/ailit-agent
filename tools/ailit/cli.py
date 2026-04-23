@@ -318,6 +318,10 @@ def _cmd_agent_run(args: argparse.Namespace) -> int:
         run_id=run_id,
         cli_task_body=cli_task_body,
         task_artifact_rel=task_artifact_rel,
+        perm_tool_mode=str(getattr(args, "perm_tool_mode", "edit") or "edit")
+        .strip()
+        .lower(),
+        perm_classifier_bypass=True,
     )
     diag_sink = ensure_process_log("agent").sink
     list(eng.iter_run_events(run_cfg, diag_sink=diag_sink))
@@ -631,6 +635,15 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Не подмешивать config/test.local.yaml из дерева ailit-agent "
             "(только глобальный и проектный merge)"
+        ),
+    )
+    p_run.add_argument(
+        "--perm-tool-mode",
+        type=str,
+        default="edit",
+        help=(
+            "perm-5: read|read_plan|explore|edit — режим инструментов worker "
+            "(без LLM-классификатора)"
         ),
     )
     task_group = p_run.add_mutually_exclusive_group()

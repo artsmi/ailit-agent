@@ -31,6 +31,7 @@ from ailit.session_outcome_user_copy import (
     MAX_TURNS_EXCEEDED_REASON,
     SessionErrorAssistantMessageComposer,
 )
+from ailit.perm_mode_chat import perm_mode_enabled_from_env
 from ailit.tui_session_types import TuiSessionState
 
 DiagSink = Callable[[dict[str, Any]], None]
@@ -160,11 +161,17 @@ class TuiChatController:
             shell_default=PermissionDecision.ALLOW,
         )
         runner = SessionRunner(provider_obj, reg, permission_engine=perm)
+        pm = perm_mode_enabled_from_env()
+        raw_ptm = getattr(state, "perm_tool_mode", "explore") or "explore"
+        ptm = str(raw_ptm).strip()
         settings = SessionSettings(
             model=model_eff,
             max_turns=state.max_turns,
             temperature=0.3,
             use_stream=True,
+            perm_mode_enabled=pm,
+            perm_tool_mode=ptm,
+            perm_classifier_bypass=True,
         )
         out = runner.run(
             list(self._messages),
