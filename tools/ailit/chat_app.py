@@ -68,6 +68,7 @@ from ailit.defaults_resolver import DefaultProviderModelResolver
 from ailit.token_economy_aggregates import (
     analyze_log_rows,
     build_memory_efficiency_score,
+    build_memory_diagnosis,
     build_memory_stats,
     build_session_summary,
     compute_resume_signals,
@@ -818,6 +819,11 @@ def _render_memory_stack_panel() -> None:
         mem_pol = sm2.get("memory_policy")
         mem_fb = sm2.get("memory_retrieval_fallback")
         mem_match = sm2.get("memory_retrieval_match")
+    diag = build_memory_diagnosis(
+        cumulative=c_m,
+        resume=r,
+        memory_policy=mem_pol if isinstance(mem_pol, dict) else None,
+    )
     sc = int(eff.get("score_0_100", 0) or 0)
     label = str(eff.get("label", "") or "")
     st.caption(
@@ -858,14 +864,26 @@ def _render_memory_stack_panel() -> None:
         )
         st.caption(f"KB по инструментам: {line}")
     else:
-        st.caption(
-            "Пока нет событий `memory.access` (поиск/запись в факты/промоуция).",
-        )
+        if isinstance(diag, dict):
+            hints = diag.get("hints")
+            if isinstance(hints, list) and hints:
+                st.caption(
+                    "**Диагноз:** " + " · ".join(str(x) for x in hints[:3]),
+                )
+            else:
+                st.caption(
+                    "Пока нет событий `memory.access` (KB не использовалась).",
+                )
+        else:
+            st.caption(
+                "Пока нет событий `memory.access` (KB не использовалась).",
+            )
     with st.expander("Память: детали (эвристика + merge)", expanded=False):
         st.json(
             {
                 "tooling": stats,
                 "efficiency": eff,
+                "diagnosis": diag,
                 "policy": mem_pol,
                 "retrieval_fallback": mem_fb,
                 "retrieval_match": mem_match,

@@ -381,6 +381,50 @@ def build_memory_efficiency_score(
     }
 
 
+def build_memory_diagnosis(
+    *,
+    cumulative: Mapping[str, Any],
+    resume: Mapping[str, Any],
+    memory_policy: Mapping[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Короткий диагноз «почему KB не использовалась» для UI."""
+    stats = build_memory_stats(cumulative, resume)
+    total = int(stats.get("access_total", 0) or 0)
+    if total > 0:
+        return None
+    pol_enabled: bool | None = None
+    repo_ok: bool | None = None
+    if isinstance(memory_policy, Mapping):
+        pol_enabled = (
+            bool(memory_policy.get("enabled"))
+            if memory_policy.get("enabled") is not None
+            else None
+        )
+        repo = memory_policy.get("repo")
+        repo_ok = isinstance(repo, Mapping)
+    hints: list[str] = []
+    if pol_enabled is False:
+        hints.append("auto-memory отключена политикой (enabled=false)")
+    elif pol_enabled is None:
+        hints.append(
+            "в логе нет memory.policy (старый лог или нет policy-эмита)",
+        )
+    if repo_ok is False:
+        hints.append("repo context не определён (не git или нет WORK_ROOT)")
+    rl = int(cumulative.get("memory_auto_kb_rate_limited_total", 0) or 0)
+    if rl > 0:
+        hints.append("часть auto-KB была rate-limited (проверь caps/env)")
+    if not hints:
+        hints.append(
+            "KB инструменты не были вызваны "
+            "(tool registry/permissions/approval)",
+        )
+    return {
+        "kind": "ailit_memory_diagnosis_v1",
+        "hints": hints,
+    }
+
+
 def extract_memory_policy(
     rows: list[Mapping[str, Any]],
 ) -> dict[str, Any] | None:

@@ -164,7 +164,7 @@ def _emit_memory_access(...):
 
 **Цель:** при задачах «изучи и запомни» память работает даже если LLM не вызывает `kb_*`.
 
-- **Задача M4-1.0 — Определить «когда включать авто‑память»**
+- ✅ **Задача M4-1.0 — Определить «когда включать авто‑память»** (выполнено: always-on + событие `memory.policy`)
   - **Описание:** реализовать *продуктовый* переключатель/режим (а не промпт):
     - UI toggle «Авто‑память: on/off»;
     - или настройка проекта (`project.yaml`);
@@ -173,7 +173,7 @@ def _emit_memory_access(...):
     - режим отражён в JSONL (`memory.policy.enabled=true/false`) и unified summary;
     - пользователь может выключить авто‑write.
 
-- **Задача M4-1.1 — MemoryPolicy/Orchestrator в session loop**
+- ✅ **Задача M4-1.1 — MemoryPolicy/Orchestrator в session loop** (выполнено: auto-retrieval/write + explainability)
   - **Описание:** добавить runtime‑компонент, который после `model.response` и/или после
     `tool.call_finished` принимает решение:
     - какие `kb_search` сделать (retrieval, чтобы уменьшить повторные `read_file`);
@@ -186,21 +186,21 @@ def _emit_memory_access(...):
     - `PYTHONPATH=tools python3 -m pytest -q` (юнит);
     - новый e2e‑сценарий (см. M4-4) подтверждает рост `memory.access`.
 
-- **Задача M4-1.2 — Авто‑summaries → KB write (anti‑raw‑chat)**
+- ⏳ **Задача M4-1.2 — Авто‑summaries → KB write (anti‑raw‑chat)** (следующая)
   - **Описание:** вместо сырого чата писать нормализованные факты: `title/summary/body`,
     provenance (repo, path, commit/mtime), `scope/namespace`.
   - **Критерии приёмки:**
     - ни один авто‑write не пишет полный диалог;
     - соблюдаются ограничения governance (`draft` only, promotion отдельно).
 
-- **Задача M4-1.3 — Интеграция с permission/approval**
+- ✅ **Задача M4-1.3 — Интеграция с permission/approval** (выполнено: ApprovalPending → skipped + telemetry)
   - **Описание:** авто‑write должен быть либо безопасен по умолчанию, либо требовать approve
     в «опасных» режимах.
   - **Критерии приёмки:**
     - авто‑write не может silently писать в «org» scope без политики;
     - есть трасса событий (diag) о том, почему write выполнен/пропущен.
 
- - **Задача M4-1.4 — Rate-limit авто‑KB (защита от “миллиона обращений”)**
+ - ✅ **Задача M4-1.4 — Rate-limit авто‑KB (защита от “миллиона обращений”)** (выполнено: caps + `memory.auto_kb.rate_limited`)
   - **Описание:** ограничить частоту auto‑retrieval/auto‑fetch и auto‑write без участия модели.
     Лимиты по умолчанию (можно переопределять env):
     - `kb_search`: максимум **30** auto‑вызовов на сессию (включая fallback)
@@ -219,7 +219,7 @@ def _emit_memory_access(...):
 
 **Цель:** остановить «длинный цикл» инструментов без прогресса и без ручного stop.
 
-- **Задача M4-2.1 — `agent_steps` cap (аналог OpenCode `steps`)**
+- ✅ **Задача M4-2.1 — `agent_steps` cap (аналог OpenCode `steps`)** (выполнено)
   - **Описание:** ограничить число подряд (или суммарно) итераций вида
     `model.response` → `tool_calls` → `tool_results` → `model.request` без «финализации».
   - **Критерии приёмки:**
@@ -229,14 +229,14 @@ def _emit_memory_access(...):
     - unit‑тест на срабатывание cap;
     - e2e‑тест на реальном сценарии «скан репо».
 
-- **Задача M4-2.2 — doom-loop detector (повторы без прогресса)**
+- ✅ **Задача M4-2.2 — doom-loop detector (повторы без прогресса)** (выполнено)
   - **Описание:** детектор повторов tool invocations (same tool+args / одинаковые path‑range)
     и/или «циклы каталогов», отдельная политика как в OpenCode `doom_loop`.
   - **Критерии приёмки:**
     - повтор одного и того же `read_file(path,offset,limit)` после restore‑hint приводит
       к предупреждению/deny/переформулировке, а не к бесконечной цепочке.
 
-- **Задача M4-2.3 — `run_shell` guardrails**
+- ✅ **Задача M4-2.3 — `run_shell` guardrails** (выполнено)
   - **Описание:** запрет/ограничение интерактивных лаунчеров, долгих процессов
     и команд‑инсталляторов в режиме «обзор репо».
   - **Критерии приёмки:**
@@ -247,14 +247,14 @@ def _emit_memory_access(...):
 
 **Цель:** у пользователя всегда есть ответ «как сработала память» без ручного анализа.
 
-- **Задача M4-3.1 — единый “Memory FullReport”**
+- ⏳ **Задача M4-3.1 — единый “Memory FullReport”** (частично: есть `subsystems.memory`, нет отдельного блока `memory_full_report`)
   - **Описание:** расширить unified summary: статистика по памяти (retrieval/write),
     loop‑guards (сколько раз сработали caps), эффективность (эвристика) + причины.
   - **Критерии приёмки:**
     - `ailit session usage summary --json` содержит блок `memory_full_report` (или экв.)
       с breakdown по инструментам и по policy‑решениям.
 
-- **Задача M4-3.2 — UI: «Память» как главный экран**
+- ⏳ **Задача M4-3.2 — UI: «Память» как главный экран** (в работе)
   - **Описание:** в `ailit chat` блок памяти должен объяснять:
     - какие слои сработали (FS/pager/compaction vs KB);
     - что было записано/не записано и почему;
@@ -267,7 +267,7 @@ def _emit_memory_access(...):
 
 **Цель:** не ломать память/loop‑guards в будущем.
 
-- **Задача M4-4.1 — e2e сценарии на mock provider**
+- ✅ **Задача M4-4.1 — e2e сценарии на mock provider** (выполнено)
   - **Описание:** добавить e2e тесты, которые:
     - запускают короткий «обзор репо»;
     - проверяют, что KB‑события появились;
