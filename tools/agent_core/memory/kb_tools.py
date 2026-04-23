@@ -29,20 +29,20 @@ class KbToolsConfig:
 def kb_tools_config_from_env() -> KbToolsConfig:
     """Parse env for local KB tools (H4.1 scaffold).
 
-    - AILIT_KB=1 enables the tools.
+    - По умолчанию KB включена; AILIT_KB=0 отключает.
     - AILIT_KB_DB_PATH points to sqlite file.
     - AILIT_KB_NAMESPACE chooses logical namespace.
     """
     import os
 
     raw = os.environ.get("AILIT_KB", "").strip().lower()
-    enabled = raw in ("1", "true", "yes", "on")
+    enabled = raw not in ("0", "false", "no", "off")
     db_raw = os.environ.get("AILIT_KB_DB_PATH", "").strip()
     ns = os.environ.get("AILIT_KB_NAMESPACE", "default").strip() or "default"
     if db_raw:
         p = Path(db_raw).expanduser().resolve()
     else:
-        p = Path.cwd().resolve() / ".ailit" / "kb.sqlite3"
+        p = Path("~/.ailit/kb.sqlite3").expanduser().resolve()
     return KbToolsConfig(enabled=enabled, db_path=p, namespace=ns)
 
 

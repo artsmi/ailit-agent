@@ -144,7 +144,6 @@ def _registry_for_chat(
     mem = cfg.get("memory")
     if isinstance(mem, dict) and bool(mem.get("enabled", False)):
         # H4.1: local-first KB scaffold (sqlite tools).
-        os.environ.setdefault("AILIT_KB", "1")
         ns = str(mem.get("namespace") or "default").strip() or "default"
         os.environ["AILIT_KB_NAMESPACE"] = ns
         from agent_core.memory.kb_tools import (
