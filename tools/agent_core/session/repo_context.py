@@ -17,6 +17,30 @@ from typing import Any
 _GIT_TIMEOUT_S = 0.25
 
 
+def _safe_ns_part(raw: str) -> str:
+    s = (raw or "").strip()
+    if not s:
+        return "unknown"
+    s = s.replace("\\", "/")
+    s = s.replace("://", "/")
+    s = s.replace("/", "_").replace(":", "_").replace("@", "_")
+    s = s.replace(" ", "_")
+    return s[:128] if len(s) > 128 else s
+
+
+def namespace_for_repo(
+    *,
+    repo_uri: str | None,
+    repo_path: str,
+    branch: str | None,
+) -> str:
+    """Stable namespace for KB partitioning: repo_id + optional branch."""
+    base = _safe_ns_part(repo_uri or repo_path)
+    if branch:
+        return f"{base}:{_safe_ns_part(branch)}"
+    return base
+
+
 @dataclass(frozen=True, slots=True)
 class RepoContext:
     """Stable identity and version information for a git worktree."""

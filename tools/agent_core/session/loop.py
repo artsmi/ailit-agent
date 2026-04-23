@@ -40,7 +40,10 @@ from agent_core.session.context_pager import (
     tool_to_source_key,
 )
 from agent_core.session.post_compact_restore import RecentFileReadStore
-from agent_core.session.repo_context import detect_repo_context
+from agent_core.session.repo_context import (
+    detect_repo_context,
+    namespace_for_repo,
+)
 from agent_core.session.shortlist import apply_keyword_shortlist
 from agent_core.session.tool_output_budget import (
     ToolOutputBudgetConfig,
@@ -231,6 +234,10 @@ def _maybe_guard_run_shell_invocation(
         "timeout_ms": int(default_timeout_ms),
     }
     return new_inv, meta
+
+
+def _prune_none_keys(d: dict[str, object]) -> dict[str, object]:
+    return {k: v for k, v in d.items() if v is not None}
 
 
 @dataclass(frozen=True, slots=True)
@@ -1171,6 +1178,11 @@ class SessionRunner:
                     )
                     if rc2.branch:
                         rid = rid + ":" + rc2.branch.replace("/", "_")
+                    nsw = namespace_for_repo(
+                        repo_uri=rc2.repo_uri,
+                        repo_path=rc2.repo_path,
+                        branch=rc2.branch,
+                    )
                     title = f"Repo: {rc2.repo_uri or rc2.repo_path}"
                     parts = []
                     if rc2.branch:
@@ -1194,6 +1206,7 @@ class SessionRunner:
                             {
                                 "id": rid,
                                 "scope": "project",
+                                "namespace": nsw,
                                 "title": title,
                                 "summary": summary,
                                 "body": body,
@@ -1289,15 +1302,39 @@ class SessionRunner:
                 q = q[:200]
                 if q and q != last_auto_kb_query:
                     last_auto_kb_query = q
+                    try:
+                        rc3 = detect_repo_context(Path(work_root()))
+                    except Exception:  # noqa: BLE001
+                        rc3 = None
+                    ns_branch: str | None = None
+                    ns_def: str | None = None
+                    if rc3 is not None:
+                        ns_branch = namespace_for_repo(
+                            repo_uri=rc3.repo_uri,
+                            repo_path=rc3.repo_path,
+                            branch=rc3.branch,
+                        )
+                        if (
+                            rc3.default_branch
+                            and rc3.default_branch != rc3.branch
+                        ):
+                            ns_def = namespace_for_repo(
+                                repo_uri=rc3.repo_uri,
+                                repo_path=rc3.repo_path,
+                                branch=rc3.default_branch,
+                            )
                     inv = ToolInvocation(
                         call_id=f"auto_kb_search_{turn}",
                         tool_name="kb_search",
                         arguments_json=json.dumps(
-                            {
-                                "query": q,
-                                "scope": "project",
-                                "top_k": 5,
-                            },
+                            _prune_none_keys(
+                                {
+                                    "query": q,
+                                    "scope": "project",
+                                    "namespace": ns_branch,
+                                    "top_k": 5,
+                                },
+                            ),
                             ensure_ascii=False,
                         ),
                     )
@@ -1352,6 +1389,97 @@ class SessionRunner:
                         diag_sink,
                         event_sink,
                     )
+                    if ns_def:
+                        try:
+                            payload = json.loads(res.content or "[]")
+                        except json.JSONDecodeError:
+                            payload = []
+                        no_hits = (
+                            not isinstance(payload, list)
+                            or len(payload) == 0
+                        )
+                        if no_hits:
+                            self._emit(
+                                events,
+                                "memory.retrieval.fallback",
+                                {
+                                    "policy": "branch_first_default_fallback",
+                                    "from_namespace": ns_branch,
+                                    "to_namespace": ns_def,
+                                },
+                                diag_sink,
+                                event_sink,
+                            )
+                            inv2 = ToolInvocation(
+                                call_id=f"auto_kb_search_def_{turn}",
+                                tool_name="kb_search",
+                                arguments_json=json.dumps(
+                                    {
+                                        "query": q,
+                                        "scope": "project",
+                                        "namespace": ns_def,
+                                        "top_k": 5,
+                                    },
+                                    ensure_ascii=False,
+                                ),
+                            )
+                            self._emit(
+                                events,
+                                "tool.batch",
+                                {
+                                    "count": 1,
+                                    "tool_names": ["kb_search"],
+                                    "reason": "auto_kb_fallback",
+                                },
+                                diag_sink,
+                                event_sink,
+                            )
+                            self._emit(
+                                events,
+                                "tool.call_started",
+                                {
+                                    "tool": inv2.tool_name,
+                                    "call_id": inv2.call_id,
+                                    "arguments_json": (
+                                        self._safe_arguments_json(
+                                            tool_name=inv2.tool_name,
+                                            arguments_json=inv2.arguments_json,
+                                        )
+                                    ),
+                                    "reason": "auto_kb_fallback",
+                                },
+                                diag_sink,
+                                event_sink,
+                            )
+                            self._emit_memory_access(
+                                tool_name=inv2.tool_name,
+                                call_id=inv2.call_id,
+                                arguments_json=inv2.arguments_json,
+                                events=events,
+                                diag_sink=diag_sink,
+                                event_sink=event_sink,
+                            )
+                            res2 = executor.execute_one(
+                                inv2,
+                                approvals,
+                                cancel=cancel,
+                            )
+                            self._emit(
+                                events,
+                                "tool.call_finished",
+                                _tool_call_finished_payload(inv2, res2),
+                                diag_sink,
+                                event_sink,
+                            )
+                            self._append_tool_results(
+                                messages,
+                                [inv2],
+                                [res2],
+                                settings,
+                                events,
+                                diag_sink,
+                                event_sink,
+                            )
 
             ctx = self._prepare_context(
                 messages,
