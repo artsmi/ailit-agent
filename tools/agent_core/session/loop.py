@@ -995,6 +995,8 @@ class SessionRunner:
         wrote_repo_tree_fact = False
         wrote_repo_signals_fact = False
         wrote_session_intent_fact = False
+        wrote_repo_entrypoints_fact = False
+        wrote_repo_safe_commands_fact = False
         auto_kb_search_n = 0
         auto_kb_fetch_n = 0
         auto_kb_write_n = 0
@@ -1871,6 +1873,232 @@ class SessionRunner:
                             event_sink,
                         )
                         wrote_repo_signals_fact = True
+
+            if (
+                not wrote_repo_entrypoints_fact
+                and "glob_file" in active_reg.specs
+                and "kb_write_fact" in active_reg.specs
+            ):
+                try:
+                    rc_ep = detect_repo_context(Path(work_root()))
+                except Exception:  # noqa: BLE001
+                    rc_ep = None
+                if rc_ep is not None:
+                    if auto_kb_write_n >= cap_write:
+                        self._emit(
+                            events,
+                            "memory.auto_kb.rate_limited",
+                            {
+                                "tool": "kb_write_fact",
+                                "cap": cap_write,
+                                "count": auto_kb_write_n,
+                                "reason": "auto_write_repo_entrypoints",
+                            },
+                            diag_sink,
+                            event_sink,
+                        )
+                        wrote_repo_entrypoints_fact = True
+                    else:
+                        ns_ep = namespace_for_repo(
+                            repo_uri=rc_ep.repo_uri,
+                            repo_path=rc_ep.repo_path,
+                            branch=rc_ep.branch,
+                        )
+                        pats = (
+                            "README*",
+                            "pyproject.toml",
+                            "requirements.txt",
+                            "setup.py",
+                            "package.json",
+                            "Cargo.toml",
+                            "go.mod",
+                            "Makefile",
+                            "docker-compose*.yml",
+                            "docker-compose*.yaml",
+                            "**/package.xml",
+                        )
+                        hits: dict[str, list[str]] = {}
+                        for i, pat in enumerate(pats):
+                            inv_g = ToolInvocation(
+                                call_id=f"auto_glob_entry_{turn}_{i}",
+                                tool_name="glob_file",
+                                arguments_json=json.dumps(
+                                    {
+                                        "pattern": pat,
+                                        "path": ".",
+                                        "max_files": 20,
+                                    },
+                                    ensure_ascii=False,
+                                ),
+                            )
+                            try:
+                                res_g = executor.execute_one(
+                                    inv_g,
+                                    approvals,
+                                    cancel=cancel,
+                                )
+                            except ApprovalPending:
+                                continue
+                            if res_g.error is not None:
+                                continue
+                            try:
+                                payload = json.loads(res_g.content or "{}")
+                            except json.JSONDecodeError:
+                                continue
+                            if not isinstance(payload, dict):
+                                continue
+                            files = payload.get("filenames")
+                            if isinstance(files, list) and files:
+                                hits[str(pat)] = [str(x) for x in files[:20]]
+                        inv_ep = ToolInvocation(
+                            call_id=f"auto_kb_write_entrypoints_{turn}",
+                            tool_name="kb_write_fact",
+                            arguments_json=json.dumps(
+                                {
+                                    "id": f"repo_entrypoints:{ns_ep}",
+                                    "scope": "project",
+                                    "namespace": ns_ep,
+                                    "title": "Repo entrypoints",
+                                    "summary": (
+                                        f"Detected {len(hits)} entrypoint "
+                                        "patterns."
+                                    ),
+                                    "body": json.dumps(
+                                        hits,
+                                        ensure_ascii=False,
+                                        sort_keys=True,
+                                    )[:8000],
+                                    "author": "auto_memory",
+                                    "provenance": rc_ep.to_event_payload(),
+                                    "source": "auto_repo_entrypoints",
+                                },
+                                ensure_ascii=False,
+                            ),
+                        )
+                        try:
+                            _ = executor.execute_one(
+                                inv_ep,
+                                approvals,
+                                cancel=cancel,
+                            )
+                        except ApprovalPending:
+                            self._emit(
+                                events,
+                                "memory.auto_write.skipped",
+                                {
+                                    "tool": "kb_write_fact",
+                                    "reason": "approval_pending",
+                                    "kind": "repo_entrypoints",
+                                },
+                                diag_sink,
+                                event_sink,
+                            )
+                        else:
+                            auto_kb_write_n += 1
+                            self._emit(
+                                events,
+                                "memory.auto_write.done",
+                                {
+                                    "tool": "kb_write_fact",
+                                    "kind": "repo_entrypoints",
+                                },
+                                diag_sink,
+                                event_sink,
+                            )
+                        wrote_repo_entrypoints_fact = True
+
+            if (
+                not wrote_repo_safe_commands_fact
+                and "kb_write_fact" in active_reg.specs
+            ):
+                try:
+                    rc_cmd = detect_repo_context(Path(work_root()))
+                except Exception:  # noqa: BLE001
+                    rc_cmd = None
+                if rc_cmd is not None:
+                    if auto_kb_write_n >= cap_write:
+                        self._emit(
+                            events,
+                            "memory.auto_kb.rate_limited",
+                            {
+                                "tool": "kb_write_fact",
+                                "cap": cap_write,
+                                "count": auto_kb_write_n,
+                                "reason": "auto_write_repo_safe_commands",
+                            },
+                            diag_sink,
+                            event_sink,
+                        )
+                        wrote_repo_safe_commands_fact = True
+                    else:
+                        ns_cmd = namespace_for_repo(
+                            repo_uri=rc_cmd.repo_uri,
+                            repo_path=rc_cmd.repo_path,
+                            branch=rc_cmd.branch,
+                        )
+                        cmds: list[str] = []
+                        cmds.extend(
+                            [
+                                "python3 -m pytest -q",
+                                "python3 -m flake8 .",
+                            ],
+                        )
+                        inv_cmd = ToolInvocation(
+                            call_id=f"auto_kb_write_safe_cmds_{turn}",
+                            tool_name="kb_write_fact",
+                            arguments_json=json.dumps(
+                                {
+                                    "id": f"repo_safe_commands:{ns_cmd}",
+                                    "scope": "project",
+                                    "namespace": ns_cmd,
+                                    "title": "Repo safe commands (hints)",
+                                    "summary": (
+                                        "Suggested non-destructive commands "
+                                        "(do not auto-run)."
+                                    ),
+                                    "body": json.dumps(
+                                        {"commands": cmds},
+                                        ensure_ascii=False,
+                                        sort_keys=True,
+                                    ),
+                                    "author": "auto_memory",
+                                    "provenance": rc_cmd.to_event_payload(),
+                                    "source": "auto_repo_safe_commands",
+                                },
+                                ensure_ascii=False,
+                            ),
+                        )
+                        try:
+                            _ = executor.execute_one(
+                                inv_cmd,
+                                approvals,
+                                cancel=cancel,
+                            )
+                        except ApprovalPending:
+                            self._emit(
+                                events,
+                                "memory.auto_write.skipped",
+                                {
+                                    "tool": "kb_write_fact",
+                                    "reason": "approval_pending",
+                                    "kind": "repo_safe_commands",
+                                },
+                                diag_sink,
+                                event_sink,
+                            )
+                        else:
+                            auto_kb_write_n += 1
+                            self._emit(
+                                events,
+                                "memory.auto_write.done",
+                                {
+                                    "tool": "kb_write_fact",
+                                    "kind": "repo_safe_commands",
+                                },
+                                diag_sink,
+                                event_sink,
+                            )
+                        wrote_repo_safe_commands_fact = True
 
             if "kb_search" in active_reg.specs:
                 last_user = next(

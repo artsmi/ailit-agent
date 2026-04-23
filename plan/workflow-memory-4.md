@@ -186,12 +186,20 @@ def _emit_memory_access(...):
     - `PYTHONPATH=tools python3 -m pytest -q` (юнит);
     - новый e2e‑сценарий (см. M4-4) подтверждает рост `memory.access`.
 
-- ⏳ **Задача M4-1.2 — Авто‑summaries → KB write (anti‑raw‑chat)** (следующая)
+- ⏳ **Задача M4-1.2 — Авто‑summaries → KB write (anti‑raw‑chat)** (закрыть в этой итерации)
   - **Описание:** вместо сырого чата писать нормализованные факты: `title/summary/body`,
     provenance (repo, path, commit/mtime), `scope/namespace`.
+  - **Обязательные kinds (минимум, 2026‑04):**
+    - `session_intent` (scope=`run`): короткая нормализация последнего запроса пользователя;
+    - `session_outcome` (scope=`run`): итог прогона (счётчики tools/KB/rate-limit);
+    - `repo_entrypoints` (scope=`project`): “точки входа” (ключевые файлы/каталоги);
+    - `repo_safe_commands` (scope=`project`): “безопасные команды” (линтер/тесты/сборка),
+      **как подсказки**, без запуска.
   - **Критерии приёмки:**
     - ни один авто‑write не пишет полный диалог;
-    - соблюдаются ограничения governance (`draft` only, promotion отдельно).
+    - каждый факт имеет provenance repo context (repo_uri/path/branch/commit когда доступно);
+    - `repo_entrypoints` и `repo_safe_commands` формируются без `run_shell`;
+    - есть unit‑тесты на эмит `memory.auto_write.done(kind=...)` для обязательных kinds.
 
 - ✅ **Задача M4-1.3 — Интеграция с permission/approval** (выполнено: ApprovalPending → skipped + telemetry)
   - **Описание:** авто‑write должен быть либо безопасен по умолчанию, либо требовать approve

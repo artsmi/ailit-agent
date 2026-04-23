@@ -709,6 +709,101 @@ def test_loop_auto_kb_write_session_outcome_emits_done(
     )
 
 
+def test_loop_auto_kb_write_repo_entrypoints_emits_done(
+    tmp_path: object,
+    monkeypatch: object,
+) -> None:
+    """Repo entrypoints факт создаётся без run_shell."""
+    monkeypatch.setenv("AILIT_WORK_ROOT", str(tmp_path))
+    (tmp_path / "README.md").write_text("x\n", encoding="utf-8")
+    reg = default_builtin_registry().merge(
+        build_kb_tool_registry(
+            KbToolsConfig(
+                enabled=True,
+                db_path=(tmp_path / "kb.sqlite3"),
+                namespace="t",
+            ),
+        ),
+    )
+    r1 = NormalizedChatResponse(
+        text_parts=("done",),
+        tool_calls=(),
+        finish_reason=FinishReason.STOP,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    runner = SessionRunner(
+        ScriptedProvider([r1]),
+        reg,
+        permission_engine=PermissionEngine(
+            write_default=PermissionDecision.ALLOW,
+        ),
+    )
+    out = runner.run(
+        [ChatMessage(role=MessageRole.USER, content="go")],
+        ApprovalSession(),
+        SessionSettings(model="m"),
+    )
+    assert out.state is SessionState.FINISHED
+    assert not any(
+        e.get("event_type") == "tool.call_started"
+        and e.get("tool") == "run_shell"
+        for e in out.events
+    )
+    assert any(
+        e.get("event_type") == "memory.auto_write.done"
+        and e.get("kind") == "repo_entrypoints"
+        for e in out.events
+    )
+
+
+def test_loop_auto_kb_write_repo_safe_commands_emits_done(
+    tmp_path: object,
+    monkeypatch: object,
+) -> None:
+    """Repo safe commands факт создаётся и не триггерит shell."""
+    monkeypatch.setenv("AILIT_WORK_ROOT", str(tmp_path))
+    reg = default_builtin_registry().merge(
+        build_kb_tool_registry(
+            KbToolsConfig(
+                enabled=True,
+                db_path=(tmp_path / "kb.sqlite3"),
+                namespace="t",
+            ),
+        ),
+    )
+    r1 = NormalizedChatResponse(
+        text_parts=("done",),
+        tool_calls=(),
+        finish_reason=FinishReason.STOP,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    runner = SessionRunner(
+        ScriptedProvider([r1]),
+        reg,
+        permission_engine=PermissionEngine(
+            write_default=PermissionDecision.ALLOW,
+        ),
+    )
+    out = runner.run(
+        [ChatMessage(role=MessageRole.USER, content="go")],
+        ApprovalSession(),
+        SessionSettings(model="m"),
+    )
+    assert out.state is SessionState.FINISHED
+    assert not any(
+        e.get("event_type") == "tool.call_started"
+        and e.get("tool") == "run_shell"
+        for e in out.events
+    )
+    assert any(
+        e.get("event_type") == "memory.auto_write.done"
+        and e.get("kind") == "repo_safe_commands"
+        for e in out.events
+    )
+
+
 def test_effective_max_turns_respects_hard_cap_env(
     tmp_path: object,
     monkeypatch: object,
