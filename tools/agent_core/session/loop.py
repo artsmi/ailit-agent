@@ -260,6 +260,15 @@ def _normalize_user_intent(raw: str, max_chars: int = 280) -> str:
     return s
 
 
+def _safe_id_part(raw: str, max_chars: int = 96) -> str:
+    s = (raw or "").strip().replace("\\", "/")
+    s = s.replace("://", "_").replace("/", "_")
+    s = s.replace(":", "_").replace("@", "_").replace(" ", "_")
+    if len(s) > max_chars:
+        s = s[:max_chars]
+    return s or "unknown"
+
+
 @dataclass(frozen=True, slots=True)
 class SessionOutcome:
     """Результат прогона или пауза на approval."""
@@ -2533,6 +2542,159 @@ class SessionRunner:
             messages.append(
                 ChatMessage(role=MessageRole.ASSISTANT, content=text),
             )
+            if (
+                "kb_write_fact" in active_reg.specs
+                and auto_kb_write_n < cap_write
+            ):
+                try:
+                    rc_out = detect_repo_context(Path(work_root()))
+                except Exception:  # noqa: BLE001
+                    rc_out = None
+                stable = (
+                    (rc_out.repo_uri or rc_out.repo_path)
+                    if rc_out is not None
+                    else str(work_root())
+                )
+                ns_out: str | None = None
+                if rc_out is not None:
+                    ns_out = namespace_for_repo(
+                        repo_uri=rc_out.repo_uri,
+                        repo_path=rc_out.repo_path,
+                        branch=rc_out.branch,
+                    )
+                ts = datetime.now(timezone.utc).isoformat()
+                rid_out = (
+                    "session_outcome:"
+                    + _safe_id_part(str(stable))
+                    + ":"
+                    + _safe_id_part(ts, max_chars=48)
+                )
+                if rc_out is not None and rc_out.branch:
+                    rid_out = rid_out + ":" + _safe_id_part(rc_out.branch)
+                tool_calls = sum(
+                    1
+                    for e in events
+                    if e.get("event_type") == "tool.call_started"
+                )
+                mem_access = sum(
+                    1
+                    for e in events
+                    if e.get("event_type") == "memory.access"
+                )
+                body_out = json.dumps(
+                    {
+                        "ts": ts,
+                        "state": "finished",
+                        "tool_calls": tool_calls,
+                        "memory_access": mem_access,
+                        "rate_limited": int(
+                            sum(
+                                1
+                                for e in events
+                                if e.get("event_type")
+                                == "memory.auto_kb.rate_limited"
+                            ),
+                        ),
+                        "repo": (
+                            rc_out.to_event_payload()
+                            if rc_out is not None
+                            else None
+                        ),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                )[:3000]
+                inv_out = ToolInvocation(
+                    call_id=f"auto_kb_write_outcome_{turn}",
+                    tool_name="kb_write_fact",
+                    arguments_json=json.dumps(
+                        {
+                            "id": rid_out,
+                            "scope": "run",
+                            "namespace": ns_out,
+                            "title": "Session outcome",
+                            "summary": (
+                                f"finished; tools={tool_calls}; "
+                                f"kb_access={mem_access}"
+                            ),
+                            "body": body_out,
+                            "author": "auto_memory",
+                            "provenance": (
+                                rc_out.to_event_payload()
+                                if rc_out is not None
+                                else {}
+                            ),
+                            "source": "auto_session_outcome",
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+                self._emit(
+                    events,
+                    "tool.call_started",
+                    {
+                        "tool": inv_out.tool_name,
+                        "call_id": inv_out.call_id,
+                        "arguments_json": self._safe_arguments_json(
+                            tool_name=inv_out.tool_name,
+                            arguments_json=inv_out.arguments_json,
+                        ),
+                        "reason": "auto_kb_outcome",
+                    },
+                    diag_sink,
+                    event_sink,
+                )
+                self._emit_memory_access(
+                    tool_name=inv_out.tool_name,
+                    call_id=inv_out.call_id,
+                    arguments_json=inv_out.arguments_json,
+                    events=events,
+                    diag_sink=diag_sink,
+                    event_sink=event_sink,
+                )
+                try:
+                    res_out = executor.execute_one(
+                        inv_out,
+                        approvals,
+                        cancel=cancel,
+                    )
+                except ApprovalPending:
+                    self._emit(
+                        events,
+                        "memory.auto_write.skipped",
+                        {
+                            "tool": "kb_write_fact",
+                            "reason": "approval_pending",
+                            "kind": "session_outcome",
+                        },
+                        diag_sink,
+                        event_sink,
+                    )
+                else:
+                    auto_kb_write_n += 1
+                    self._emit(
+                        events,
+                        "tool.call_finished",
+                        _tool_call_finished_payload(inv_out, res_out),
+                        diag_sink,
+                        event_sink,
+                    )
+                    self._append_tool_results(
+                        messages,
+                        [inv_out],
+                        [res_out],
+                        settings,
+                        events,
+                        diag_sink,
+                        event_sink,
+                    )
+                    self._emit(
+                        events,
+                        "memory.auto_write.done",
+                        {"tool": "kb_write_fact", "kind": "session_outcome"},
+                        diag_sink,
+                        event_sink,
+                    )
             return SessionOutcome(
                 state=SessionState.FINISHED,
                 messages=tuple(messages),
