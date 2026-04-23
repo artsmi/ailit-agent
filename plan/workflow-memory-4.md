@@ -295,15 +295,15 @@ def _emit_memory_access(...):
 
 **Цель:** закрыть хвосты governance и «acceleration layer».
 
-- **Задача M4-5.1 — TTL/архив для `deprecated`**
+- ✅ **Задача M4-5.1 — TTL/архив для `deprecated`** (выполнено: `ailit kb ttl-apply`, `valid_to`)
   - **Описание:** policy «как жить фактам во времени», отдельная утилита/команда.
   - **Критерии приёмки:** есть механизм пометки/очистки без потери provenance.
 
-- **Задача M4-5.2 — reviewer signature / audit**
+- ✅ **Задача M4-5.2 — reviewer signature / audit** (выполнено: audit trail в provenance + `kb_promote reviewer/note`)
   - **Описание:** расширить provenance, чтобы фиксировать, кто и как подтвердил факт.
   - **Критерии приёмки:** промоушен трассируется и объясним в отчёте.
 
-- **Задача M4-5.3 — vector/BM25 как acceleration (rebuildable)**
+- ✅ **Задача M4-5.3 — vector/BM25 как acceleration (rebuildable)** (выполнено: FTS5/BM25 rebuild + `AILIT_KB_ACCEL=fts`)
   - **Описание:** если добавляется индекс — только как rebuildable слой поверх KB,
     с явной командой rebuild.
   - **Критерии приёмки:** индекс не объявлен SoT, при рассинхроне побеждает канон.
