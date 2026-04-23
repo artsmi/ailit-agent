@@ -16,6 +16,18 @@ def test_resume_ready_true_when_clean_tail() -> None:
             "event_type": "model.response",
             "usage": {"input_tokens": 1, "output_tokens": 1},
         },
+        {
+            "event_type": "memory.policy",
+            "enabled": True,
+            "repo": {
+                "repo_path": "/tmp/x",
+                "repo_uri": "github.com/acme/repo",
+                "branch": "develop",
+                "commit": "abc",
+                "default_branch": "develop",
+                "default_branch_source": "origin_head",
+            },
+        },
     ]
     s = build_session_summary(rows)
     assert s.get("contract") == SESSION_SUMMARY_CONTRACT
@@ -24,6 +36,12 @@ def test_resume_ready_true_when_clean_tail() -> None:
     assert s["m3_eval_signals"].get("kind") == "m3_eval_proxy_v1"
     assert s["resume"]["resume_ready"] is True
     assert s["resume"]["trailing_error"] is False
+    mp = s.get("memory_policy")
+    assert isinstance(mp, dict)
+    assert mp.get("enabled") is True
+    repo = mp.get("repo")
+    assert isinstance(repo, dict)
+    assert repo.get("repo_uri") == "github.com/acme/repo"
 
 
 def test_resume_ready_false_after_cancel() -> None:

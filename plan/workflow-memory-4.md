@@ -348,3 +348,22 @@ def _emit_memory_access(...):
 
 Это обеспечивает «одна память» при разных путях и допускает умеренную ветвистость без дублей.
 
+### 7.1 Критерии приёмки: branch/commit fallback и объяснимость
+
+**Сценарий:** пользователь был на `develop`, затем создал ветку `new_feature` и запускает
+задачу «изучи репозиторий и запомни» на `new_feature`.
+
+- **AC-7.1.1 (branch-first)**: поиск памяти на `new_feature` сначала использует записи
+  `repo_uri + branch=new_feature`, и только при недостатке результатов включает fallback.
+- **AC-7.1.2 (default-branch fallback)**: если в `new_feature` мало/нет фактов, retrieval
+  расширяется на `repo_uri + branch=default_branch` (например `develop` или `main`).
+- **AC-7.1.3 (как определяется default_branch)**: runtime определяет `default_branch`
+  через `origin/HEAD` (предпочтительно) или через локальные эвристики (`main/master/develop`),
+  и логирует выбранный источник (`origin_head`, `heuristic`, `unknown`).
+- **AC-7.1.4 (commit overrides)**: записи, привязанные к `commit`, имеют более высокий
+  приоритет при совпадении `repo_uri` (и если commit reachable для текущего контекста),
+  чем общие факты ветки.
+- **AC-7.1.5 (explainability в отчёте)**: unified summary и UI показывают, откуда пришёл
+  каждый использованный факт памяти: `repo_uri`, `branch`, `default_branch_used` (bool),
+  `commit` (если есть), и `reason` (branch-first / fallback / commit-exact).
+

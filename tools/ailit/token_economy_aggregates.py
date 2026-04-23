@@ -311,6 +311,25 @@ def build_memory_efficiency_score(
     }
 
 
+def extract_memory_policy(
+    rows: list[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    """Последнее событие memory.policy (если есть) как блок summary."""
+    last: dict[str, Any] | None = None
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        if row.get("event_type") != "memory.policy":
+            continue
+        enabled = row.get("enabled")
+        repo = row.get("repo")
+        block: dict[str, Any] = {"enabled": bool(enabled)}
+        if isinstance(repo, Mapping):
+            block["repo"] = dict(repo)
+        last = block
+    return last
+
+
 def compute_resume_signals(
     rows: list[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -509,6 +528,7 @@ def build_session_summary(
     ev = build_m3_eval_signals(c_dict, r_dict)
     mem_s = build_memory_stats(c_dict, r_dict)
     mem_e = build_memory_efficiency_score(c_dict, r_dict)
+    mem_p = extract_memory_policy(rows)
     return {
         "contract": SESSION_SUMMARY_CONTRACT,
         "log_start": base.get("log_start"),
@@ -521,6 +541,7 @@ def build_session_summary(
         "m3_eval_signals": ev,
         "memory_stats": mem_s,
         "memory_efficiency": mem_e,
+        "memory_policy": mem_p,
     }
 
 

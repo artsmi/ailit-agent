@@ -7,6 +7,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from pathlib import Path
 from threading import Event
 from typing import Any, Sequence
 
@@ -38,6 +39,7 @@ from agent_core.session.context_pager import (
     tool_to_source_key,
 )
 from agent_core.session.post_compact_restore import RecentFileReadStore
+from agent_core.session.repo_context import detect_repo_context
 from agent_core.session.shortlist import apply_keyword_shortlist
 from agent_core.session.tool_output_budget import (
     ToolOutputBudgetConfig,
@@ -68,6 +70,7 @@ from agent_core.tool_runtime.executor import (
 from agent_core.tool_runtime.permission import PermissionEngine
 from agent_core.normalization.usage_fields import usage_to_diag_dict
 from agent_core.tool_runtime.registry import ToolRegistry
+from agent_core.tool_runtime.workdir_paths import work_root
 from agent_core.transport.errors import TransportHttpError
 
 
@@ -859,6 +862,21 @@ class SessionRunner:
     ) -> SessionOutcome:
         """Цикл до FINISHED, бюджета, ошибки или паузы на approval."""
         events: list[dict[str, Any]] = []
+        try:
+            rc = detect_repo_context(Path(work_root()))
+            self._emit(
+                events,
+                "memory.policy",
+                {
+                    "enabled": True,
+                    "repo": rc.to_event_payload(),
+                },
+                diag_sink,
+                event_sink,
+            )
+        except Exception:  # noqa: BLE001
+            # Диагностика не должна ломать сессию.
+            pass
         if (
             settings.context_pager.enabled
             or settings.tool_output_budget.enabled
