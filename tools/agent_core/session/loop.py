@@ -269,6 +269,33 @@ def _safe_id_part(raw: str, max_chars: int = 96) -> str:
     return s or "unknown"
 
 
+def _append_kb_search_as_system(
+    messages: list[ChatMessage],
+    *,
+    query: str,
+    namespace: str | None,
+    tool_output_json: str,
+    max_chars: int = 2200,
+) -> None:
+    """Inject kb_search results without TOOL-role messages.
+
+    OpenAI-compat APIs require TOOL messages to follow assistant tool_calls.
+    Auto-retrieval is executed by runtime, so we expose it as a SYSTEM hint.
+    """
+    q = _normalize_user_intent(query, max_chars=120)
+    ns = (namespace or "").strip()
+    body = str(tool_output_json or "")
+    if len(body) > max_chars:
+        body = body[:max_chars].rstrip() + "…"
+    txt = (
+        "KB retrieval (auto): "
+        f"query={q!r} "
+        f"namespace={ns!r}\n"
+        f"{body}"
+    ).strip()
+    messages.append(ChatMessage(role=MessageRole.SYSTEM, content=txt))
+
+
 @dataclass(frozen=True, slots=True)
 class SessionOutcome:
     """Результат прогона или пауза на approval."""
@@ -1332,15 +1359,6 @@ class SessionRunner:
                             diag_sink,
                             event_sink,
                         )
-                        self._append_tool_results(
-                            messages,
-                            [invw],
-                            [resw],
-                            settings,
-                            events,
-                            diag_sink,
-                            event_sink,
-                        )
                         self._emit(
                             events,
                             "memory.auto_write.done",
@@ -1515,15 +1533,6 @@ class SessionRunner:
                                 diag_sink,
                                 event_sink,
                             )
-                            self._append_tool_results(
-                                messages,
-                                [inv_int],
-                                [res_int],
-                                settings,
-                                events,
-                                diag_sink,
-                                event_sink,
-                            )
                             self._emit(
                                 events,
                                 "memory.auto_write.done",
@@ -1672,15 +1681,6 @@ class SessionRunner:
                             events,
                             "tool.call_finished",
                             _tool_call_finished_payload(inv_tree, res_tree),
-                            diag_sink,
-                            event_sink,
-                        )
-                        self._append_tool_results(
-                            messages,
-                            [inv_tree],
-                            [res_tree],
-                            settings,
-                            events,
                             diag_sink,
                             event_sink,
                         )
@@ -1850,15 +1850,6 @@ class SessionRunner:
                             events,
                             "tool.call_finished",
                             _tool_call_finished_payload(inv_sig, res_sig),
-                            diag_sink,
-                            event_sink,
-                        )
-                        self._append_tool_results(
-                            messages,
-                            [inv_sig],
-                            [res_sig],
-                            settings,
-                            events,
                             diag_sink,
                             event_sink,
                         )
@@ -2209,14 +2200,11 @@ class SessionRunner:
                         diag_sink,
                         event_sink,
                     )
-                    self._append_tool_results(
+                    _append_kb_search_as_system(
                         messages,
-                        [inv],
-                        [res],
-                        settings,
-                        events,
-                        diag_sink,
-                        event_sink,
+                        query=q,
+                        namespace=ns_branch,
+                        tool_output_json=res.content or "[]",
                     )
                     if (
                         "kb_fetch" in active_reg.specs
@@ -2398,14 +2386,11 @@ class SessionRunner:
                                 diag_sink,
                                 event_sink,
                             )
-                            self._append_tool_results(
+                            _append_kb_search_as_system(
                                 messages,
-                                [inv2],
-                                [res2],
-                                settings,
-                                events,
-                                diag_sink,
-                                event_sink,
+                                query=q,
+                                namespace=ns_def,
+                                tool_output_json=res2.content or "[]",
                             )
                             if (
                                 "kb_fetch" in active_reg.specs
@@ -2904,15 +2889,6 @@ class SessionRunner:
                         events,
                         "tool.call_finished",
                         _tool_call_finished_payload(inv_out, res_out),
-                        diag_sink,
-                        event_sink,
-                    )
-                    self._append_tool_results(
-                        messages,
-                        [inv_out],
-                        [res_out],
-                        settings,
-                        events,
                         diag_sink,
                         event_sink,
                     )
