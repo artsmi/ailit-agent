@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 from threading import Event
 from typing import Any, Sequence
 
@@ -183,6 +184,53 @@ def _effective_agent_steps_cap(settings: SessionSettings) -> int | None:
     if cap is None:
         return None
     return cap if cap > 0 else None
+
+
+_RUN_SHELL_LONG_PAT = re.compile(
+    r"(^|[\s;|&])("
+    r"make|cmake|ninja|docker|podman|apt|apt-get|yum|dnf|pip|pip3|poetry|npm"
+    r"|pnpm|yarn"
+    r"|\./|bash\s|sh\s|python\s|-m\s"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _maybe_guard_run_shell_invocation(
+    inv: ToolInvocation,
+    *,
+    default_timeout_ms: int,
+) -> tuple[ToolInvocation, dict[str, Any] | None]:
+    """Guardrail: inject timeout_ms when command looks long."""
+    if inv.tool_name not in ("run_shell", "run_shell_session"):
+        return inv, None
+    try:
+        raw = json.loads(inv.arguments_json or "{}")
+    except json.JSONDecodeError:
+        return inv, None
+    if not isinstance(raw, dict):
+        return inv, None
+    cmd = str(raw.get("command") or "").strip()
+    if not cmd:
+        return inv, None
+    if raw.get("timeout_ms") not in (None, ""):
+        return inv, None
+    if not _RUN_SHELL_LONG_PAT.search(cmd):
+        return inv, None
+    raw2 = dict(raw)
+    raw2["timeout_ms"] = int(default_timeout_ms)
+    new_inv = ToolInvocation(
+        inv.call_id,
+        inv.tool_name,
+        json.dumps(raw2, ensure_ascii=False),
+    )
+    meta = {
+        "tool": inv.tool_name,
+        "call_id": inv.call_id,
+        "policy": "inject_timeout_ms",
+        "timeout_ms": int(default_timeout_ms),
+    }
+    return new_inv, meta
 
 
 @dataclass(frozen=True, slots=True)
@@ -993,6 +1041,22 @@ class SessionRunner:
                     ToolInvocation(tc.call_id, tc.tool_name, tc.arguments_json)
                     for tc in ast.tool_calls
                 ]
+                guarded: list[ToolInvocation] = []
+                for inv in invs:
+                    ginv, meta = _maybe_guard_run_shell_invocation(
+                        inv,
+                        default_timeout_ms=30_000,
+                    )
+                    if meta is not None:
+                        self._emit(
+                            events,
+                            "run_shell.guardrail",
+                            meta,
+                            diag_sink,
+                            event_sink,
+                        )
+                    guarded.append(ginv)
+                invs = guarded
                 tool_names = [inv.tool_name for inv in invs]
                 self._emit(
                     events,
@@ -1435,6 +1499,22 @@ class SessionRunner:
                     ToolInvocation(tc.call_id, tc.tool_name, tc.arguments_json)
                     for tc in resp.tool_calls
                 ]
+                guarded2: list[ToolInvocation] = []
+                for inv in invs:
+                    ginv, meta = _maybe_guard_run_shell_invocation(
+                        inv,
+                        default_timeout_ms=30_000,
+                    )
+                    if meta is not None:
+                        self._emit(
+                            events,
+                            "run_shell.guardrail",
+                            meta,
+                            diag_sink,
+                            event_sink,
+                        )
+                    guarded2.append(ginv)
+                invs = guarded2
                 tool_names = [inv.tool_name for inv in invs]
                 self._emit(
                     events,

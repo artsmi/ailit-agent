@@ -24,6 +24,7 @@ from agent_core.tool_runtime.permission import (
     PermissionDecision,
     PermissionEngine,
 )
+from agent_core.tool_runtime.bash_tools import bash_tool_registry
 from agent_core.tool_runtime.registry import default_builtin_registry
 from agent_core.memory.kb_tools import KbToolsConfig, build_kb_tool_registry
 
@@ -109,6 +110,7 @@ def test_loop_two_write_file_one_user_turn(
         reg,
         permission_engine=PermissionEngine(
             write_default=PermissionDecision.ALLOW,
+            shell_default=PermissionDecision.ALLOW,
         ),
     )
     messages = [ChatMessage(role=MessageRole.USER, content="write two")]
@@ -343,6 +345,54 @@ def test_loop_doom_loop_finalize_text_only(
     out = runner.run(messages, ApprovalSession(), SessionSettings(model="m"))
     assert out.state is SessionState.FINISHED
     assert any(e.get("event_type") == "session.doom_loop" for e in out.events)
+
+
+def test_loop_run_shell_guardrail_injects_timeout(
+    tmp_path: object,
+    monkeypatch: object,
+) -> None:
+    """run_shell без timeout + "длинная" команда → inject timeout_ms."""
+    monkeypatch.setenv("AILIT_WORK_ROOT", str(tmp_path))
+    reg = default_builtin_registry().merge(bash_tool_registry())
+    tc = ToolCallNormalized(
+        call_id="s1",
+        tool_name="run_shell",
+        arguments_json='{"command":"make -j4"}',
+        stream_index=0,
+        provider_name="scripted",
+    )
+    r_tool = NormalizedChatResponse(
+        text_parts=(),
+        tool_calls=(tc,),
+        finish_reason=FinishReason.TOOL_CALLS,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    r_final = NormalizedChatResponse(
+        text_parts=("final",),
+        tool_calls=(),
+        finish_reason=FinishReason.STOP,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    runner = SessionRunner(
+        ScriptedProvider([r_tool, r_final]),
+        reg,
+        permission_engine=PermissionEngine(
+            write_default=PermissionDecision.ALLOW,
+            shell_default=PermissionDecision.ALLOW,
+        ),
+    )
+    messages = [ChatMessage(role=MessageRole.USER, content="go")]
+    out = runner.run(messages, ApprovalSession(), SessionSettings(model="m"))
+    assert out.state is SessionState.FINISHED
+    assert any(
+        e.get("event_type") == "run_shell.guardrail" for e in out.events
+    )
+    started = next(
+        e for e in out.events if e.get("event_type") == "tool.call_started"
+    )
+    assert "\"timeout_ms\"" in str(started.get("arguments_json") or "")
 
 
 def test_loop_auto_kb_search_emits_memory_access(
