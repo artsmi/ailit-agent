@@ -145,6 +145,11 @@ def _write_unified_summary_text_block(summary: dict[str, Any]) -> None:
         f"  layers sum pseudo_tok: {s.get('layers_sum_pseudo_tokens')}\n"
         f"  ({s.get('note', '')})\n",
     )
+    mev = summary.get("m3_eval_signals")
+    if isinstance(mev, dict) and mev:
+        sys.stdout.write("\n## m3_eval_signals (M3-5.2, прокси)\n")
+        sys.stdout.write(json.dumps(mev, ensure_ascii=False, indent=2))
+        sys.stdout.write("\n")
     sub = summary.get("subsystems")
     if isinstance(sub, dict) and sub:
         sys.stdout.write(

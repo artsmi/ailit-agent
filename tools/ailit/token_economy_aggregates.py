@@ -267,6 +267,54 @@ def build_subsystems_block(
     }
 
 
+def build_m3_eval_signals(
+    cumulative: Mapping[str, Any],
+    resume: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Прокси M3-5.2: агрегаты лога, без разметки «истина/ложь»."""
+    c = cumulative
+    r = resume
+    fs_calls = int(c.get("fs_read_file_calls", 0) or 0)
+    fs_range = int(c.get("fs_read_file_range_calls", 0) or 0)
+    range_share: float | None
+    if fs_calls > 0:
+        range_share = round(fs_range / float(fs_calls), 4)
+    else:
+        range_share = None
+    p_ok = int(c.get("memory_promotion_applied", 0) or 0)
+    p_den = int(c.get("memory_promotion_denied", 0) or 0)
+    prom_denom = p_ok + p_den
+    ap_share: float | None
+    if prom_denom > 0:
+        ap_share = round(p_ok / float(prom_denom), 4)
+    else:
+        ap_share = None
+    return {
+        "kind": "m3_eval_proxy_v1",
+        "continuity": {
+            "resume_ready": bool(r.get("resume_ready")),
+            "compaction_restore_files": int(
+                c.get("compaction_restore_files", 0) or 0,
+            ),
+        },
+        "read_discipline": {
+            "read_file_calls": fs_calls,
+            "range_read_calls": fs_range,
+            "range_read_share": range_share,
+        },
+        "memory_promotion": {
+            "applied": p_ok,
+            "denied": p_den,
+            "applied_share": ap_share,
+        },
+        "tool_exposure": {
+            "schema_savings_sum": int(
+                c.get("tool_exposure_schema_savings_sum", 0) or 0,
+            ),
+        },
+    }
+
+
 def build_session_summary(
     rows: list[Mapping[str, Any]],
 ) -> dict[str, Any]:
@@ -287,6 +335,7 @@ def build_session_summary(
         cumulative=c_dict,
         resume=r_dict,
     )
+    ev = build_m3_eval_signals(c_dict, r_dict)
     return {
         "contract": SESSION_SUMMARY_CONTRACT,
         "log_start": base.get("log_start"),
@@ -296,6 +345,7 @@ def build_session_summary(
         "synthetic_est": s_dict,
         "resume": r_dict,
         "subsystems": sub,
+        "m3_eval_signals": ev,
     }
 
 

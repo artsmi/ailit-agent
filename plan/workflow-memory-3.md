@@ -466,6 +466,8 @@ flowchart LR
 
 #### Задача M3-5.1 — Зафиксировать derived index / acceleration layer
 
+**Черновик в репозитории:** [`m3-acceleration-layer.md`](m3-acceleration-layer.md).
+
 **Промпт исполнителю:**  
 «Опиши ускоряющий слой памяти в `ailit`: derived index, rebuildability, separation between source of truth and acceleration DB. Покажи, что индекс можно пересобрать без потери канонического знания.»
 
@@ -480,6 +482,9 @@ flowchart LR
 - ручная сверка с `/home/artem/reps/ai-multi-agents/plans/ai-memory.md`, строки `180–199`.
 
 #### Задача M3-5.2 — Определить evaluation suite
+
+**Черновик в репозитории:** [`m3-evaluation-suite.md`](m3-evaluation-suite.md). В коде: поле
+`m3_eval_signals` в `build_session_summary` (прокси по агрегатам JSONL).
 
 **Промпт исполнителю:**  
 «Определи, как в M3 измерять не только token savings, но и качество памяти: recall, precision, stale fact rate, fetch cost, promotion correctness, continuity quality.»

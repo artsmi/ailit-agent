@@ -20,6 +20,8 @@ def test_resume_ready_true_when_clean_tail() -> None:
     s = build_session_summary(rows)
     assert s.get("contract") == SESSION_SUMMARY_CONTRACT
     assert "subsystems" in s
+    assert "m3_eval_signals" in s
+    assert s["m3_eval_signals"].get("kind") == "m3_eval_proxy_v1"
     assert s["resume"]["resume_ready"] is True
     assert s["resume"]["trailing_error"] is False
 
