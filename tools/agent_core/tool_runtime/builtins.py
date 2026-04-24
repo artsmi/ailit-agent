@@ -9,6 +9,10 @@ from pathlib import Path
 from typing import Any, Callable, Final, Mapping
 
 from agent_core.tool_runtime.spec import SideEffectClass, ToolSpec
+from agent_core.tool_runtime.python_read_symbol import (
+    builtin_read_symbol,
+    read_symbol_tool_spec,
+)
 from agent_core.tool_runtime.workdir_paths import (
     GLOB_MAX_FILES_DEFAULT,
     LIST_DIR_MAX_ENTRIES,
@@ -268,6 +272,7 @@ BUILTIN_HANDLERS: dict[str, BuiltinHandler] = {
     "glob_file": builtin_glob_file,
     "grep": builtin_grep,
     "read_file": builtin_read_file,
+    "read_symbol": builtin_read_symbol,
     "write_file": builtin_write_file,
     "echo": builtin_echo,
 }
@@ -435,6 +440,7 @@ def builtin_tool_specs() -> dict[str, ToolSpec]:
             side_effect=SideEffectClass.READ_ONLY,
             allow_parallel=True,
         ),
+        "read_symbol": read_symbol_tool_spec(),
         "write_file": ToolSpec(
             name="write_file",
             description=(

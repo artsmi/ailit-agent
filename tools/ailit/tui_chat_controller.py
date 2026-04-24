@@ -31,6 +31,10 @@ from ailit.session_outcome_user_copy import (
     MAX_TURNS_EXCEEDED_REASON,
     SessionErrorAssistantMessageComposer,
 )
+from ailit.tool_system_hints import (
+    inject_tool_hints_before_first_user,
+    memory_kb_first_enabled,
+)
 from ailit.perm_mode_chat import perm_mode_enabled_from_env
 from ailit.tui_session_types import TuiSessionState
 
@@ -147,6 +151,17 @@ class TuiChatController:
     ) -> tuple[str, str, dict[str, Any] | None]:
         """Прогон цикла: текст, статус, usage последнего ответа (или None)."""
         self._messages.append(ChatMessage(role=MessageRole.USER, content=text))
+        work_msgs = list(self._messages)
+        n_user = sum(1 for m in work_msgs if m.role is MessageRole.USER)
+        if n_user == 1:
+            cfg = AgentRunProviderConfigBuilder().build(
+                state.project_root.resolve(),
+                use_dev_repo_yaml=True,
+            )
+            inject_tool_hints_before_first_user(
+                work_msgs,
+                include_kb_first=memory_kb_first_enabled(cfg),
+            )
         provider_obj, model_eff = TuiProviderAssembler().build(
             provider=state.provider,
             model=state.model,
@@ -174,7 +189,7 @@ class TuiChatController:
             perm_classifier_bypass=True,
         )
         out = runner.run(
-            list(self._messages),
+            work_msgs,
             ApprovalSession(),
             settings,
             diag_sink=diag_sink,

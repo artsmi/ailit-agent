@@ -39,6 +39,7 @@ READ_TOOL_NAMES: frozenset[str] = frozenset(
         "glob_file",
         "grep",
         "read_file",
+        "read_symbol",
         READ_CONTEXT_PAGE_NAME,
         "kb_search",
         "kb_fetch",

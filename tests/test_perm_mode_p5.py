@@ -79,6 +79,7 @@ def test_read_exposes_no_write_tool_definitions() -> None:
     assert "write_file" not in names
     assert "run_shell" not in names
     assert "read_file" in names
+    assert "read_symbol" in names
 
 
 def test_mock_classifier_provider_entry_points() -> None:

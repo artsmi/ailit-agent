@@ -122,8 +122,8 @@ def prompt_map_rows() -> tuple[PromptFragmentRow, ...]:
             priority="append",
             enabled_when="всегда (tools включены по умолчанию)",
             where_defined=(
-                "tools/ailit/chat_app.py:ChatToolSystemHintComposer; "
-                "_inject_tool_hints_before_first_user"
+                "tools/ailit/tool_system_hints.py:ChatToolSystemHintComposer; "
+                "inject_tool_hints_before_first_user"
             ),
             token_notes="короткая подсказка; не дублировать в других режимах",
         ),
@@ -144,8 +144,8 @@ def prompt_map_rows() -> tuple[PromptFragmentRow, ...]:
             priority="append",
             enabled_when="всегда (tools включены по умолчанию)",
             where_defined=(
-                "tools/ailit/chat_app.py:ChatToolSystemHintComposer; "
-                "_inject_tool_hints_before_first_user"
+                "tools/ailit/tool_system_hints.py:ChatToolSystemHintComposer; "
+                "inject_tool_hints_before_first_user"
             ),
             token_notes=(
                 "отдельно от file_tools; run_shell + PermissionEngine"

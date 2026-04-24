@@ -74,6 +74,10 @@ from ailit.process_log import ensure_process_log
 from ailit.compat_adapter import read_status, run_compat_workflow
 from ailit.debug_bundle import build_debug_bundle, default_rollout_phase
 from ailit.defaults_resolver import DefaultProviderModelResolver
+from ailit.tool_system_hints import (
+    inject_tool_hints_before_first_user,
+    memory_kb_first_enabled,
+)
 from ailit.token_economy_aggregates import (
     analyze_log_rows,
     build_memory_efficiency_score,
@@ -842,6 +846,15 @@ def _render_memory_stack_panel() -> None:
     st.caption(
         f"**Память (M3/M4):** оценка **{sc}/100** — {label}",
     )
+    st.caption(
+        "Оценка **не** про «правильность ответа», а про **дисциплину** сигналов: "
+        "доля range-read к `read_file`, обращения к `kb_*`, promotion, "
+        "pager / tool.exposure и resume; сравнивайте прогоны по компонентам ниже.",
+    )
+    comp = eff.get("components")
+    if isinstance(comp, dict) and comp:
+        with st.expander("Память: из чего сложилось N/100 (компоненты)", expanded=False):
+            st.json(comp)
     acc_n = int(c_m.get("memory_access_total", 0) or 0)
     fs_n = int(c_m.get("fs_read_file_calls", 0) or 0)
     p_used = int(c_m.get("pager_page_used", 0) or 0)
@@ -1010,63 +1023,6 @@ def _render_dialogue_messages(
                     )
 
 
-_FILE_TOOLS_SYSTEM_HINT = (
-    "Когда пользователь просит создать или записать файл, обязательно вызови инструмент "
-    "write_file с относительным путём внутри рабочего корня и содержимым файла. "
-    "Не утверждай, что файл создан, если инструмент не был вызван. "
-    "После успешных записей в ответе пользователю перечисли каждый затронутый "
-    "относительный путь и операцию (создан / обновлён); по возможности используй "
-    "префиксы «+» для нового файла и «~» для изменения существующего."
-)
-
-_FS_TOOLS_SYSTEM_HINT = (
-    "Обзор дерева: list_dir (один уровень) или glob_file (шаблон имён). "
-    "read_file — только один текстовый файл, не каталог и не '.'. "
-    "Поиск по содержимому: grep (нужен `rg` в PATH); не выдумывай вывод grep. "
-    "Для длинных файлов: сначала уточни место (grep/индекс), затем read_file "
-    "с offset и limit, а не весь файл целиком (E2E-M3-01)."
-)
-
-_BASH_TOOLS_SYSTEM_HINT = (
-    "Инструмент run_shell выполняет команду через bash -lc только внутри "
-    "AILIT_WORK_ROOT. Не утверждай результат команды без вызова run_shell. "
-    "Для длинного вывода возможна усечённая сводка и файл под .ailit/. "
-    "Политика allow/ask/deny для shell задаётся PermissionEngine в runtime; "
-    "в Streamlit-чате при включённом «Shell» она часто ALLOW, но это не "
-    "отменяет необходимости реально вызвать инструмент и опираться на его вывод."
-)
-
-
-class ChatToolSystemHintComposer:
-    """Фрагменты system для файловых tools и для shell — раздельно (D.4)."""
-
-    @staticmethod
-    def fragments() -> list[str]:
-        """Порядок: сначала файлы, затем shell — без дублирования текста."""
-        parts: list[str] = []
-        parts.append(_FS_TOOLS_SYSTEM_HINT)
-        parts.append(_FILE_TOOLS_SYSTEM_HINT)
-        parts.append(_BASH_TOOLS_SYSTEM_HINT)
-        return parts
-
-
-def _inject_tool_hints_before_first_user(
-    runner_msgs: list[ChatMessage],
-) -> None:
-    """Вставить подсказки одним проходом перед первым USER."""
-    frags = ChatToolSystemHintComposer.fragments()
-    if not frags:
-        return
-    for i, m in enumerate(runner_msgs):
-        if m.role is MessageRole.USER:
-            for text in reversed(frags):
-                runner_msgs.insert(
-                    i,
-                    ChatMessage(role=MessageRole.SYSTEM, content=text),
-                )
-            return
-
-
 def _execute_llm_turn(
     *,
     cfg: dict,
@@ -1104,7 +1060,10 @@ def _execute_llm_turn(
     else:
         runner_msgs = list(msgs_src)
 
-    _inject_tool_hints_before_first_user(runner_msgs)
+    inject_tool_hints_before_first_user(
+        runner_msgs,
+        include_kb_first=memory_kb_first_enabled(cfg),
+    )
 
     provider, model = _make_provider(choice, cfg)
     pm_en = perm_mode_enabled_from_env()
@@ -1379,7 +1338,10 @@ def _build_chat_turn_worker(
     else:
         runner_msgs = list(msgs_src)
 
-    _inject_tool_hints_before_first_user(runner_msgs)
+    inject_tool_hints_before_first_user(
+        runner_msgs,
+        include_kb_first=memory_kb_first_enabled(cfg),
+    )
     provider, model = _make_provider(choice, cfg)
 
     pm_en = perm_mode_enabled_from_env()

@@ -69,6 +69,7 @@ def empty_cumulative() -> dict[str, Any]:
         "tool_exposure_schema_savings_sum": 0,
         "fs_read_file_calls": 0,
         "fs_read_file_range_calls": 0,
+        "fs_read_file_duplicate_calls": 0,
         "memory_access_total": 0,
         "memory_access_by_tool": {},
         "memory_promotion_applied": 0,
@@ -175,6 +176,10 @@ def merge_events_into_cumulative(
             if bool(row.get("range_read")):
                 acc["fs_read_file_range_calls"] = int(
                     acc.get("fs_read_file_range_calls", 0),
+                ) + 1
+            if bool(row.get("unchanged_stub")):
+                acc["fs_read_file_duplicate_calls"] = int(
+                    acc.get("fs_read_file_duplicate_calls", 0),
                 ) + 1
         elif et == "memory.access":
             acc["memory_access_total"] = int(
@@ -783,6 +788,9 @@ def build_m3_eval_signals(
             "read_file_calls": fs_calls,
             "range_read_calls": fs_range,
             "range_read_share": range_share,
+            "duplicate_read_calls": int(
+                c.get("fs_read_file_duplicate_calls", 0) or 0,
+            ),
         },
         "memory_promotion": {
             "applied": p_ok,
