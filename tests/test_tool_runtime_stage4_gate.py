@@ -33,7 +33,8 @@ def test_read_write_destructive_scenario(tmp_work_root: Path) -> None:
         approvals,
     )
     assert r1.error is None
-    assert r1.content == "world"
+    assert "world" in (r1.content or "")
+    assert "ailit:read_meta" in (r1.content or "")
 
     w_inv = ToolInvocation("w1", "write_file", '{"path":"out.txt","content":"x"}')
     with pytest.raises(ApprovalPending):

@@ -187,4 +187,20 @@
 
 ## Приложение. Соответствие ранних секций текущему коду
 
-`builtin_read_file`, `builtin_read_symbol` — `tools/agent_core/tool_runtime/builtins.py` + `python_read_symbol.py`; `read_file_text_slice` — `workdir_paths.py`. **При существенных рефакторингах** обновить ссылки в этом абзаце.
+- `read_file`: `builtins.py` + `read_file_slice` / `read_file_text_slice` в `workdir_paths.py` (buffer ≤ `MAX_READ_BYTES`, иначе **stream** с `offset`/`limit`); обёртка с мета в `read_file_envelope.py` (`# ailit:read_meta:…` — **total_lines**, from/to, source), парс в `ToolRunResult.extras` и в JSONL `fs.read_file.completed` (`total_lines`, `content_from_line`, `content_to_line`, `read_source`).
+- `read_symbol`: `python_read_symbol.py`.
+- **R4.4 (инъекция):** `session/loop.py` — `_append_kb_retrieval_digest_as_system` после успешного auto-`kb_fetch` (ветки branch + default_fallback).
+- **@path#Lx-y (как attachments в Claude Code):** `user_mention_read_hint.py` + frags в `tool_system_hints.py` из текста **первого** USER.
+- **При существенных рефакторингах** обновить этот список.
+
+## Приложение B. Сверка с донорами (Claude / OpenCode / Letta) — read-6+
+
+Реализовано по сравнительному анализу:
+
+| Ориентир | Что сделано в ailit |
+|----------|---------------------|
+| FileReadTool: `startLine` / `totalLines` / `numLines` | Мета-строка + поля `fs.read_file.*`; тело read_file с диапазоном и `total_lines`. |
+| `readFileInRange` streaming + ошибка «используй offset/limit» | `read_file_slice` stream при `st_size` > `MAX_READ_BYTES` и **не** full-read; OSError с подсказкой. |
+| OpenCode: `grep` → `read` range | Уже было; усилено `@` + hints. |
+| Letta memory blocks (R4.4) | Digest system-сообщение по полям `title`/`summary`/`body_snippet` из `kb_fetch`. |
+| `@file#L10-20` (attachments) | `parse_user_at_file_line_refs` + system frags. |

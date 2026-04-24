@@ -21,6 +21,10 @@ from agent_core.tool_runtime.cancel_context import (
     clear_current_cancel,
     set_current_cancel,
 )
+from agent_core.tool_runtime.read_file_envelope import (
+    extras_from_read_file_meta,
+    split_read_file_tool_output,
+)
 
 
 def _write_file_extras_before_run(
@@ -158,6 +162,10 @@ class ToolExecutor:
                 extras=None,
             )
         clear_current_cancel()
+        if inv.tool_name == "read_file" and isinstance(out, str):
+            pay = split_read_file_tool_output(out)
+            if pay.meta is not None:
+                extras = extras_from_read_file_meta(pay.meta)
         return ToolRunResult(
             call_id=inv.call_id,
             tool_name=inv.tool_name,

@@ -13,13 +13,16 @@ from agent_core.tool_runtime.python_read_symbol import (
     builtin_read_symbol,
     read_symbol_tool_spec,
 )
+from agent_core.tool_runtime.read_file_envelope import (
+    format_read_file_with_meta,
+)
 from agent_core.tool_runtime.workdir_paths import (
     GLOB_MAX_FILES_DEFAULT,
     LIST_DIR_MAX_ENTRIES,
     MAX_READ_BYTES,
     MAX_READ_LINES,
     normalize_relative,
-    read_file_text_slice,
+    read_file_slice,
     resolve_dir_under_root,
     resolve_file_under_root,
     resolve_under_root,
@@ -88,14 +91,22 @@ def builtin_read_file(arguments: Mapping[str, Any]) -> str:
     if prev is not None and prev[0] == mtime_ns:
         return _FILE_UNCHANGED_STUB
 
-    text = read_file_text_slice(
+    res = read_file_slice(
         path,
         max_bytes=MAX_READ_BYTES,
         offset_line=offset_line,
         limit_line=limit_line,
     )
-    _READ_DEDUP[key] = (mtime_ns, text)
-    return text
+    out = format_read_file_with_meta(
+        relative_path=rel_norm,
+        body=res.body,
+        from_line=res.from_line,
+        to_line=res.to_line,
+        total_lines=res.total_lines,
+        source=res.source,
+    )
+    _READ_DEDUP[key] = (mtime_ns, out)
+    return out
 
 
 def builtin_write_file(arguments: Mapping[str, Any]) -> str:

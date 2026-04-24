@@ -1,8 +1,10 @@
+# flake8: noqa: E501
 """Пути и проверки внутри AILIT_WORK_ROOT (паттерны Claude Code Read/Glob)."""
 
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
@@ -143,6 +145,169 @@ def suggest_for_missing_file(root: Path, rel: str, *, limit: int = 8) -> str:
     return f"Note: AILIT_WORK_ROOT is {root}. Some files at root: {joined}"
 
 
+@dataclass(frozen=True, slots=True)
+class ReadFileSliceResult:
+    """Срез файла: тело, границы, общее число строк (1-based), источник чтения."""
+
+    body: str
+    total_lines: int
+    from_line: int
+    to_line: int
+    source: str  # "buffer" | "stream"
+
+
+def _strip_bom_text(s: str) -> str:
+    if s and s[0] == "\ufeff":
+        return s[1:]
+    return s
+
+
+def _read_file_slice_buffer(
+    path: Path,
+    *,
+    max_bytes: int,
+    offset_line: int,
+    limit_line: int | None,
+) -> ReadFileSliceResult:
+    """Путь readFile+split (файл целиком ≤ max_bytes, как readFileInRange small path)."""
+    raw = path.read_bytes()
+    if len(raw) > max_bytes:
+        msg = (
+            f"file too large ({len(raw)} bytes) to read at once; "
+            f"max {max_bytes} bytes per slurp. "
+            "Use read_file with offset and limit, or grep, then read a range."
+        )
+        raise OSError(msg)
+    t0 = raw.decode("utf-8", errors="replace")
+    t0 = _strip_bom_text(t0)
+    t0 = t0.replace("\r\n", "\n").replace("\r", "\n")
+    all_lines = t0.splitlines(keepends=True)
+    total_lines = len(all_lines) if t0 else 0
+    off = max(1, offset_line)
+    lim = limit_line
+    if lim is not None and lim < 1:
+        msg = "limit must be >= 1 when provided"
+        raise ValueError(msg)
+    i0 = off - 1
+    if not all_lines:
+        return ReadFileSliceResult(
+            body="",
+            total_lines=0,
+            from_line=off,
+            to_line=0,
+            source="buffer",
+        )
+    if i0 >= len(all_lines):
+        return ReadFileSliceResult(
+            body="",
+            total_lines=total_lines,
+            from_line=off,
+            to_line=off - 1,
+            source="buffer",
+        )
+    if lim is None:
+        el2 = i0 + MAX_READ_LINES
+        part = all_lines[i0:el2]
+    else:
+        if lim > MAX_READ_LINES:
+            msg = f"line slice too large; max {MAX_READ_LINES} lines per read"
+            raise ValueError(msg)
+        el = i0 + lim
+        part = all_lines[i0:el]
+    body = "".join(part)
+    to_ln = off + max(0, len(part) - 1)
+    return ReadFileSliceResult(
+        body=body,
+        total_lines=total_lines,
+        from_line=off,
+        to_line=to_ln,
+        source="buffer",
+    )
+
+
+def _read_file_slice_stream(
+    path: Path,
+    offset_line: int,
+    limit_line: int | None,
+) -> ReadFileSliceResult:
+    """Потоковый путь: без read_bytes целиком (сравнение: readFileInRange streaming)."""
+    off = max(1, offset_line)
+    lim = limit_line
+    if lim is not None and lim < 1:
+        msg = "limit must be >= 1 when provided"
+        raise ValueError(msg)
+    if lim is None and off == 1:
+        msg = (
+            "on a large file use offset+limit (or grep first). "
+            "Cannot read the entire file without a buffer budget."
+        )
+        raise OSError(msg)
+    out: list[str] = []
+    line_no = 0
+    with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+        for line in handle:
+            line_no += 1
+            if line_no < off:
+                continue
+            if lim is not None:
+                if off <= line_no <= off + lim - 1 and len(out) < min(
+                    lim,
+                    MAX_READ_LINES,
+                ):
+                    out.append(line)
+            elif len(out) < MAX_READ_LINES:
+                out.append(line)
+    total = line_no
+    if not out:
+        to_ln = off - 1
+    else:
+        to_ln = off + len(out) - 1
+    if lim is not None:
+        to_ln = min(to_ln, off + lim - 1, off + len(out) - 1)
+    return ReadFileSliceResult(
+        body="".join(out),
+        total_lines=total,
+        from_line=off,
+        to_line=to_ln,
+        source="stream",
+    )
+
+
+def read_file_slice(
+    path: Path,
+    *,
+    max_bytes: int = MAX_READ_BYTES,
+    offset_line: int = 1,
+    limit_line: int | None = None,
+) -> ReadFileSliceResult:
+    """Срез файла: slurp (≤ max_bytes) или stream (> max_bytes с range)."""
+    off = max(1, int(offset_line or 1))
+    try:
+        st = path.stat()
+    except OSError as exc:
+        msg = f"read_file: {exc}"
+        raise OSError(msg) from exc
+    if st.st_size > max_bytes and off == 1 and limit_line is None:
+        msg = (
+            f"file too large ({st.st_size} bytes) to read entirely; "
+            f"max {max_bytes} bytes per read without range. "
+            "Use read_file with offset and limit, or grep to locate lines, "
+            "then read a range (progressive disclosure / range read)."
+        )
+        raise OSError(msg)
+    if st.st_size <= max_bytes:
+        return _read_file_slice_buffer(
+            path,
+            max_bytes=max_bytes,
+            offset_line=off,
+            limit_line=limit_line,
+        )
+    if limit_line is not None and limit_line > MAX_READ_LINES:
+        msg = f"line slice too large; max {MAX_READ_LINES} lines per read"
+        raise ValueError(msg)
+    return _read_file_slice_stream(path, off, limit_line)
+
+
 def read_file_text_slice(
     path: Path,
     *,
@@ -150,27 +315,10 @@ def read_file_text_slice(
     offset_line: int = 1,
     limit_line: int | None = None,
 ) -> str:
-    """Прочитать UTF-8 с лимитом байт и срезом строк (1-based)."""
-    raw = path.read_bytes()
-    if len(raw) > max_bytes:
-        msg = (
-            f"file too large ({len(raw)} bytes); "
-            f"max {max_bytes}"
-        )
-        raise OSError(msg)
-    text = raw.decode("utf-8", errors="replace")
-    lines = text.splitlines(keepends=True)
-    start = max(1, offset_line) - 1
-    lim = limit_line
-    if lim is None:
-        chunk = lines[start:]
-    else:
-        if lim < 1:
-            msg = "limit must be >= 1 when provided"
-            raise ValueError(msg)
-        end = start + lim
-        chunk = lines[start:end]
-    if len(chunk) > MAX_READ_LINES:
-        msg = f"line slice too large; max {MAX_READ_LINES} lines per read"
-        raise ValueError(msg)
-    return "".join(chunk)
+    """Совместимость: только текст (без meta-обёртки; см. read_file_slice)."""
+    return read_file_slice(
+        path,
+        max_bytes=max_bytes,
+        offset_line=offset_line,
+        limit_line=limit_line,
+    ).body

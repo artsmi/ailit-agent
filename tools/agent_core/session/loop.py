@@ -56,8 +56,12 @@ from agent_core.session.tool_output_prune import (
     tool_output_prune_config_from_env,
 )
 from agent_core.session.state import SessionState
-from agent_core.session.mode_permission_policy import build_mode_permission_policy
-from agent_core.session.perm_tool_mode import tool_definitions_for_perm_mode
+from agent_core.session.mode_permission_policy import (
+    build_mode_permission_policy,
+)
+from agent_core.session.perm_tool_mode import (
+    tool_definitions_for_perm_mode,
+)
 from agent_core.session.tool_exposure import tool_definitions_for_settings
 from agent_core.session.tool_choice_policy import (
     default_tool_choice_policy,
@@ -75,6 +79,9 @@ from agent_core.tool_runtime.executor import (
 )
 from agent_core.tool_runtime.permission import PermissionEngine
 from agent_core.normalization.usage_fields import usage_to_diag_dict
+from agent_core.tool_runtime.read_file_envelope import (
+    split_read_file_tool_output,
+)
 from agent_core.tool_runtime.registry import ToolRegistry
 from agent_core.tool_runtime.workdir_paths import work_root
 from agent_core.transport.errors import TransportHttpError
@@ -287,6 +294,29 @@ def _safe_id_part(raw: str, max_chars: int = 96) -> str:
     if len(s) > max_chars:
         s = s[:max_chars]
     return s or "unknown"
+
+
+def _append_kb_retrieval_digest_as_system(
+    messages: list[ChatMessage],
+    *,
+    fr: dict[str, Any],
+    level: str,
+) -> None:
+    """R4.4: memory block после kb_fetch (Letta-style; усечение body)."""
+    title = str(fr.get("title") or "").strip()
+    kind = str(fr.get("kind") or "").strip()
+    summ = str(fr.get("summary") or "").strip()
+    body = str(fr.get("body_snippet") or "")
+    if len(body) > 1400:
+        body = body[:1400].rstrip() + "…"
+    head = f"{title} ({kind})" if kind else (title or kind or "kb_fetch")
+    pieces = [f"KB fact (retrieval: {level}): {head}"]
+    if summ:
+        pieces.append(f"summary: {summ}")
+    if body:
+        pieces.append(f"excerpt: {body}")
+    txt = "\n".join(pieces).strip()
+    messages.append(ChatMessage(role=MessageRole.SYSTEM, content=txt))
 
 
 def _append_kb_search_as_system(
@@ -838,20 +868,42 @@ class SessionRunner:
         stub = body.startswith(
             "File unchanged since last read in this process:",
         )
-        returned_lines = len(body.splitlines()) if body else 0
+        if not stub:
+            pay = split_read_file_tool_output(body)
+            ret_lines = int(pay.body_line_count)
+        else:
+            ret_lines = len((body or "").splitlines()) if body else 0
+        ex = res.extras or {}
+        ar = ex.get("ailit_read") if isinstance(ex, dict) else None
+        if not stub and isinstance(ar, dict) and ar:
+            total_ln = int(ar.get("total_lines", 0) or 0)
+            c_from = int(ar.get("from_line", 0) or 0)
+            c_to = int(ar.get("to_line", 0) or 0)
+            r_src = str(ar.get("source", "") or "")
+        else:
+            total_ln = 0
+            c_from = off
+            c_to = 0
+            r_src = ""
         range_read = (off > 1) or (limit is not None)
+        payload: dict[str, Any] = {
+            "call_id": str(inv.call_id),
+            "path_tail": tail,
+            "offset_line": off,
+            "limit_line": limit,
+            "returned_lines": ret_lines,
+            "range_read": range_read,
+            "unchanged_stub": stub,
+        }
+        if not stub and isinstance(ar, dict) and ar:
+            payload["content_from_line"] = c_from
+            payload["content_to_line"] = c_to
+            payload["total_lines"] = total_ln
+            payload["read_source"] = r_src
         self._emit(
             events,
             "fs.read_file.completed",
-            {
-                "call_id": str(inv.call_id),
-                "path_tail": tail,
-                "offset_line": off,
-                "limit_line": limit,
-                "returned_lines": returned_lines,
-                "range_read": range_read,
-                "unchanged_stub": stub,
-            },
+            payload,
             diag_sink,
             event_sink,
         )
@@ -2302,6 +2354,12 @@ class SessionRunner:
                                         diag_sink,
                                         event_sink,
                                     )
+                                    if isinstance(fr, dict) and fr:
+                                        _append_kb_retrieval_digest_as_system(
+                                            messages,
+                                            fr=fr,
+                                            level=level,
+                                        )
                     elif (
                         "kb_fetch" in active_reg.specs
                         and rc3 is not None
@@ -2499,6 +2557,12 @@ class SessionRunner:
                                                 diag_sink,
                                                 event_sink,
                                             )
+                                            if isinstance(fr2, dict) and fr2:
+                                                _append_kb_retrieval_digest_as_system(  # noqa: E501
+                                                    messages,
+                                                    fr=fr2,
+                                                    level=level2,
+                                                )
                             elif (
                                 "kb_fetch" in active_reg.specs
                                 and rc3 is not None

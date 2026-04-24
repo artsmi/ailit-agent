@@ -1,6 +1,8 @@
 # R4.4 (research): инъекция top-K фактов после `memory.retrieval.match`
 
-**Workflow:** `read-6` — задача R4.4 в `6-read-improve-strategy.md`. Реализация **вне** минимального закрытия R4.1–R4.3.
+**Workflow:** `read-6` — задача R4.4 в `6-read-improve-strategy.md`.
+
+**Статус кода:** в `session/loop.py` после auto-`kb_fetch` добавлена инъекция `_append_kb_retrieval_digest_as_system` (краткий digest факта). Расширения (только `project` / multi-fact) — отдельная постановка.
 
 ## Зачем
 

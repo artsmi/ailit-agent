@@ -7,6 +7,11 @@ from typing import Any, Mapping
 
 from agent_core.models import ChatMessage, MessageRole
 
+from ailit.user_mention_read_hint import (
+    format_at_file_hints_for_system,
+    parse_user_at_file_line_refs,
+)
+
 
 def memory_kb_first_enabled(cfg: Mapping[str, Any] | None) -> bool:
     """True, если в merge-конфиге включена локальная KB (как в chat registry)."""
@@ -90,9 +95,19 @@ def inject_tool_hints_before_first_user(
     include_kb_first: bool = False,
 ) -> None:
     """Вставить подсказки одним проходом перед первым USER."""
-    frags = ChatToolSystemHintComposer.fragments(
-        include_kb_first=include_kb_first,
+    frags = list(
+        ChatToolSystemHintComposer.fragments(
+            include_kb_first=include_kb_first,
+        ),
     )
+    for m in runner_msgs:
+        if m.role is MessageRole.USER:
+            at_frags = format_at_file_hints_for_system(
+                parse_user_at_file_line_refs(m.content or ""),
+            )
+            for h in at_frags:
+                frags.append(h)
+            break
     if not frags:
         return
     for i, m in enumerate(runner_msgs):
