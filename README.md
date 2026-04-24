@@ -12,6 +12,7 @@
 | Токен-экономия и внешняя память (ветка) | **Порядок:** [`plan/workflow-token-economy-recipe.md`](plan/workflow-token-economy-recipe.md) (TE) → [`plan/workflow-hybrid-memory-mcp.md`](plan/workflow-hybrid-memory-mcp.md) (H0–H4) → [`plan/workflow-memory-3.md`](plan/workflow-memory-3.md) (M3, закрыто) → [**`plan/workflow-memory-4.md`**](plan/workflow-memory-4.md) (**M4:** runtime‑память + loop‑guards; M4‑1.2 / M4‑3.2 закрыты). |
 | Режимы/permissions (как у доноров) | [**`plan/5-workflow-perm.md`**](plan/5-workflow-perm.md) — **perm‑5** реализован (классификатор, enforcement, UI not_sure, `ailit agent run --perm-tool-mode`, срез `subsystems.perm_mode`). |
 | **Чтение + память (read‑6)** | [**`plan/6-read-improve-strategy.md`**](plan/6-read-improve-strategy.md) — **read‑6 закрыт:** протокол grep→range-read, `read_symbol` (.py), метрика duplicate read, KB-first hints при `memory.enabled`, прозрачность N/100 в чате, R4.4 design note. Далее — research/постановка следующей ветки по [workflow](.cursor/rules/project-workflow.mdc). |
+| **Граф архитектуры проекта + GUI «ailit memory» (workflow 7)** | [**`plan/7-workflow-project-architecture-graph.md`**](plan/7-workflow-project-architecture-graph.md) — **постановка:** PAG (файл/папка, описание, рёбра, атрибуты узла), автоиндексация, `ailit memory` (Streamlit), доноры (Graphiti, obsidian-memory-mcp, …). **Статус: черновик, не реализовано.** |
 
 ## Как работать по проекту
 
