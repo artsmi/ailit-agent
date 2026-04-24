@@ -11,12 +11,13 @@
 | [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md) | Этапы **G–Q** закрыты; документ архивен как ориентир закрытой ветки. |
 | Токен-экономия и внешняя память (ветка) | **Порядок:** [`plan/workflow-token-economy-recipe.md`](plan/workflow-token-economy-recipe.md) (TE) → [`plan/workflow-hybrid-memory-mcp.md`](plan/workflow-hybrid-memory-mcp.md) (H0–H4) → [`plan/workflow-memory-3.md`](plan/workflow-memory-3.md) (M3, закрыто) → [**`plan/workflow-memory-4.md`**](plan/workflow-memory-4.md) (**M4:** runtime‑память + loop‑guards; M4‑1.2 / M4‑3.2 закрыты). |
 | Режимы/permissions (как у доноров) | [**`plan/5-workflow-perm.md`**](plan/5-workflow-perm.md) — **perm‑5** реализован (классификатор, enforcement, UI not_sure, `ailit agent run --perm-tool-mode`, срез `subsystems.perm_mode`). |
+| **Активный workflow: чтение + память** | [**`plan/6-read-improve-strategy.md`**](plan/6-read-improve-strategy.md) — **read‑6:** progressive disclosure (`read_file` range), KB‑first после auto-write, прозрачность оценки M3/M4, доноры в плане. Работа по [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc). |
 
 ## Как работать по проекту
 
 1. **Workflow:** обязательный порядок задач и правило «конец workflow → research и постановка» — в [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc).
 2. **Стратегия и критерии этапов:** [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md) (актуально); bash/shell — [`plan/ailit-bash-strategy.md`](plan/ailit-bash-strategy.md); закрытая ветка — [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md).
-3. **Токен-экономия и память:** ветка M3 закрыта; актуальная постановка — [`plan/workflow-memory-4.md`](plan/workflow-memory-4.md). Сводка реализации M3: [`docs/ailit-ai-memory-implementation.md`](docs/ailit-ai-memory-implementation.md).
+3. **Токен-экономия и память:** ветка M3 закрыта; runtime M4 — [`plan/workflow-memory-4.md`](plan/workflow-memory-4.md). **Текущая доработка read/KB** — [`plan/6-read-improve-strategy.md`](plan/6-read-improve-strategy.md). Сводка M3: [`docs/ailit-ai-memory-implementation.md`](docs/ailit-ai-memory-implementation.md).
 4. **Оглавление документации:** [`docs/INDEX.md`](docs/INDEX.md).
 
 ## Установка и быстрая проверка

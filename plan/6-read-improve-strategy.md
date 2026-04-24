@@ -1,255 +1,220 @@
-# Workflow: read-improve-strategy (progressive disclosure чтения кода)
+# Workflow: read-improve (#6) — progressive disclosure чтения + эффективность памяти (M4)
 
-Документ задаёт **этапы → задачи → критерии приёмки → проверки** для улучшения стратегии чтения файлов в `ailit`, чтобы:
+Документ — **целевой workflow** для итераций по репозиторию `ailit-agent`: этапы → задачи → **критерии приёмки** → проверки. Закрывает две связанные цели:
 
-- читать **не весь файл**, а **ровно нужные диапазоны строк** (как в Claude Code);
-- опираться на **index-first** (grep → номера строк → `read_file(offset, limit)`), а не на raw-dump;
-- иметь измеримость (диагностика/метрики) и защиту от регресса.
+1. **Чтение кода:** не весь файл, а **нужные диапазоны строк**; **index-first** (`grep` → номера строк → `read_file(offset, limit)`), измеримость и защита от регресса.
+2. **Память (KB / M4):** модель и рантайм должны **сначала** использовать уже записанные факты (`kb_search` / `kb_fetch`), а обход диска (`list_dir` / `glob_file` / полные `read_file`) — когда индекса недостаточно; **между сессиями** — стабильный namespace и осмысленный retrieval.
 
-Канон процесса разработки репозитория: [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc).
+Канон процесса: [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc). Перед итерацией агент **открывает** соответствующий этап и фиксирует закрываемые подзадачи; после логического блока — **отдельный коммит** (префикс `R0`…`R4` или `read-6/…`).
+
+## Положение в графе планов
+
+| Зависимость | Документ |
+|-------------|----------|
+| Токены, сырой дамп | [`plan/workflow-token-economy-recipe.md`](workflow-token-economy-recipe.md) |
+| M3/M4 runtime-память (уже в коде) | [`plan/workflow-memory-4.md`](workflow-memory-4.md) |
+| Режимы tools | [`plan/5-workflow-perm.md`](5-workflow-perm.md) |
+
+**Идентификатор workflow:** `read-6` (файл `plan/6-read-improve-strategy.md`).
 
 ---
 
-## Контекст: что уже есть в `ailit`
+## Наблюдения из логов (якорь для R4)
 
-### 1) `read_file` уже поддерживает range read
+Реальные прогоны `ailit chat` на одном workdir (`not_git`, namespace по path) показали:
 
-`read_file` принимает `offset` (1-based) и `limit` (строки). Это уже экономит контекст, если модель выбирает чтение чанками.
+- После **auto-write** в KB (`repo_entrypoints`, `repo_tree_root`, …) вторая сессия с тем же вопросом («точки входа») всё равно ушла в **`list_dir` + много `glob_file`** вместо **`kb_fetch`** по id факта — **лишние токены** и низкий «сигнал KB» в метриках.
+- Оценка **«Память (M3/M4): N/100»** в UI — **эвристика** `build_memory_efficiency_score` в `tools/ailit/token_economy_aggregates.py`: сильно штрафует отсутствие **`fs_read_file_range_calls`** (при нуле range-read вклад `read_range_discipline` падает до ~14/28) и поощряет частые `memory.access` по **`kb_*`**. Низкий балл **не** означает «KB сломана», но означает «дисциплина чтения и плотность обращения к инструментам памяти слабые».
+- Репозиторий **без git**: `default_branch_source: not_git` — match остаётся **path-namespace**; **branch/commit** для политик retrieval нет (ожидаемо слабее, чем в клоне с `origin`).
 
-Реализация:
+Эти пункты **не дублируют** постановку M4 в `workflow-memory-4.md`, а задают **продуктовые фиксы** (подсказки, UI-прозрачность, приоритеты), чтобы поведение модели совпадало с уже записанной памятью.
 
-```57:94:tools/agent_core/tool_runtime/builtins.py
+---
+
+## Доноры (без копипаста; только ориентиры)
+
+### Чтение диапазонов и индекс
+
+| Репозиторий | Путь (локально) | Что взять |
+|---------------|-----------------|-----------|
+| Claude Code | `/home/artem/reps/claude-code` | `FileReadTool` / `readFileInRange`, вложения `@file#L10-20` — см. ссылки в §ниже. |
+| OpenCode | `/home/artem/reps/opencode` | Документация `read` с line ranges, API find с `line_number` — см. ссылки в §ниже. |
+
+### Память между сессиями (идеи, не копипаста)
+
+| Репозиторий | Путь (локально) | Что взять |
+|---------------|-----------------|-----------|
+| Letta | `/home/artem/reps/letta` | **Memory blocks** / явная инъекция краткого state в контекст шага. |
+| Graphiti | `/home/artem/reps/graphiti` | Временные графы + **hybrid retrieval** (сущности ↔ текст). |
+| Hindsight | `/home/artem/reps/hindsight` | Долговременная память с API (не только чат). |
+| obsidian-memory-mcp | `/home/artem/reps/obsidian-memory-mcp` | Vault, `[[links]]`, **навигация** по знаниям как внешняя «память». |
+| ruflo / context-mode | `/home/artem/reps/ruflo`, `/home/artem/reps/context-mode` | Сжатие контекста, вынос фактов. |
+
+**Вывод для `ailit`:** «между сессиями» у нас уже есть **Sqlite KB + namespace repo**. Улучшения: (1) **сборка** фактов при старте хода из уже сматченных `memory.retrieval.match`; (2) **промпты** «если вопрос совпадает с типом авто-факта (entrypoints) — сначала `kb_search`/`kb_fetch`»; (3) опционально **git** в проекте пользователя — для `repo_uri` / branch в namespace.
+
+---
+
+## Что уже есть в коде (коротко)
+
+`read_file` с `offset`/`limit`, дедуп, схема `ToolSpec` — см. в документе зафиксированные ссылки (актуальные пути в репозитории `ailit-agent`):
+
+```57:70:tools/agent_core/tool_runtime/builtins.py
 def builtin_read_file(arguments: Mapping[str, Any]) -> str:
     ...
-    offset_line = int(arguments.get("offset", 1) or 1)
-    raw_limit = arguments.get("limit")
-    ...
-    text = read_file_text_slice(
-        path,
-        max_bytes=MAX_READ_BYTES,
-        offset_line=offset_line,
-        limit_line=limit_line,
-    )
 ```
-
-Слайсер и лимиты:
 
 ```146:176:tools/agent_core/tool_runtime/workdir_paths.py
 def read_file_text_slice(
-    path: Path,
-    *,
-    max_bytes: int = MAX_READ_BYTES,
-    offset_line: int = 1,
-    limit_line: int | None = None,
-) -> str:
-    ...
-    start = max(1, offset_line) - 1
-    ...
-    if len(chunk) > MAX_READ_LINES:
-        msg = f"line slice too large; max {MAX_READ_LINES} lines per read"
-        raise ValueError(msg)
 ```
 
-Схема инструмента (поля `offset`/`limit` задокументированы):
-
-```406:437:tools/agent_core/tool_runtime/builtins.py
-"read_file": ToolSpec(
-    ...
-    "offset": {
-        "type": "integer",
-        "description": (
-            "1-based starting line (optional). "
-            "With limit, reads at most "
-            f"{MAX_READ_LINES} lines per call."
-        ),
-    },
-    "limit": {"type": "integer", "description": "Max lines from offset (optional)."},
-)
-```
-
-### 2) Дедупликация повторных чтений уже есть
-
-Если файл и диапазон строк не менялись, `read_file` возвращает stub (в пределах процесса).
-
-```28:94:tools/agent_core/tool_runtime/builtins.py
-_READ_DEDUP: dict[tuple[str, int, int | None], tuple[float, str]] = {}
-...
-if prev is not None and prev[0] == mtime_ns:
-    return _FILE_UNCHANGED_STUB
-```
-
-### 3) Чего не хватает
-
-Сейчас диапазоны строк выбирает **сама модель** по эвристике; в `ailit chat` есть общие подсказки про file tools, но нет явного протокола “grep → range read → расширять только при необходимости”.
+Событие `fs.read_file.completed` с `range_read` уже пишет диагностику; агрегат **`fs_read_file_range_calls`** влияет на оценку в `build_memory_efficiency_score` (см. `tools/ailit/token_economy_aggregates.py`).
 
 ---
 
-## Доноры (как устроено у них)
+## Доноры: ссылки на строки (как в M4-стиле)
 
-### Claude Code
-
-1) FileReadTool читает **в диапазоне** (`readFileInRange`) и пишет аналитику offset/limit:
+### Claude Code: чтение в диапазоне
 
 ```1019:1055:/home/artem/reps/claude-code/tools/FileReadTool/FileReadTool.ts
-// --- Text file (single async read via readFileInRange) ---
-const lineOffset = offset === 0 ? 0 : offset - 1
-const { content, lineCount, totalLines, totalBytes, readBytes, mtimeMs } =
-  await readFileInRange(
-    resolvedFilePath,
-    lineOffset,
-    limit,
-    limit === undefined ? maxSizeBytes : undefined,
-    context.abortController.signal,
-  )
-...
-const data = {
-  type: 'text' as const,
-  file: {
-    filePath: file_path,
-    content,
-    numLines: lineCount,
-    startLine: offset,
-    totalLines,
-  },
-}
+// readFileInRange, lineOffset, data.numLines, startLine ...
 ```
-
-2) Claude Code поддерживает синтаксис упоминания файла с диапазоном строк в тексте (UI/парсер): `@file.txt#L10-20`.
 
 ```2757:2765:/home/artem/reps/claude-code/utils/attachments.ts
-// Extract filenames mentioned with @ symbol, including line range syntax: @file.txt#L10-20
+// @file.txt#L10-20
 ```
 
-### OpenCode
-
-В документации явно заявлено, что tool read поддерживает **line ranges**:
+### OpenCode: read + find
 
 ```103:117:/home/artem/reps/opencode/packages/web/src/content/docs/tools.mdx
-### read
-Read file contents from your codebase.
-...
-This tool reads files and returns their contents. It supports reading specific line ranges for large files.
+### read ... line ranges
 ```
 
-OpenCode также предоставляет file/find API, которое отдаёт `line_number` и `lines` в match-объектах, что поддерживает паттерн “find → read range”.
-
 ```192:201:/home/artem/reps/opencode/packages/web/src/content/docs/server.mdx
-### Files
-...
-| `GET`  | `/find?pattern=<pat>`    | Search for text in files           | Array of match objects with `path`, `lines`, `line_number`, `absolute_offset`, `submatches` |
-| `GET`  | `/file/content?path=<p>` | Read a file                        | FileContent |
+// GET /find?pattern= ... line_number
 ```
 
 ---
 
-## Целевая формула (best practices → улучшения в `ailit`)
+## Целевая формула (read + memory)
 
-1) **Progressive disclosure**: сначала index/grep, потом `read_file` коротким окном, потом расширение диапазона.
-2) **Структурные границы по возможности**: когда нужно “вся функция/класс”, лучше иметь tool уровня “read_symbol” (AST/LSP), чем вручную угадывать offset/limit.
-3) **Повторное чтение избегать**: дедуп, кеш state (в процессе) и явная телеметрия “duplicate reads”.
-4) **Политика по умолчанию** в system-hints: “не читай целиком, если не требуется”.
-5) **Измеримость**: события/метрики “сколько строк/байт прочитано”, “сколько range-read vs full-read”, “сколько повторов”.
+1. **Progressive disclosure (файлы):** index/grep → `read_file` коротким окном → расширение при необходимости.
+2. **Progressive disclosure (память):** если auto-KB или прошлая сессия уже положили **entrypoints/tree** — **сначала** `kb_search` / `kb_fetch` по namespace, **потом** тяжёлый glob.
+3. **Повторное чтение избегать:** дедуп, телеметрия дубликатов.
+4. **Измеримость:** range vs full read; обращения к `kb_*`; **не** путать оценку UI с «качеством» KB без пояснения (см. R4.3).
+5. **not_git / git:** для dev-проектов documentировать выгоду `git init` + remote для **ветки** в namespace.
 
 ---
 
 ## Этап R0. Протокол чтения (policy) и подсказки модели
 
-### Задача R0.1 — Явный протокол “grep → range read”
+### Задача R0.1 — Явный протокол «grep → range read»
 
-**Содержание:** сформулировать 6–10 пунктов протокола чтения для агента (в стиле Claude Code / OpenCode), который можно вставлять в system-hints.
+**Содержание:** 6–10 пунктов для system-hints (как у доноров): `list_dir`/`glob_file` для **грубой** структуры, `grep` для поиска, `read_file` **с** `offset`/`limit` для содержимого; первое чтение ≤ N строк (например 120–200).
 
-**Критерии приёмки:**
+**Критерии приёмки:** протокол согласован с [`plan/workflow-token-economy-recipe.md`](workflow-token-economy-recipe.md) (анти-raw-dump); явное правило «функция/класс → диапазон вокруг сигнатуры или структурный tool, если появится (R2)».
 
-- протокол требует: `list_dir/glob_file` для структуры, `grep` для поиска, `read_file` только диапазонами;
-- есть правило “первое чтение ≤ N строк (например 120–200), расширение только по необходимости”;
-- есть правило “если нужна вся функция/класс — предпочесть структурный tool (если включён) или читать диапазон вокруг сигнатуры”.
+**Проверки:** ревью текста; при изменении — `flake8` + `pytest` по затронутым модулям.
 
-**Проверки:**
+### Задача R0.2 — Обновить `ailit chat` system-hints
 
-- ручная ревью-проверка текста на согласованность с `workflow-token-economy-recipe.md` (запрет raw dump).
+**Содержание:** расширить подсказки в `tools/ailit/chat_app.py` (и при паритете в TUI, если применимо): явно `read_file` + `offset`/`limit`.
 
-### Задача R0.2 — Обновить `ailit chat` system-hints под протокол
+**Критерии приёмки:** подсказка не конфликтует с perm-5, pager, budget, prune.
 
-**Содержание:** расширить подсказку из `tools/ailit/chat_app.py` так, чтобы модель регулярно выбирала `offset/limit`.
-
-**Критерии приёмки:**
-
-- подсказка явно упоминает `read_file(offset, limit)` и рекомендуемый стартовый лимит;
-- подсказка не конфликтует с pager/budget/prune и не обещает невозможное.
-
-**Тесты / проверки:**
-
-- unit test на composer/hints (если есть подходящая инфраструктура), либо smoke через mock-provider.
+**Проверки:** smoke mock-provider; `pytest` + `flake8` по файлам.
 
 ---
 
 ## Этап R1. Телеметрия и диагностика range-read
 
-### Задача R1.1 — Событие `file.read` (сколько прочитано)
+### Задача R1.1 — Событие / агрегаты «сколько прочитано»
 
-**Содержание:** добавить диагностическое событие `file.read` с полями: `path`, `offset`, `limit`, `read_lines`, `total_bytes`, `read_bytes`, `mtime`.
+**Содержание:** нынешнее `fs.read_file.completed` использовать как канон; при необходимости **дополнить** JSONL-полями, не дублируя body. По JSONL строится метрика range-read vs full-read (уже завязана на `range_read` / счётчики в агрегатах).
 
-**Критерии приёмки:**
+**Критерии приёмки:** по логу однозначно видна доля `range_read: true`.
 
-- событие не раскрывает лишние данные (не дублирует body в лог);
-- по JSONL можно построить метрику “range-read vs full-read”.
-
-**Проверки:**
-
-- pytest на наличие события при вызове `read_file`.
+**Проверки:** `pytest` на сценарий `read_file` с и без `limit`.
 
 ### Задача R1.2 — Метрика повторных чтений (duplicate reads)
 
-**Содержание:** фиксировать в диагностике/агрегатах, сколько раз модель читает один и тот же `(path, offset, limit)` без изменений.
+**Содержание:** счётчик одинакового `(path, offset, limit)` при неизменном mtime (на базе существующего дедупа в `builtin_read_file`).
 
-**Критерии приёмки:**
+**Критерии приёмки:** на синтетике счётчик растёт; не ломает happy-path.
 
-- есть счётчик и он растёт на синтетическом сценарии;
-- подсказки/протокол не провоцируют лишние повторения.
-
----
-
-## Этап R2. Структурное чтение (опционально, но целевая “киллер-фича”)
-
-### Задача R2.1 — `read_symbol` (LSP/tree-sitter) как tool
-
-**Содержание:** добавить инструмент, который по `(path, symbol)` возвращает:
-
-- `start_line`, `end_line`, `signature`;
-- и только фрагмент тела (с лимитом).
-
-**Критерии приёмки:**
-
-- работает как минимум для Python/TS (минимальный набор);
-- в prompt попадает только тело нужного символа, а не весь файл;
-- интегрируется с протоколом R0 (модель знает, когда выбирать `read_symbol`).
-
-**Проверки:**
-
-- pytest на корректный диапазон по тестовому файлу;
-- flake8 по новым модулям.
+**Проверки:** unit-тест (по согласованию с владельцем — не создавать тесты без запроса в workflow; **здесь** критерий приёмки включает тест — выполнить).
 
 ---
 
-## Этап R3. Ручной пользовательский тест (gate)
+## Этап R2. Структурное чтение (опционально)
 
-### Задача R3.1 — Сценарий проверки в `ailit chat`
+### Задача R2.1 — `read_symbol` (LSP / tree-sitter)
 
-**Содержание:** 3 ручных сценария:
+**Содержание:** tool `(path, symbol) → start_line, end_line, signature, фрагмент тела с лимитом` минимум для Python.
 
-1) “Найди определение функции по имени” → ожидать `grep` → `read_file(offset, limit)` (а не full file).
-2) “Исправь баг в одной функции” → ожидать `read_symbol` (если включён) или чтение вокруг сигнатуры.
-3) “Сравни два места использования” → два точечных range-read.
+**Критерии приёмки:** интеграция с протоколом R0; `pytest` + `flake8`.
 
-**Критерии приёмки:**
+---
 
-- в JSONL видны `read_file` с `offset/limit` и событие `file.read`;
-- нет массовых чтений целых больших файлов без причины;
-- экономия токенов проявляется в меньшем числе `context.pager.page_created` из-за `read_file` по всему файлу.
+## Этап R3. Ручной gate (пользователь)
+
+### Задача R3.1 — Три сценария в `ailit chat`
+
+1. «Найди определение по имени» → `grep` → `read_file(offset, limit)`.
+2. «Исправь баг в одной функции» → `read_symbol` или range вокруг сигнатуры.
+3. «Сравни два использования» → два range-read.
+
+**Критерии приёмки:** в JSONL нет массового full read больших файлов без причины; при необходимости снять copy-paste логов в issue.
+
+---
+
+## Этап R4. Память (M4) и **между** сессиями — эффективность
+
+Связано с наблюдениями выше и с `build_memory_diagnosis` / `memory_full_report` в `chat_app`.
+
+### Задача R4.1 — Протокол «KB-first после auto-write»
+
+**Содержание:** в system-hints (или узком слое, подмешиваемом при `memory.policy.enabled` и известных kind’ах: `repo_entrypoints`, `repo_tree_root`) зафиксировать: для вопросов уровня «как устроен проект / точки входа / дерево» — **сначала** `kb_search` / `kb_fetch` по id/summary, **затем** `glob_file` / полные обходы.
+
+**Критерии приёмки:** на одном и том же workdir второй сценарий «точки входа» **не** обязан** дублировать 6× `glob` до обращения к KB (допустима эвристика: минимум один `kb_search` или `kb_fetch` до широкого glob в acceptance-тесте или e2e по логу — выбрать устойчивый вариант при реализации).
+
+**Проверки:** ручной сценарий + по возможности e2e на JSONL-инварианты; `pytest` + `flake8`.
+
+### Задача R4.2 — Стабильность идентичности репо (path vs git)
+
+**Содержание:** задокументировать в `docs` или в этом плане для пользователей: **not_git** → namespace только от path; для стабильной **ветки/URI** — `git init` + `origin`. Опциональная **подсказка в UI** (одна строка) при `not_git` в `memory.policy`.
+
+**Критерии приёмки:** README или `docs/INDEX` ссылается кратко; нет дублирования простыни M4.
+
+**Проверки:** ревью; при изменении UI — ручной прогон `ailit chat`.
+
+### Задача R4.3 — Прозрачность оценки «N/100» в панели памяти
+
+**Содержание:** в подписи к `build_memory_efficiency_score` (Streamlit) явно: оценка отражает **дисциплину range-read + плотность kb_* + promotion + pager/exposure**, а **не** «успел ли ответ быть правильным». Опционально: лёгкая **коррекция весов** (например, отдельный бонус за успешный `kb_fetch` с ненулевым id) — **только** с мини-регрессией в `test_token_economy` / аналоге.
+
+**Критерии приёмки:** пользователь видит, **почему** 38 и 45 отличаются в ваших прогонах; изменение весов (если делали) с тестом.
+
+**Проверки:** `pytest` по `token_economy_aggregates` при изменении формул; `flake8`.
+
+### Задача R4.4 — (Research) Инъекция top-K фактов в контекст хода
+
+**Содержание:** исследование по образцу Letta **memory blocks**: после `memory.retrieval.match` подмешивать 1–3 **коротких** факта в system (с лимитом токенов). Отдельное согласование scope (только `project`? только `repo_entrypoints`?).
+
+**Критерии приёмки:** design note в `plan/` или issue; реализация **не** входит в минимальное закрытие R4.1–R4.3.
+
+**Проверки:** н/д (research).
 
 ---
 
 ## Конец workflow
 
-Если этапы R0–R2 закрыты и ручной gate R3 пройден, обновить статус в `README.md` (коротко) и не расширять scope без следующего утверждённого документа (см. [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc)).
+1. Пока **не** закрыты согласованные задачи R0–R3 и **минимум R4.1 + R4.3** (протокол KB-first + прозрачность оценки), **не** считать read-6 завершённым для обновления «закрыто» в [`README.md`](../README.md).
+2. Закрытие этапов: **коротко** обновить таблицу статуса в `README.md` (строка про read-6) и **не** расширять scope без нового фрагмента плана.
+3. Если R4.1–R4.3 сделаны, R4.2 в доке сделан, R4.4 исследован — workflow **исчерпан** по read-6 → по [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc) запросить **research** и **постановку** следующей цели (например отдельный `plan/7-…` или ветка в M5).
 
+**Коммиты (правило):** по этапам: `read-6/R0`, `read-6/R1`, …; в теле ссылки на задачу (R0.1, …). Перед коммитом: `pytest` + `flake8` по изменённым пакетам.
+
+---
+
+## Приложение. Соответствие ранних секций текущему коду
+
+Фрагменты из прежней версии документа (builtins, workdir_paths, `ToolSpec` для `read_file`) остаются в силе; пути: `tools/agent_core/tool_runtime/builtins.py`, `tools/agent_core/tool_runtime/workdir_paths.py` — **при существенных рефакторингах** обновить номера строк в этом файле.
