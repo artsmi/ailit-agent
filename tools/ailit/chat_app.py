@@ -1385,7 +1385,14 @@ def _build_chat_turn_worker(
 
 def main() -> None:
     """Точка входа Streamlit."""
-    ensure_process_log("chat")
+    _chat_log_handle = ensure_process_log("chat")
+    # Путь к JSONL существует с первой загрузки страницы; раньше key ставился
+    # только после завершения хода — из-за этого «вторая сессия» в новой вкладке
+    # не показывала ссылку на process log, хотя process.start уже записан.
+    st.session_state.setdefault(
+        "ailit_chat_log_path",
+        str(_chat_log_handle.path),
+    )
     st.set_page_config(page_title="ailit chat", layout="wide", initial_sidebar_state="collapsed")
     _init_messages()
     _banner = st.session_state.pop("ailit_limit_turns_banner", None)
