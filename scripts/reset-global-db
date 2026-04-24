@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Удаляет глобальную БД knowledge base (SQLite), которую использует ailit
+# (путь как у kb_tools_config_from_env: AILIT_KB_DB_PATH или ~/.ailit/kb.sqlite3).
+# Также удаляет -wal / -shm, если есть.
+set -euo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+export PYTHONPATH="${REPO_ROOT}/tools${PYTHONPATH:+:${PYTHONPATH}}"
+
+cd "${REPO_ROOT}"
+DB_PATH="$(
+  python3 -c "from agent_core.memory.kb_tools import kb_tools_config_from_env; print(kb_tools_config_from_env().db_path)"
+)"
+removed=0
+for f in "${DB_PATH}" "${DB_PATH}-wal" "${DB_PATH}-shm"; do
+  if [[ -e "${f}" ]]; then
+    rm -f -- "${f}"
+    echo "удалён: ${f}"
+    removed=$((removed + 1))
+  fi
+done
+if [[ "${removed}" -eq 0 ]]; then
+  echo "файлов БД нет: ${DB_PATH} (и побочных -wal/-shm) — сбрасывать нечего"
+  exit 0
+fi
+echo "готово: глобальная KB сброшена (${removed} файл(ов))"
