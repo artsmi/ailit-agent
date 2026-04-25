@@ -5,7 +5,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from threading import Event
-from typing import Any, Sequence
+from typing import Any, Sequence, TYPE_CHECKING
 
 from agent_core.tool_runtime.approval import ApprovalDecision, ApprovalSession
 from agent_core.tool_runtime.permission import (
@@ -25,6 +25,9 @@ from agent_core.tool_runtime.read_file_envelope import (
     extras_from_read_file_meta,
     split_read_file_tool_output,
 )
+
+if TYPE_CHECKING:
+    from agent_core.tool_runtime.memory_grants import MemoryGrantChecker
 
 
 def _write_file_extras_before_run(
@@ -100,10 +103,12 @@ class ToolExecutor:
         self,
         registry: ToolRegistry,
         permission_engine: PermissionEngine | None = None,
+        grant_checker: MemoryGrantChecker | None = None,
     ) -> None:
         """Привязать реестр и движок разрешений."""
         self._registry = registry
         self._permission = permission_engine or PermissionEngine()
+        self._grant_checker = grant_checker
 
     def _guard_cancel(self, cancel: Event | None) -> None:
         if cancel is not None and cancel.is_set():
@@ -145,6 +150,11 @@ class ToolExecutor:
                 extras=None,
             )
         self._guard_cancel(cancel)
+        if self._grant_checker is not None and inv.tool_name in (
+            "read_file",
+            "read_symbol",
+        ):
+            self._enforce_grants(inv.tool_name, args)
         handler = self._registry.get_handler(inv.tool_name)
         extras: dict[str, Any] | None = None
         if inv.tool_name == "write_file" and isinstance(args, dict):
@@ -173,6 +183,27 @@ class ToolExecutor:
             error=None,
             extras=extras,
         )
+
+    def _enforce_grants(self, tool_name: str, args: Any) -> None:
+        from agent_core.tool_runtime.memory_grants import MemoryGrantChecker
+
+        checker: MemoryGrantChecker = self._grant_checker
+        if tool_name == "read_file" and isinstance(args, dict):
+            path = str(args.get("path", ""))
+            offset_line = int(args.get("offset", 1) or 1)
+            raw_limit = args.get("limit")
+            limit_line: int | None
+            if raw_limit is None or raw_limit == "":
+                limit_line = None
+            else:
+                limit_line = int(raw_limit)
+            res = checker.check_read_file(
+                path=path, offset_line=offset_line, limit_line=limit_line
+            )
+            if not res.ok:
+                raise RuntimeError(
+                    str(res.error_code or "memory_grant_required")
+                )
 
     def execute_serial(
         self,
