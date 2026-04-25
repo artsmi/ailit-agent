@@ -12,6 +12,7 @@ const NAV_ITEMS: readonly NavItem[] = [
   { to: "/agent-dialogue", label: "Диалог агентов" },
   { to: "/agents", label: "Текущие агенты" },
   { to: "/memory-graph", label: "Memory Graph" },
+  { to: "/memory-graph-3d", label: "Memory Graph 3D" },
   { to: "/projects", label: "Проекты" },
   { to: "/reports", label: "Отчёты" },
   { to: "/runtime", label: "Runtime status" }

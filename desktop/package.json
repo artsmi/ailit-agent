@@ -12,9 +12,11 @@
     "build": "rimraf dist && tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json && vite build"
   },
   "dependencies": {
+    "react-force-graph-3d": "^1.26.4",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^7.0.0"
+    "react-router-dom": "^7.0.0",
+    "three": "^0.179.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",

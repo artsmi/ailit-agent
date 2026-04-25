@@ -5,6 +5,7 @@ import { ChatPage } from "./views/ChatPage";
 import { AgentDialoguePage } from "./views/AgentDialoguePage";
 import { CurrentAgentsPage } from "./views/CurrentAgentsPage";
 import { MemoryGraphPage } from "./views/MemoryGraphPage";
+import { MemoryGraph3DPage } from "./views/MemoryGraph3DPage";
 import { ProjectsPage } from "./views/ProjectsPage";
 import { ReportsPage } from "./views/ReportsPage";
 import { RuntimeStatusPage } from "./views/RuntimeStatusPage";
@@ -19,6 +20,7 @@ export const router = createBrowserRouter([
       { path: "agent-dialogue", element: <AgentDialoguePage /> },
       { path: "agents", element: <CurrentAgentsPage /> },
       { path: "memory-graph", element: <MemoryGraphPage /> },
+      { path: "memory-graph-3d", element: <MemoryGraph3DPage /> },
       { path: "projects", element: <ProjectsPage /> },
       { path: "reports", element: <ReportsPage /> },
       { path: "runtime", element: <RuntimeStatusPage /> }
