@@ -96,6 +96,44 @@ _install_or_upgrade_systemd_user_service() {
   _log "Логи:      journalctl --user -u ailit.service -f"
 }
 
+_install_desktop_artifacts() {
+  if [[ ! -d "${REPO_ROOT}/desktop" ]]; then
+    _log "desktop/ отсутствует — пропускаю desktop install."
+    return 0
+  fi
+  if ! _have_cmd npm; then
+    echo "Не найден npm. Для `ailit desktop` установите Node.js + npm и повторите `./scripts/install`." >&2
+    return 2
+  fi
+
+  _log "desktop: npm ci"
+  _run npm ci --silent --no-progress --prefix "${REPO_ROOT}/desktop"
+
+  if [[ "${MODE}" == "dev" ]]; then
+    _log "desktop: dev mode готов. Запуск:  cd desktop && npm run dev"
+    return 0
+  fi
+
+  _log "desktop: package linux AppImage"
+  _run npm run package:linux --silent --prefix "${REPO_ROOT}/desktop"
+
+  local out_dir="${REPO_ROOT}/desktop/dist-app"
+  local appimage
+  appimage="$(ls -1 "${out_dir}"/*.AppImage 2>/dev/null | head -n 1 || true)"
+  if [[ -z "${appimage}" ]]; then
+    echo "Не найден AppImage после сборки (ожидалось в ${out_dir})." >&2
+    return 2
+  fi
+
+  local desktop_prefix="${INSTALL_PREFIX}/desktop"
+  _run mkdir -p "${desktop_prefix}"
+  _run cp -f "${appimage}" "${desktop_prefix}/ailit-desktop.AppImage"
+  _run chmod +x "${desktop_prefix}/ailit-desktop.AppImage" || true
+  _log "desktop: installed ${desktop_prefix}/ailit-desktop.AppImage"
+  _log "desktop: запуск из любого каталога:  ailit desktop"
+  return 0
+}
+
 if [[ "${MODE}" != "dev" && "${MODE}" != "prod" ]]; then
   echo "Неизвестный режим: ${MODE}. Используйте: dev | prod" >&2
   exit 2
@@ -136,6 +174,8 @@ else
     _log "Готово: пакет в ${VENV}"
   fi
 fi
+
+_install_desktop_artifacts
 
 if [[ -n "${AILIT_INSTALL_NO_SHIM:-}" ]]; then
   echo "Shim пропущен (AILIT_INSTALL_NO_SHIM). Тогда: source ${VENV}/bin/activate"
