@@ -105,6 +105,7 @@
 ### Дизайн (Candy) и `ailit desktop`
 
 - [`../design/INDEX.md`](../design/INDEX.md) — брендбук Candy и границы desktop UI (Workflow 9).
+- [`g9-9-release-checklist.md`](g9-9-release-checklist.md) — чеклист готовности релиза Workflow 9 (`ailit desktop`).
 
 ### Глобальный CLI, Agent Teams, плагины и human-readable chat
 

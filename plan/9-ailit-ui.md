@@ -665,4 +665,6 @@ curl -d "Мне нужна работа! Я выполнил последнюю 
 
 ## Статус
 
-**Workflow 9 согласован как постановка для следующей ветки после закрытия Workflow 8.** Реализация начинается с G9.0. Каждый этап закрывается проверками, отдельным коммитом с префиксом `ailit-ui-9/G9.n` и notify по правилам [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc). Runtime integration начинается только после закрытия G9.2 и явного пользовательского go.
+**Workflow 9 закрыт (G9.9):** e2e/деградации/README/release checklist выполнены; детали — [`docs/g9-9-release-checklist.md`](../docs/g9-9-release-checklist.md).
+
+**Историческая справка:** изначально Workflow 9 согласовывался после закрытия Workflow 8; этапы G9.0–G9.9 реализованы. Runtime integration велаcь после G9.2 (см. `desktop/UX_GO_G9_2.md`). Следующая крупная ветка — только после research и явной постановки (канон: [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc)).
