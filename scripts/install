@@ -17,6 +17,84 @@ cd "${REPO_ROOT}"
 
 LOCAL_BIN="${HOME}/.local/bin"
 INSTALL_PREFIX="${AILIT_INSTALL_PREFIX:-${HOME}/.local/share/ailit}"
+DRY_RUN="${AILIT_INSTALL_DRY_RUN:-}"
+NO_SYSTEMD="${AILIT_INSTALL_NO_SYSTEMD:-}"
+
+
+_log() {
+  echo "[ailit/install] $*"
+}
+
+
+_run() {
+  if [[ -n "${DRY_RUN}" ]]; then
+    _log "(dry-run) $*"
+    return 0
+  fi
+  "$@"
+}
+
+
+_have_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+
+_systemd_user_available() {
+  # systemctl может быть установлен, но user instance недоступна (например в контейнере).
+  if ! _have_cmd systemctl; then
+    return 1
+  fi
+  if [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
+    return 1
+  fi
+  if [[ ! -S "${XDG_RUNTIME_DIR}/bus" ]]; then
+    return 1
+  fi
+  return 0
+}
+
+
+_write_user_unit() {
+  local unit_dir="${HOME}/.config/systemd/user"
+  local unit_path="${unit_dir}/ailit.service"
+  mkdir -p "${unit_dir}"
+  cat >"${unit_path}" <<'EOF'
+[Unit]
+Description=ailit runtime supervisor
+
+[Service]
+ExecStart=%h/.local/bin/ailit runtime supervisor
+Restart=on-failure
+Environment=AILIT_RUNTIME_DIR=%t/ailit
+
+[Install]
+WantedBy=default.target
+EOF
+  _log "systemd unit: ${unit_path}"
+}
+
+
+_install_or_upgrade_systemd_user_service() {
+  if [[ -n "${NO_SYSTEMD}" ]]; then
+    _log "systemd --user пропущен (AILIT_INSTALL_NO_SYSTEMD)."
+    _log "Ручной запуск supervisor:  ailit runtime supervisor"
+    return 0
+  fi
+  if ! _systemd_user_available; then
+    _log "systemd --user недоступен в этом окружении."
+    _log "Ручной запуск supervisor:  ailit runtime supervisor"
+    return 0
+  fi
+
+  _write_user_unit
+  _run systemctl --user daemon-reload
+  # Idempotent upgrade path: enable+start и затем restart, чтобы подтянуть новый venv/shim.
+  _run systemctl --user enable --now ailit.service
+  _run systemctl --user restart ailit.service
+  _log "Проверка:  systemctl --user status ailit.service"
+  _log "Логи:      journalctl --user -u ailit.service -f"
+}
 
 if [[ "${MODE}" != "dev" && "${MODE}" != "prod" ]]; then
   echo "Неизвестный режим: ${MODE}. Используйте: dev | prod" >&2
@@ -26,29 +104,37 @@ fi
 if [[ "${MODE}" == "prod" ]]; then
   VENV="${INSTALL_PREFIX}/venv"
   mkdir -p "${INSTALL_PREFIX}"
-  if [[ ! -d "${VENV}" ]]; then
-    python3 -m venv "${VENV}"
+  if [[ -n "${DRY_RUN}" ]]; then
+    _log "(dry-run) prod venv: ${VENV}"
+  else
+    if [[ ! -d "${VENV}" ]]; then
+      python3 -m venv "${VENV}"
+    fi
+    # shellcheck disable=SC1091
+    source "${VENV}/bin/activate"
+    python3 -m pip install -U pip setuptools wheel
+    python3 -m pip install ".[chat,tui]"
+    _log "Готово: production-установка в ${VENV} (без -e; префикс ${INSTALL_PREFIX})"
   fi
-  # shellcheck disable=SC1091
-  source "${VENV}/bin/activate"
-  python3 -m pip install -U pip setuptools wheel
-  python3 -m pip install ".[chat,tui]"
-  echo "Готово: production-установка в ${VENV} (без -e; префикс ${INSTALL_PREFIX})"
 else
   VENV="${REPO_ROOT}/.venv"
-  if [[ ! -d "${VENV}" ]]; then
-    python3 -m venv "${VENV}"
+  if [[ -n "${DRY_RUN}" ]]; then
+    _log "(dry-run) dev venv: ${VENV}"
+  else
+    if [[ ! -d "${VENV}" ]]; then
+      python3 -m venv "${VENV}"
+    fi
+    # shellcheck disable=SC1091
+    source "${VENV}/bin/activate"
+
+    python3 -m pip install -U pip setuptools wheel
+    python3 -m pip install -e .
+    python3 -m pip install -e '.[dev]'
+    python3 -m pip install -e '.[chat]'
+    python3 -m pip install -e '.[tui]'
+
+    _log "Готово: пакет в ${VENV}"
   fi
-  # shellcheck disable=SC1091
-  source "${VENV}/bin/activate"
-
-  python3 -m pip install -U pip setuptools wheel
-  python3 -m pip install -e .
-  python3 -m pip install -e '.[dev]'
-  python3 -m pip install -e '.[chat]'
-  python3 -m pip install -e '.[tui]'
-
-  echo "Готово: пакет в ${VENV}"
 fi
 
 if [[ -n "${AILIT_INSTALL_NO_SHIM:-}" ]]; then
@@ -73,5 +159,7 @@ else
     echo "Предупреждение: не найден ${VENV}/bin/ailit — shim не создан."
   fi
 fi
+
+_install_or_upgrade_systemd_user_service
 
 echo "Опционально (pytest из venv):  source ${VENV}/bin/activate"
