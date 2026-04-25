@@ -102,6 +102,10 @@
 
 - [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc) — порядок работы по плану для агента Cursor, ссылки на референсы, правило «конец workflow → research и постановка».
 
+### Дизайн (Candy) и `ailit desktop`
+
+- [`../design/INDEX.md`](../design/INDEX.md) — брендбук Candy и границы desktop UI (Workflow 9).
+
 ### Глобальный CLI, Agent Teams, плагины и human-readable chat
 
 - [`../plan/ailit-global-agent-teams-strategy.md`](../plan/ailit-global-agent-teams-strategy.md)
