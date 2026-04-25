@@ -403,6 +403,7 @@ def main(argv: list[str] | None = None) -> int:
         cmd_kb_rebuild_index,
         cmd_kb_ttl_apply,
     )
+    from ailit.memory_cli import cmd_memory_index
     from ailit.models_cli import register_models_parser
     from ailit.setup_cli import register_setup_parser
 
@@ -808,6 +809,37 @@ def main(argv: list[str] | None = None) -> int:
     )
     p_aud.add_argument("id", type=str, help="KB record id")
     p_aud.set_defaults(func=cmd_kb_dump_audit)
+
+    p_mem = sub.add_parser(
+        "memory",
+        help="PAG: project architecture graph utilities (arch-graph-7)",
+    )
+    mem_sub = p_mem.add_subparsers(dest="memory_cmd", required=True)
+    p_idx = mem_sub.add_parser(
+        "index",
+        help="Проиндексировать проект в PAG store (SQLite)",
+    )
+    p_idx.add_argument(
+        "--project-root",
+        type=str,
+        required=False,
+        default=None,
+        help="Корень проекта (по умолчанию текущий каталог)",
+    )
+    p_idx.add_argument(
+        "--db-path",
+        type=str,
+        required=False,
+        default=None,
+        dest="db_path",
+        help="Путь к sqlite (по умолчанию ~/.ailit/pag/store.sqlite3)",
+    )
+    p_idx.add_argument(
+        "--full",
+        action="store_true",
+        help="Полный re-index (в MVP: без оптимизаций)",
+    )
+    p_idx.set_defaults(func=cmd_memory_index)
 
     args = parser.parse_args(args_in)
     func = getattr(args, "func", None)

@@ -500,6 +500,60 @@ class SqlitePagStore:
             deleted_nodes = int(getattr(cur_n, "rowcount", 0) or 0)
         return deleted_nodes, deleted_edges
 
+    def delete_nodes_by_level_and_path(
+        self,
+        *,
+        namespace: str,
+        level: str,
+        path: str,
+    ) -> int:
+        """Delete nodes by (namespace, level, path).
+
+        Intended for incremental rebuilds (e.g. delete C nodes for a file).
+        """
+        ns = str(namespace).strip()
+        lv = str(level).strip()
+        p = str(path).strip()
+        if not ns or not lv or not p:
+            return 0
+        with self._connect() as con:
+            cur = con.execute(
+                """
+                DELETE FROM pag_nodes
+                WHERE namespace = ? AND level = ? AND path = ?
+                """,
+                (ns, lv, p),
+            )
+            return int(getattr(cur, "rowcount", 0) or 0)
+
+    def delete_edges_touching_node_ids(
+        self,
+        *,
+        namespace: str,
+        node_ids: Sequence[str],
+    ) -> int:
+        """Delete edges where from/to references any of node_ids."""
+        ns = str(namespace).strip()
+        if not ns:
+            return 0
+        ids = tuple(str(x).strip() for x in node_ids if str(x).strip())
+        if not ids:
+            return 0
+        ph = ",".join(["?"] * len(ids))
+        with self._connect() as con:
+            cur = con.execute(
+                """
+                DELETE FROM pag_edges
+                WHERE namespace = ?
+                  AND (from_node_id IN ("""
+                + ph
+                + ") OR to_node_id IN ("
+                + ph
+                + "))",
+                (ns, *ids, *ids),
+            )
+            return int(getattr(cur, "rowcount", 0) or 0)
+
     def _row_to_node(self, row: sqlite3.Row) -> PagNode:
         try:
             attrs = json.loads(str(row["attrs_json"] or "{}"))
