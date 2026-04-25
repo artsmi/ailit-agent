@@ -323,6 +323,115 @@ PAG строится как **иерархия графов** в рамках о
 
 ## Этап G7.0 — Design note + риск-ревью (без кода)
 
+### Design note (канон терминов и границ)
+
+Цель G7.0 — зафиксировать **нормативные определения**, чтобы следующие агенты не спорили о терминах, уровне абстракции и о том, «кто за что отвечает» в runtime.
+
+#### Глоссарий (нормативно)
+
+- **PAG (Project Architecture Graph)**: *устойчивый* (persisted) граф архитектуры **одного** проекта/`namespace`, состоящий из узлов и рёбер, с версией схемы и staleness-политикой. PAG предназначен для guided exploration (shortlist файлов/узлов) и GUI.
+- **Project / namespace**: *единица изоляции* данных PAG и KB. Все ключи (`node_id`, `edge_id`) интерпретируются **внутри** `namespace`.
+- **Уровни A/B/C**:
+  - **A**: проект (repo/workdir) как единый узел-контейнер.
+  - **B**: структура проекта (директории/файлы).
+  - **C**: внутренности файла (символы/секции/декларации/импорты и т.п.).
+- **Containment edges**: иерархические связи «содержит» (`A->B`, `B(dir)->B(child)`, `B(file)->C`).
+- **Cross-links**: семантические ссылки **внутри одного уровня** (`A↔A`, `B↔B`, `C↔C`), например `imports`, `refers_to`, `calls`, `tests`.
+- **Node attributes (`attrs_json`)**: сериализованные атрибуты узла (версионируемая схема `ailit_pag_node_attrs_v1`), предназначены для runtime-retrieval и GUI (панель узла), а не для «внутреннего промпта» как единственного источника истины.
+- **Staleness**: состояние актуальности узла/графа относительно источника (git commit / список файлов / fingerprint). Staleness — **часть контракта**, а не эвристика «на глаз».
+- **Whole-file ingest (текстовые файлы)**: контрактное правило: для индексируемого **текстового** файла `AgentMemory` индексирует **весь файл**, даже если он большой; оптимизация допускается через внутреннее chunk/streaming-разбиение, но не через silent-skip файла.
+
+#### Границы ответственности (нормативно)
+
+- **`AgentWork`**:
+  - отвечает за *решение пользовательской задачи* и итоговый ответ;
+  - использует PAG как **первый** источник guided exploration (когда доступен и свежий);
+  - после изменений передаёт `changed_ranges`/пути для инкрементального обновления.
+- **`AgentMemory`**:
+  - отвечает за *актуальность* PAG, индексацию и retrieval policy;
+  - выдаёт `nodes/edges/attrs` + `recommended_next_step` + **точный** `target_file_paths`;
+  - определяет staleness, confidence и причины fallback.
+- **KB**:
+  - текстовые факты/заметки/сигналы; **не** заменяет PAG и **не** обязан содержать топологию.
+- **`repo_tree` / `repo_signals` (auto-KB)**:
+  - сырьё структуры и маркеры; **не** является PAG и не должен трактоваться как «граф».
+
+#### Инварианты (чтобы не спорить дальше)
+
+1. **Не смешивать уровни рёбер:** containment и cross-links остаются раздельными классами рёбер.
+2. **Cross-links только внутри уровня:** нельзя делать `B(file) -> C(symbol)` как cross-link; это всегда containment `B contains C`.
+3. **PAG — persisted слой:** PAG хранится отдельно и версионируется; runtime не полагается на «память чата» как на единственный storage.
+4. **Shortlist важнее полного дампа:** ответы `AgentMemory` ограничены лимитами; вместо «всё сразу» возвращается top‑K + `recommended_next_step`.
+5. **Большие текстовые файлы не пропускаются молча:** допускается деградация качества извлечения, но не silent-skip.
+
+#### Не-цели G7 (явно)
+
+- не строим «полный LSP/IDE» и не гарантируем 100% точность resolution для импортов/вызовов в MVP;
+- не вводим обязательную внешнюю graph DB «веб‑масштаба»;
+- не делаем ручное редактирование узлов/summary в текущем workflow;
+- не выносим `AgentMemory` в отдельный процесс в MVP (это возможный следующий workflow).
+
+### Runtime-контракт `AgentMemory` ↔ `AgentWork` (v1, нормативный)
+
+Ниже — минимальный контракт обмена, который считается **каноническим** независимо от транспорта (in-process API / tools-adapter / будущий worker).
+
+#### Общие требования к запросам/ответам
+
+- **Структурированный обмен** (JSON-структуры), без «стены текста» как единственного протокола.
+- **Явная версия контракта**: `contract_version = "ailit_pag_runtime_v1"`.
+- **Идемпотентность** для операций чтения: одинаковый запрос при одинаковом состоянии PAG даёт эквивалентный ответ (с учётом `staleness`).
+- **Лимиты**: каждый запрос содержит `limits` (top‑K узлов, max bytes, max nodes/edges, timeout_ms).
+- **Ошибки и деградация**: ответ всегда содержит `staleness` и (если применимо) `fallback_reason`.
+
+#### Минимальная форма запроса
+
+```json
+{
+  "contract_version": "ailit_pag_runtime_v1",
+  "request_id": "uuid",
+  "namespace": "…",
+  "goal": "…",
+  "query_kind": "task|explore|sync",
+  "level": "A|B|C",
+  "selected_node_ids": [],
+  "known_facts": [],
+  "limits": {
+    "top_k_nodes": 30,
+    "top_k_edges": 80,
+    "max_bytes": 120000,
+    "timeout_ms": 15000
+  },
+  "changed_ranges": []
+}
+```
+
+#### Минимальная форма ответа
+
+```json
+{
+  "contract_version": "ailit_pag_runtime_v1",
+  "request_id": "uuid",
+  "kind": "layer_get|nodes_expand|node_attrs|projects_list|index|sync_changes|query_explain",
+  "nodes": [],
+  "edges": [],
+  "hints": [],
+  "target_file_paths": [],
+  "recommended_next_step": "…",
+  "staleness": {
+    "state": "fresh|stale|missing|low_confidence",
+    "reason": "…",
+    "confidence": 0.0
+  },
+  "fallback_reason": null
+}
+```
+
+#### `changed_ranges` (нормативно)
+
+- Используется `AgentWork` → `AgentMemory` в `sync`‑запросах после правок.
+- Формат (минимум): `{ "path": "rel/path", "start_line": 10, "end_line": 42 }`.
+- Семантика: диапазоны **1‑based**, `end_line` включительно; файл интерпретируется как текст (для бинарных — только `path` без ranges, с причиной).
+
 ### Задача G7.0.1 — Зафиксировать ERD и формат рёбер
 
 **Содержание:** 1–2 страницы: ERD, уровни `A/B/C`, список типов containment/cross-link рёбер, правила `node_id` при `not_git`, whole-file ingest для больших файлов, канонические имена `AgentMemory` / `AgentWork`, JSON-first exchange-format по мотивам доноров `/home/artem/reps/graphiti/examples/quickstart/README.md:72-79`, `/home/artem/reps/graphiti/examples/quickstart/README.md:119-128`, `/home/artem/reps/obsidian-memory-mcp/types.ts:1-16`.
