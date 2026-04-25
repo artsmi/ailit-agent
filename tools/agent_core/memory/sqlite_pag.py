@@ -1,0 +1,543 @@
+"""SQLite PAG store (local-first) for workflow arch-graph-7 (G7.1)."""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterable, Mapping, Sequence
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _norm_opt_str(value: str | None) -> str | None:
+    if value is None:
+        return None
+    s = str(value).strip()
+    return s if s else None
+
+
+def _col_str(row: sqlite3.Row, key: str, default: str) -> str:
+    if key not in row.keys():
+        return default
+    raw = row[key]
+    if raw is None:
+        return default
+    s = str(raw).strip()
+    return s if s else default
+
+
+def _col_opt(row: sqlite3.Row, key: str) -> str | None:
+    if key not in row.keys():
+        return None
+    raw = row[key]
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    return s if s else None
+
+
+@dataclass(frozen=True, slots=True)
+class PagNode:
+    """Normalized PAG node stored in SQLite."""
+
+    namespace: str
+    node_id: str
+    level: str
+    kind: str
+    path: str
+    title: str
+    summary: str
+    attrs: dict[str, Any]
+    fingerprint: str
+    staleness_state: str
+    source_contract: str
+    updated_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class PagEdge:
+    """Normalized PAG edge stored in SQLite."""
+
+    namespace: str
+    edge_id: str
+    edge_class: str
+    edge_type: str
+    from_node_id: str
+    to_node_id: str
+    confidence: float
+    source_contract: str
+    updated_at: str
+
+
+class SqlitePagStore:
+    """Very small PAG store on a single SQLite file."""
+
+    def __init__(self, db_path: Path) -> None:
+        self._path = db_path.resolve()
+        self._ensure_parent_dir()
+        self._ensure_schema()
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    def _ensure_parent_dir(self) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+
+    def _connect(self) -> sqlite3.Connection:
+        con = sqlite3.connect(str(self._path))
+        con.row_factory = sqlite3.Row
+        con.execute("PRAGMA foreign_keys = ON")
+        return con
+
+    def _ensure_schema(self) -> None:
+        with self._connect() as con:
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pag_nodes (
+                    namespace TEXT NOT NULL,
+                    node_id TEXT NOT NULL,
+                    level TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    attrs_json TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL,
+                    staleness_state TEXT NOT NULL,
+                    source_contract TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (namespace, node_id)
+                )
+                """,
+            )
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pag_edges (
+                    namespace TEXT NOT NULL,
+                    edge_id TEXT NOT NULL,
+                    edge_class TEXT NOT NULL,
+                    edge_type TEXT NOT NULL,
+                    from_node_id TEXT NOT NULL,
+                    to_node_id TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    source_contract TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (namespace, edge_id)
+                )
+                """,
+            )
+            self._migrate_columns(con, "pag_nodes")
+            self._migrate_columns(con, "pag_edges")
+            self._ensure_indexes(con)
+
+    def _ensure_indexes(self, con: sqlite3.Connection) -> None:
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS pag_nodes_namespace "
+            "ON pag_nodes(namespace)",
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS pag_nodes_level "
+            "ON pag_nodes(namespace, level)",
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS pag_nodes_path "
+            "ON pag_nodes(namespace, path)",
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS pag_nodes_kind "
+            "ON pag_nodes(namespace, kind)",
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS pag_nodes_staleness "
+            "ON pag_nodes(namespace, staleness_state)",
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS pag_edges_namespace "
+            "ON pag_edges(namespace)",
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS pag_edges_from "
+            "ON pag_edges(namespace, from_node_id)",
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS pag_edges_to "
+            "ON pag_edges(namespace, to_node_id)",
+        )
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS pag_edges_class "
+            "ON pag_edges(namespace, edge_class)",
+        )
+
+    def _migrate_columns(self, con: sqlite3.Connection, table: str) -> None:
+        """Best-effort migrations: add new columns if missing."""
+        cur = con.execute(f"PRAGMA table_info({table})")
+        have = {str(r[1]) for r in cur.fetchall()}
+        if table == "pag_nodes":
+            specs: list[tuple[str, str]] = [
+                ("namespace", "TEXT NOT NULL"),
+                ("node_id", "TEXT NOT NULL"),
+                ("level", "TEXT NOT NULL"),
+                ("kind", "TEXT NOT NULL"),
+                ("path", "TEXT NOT NULL"),
+                ("title", "TEXT NOT NULL"),
+                ("summary", "TEXT NOT NULL"),
+                ("attrs_json", "TEXT NOT NULL"),
+                ("fingerprint", "TEXT NOT NULL"),
+                ("staleness_state", "TEXT NOT NULL"),
+                ("source_contract", "TEXT NOT NULL"),
+                ("updated_at", "TEXT NOT NULL"),
+            ]
+        elif table == "pag_edges":
+            specs = [
+                ("namespace", "TEXT NOT NULL"),
+                ("edge_id", "TEXT NOT NULL"),
+                ("edge_class", "TEXT NOT NULL"),
+                ("edge_type", "TEXT NOT NULL"),
+                ("from_node_id", "TEXT NOT NULL"),
+                ("to_node_id", "TEXT NOT NULL"),
+                ("confidence", "REAL NOT NULL"),
+                ("source_contract", "TEXT NOT NULL"),
+                ("updated_at", "TEXT NOT NULL"),
+            ]
+        else:
+            specs = []
+        for col, decl in specs:
+            if col in have:
+                continue
+            con.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+
+    def upsert_node(
+        self,
+        *,
+        namespace: str,
+        node_id: str,
+        level: str,
+        kind: str,
+        path: str,
+        title: str,
+        summary: str,
+        attrs: Mapping[str, Any] | None,
+        fingerprint: str,
+        staleness_state: str = "fresh",
+        source_contract: str = "ailit_pag_store_v1",
+        updated_at: str | None = None,
+    ) -> None:
+        now = _utc_now_iso() if updated_at is None else str(updated_at)
+        ns = str(namespace).strip()
+        nid = str(node_id).strip()
+        if not ns or not nid:
+            raise ValueError("namespace и node_id обязательны")
+        a = dict(attrs) if isinstance(attrs, Mapping) else {}
+        st = str(staleness_state or "fresh").strip() or "fresh"
+        with self._connect() as con:
+            con.execute(
+                """
+                INSERT INTO pag_nodes (
+                    namespace, node_id, level, kind, path, title, summary,
+                    attrs_json, fingerprint, staleness_state,
+                    source_contract, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?
+                )
+                ON CONFLICT(namespace, node_id) DO UPDATE SET
+                    level=excluded.level,
+                    kind=excluded.kind,
+                    path=excluded.path,
+                    title=excluded.title,
+                    summary=excluded.summary,
+                    attrs_json=excluded.attrs_json,
+                    fingerprint=excluded.fingerprint,
+                    staleness_state=excluded.staleness_state,
+                    source_contract=excluded.source_contract,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    ns,
+                    nid,
+                    str(level),
+                    str(kind),
+                    str(path),
+                    str(title),
+                    str(summary),
+                    json.dumps(a, ensure_ascii=False, sort_keys=True),
+                    str(fingerprint),
+                    st,
+                    str(source_contract),
+                    now,
+                ),
+            )
+
+    def upsert_edge(
+        self,
+        *,
+        namespace: str,
+        edge_id: str,
+        edge_class: str,
+        edge_type: str,
+        from_node_id: str,
+        to_node_id: str,
+        confidence: float = 1.0,
+        source_contract: str = "ailit_pag_store_v1",
+        updated_at: str | None = None,
+    ) -> None:
+        now = _utc_now_iso() if updated_at is None else str(updated_at)
+        ns = str(namespace).strip()
+        eid = str(edge_id).strip()
+        if not ns or not eid:
+            raise ValueError("namespace и edge_id обязательны")
+        conf = float(confidence)
+        with self._connect() as con:
+            con.execute(
+                """
+                INSERT INTO pag_edges (
+                    namespace, edge_id, edge_class, edge_type,
+                    from_node_id, to_node_id, confidence,
+                    source_contract, updated_at
+                ) VALUES (
+                    ?, ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?
+                )
+                ON CONFLICT(namespace, edge_id) DO UPDATE SET
+                    edge_class=excluded.edge_class,
+                    edge_type=excluded.edge_type,
+                    from_node_id=excluded.from_node_id,
+                    to_node_id=excluded.to_node_id,
+                    confidence=excluded.confidence,
+                    source_contract=excluded.source_contract,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    ns,
+                    eid,
+                    str(edge_class),
+                    str(edge_type),
+                    str(from_node_id),
+                    str(to_node_id),
+                    conf,
+                    str(source_contract),
+                    now,
+                ),
+            )
+
+    def fetch_node(self, *, namespace: str, node_id: str) -> PagNode | None:
+        ns = str(namespace).strip()
+        nid = str(node_id).strip()
+        if not ns or not nid:
+            return None
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT * FROM pag_nodes WHERE namespace = ? AND node_id = ?",
+                (ns, nid),
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_node(row)
+
+    def list_projects(self, *, limit: int = 50) -> list[PagNode]:
+        lim = max(1, min(int(limit), 500))
+        with self._connect() as con:
+            rows = con.execute(
+                """
+                SELECT * FROM pag_nodes
+                WHERE level = 'A'
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (lim,),
+            ).fetchall()
+        return [self._row_to_node(r) for r in rows]
+
+    def list_nodes(
+        self,
+        *,
+        namespace: str,
+        level: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+        include_stale: bool = True,
+    ) -> list[PagNode]:
+        ns = str(namespace).strip()
+        if not ns:
+            return []
+        lim = max(1, min(int(limit), 1000))
+        off = max(0, int(offset))
+        where: list[str] = ["namespace = ?"]
+        params: list[object] = [ns]
+        if level is not None:
+            where.append("level = ?")
+            params.append(str(level))
+        if not include_stale:
+            where.append("staleness_state = 'fresh'")
+        where_sql = " AND ".join(where)
+        sql = (
+            f"SELECT * FROM pag_nodes WHERE {where_sql} "
+            "ORDER BY updated_at DESC LIMIT ? OFFSET ?"
+        )
+        params.extend([lim, off])
+        with self._connect() as con:
+            rows = con.execute(sql, tuple(params)).fetchall()
+        return [self._row_to_node(r) for r in rows]
+
+    def list_edges_touching(
+        self,
+        *,
+        namespace: str,
+        node_ids: Sequence[str],
+        limit: int = 5000,
+    ) -> list[PagEdge]:
+        ns = str(namespace).strip()
+        if not ns:
+            return []
+        ids = tuple(str(x).strip() for x in node_ids if str(x).strip())
+        if not ids:
+            return []
+        lim = max(1, min(int(limit), 50_000))
+        ph = ",".join(["?"] * len(ids))
+        sql = (
+            "SELECT * FROM pag_edges "
+            "WHERE namespace = ? AND (from_node_id IN (" + ph + ") "
+            "OR to_node_id IN (" + ph + ")) "
+            "ORDER BY updated_at DESC LIMIT ?"
+        )
+        params: list[object] = [ns]
+        params.extend(ids)
+        params.extend(ids)
+        params.append(lim)
+        with self._connect() as con:
+            rows = con.execute(sql, tuple(params)).fetchall()
+        return [self._row_to_edge(r) for r in rows]
+
+    def mark_stale(
+        self,
+        *,
+        namespace: str,
+        node_ids: Iterable[str] | None = None,
+        staleness_state: str = "stale",
+    ) -> int:
+        ns = str(namespace).strip()
+        if not ns:
+            return 0
+        st = str(staleness_state or "stale").strip() or "stale"
+        now = _utc_now_iso()
+        ids = (
+            tuple(str(x).strip() for x in node_ids if str(x).strip())
+            if node_ids is not None
+            else ()
+        )
+        with self._connect() as con:
+            if not ids:
+                cur = con.execute(
+                    """
+                    UPDATE pag_nodes
+                    SET staleness_state = ?, updated_at = ?
+                    WHERE namespace = ?
+                    """,
+                    (st, now, ns),
+                )
+            else:
+                ph = ",".join(["?"] * len(ids))
+                cur = con.execute(
+                    """
+                    UPDATE pag_nodes
+                    SET staleness_state = ?, updated_at = ?
+                    WHERE namespace = ? AND node_id IN ("""
+                    + ph
+                    + ")",
+                    (st, now, ns, *ids),
+                )
+            return int(getattr(cur, "rowcount", 0) or 0)
+
+    def delete_stale(self, *, namespace: str) -> tuple[int, int]:
+        """Delete stale nodes and edges that touch deleted nodes.
+
+        Returns:
+            (deleted_nodes, deleted_edges)
+        """
+        ns = str(namespace).strip()
+        if not ns:
+            return 0, 0
+        deleted_nodes = 0
+        deleted_edges = 0
+        with self._connect() as con:
+            rows = con.execute(
+                """
+                SELECT node_id FROM pag_nodes
+                WHERE namespace = ? AND staleness_state != 'fresh'
+                """,
+                (ns,),
+            ).fetchall()
+            ids = [str(r["node_id"]) for r in rows]
+            if not ids:
+                return 0, 0
+            ph = ",".join(["?"] * len(ids))
+            cur_e = con.execute(
+                """
+                DELETE FROM pag_edges
+                WHERE namespace = ?
+                  AND (from_node_id IN ("""
+                + ph
+                + ") OR to_node_id IN ("
+                + ph
+                + "))",
+                (ns, *ids, *ids),
+            )
+            deleted_edges = int(getattr(cur_e, "rowcount", 0) or 0)
+            cur_n = con.execute(
+                "DELETE FROM pag_nodes WHERE namespace = ? AND node_id IN ("
+                + ph
+                + ")",
+                (ns, *ids),
+            )
+            deleted_nodes = int(getattr(cur_n, "rowcount", 0) or 0)
+        return deleted_nodes, deleted_edges
+
+    def _row_to_node(self, row: sqlite3.Row) -> PagNode:
+        try:
+            attrs = json.loads(str(row["attrs_json"] or "{}"))
+        except json.JSONDecodeError:
+            attrs = {}
+        attrs_map = dict(attrs) if isinstance(attrs, dict) else {}
+        return PagNode(
+            namespace=str(row["namespace"]),
+            node_id=str(row["node_id"]),
+            level=str(row["level"]),
+            kind=str(row["kind"]),
+            path=str(row["path"]),
+            title=str(row["title"]),
+            summary=str(row["summary"]),
+            attrs=attrs_map,
+            fingerprint=_col_str(row, "fingerprint", ""),
+            staleness_state=_col_str(row, "staleness_state", "fresh"),
+            source_contract=_col_str(
+                row,
+                "source_contract",
+                "ailit_pag_store_v1",
+            ),
+            updated_at=_col_str(row, "updated_at", _utc_now_iso()),
+        )
+
+    def _row_to_edge(self, row: sqlite3.Row) -> PagEdge:
+        return PagEdge(
+            namespace=str(row["namespace"]),
+            edge_id=str(row["edge_id"]),
+            edge_class=str(row["edge_class"]),
+            edge_type=str(row["edge_type"]),
+            from_node_id=str(row["from_node_id"]),
+            to_node_id=str(row["to_node_id"]),
+            confidence=float(row["confidence"]),
+            source_contract=_col_str(
+                row,
+                "source_contract",
+                "ailit_pag_store_v1",
+            ),
+            updated_at=_col_str(row, "updated_at", _utc_now_iso()),
+        )
