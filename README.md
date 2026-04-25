@@ -14,12 +14,13 @@
 | **Чтение + память (read‑6)** | **Закрыто:** протокол grep→range-read, `read_symbol` (.py), метрика duplicate read, KB-first hints при `memory.enabled`, прозрачность N/100 в чате, R4.4 digest после `kb_fetch`. |
 | **Граф архитектуры проекта + GUI «ailit memory» (workflow 7)** | [**`plan/7-workflow-project-architecture-graph.md`**](plan/7-workflow-project-architecture-graph.md) — **закрыто:** PAG, автоиндексация, `ailit memory`, `AgentMemory` / `AgentWork`, post-edit sync. |
 | **Low-level agents runtime + broker supervisor (workflow 8)** | [**`plan/8-agents-runtime.md`**](plan/8-agents-runtime.md) — **закрыто:** реализованы этапы **G8.0–G8.8** (supervisor/broker/subprocess agents, `MemoryGrant` enforcement, `ailit chat` client/viewer + trace tab, `scripts/install` с `systemd --user`, e2e readiness/деградации). |
+| **Standalone UI `ailit desktop` (workflow 9)** | [**`plan/9-ailit-ui.md`**](plan/9-ailit-ui.md) — **текущий workflow:** Linux-only Electron desktop binary вместо `ailit chat`, Candy brandbook, mock-first UX checkpoint, `ailit project add`, runtime bridge, dynamic agents UI, PAG graph realtime highlights. |
 
 ## Как работать по проекту
 
 1. **Workflow:** обязательный порядок задач и правило «конец workflow → research и постановка» — в [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc).
 2. **Стратегия и критерии этапов:** [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md) (актуально); bash/shell — [`plan/ailit-bash-strategy.md`](plan/ailit-bash-strategy.md); закрытая ветка — [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md).
-3. **Текущий workflow:** работа идёт по [`plan/8-agents-runtime.md`](plan/8-agents-runtime.md). Токен-экономия и память: ветка M3 закрыта; runtime M4 — [`plan/workflow-memory-4.md`](plan/workflow-memory-4.md). Сводка M3: [`docs/ailit-ai-memory-implementation.md`](docs/ailit-ai-memory-implementation.md).
+3. **Текущий workflow:** работа идёт по [`plan/9-ailit-ui.md`](plan/9-ailit-ui.md). Токен-экономия и память: ветка M3 закрыта; runtime M4 — [`plan/workflow-memory-4.md`](plan/workflow-memory-4.md). Сводка M3: [`docs/ailit-ai-memory-implementation.md`](docs/ailit-ai-memory-implementation.md).
 4. **Оглавление документации:** [`docs/INDEX.md`](docs/INDEX.md).
 
 ## Установка и быстрая проверка
