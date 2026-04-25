@@ -14,7 +14,9 @@ function getRendererUrl(): string {
 }
 
 function getPreloadPath(): string {
-  return path.join(app.getAppPath(), "dist", "preload", "preload.js");
+  // tsconfig.preload: rootDir "src" → out mirrors src/preload/... →
+  // dist/preload/preload/preload.js (не dist/preload/preload.js)
+  return path.join(app.getAppPath(), "dist", "preload", "preload", "preload.js");
 }
 
 async function createWindow(): Promise<void> {
