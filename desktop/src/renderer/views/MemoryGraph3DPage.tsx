@@ -33,6 +33,9 @@ type ForceGraphData = {
   readonly links: GraphLink[];
 };
 
+const GRAPH_VIEWPORT_WIDTH = 860;
+const GRAPH_VIEWPORT_HEIGHT = 560;
+
 function nowMs(): number {
   return Date.now();
 }
@@ -66,8 +69,6 @@ function coordinateOrZero(value: number | undefined): number {
 
 export function MemoryGraph3DPage(): React.JSX.Element {
   const ref = React.useRef<ForceGraphMethods | undefined>(undefined);
-  const containerRef = React.useRef<HTMLDivElement | null>(null);
-  const [size, setSize] = React.useState<{ readonly w: number; readonly h: number }>({ w: 900, h: 560 });
   const highlightRef = React.useRef<HighlightState | null>(null);
   const highlightFrameRef = React.useRef<number | null>(null);
   const initialFitDoneRef = React.useRef<boolean>(false);
@@ -84,20 +85,6 @@ export function MemoryGraph3DPage(): React.JSX.Element {
         window.cancelAnimationFrame(highlightFrameRef.current);
       }
     };
-  }, []);
-
-  React.useEffect(() => {
-    const el: HTMLDivElement | null = containerRef.current;
-    if (el === null) {
-      return;
-    }
-
-    const ro: ResizeObserver = new ResizeObserver(() => {
-      const rect: DOMRect = el.getBoundingClientRect();
-      setSize({ w: Math.max(320, Math.floor(rect.width)), h: Math.max(320, Math.floor(rect.height)) });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
   }, []);
 
   function getGlow(): { readonly alive: boolean; readonly glow: number } {
@@ -196,7 +183,7 @@ export function MemoryGraph3DPage(): React.JSX.Element {
   }
 
   return (
-    <div className="grid2">
+    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16, minWidth: 0 }}>
       <section className="card">
         <div className="cardHeader">Memory Graph 3D (force-graph, mock)</div>
         <div className="cardBody">
@@ -216,26 +203,30 @@ export function MemoryGraph3DPage(): React.JSX.Element {
           </div>
 
           <div
-            ref={containerRef}
             style={{
               marginTop: 16,
-              height: 560,
+              width: GRAPH_VIEWPORT_WIDTH,
+              maxWidth: "100%",
+              height: GRAPH_VIEWPORT_HEIGHT,
               borderRadius: 16,
               overflow: "hidden",
               border: "1px solid var(--candy-border)",
-              background: "rgba(255,255,255,0.35)"
+              background: "rgba(255,255,255,0.35)",
+              marginLeft: "auto",
+              marginRight: "auto"
             }}
           >
             <ForceGraph3D
               ref={ref}
-              width={size.w}
-              height={size.h}
+              width={GRAPH_VIEWPORT_WIDTH}
+              height={GRAPH_VIEWPORT_HEIGHT}
               graphData={data as unknown as { nodes: object[]; links: object[] }}
               backgroundColor="rgba(0,0,0,0)"
               warmupTicks={80}
               cooldownTicks={120}
               d3VelocityDecay={0.9}
               enableNodeDrag={false}
+              enableNavigationControls={false}
               nodeLabel={(n: unknown) => {
                 const node = n as GraphNode;
                 return `${node.label}\n${node.id}`;
