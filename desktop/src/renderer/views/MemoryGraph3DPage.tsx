@@ -226,7 +226,7 @@ export function MemoryGraph3DPage(): React.JSX.Element {
               cooldownTicks={120}
               d3VelocityDecay={0.9}
               enableNodeDrag={false}
-              enableNavigationControls={false}
+              enableNavigationControls
               nodeLabel={(n: unknown) => {
                 const node = n as GraphNode;
                 return `${node.label}\n${node.id}`;
