@@ -3,15 +3,21 @@ import ForceGraph3D, { type ForceGraphMethods } from "react-force-graph-3d";
 import { mockWorkspace } from "../state/mockData";
 
 type GraphNode = {
-  readonly id: string;
-  readonly label: string;
-  readonly level: "A" | "B" | "C";
+  id: string;
+  label: string;
+  level: "A" | "B" | "C";
+  x?: number;
+  y?: number;
+  z?: number;
+  fx?: number;
+  fy?: number;
+  fz?: number;
 };
 
 type GraphLink = {
-  readonly id: string;
-  readonly source: string;
-  readonly target: string;
+  id: string;
+  source: string;
+  target: string;
 };
 
 type HighlightState = {
@@ -23,8 +29,8 @@ type HighlightState = {
 };
 
 type ForceGraphData = {
-  readonly nodes: readonly GraphNode[];
-  readonly links: readonly GraphLink[];
+  readonly nodes: GraphNode[];
+  readonly links: GraphLink[];
 };
 
 function nowMs(): number {
@@ -49,6 +55,13 @@ function levelColor(level: "A" | "B" | "C"): string {
     return "#7c52aa";
   }
   return "rgba(20, 20, 30, 0.55)";
+}
+
+function coordinateOrZero(value: number | undefined): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return 0;
+  }
+  return value;
 }
 
 export function MemoryGraph3DPage(): React.JSX.Element {
@@ -142,6 +155,46 @@ export function MemoryGraph3DPage(): React.JSX.Element {
     fg.zoomToFit(650, 90);
   }
 
+  function freezeGraphAtCenteredCoordinates(): void {
+    const fg = ref.current;
+    if (typeof fg === "undefined") {
+      return;
+    }
+
+    const nodes: GraphNode[] = data.nodes;
+    if (nodes.length === 0) {
+      return;
+    }
+
+    const center = nodes.reduce(
+      (acc, node) => ({
+        x: acc.x + coordinateOrZero(node.x),
+        y: acc.y + coordinateOrZero(node.y),
+        z: acc.z + coordinateOrZero(node.z)
+      }),
+      { x: 0, y: 0, z: 0 }
+    );
+
+    const centerX: number = center.x / nodes.length;
+    const centerY: number = center.y / nodes.length;
+    const centerZ: number = center.z / nodes.length;
+
+    for (const node of nodes) {
+      const x: number = coordinateOrZero(node.x) - centerX;
+      const y: number = coordinateOrZero(node.y) - centerY;
+      const z: number = coordinateOrZero(node.z) - centerZ;
+      node.x = x;
+      node.y = y;
+      node.z = z;
+      node.fx = x;
+      node.fy = y;
+      node.fz = z;
+    }
+
+    fg.pauseAnimation();
+    fg.refresh();
+  }
+
   return (
     <div className="grid2">
       <section className="card">
@@ -180,7 +233,7 @@ export function MemoryGraph3DPage(): React.JSX.Element {
               graphData={data as unknown as { nodes: object[]; links: object[] }}
               backgroundColor="rgba(0,0,0,0)"
               warmupTicks={80}
-              cooldownTicks={0}
+              cooldownTicks={120}
               d3VelocityDecay={0.9}
               enableNodeDrag={false}
               nodeLabel={(n: unknown) => {
@@ -245,6 +298,7 @@ export function MemoryGraph3DPage(): React.JSX.Element {
                 if (typeof fg === "undefined") {
                   return;
                 }
+                freezeGraphAtCenteredCoordinates();
                 fg.zoomToFit(650, 90);
                 initialFitDoneRef.current = true;
               }}
