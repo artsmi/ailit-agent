@@ -153,6 +153,29 @@ def _cmd_chat(_args: argparse.Namespace) -> int:
     return subprocess.call(cmd)
 
 
+def _cmd_memory_ui(_args: argparse.Namespace) -> int:
+    """Запустить Streamlit UI `ailit memory` (PAG GUI)."""
+    try:
+        import streamlit  # noqa: F401, PLC0415
+    except ImportError:
+        msg = "Установите UI-зависимости: pip install -e '.[chat]'\n"
+        sys.stderr.write(msg)
+        return 1
+    app = Path(__file__).resolve().parent / "memory_app.py"
+    cmd = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(app),
+        "--server.headless",
+        "false",
+        "--server.fileWatcherType",
+        "none",
+    ]
+    return subprocess.call(cmd)
+
+
 def _cmd_agent_usage_last(args: argparse.Namespace) -> int:
     """Печать последней сводки usage из лога agent."""
     from pathlib import Path
@@ -814,7 +837,8 @@ def main(argv: list[str] | None = None) -> int:
         "memory",
         help="PAG: project architecture graph utilities (arch-graph-7)",
     )
-    mem_sub = p_mem.add_subparsers(dest="memory_cmd", required=True)
+    mem_sub = p_mem.add_subparsers(dest="memory_cmd", required=False)
+    p_mem.set_defaults(func=_cmd_memory_ui)
     p_idx = mem_sub.add_parser(
         "index",
         help="Проиндексировать проект в PAG store (SQLite)",

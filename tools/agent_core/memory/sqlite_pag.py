@@ -416,6 +416,31 @@ class SqlitePagStore:
             rows = con.execute(sql, tuple(params)).fetchall()
         return [self._row_to_edge(r) for r in rows]
 
+    def list_edges(
+        self,
+        *,
+        namespace: str,
+        limit: int = 5000,
+        offset: int = 0,
+    ) -> list[PagEdge]:
+        """List edges by namespace (for export and GUI pagination)."""
+        ns = str(namespace).strip()
+        if not ns:
+            return []
+        lim = max(1, min(int(limit), 50_000))
+        off = max(0, int(offset))
+        with self._connect() as con:
+            rows = con.execute(
+                """
+                SELECT * FROM pag_edges
+                WHERE namespace = ?
+                ORDER BY updated_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (ns, lim, off),
+            ).fetchall()
+        return [self._row_to_edge(r) for r in rows]
+
     def mark_stale(
         self,
         *,
