@@ -60,3 +60,27 @@ describe("dedupKeyForRow", () => {
     expect(dedupKeyForRow({ message_id: "a" })).toBe("id:a");
   });
 });
+
+describe("G9.9.2 degradation: unknown events do not throw", () => {
+  it("maps unknown type to kind unknown with human line", () => {
+    const n: RuntimeTraceNormalizer = new RuntimeTraceNormalizer();
+    const row: Record<string, unknown> = {
+      type: "totally.unknown.v99",
+      message_id: "m1",
+      chat_id: "c1",
+      namespace: "ns",
+      created_at: "2026-01-01T00:00:00Z",
+      from_agent: "X",
+      to_agent: "Y"
+    };
+    const out = n.normalizeLine(row);
+    expect(out.kind).toBe("unknown");
+    expect(out.humanLine).toContain("unknown");
+  });
+
+  it("handles nearly empty row without throwing", () => {
+    const n: RuntimeTraceNormalizer = new RuntimeTraceNormalizer();
+    const out = n.normalizeLine({});
+    expect(out.kind).toBe("unknown");
+  });
+});
