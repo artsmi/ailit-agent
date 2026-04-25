@@ -428,6 +428,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     from ailit.memory_cli import cmd_memory_index
     from ailit.models_cli import register_models_parser
+    from ailit.runtime_cli import register_runtime_parser
     from ailit.setup_cli import register_setup_parser
 
     parser = argparse.ArgumentParser(
@@ -438,6 +439,7 @@ def main(argv: list[str] | None = None) -> int:
     register_config_parser(sub)
     register_setup_parser(sub)
     register_models_parser(sub)
+    register_runtime_parser(sub)
 
     p_doctor = sub.add_parser(
         "doctor",
