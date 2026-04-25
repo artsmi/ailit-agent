@@ -13,7 +13,7 @@
   - Projects
   - Reports (export mock MD/JSON)
   - Runtime status (mock)
-- Runtime integration **не начата** (и запрещена до закрытия G9.2 и явного go).
+- Runtime integration **не начата** (и запрещена до закрытия G9.2 и явного go; фиксация go: `UX_GO_G9_2.md`).
 
 ## Как запустить UX demo (без runtime)
 
@@ -63,7 +63,7 @@ npm run build
 
 ## Stop gate
 
-**Runtime integration не разрешена**, пока пользователь явно не подтвердит go после просмотра демо и фиксов.
+**G9.2 UX checkpoint закрыт, runtime integration разрешён.** Пользователь дал явный go: см. `UX_GO_G9_2.md`.
 
 Фраза-канон для следующего шага (после подтверждения пользователем):
 
