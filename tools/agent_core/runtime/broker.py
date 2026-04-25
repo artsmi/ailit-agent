@@ -399,7 +399,7 @@ class AgentBroker:
                     },
                 )
             try:
-                out = agent.request(req, timeout_s=2.0)
+                out = agent.request(req, timeout_s=30.0)
             except TimeoutError as e:
                 return make_response_envelope(
                     request=req,
