@@ -219,6 +219,44 @@ class AgentBroker:
     def broker_id(self) -> str:
         return self._broker_id
 
+    def spawn_work(self) -> None:
+        """Поднять AgentWork subprocess (MVP)."""
+        with self._agents_lock:
+            if "AgentWork" in self._agents:
+                return
+            py = sys.executable
+            cmd = [
+                py,
+                "-m",
+                "agent_core.runtime.subprocess_agents.work_agent",
+                "--chat-id",
+                self._cfg.chat_id,
+                "--broker-id",
+                self._broker_id,
+                "--namespace",
+                self._cfg.namespace,
+            ]
+            self._agents["AgentWork"] = _AgentProcess("AgentWork", cmd)
+
+    def spawn_memory(self) -> None:
+        """Поднять AgentMemory subprocess (MVP)."""
+        with self._agents_lock:
+            if "AgentMemory" in self._agents:
+                return
+            py = sys.executable
+            cmd = [
+                py,
+                "-m",
+                "agent_core.runtime.subprocess_agents.memory_agent",
+                "--chat-id",
+                self._cfg.chat_id,
+                "--broker-id",
+                self._broker_id,
+                "--namespace",
+                self._cfg.namespace,
+            ]
+            self._agents["AgentMemory"] = _AgentProcess("AgentMemory", cmd)
+
     def spawn_dummy(self) -> None:
         """Поднять internal AgentDummy (tests)."""
         with self._agents_lock:
@@ -238,6 +276,28 @@ class AgentBroker:
             ]
             self._agents["AgentDummy"] = _AgentProcess("AgentDummy", cmd)
 
+    def _ensure_agent(self, agent_type: str) -> _AgentProcess | None:
+        agent_type = str(agent_type).strip()
+        if agent_type == "AgentDummy":
+            self.spawn_dummy()
+        elif agent_type == "AgentWork":
+            self.spawn_work()
+        elif agent_type == "AgentMemory":
+            self.spawn_memory()
+        with self._agents_lock:
+            return self._agents.get(agent_type)
+
+    @staticmethod
+    def _agent_type_from_to_agent(to_agent: str) -> str:
+        ta = str(to_agent or "").strip()
+        if "AgentDummy" in ta:
+            return "AgentDummy"
+        if "AgentMemory" in ta:
+            return "AgentMemory"
+        if "AgentWork" in ta:
+            return "AgentWork"
+        return ""
+
     def append_trace(self, env: Mapping[str, Any]) -> None:
         row = TraceRow(data=dict(env))
         self._trace.append(row)
@@ -252,6 +312,8 @@ class AgentBroker:
         if req.type == "topic.publish":
             # Best-effort fan-out to all spawned agents (MVP).
             self.spawn_dummy()
+            self.spawn_work()
+            self.spawn_memory()
             with self._agents_lock:
                 agents = list(self._agents.values())
             for a in agents:
@@ -270,58 +332,59 @@ class AgentBroker:
             return resp
         if req.type == "service.request":
             to_agent = req.to_agent or ""
-            if to_agent.endswith("AgentDummy") or "AgentDummy" in to_agent:
-                self.spawn_dummy()
-                with self._agents_lock:
-                    agent = self._agents.get("AgentDummy")
-                if agent is None or not agent.is_alive():
-                    return make_response_envelope(
-                        request=req,
-                        ok=False,
-                        payload={},
-                        error={
-                            "code": "agent_unavailable",
-                            "message": "AgentDummy",
-                        },
-                    )
-                try:
-                    out = agent.request(req, timeout_s=1.0)
-                except TimeoutError as e:
-                    return make_response_envelope(
-                        request=req,
-                        ok=False,
-                        payload={},
-                        error={"code": "runtime_timeout", "message": str(e)},
-                    )
-                self.append_trace(out.to_dict())
-                return out
-            return make_response_envelope(
-                request=req,
-                ok=False,
-                payload={},
-                error={"code": "unknown_agent", "message": to_agent},
-            )
+            agent_type = self._agent_type_from_to_agent(to_agent)
+            agent = self._ensure_agent(agent_type) if agent_type else None
+            if agent is None or not agent.is_alive():
+                return make_response_envelope(
+                    request=req,
+                    ok=False,
+                    payload={},
+                    error={
+                        "code": "agent_unavailable",
+                        "message": agent_type or str(to_agent),
+                    },
+                )
+            try:
+                out = agent.request(req, timeout_s=1.0)
+            except TimeoutError as e:
+                return make_response_envelope(
+                    request=req,
+                    ok=False,
+                    payload={},
+                    error={"code": "runtime_timeout", "message": str(e)},
+                )
+            self.append_trace(out.to_dict())
+            return out
         if req.type == "action.start":
-            # MVP: immediate ack + synthetic feedback + completed.
             to_agent = req.to_agent or ""
-            if to_agent.endswith("AgentDummy") or "AgentDummy" in to_agent:
-                self.spawn_dummy()
-            started = make_response_envelope(
-                request=req,
-                ok=True,
-                payload={"state": "started"},
-                error=None,
-            )
-            self.append_trace(started.to_dict())
-            fb = dict(req.to_dict())
-            fb["type"] = "action.feedback"
-            fb["payload"] = {"progress": 0.5}
-            self.append_trace(fb)
-            done = dict(req.to_dict())
-            done["type"] = "action.completed"
-            done["payload"] = {"result": "ok"}
-            self.append_trace(done)
-            return started
+            agent_type = self._agent_type_from_to_agent(to_agent)
+            if not agent_type:
+                # UX default: work action without explicit to_agent.
+                action = str(req.payload.get("action", "") or "")
+                if action == "work.handle_user_prompt":
+                    agent_type = "AgentWork"
+            agent = self._ensure_agent(agent_type) if agent_type else None
+            if agent is None or not agent.is_alive():
+                return make_response_envelope(
+                    request=req,
+                    ok=False,
+                    payload={},
+                    error={
+                        "code": "agent_unavailable",
+                        "message": agent_type or str(to_agent),
+                    },
+                )
+            try:
+                out = agent.request(req, timeout_s=2.0)
+            except TimeoutError as e:
+                return make_response_envelope(
+                    request=req,
+                    ok=False,
+                    payload={},
+                    error={"code": "runtime_timeout", "message": str(e)},
+                )
+            self.append_trace(out.to_dict())
+            return out
         return make_response_envelope(
             request=req,
             ok=False,

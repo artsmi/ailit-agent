@@ -8,6 +8,8 @@ from io import StringIO
 from pathlib import Path
 import uuid
 import time
+import socket
+import json
 from typing import Any, Callable
 
 import streamlit as st
@@ -98,7 +100,74 @@ from ailit.usage_display import (
 from project_layer.bootstrap import format_agent_run_command
 from project_layer.loader import LoadedProject
 
+from agent_core.runtime.models import RuntimeRequestEnvelope
+from agent_core.runtime.paths import RuntimePaths, default_runtime_dir
+from agent_core.runtime.supervisor import supervisor_request
+
 _REPO = Path(__file__).resolve().parents[2]
+
+
+def _ensure_runtime_chat_id() -> str:
+    chat_id = str(st.session_state.get("ailit_runtime_chat_id", "") or "").strip()
+    if chat_id:
+        return chat_id
+    chat_id = str(uuid.uuid4())
+    st.session_state["ailit_runtime_chat_id"] = chat_id
+    return chat_id
+
+
+def _runtime_dir_from_ui() -> Path:
+    raw = str(st.session_state.get("ailit_runtime_dir", "") or "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return default_runtime_dir()
+
+
+def _supervisor_sock(runtime_dir: Path) -> Path:
+    return RuntimePaths(runtime_dir=runtime_dir).supervisor_socket
+
+
+def _connect_unix(path: Path, *, timeout_s: float) -> socket.socket:
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(timeout_s)
+    s.connect(str(path))
+    return s
+
+
+def _send_work_prompt_to_broker(
+    *,
+    broker_socket: Path,
+    chat_id: str,
+    namespace: str,
+    prompt: str,
+) -> dict[str, object]:
+    env = RuntimeRequestEnvelope(
+        contract_version="ailit_agent_runtime_v1",
+        runtime_id="rt-ui",
+        chat_id=chat_id,
+        broker_id=f"broker-{chat_id}",
+        trace_id=f"trace-{chat_id}",
+        message_id=f"ui-{time.time_ns()}",
+        parent_message_id=None,
+        goal_id=f"goal-{time.time_ns()}",
+        namespace=namespace,
+        from_agent="client:ailit-chat",
+        to_agent=f"AgentWork:{chat_id}",
+        created_at="2026-04-25T00:00:00Z",
+        type="action.start",
+        payload={"action": "work.handle_user_prompt", "prompt": prompt},
+    )
+    s = _connect_unix(broker_socket, timeout_s=2.0)
+    try:
+        s.sendall(env.to_json_line().encode("utf-8") + b"\n")
+        data = s.recv(1_000_000).decode("utf-8", errors="replace").strip()
+    finally:
+        try:
+            s.close()
+        except OSError:
+            pass
+    obj = json.loads(data) if data else {}
+    return obj if isinstance(obj, dict) else {"ok": False, "error": "invalid_response"}
 
 
 def _load_merged_chat_cfg(project_root: Path) -> dict:
@@ -423,7 +492,7 @@ def _render_header_and_menu(
     project_root: Path,
     loaded: LoadedProject | None,
     load_error: str | None,
-) -> tuple[str, int, str, bool, str]:
+) -> tuple[str, int, str, bool, str, bool]:
     """Настройки в popover (бургер), без левой панели."""
     col_l, col_mid, col_r = st.columns([1, 6, 1])
     with col_mid:
@@ -481,6 +550,21 @@ def _render_header_and_menu(
             )
             st.caption("tools включены по умолчанию")
             use_project = st.toggle("Проект", value=True)
+            use_runtime = st.toggle(
+                "Runtime supervisor (G8)",
+                value=True,
+                help=(
+                    "Если включено, UI не запускает агент loop напрямую: "
+                    "prompt уходит в runtime broker через supervisor, "
+                    "а наблюдение идёт через Trace."
+                ),
+            )
+            st.text_input(
+                "runtime_dir (опционально)",
+                key="ailit_runtime_dir",
+                value=str(st.session_state.get("ailit_runtime_dir", "") or ""),
+                help="По умолчанию: XDG_RUNTIME_DIR/ailit",
+            )
             agent_id = st.text_input(
                 "agent_id",
                 value="default",
@@ -489,11 +573,12 @@ def _render_header_and_menu(
             teammate_tools = bool(use_project and loaded is not None)
             if loaded is None:
                 st.caption("Команда: нужен project.yaml")
-            tab_p, tab_team, tab_shell, tab_c, tab_w, tab_a, tab_d, tab_cmd = st.tabs(
+            tab_p, tab_team, tab_shell, tab_trace, tab_c, tab_w, tab_a, tab_d, tab_cmd = st.tabs(
                 [
                     "Проект",
                     "Команда",
                     "Shell",
+                    "Trace",
                     "Контекст",
                     "Workflow",
                     "Adapter",
@@ -573,6 +658,77 @@ def _render_header_and_menu(
                     key="ailit_bash_chat_tail_n",
                 )
                 set_chat_tail_lines(st.session_state, int(n_chat))
+            with tab_trace:
+                st.caption("Runtime trace (G8.6): durable JSONL + tail/диагностика.")
+                chat_id = _ensure_runtime_chat_id()
+                rd = _runtime_dir_from_ui()
+                st.code(f"chat_id={chat_id}\nruntime_dir={rd}", language="text")
+                sup_sock = _supervisor_sock(rd)
+                if not sup_sock.exists():
+                    st.error(
+                        "Supervisor недоступен (нет supervisor.sock). "
+                        "Проверьте: `systemctl --user status ailit.service` "
+                        "или запустите `ailit runtime supervisor`."
+                    )
+                else:
+                    st.success("Supervisor socket найден.")
+                    if st.button(
+                        "Создать/получить broker для этого chat",
+                        key="ailit_rt_get_broker",
+                    ):
+                        ns = "repo"
+                        proj = str(
+                            Path(
+                                st.session_state.get(
+                                    "ailit_project_root",
+                                    project_root,
+                                )
+                            )
+                            .expanduser()
+                            .resolve()
+                        )
+                        resp = supervisor_request(
+                            socket_path=sup_sock,
+                            request={
+                                "cmd": "create_or_get_broker",
+                                "chat_id": chat_id,
+                                "namespace": ns,
+                                "project_root": proj,
+                            },
+                        )
+                        st.session_state["ailit_rt_last_broker_resp"] = resp
+                    last = st.session_state.get("ailit_rt_last_broker_resp")
+                    if isinstance(last, dict):
+                        st.json(last)
+
+                st.divider()
+                st.caption("Trace-файл broker-а (best-effort tail).")
+                n_tail = int(
+                    st.number_input(
+                        "N строк",
+                        min_value=10,
+                        max_value=5000,
+                        value=200,
+                        key="ailit_rt_trace_tail_n",
+                    )
+                )
+                safe = "".join(
+                    c for c in chat_id if c.isalnum() or c in ("-", "_")
+                )
+                trace_path = rd / "trace" / f"trace-{safe}.jsonl"
+                st.code(str(trace_path), language="text")
+                if trace_path.exists():
+                    try:
+                        lines = trace_path.read_text(
+                            encoding="utf-8", errors="replace"
+                        ).splitlines()
+                    except Exception as e:  # noqa: BLE001
+                        st.error(str(e))
+                        lines = []
+                    tail = lines[-n_tail:] if n_tail > 0 else lines
+                    st.text("\n".join(tail))
+                else:
+                    st.info("Trace файл пока не создан.")
             with tab_team:
                 st.caption("Файловый mailbox: `.ailit/teams/<team_id>/inboxes/<agent>.json`")
                 root = Path(st.session_state.get("ailit_project_root", project_root))
@@ -755,7 +911,14 @@ def _render_header_and_menu(
                     f"ailit debug bundle --project-root {root} --out {root / '.ailit' / 'debug-bundle.zip'}",
                     language="bash",
                 )
-    return choice, max_turns, agent_id, use_project, str(tool_exposure)
+    return (
+        choice,
+        max_turns,
+        agent_id,
+        use_project,
+        str(tool_exposure),
+        bool(use_runtime),
+    )
 
 
 def _render_usage_tokens_panel() -> None:
@@ -1430,6 +1593,7 @@ def main() -> None:
         agent_id,
         use_project,
         tool_exposure,
+        use_runtime,
     ) = _render_header_and_menu(
         project_root=project_root,
         loaded=loaded,
@@ -1682,6 +1846,93 @@ def main() -> None:
             ChatMessage(role=MessageRole.USER, content=prompt),
         )
         st.session_state[_ChatPageState.CLEAR_INPUT] = True
+
+        if use_runtime:
+            chat_id = _ensure_runtime_chat_id()
+            rd = _runtime_dir_from_ui()
+            sup_sock = _supervisor_sock(rd)
+            if not sup_sock.exists():
+                st.session_state[_ChatPageState.MESSAGES].append(
+                    ChatMessage(
+                        role=MessageRole.ASSISTANT,
+                        content=(
+                            "Runtime supervisor недоступен (нет supervisor.sock). "
+                            "Проверьте `systemctl --user status ailit.service` "
+                            "или запустите `ailit runtime supervisor`."
+                        ),
+                    )
+                )
+                st.session_state[_ChatPageState.SCROLL_BOTTOM] = True
+                st.rerun()
+                return
+            ns = "repo"
+            sup = supervisor_request(
+                socket_path=sup_sock,
+                request={
+                    "cmd": "create_or_get_broker",
+                    "chat_id": chat_id,
+                    "namespace": ns,
+                    "project_root": str(project_root.resolve()),
+                },
+            )
+            if not isinstance(sup, dict) or sup.get("ok") is not True:
+                st.session_state[_ChatPageState.MESSAGES].append(
+                    ChatMessage(
+                        role=MessageRole.ASSISTANT,
+                        content=f"Supervisor error: {sup!r}",
+                    )
+                )
+                st.session_state[_ChatPageState.SCROLL_BOTTOM] = True
+                st.rerun()
+                return
+            res = sup.get("result") if isinstance(sup.get("result"), dict) else {}
+            endpoint = str(res.get("endpoint", "") or "")
+            if not endpoint.startswith("unix://"):
+                st.session_state[_ChatPageState.MESSAGES].append(
+                    ChatMessage(
+                        role=MessageRole.ASSISTANT,
+                        content=f"Bad broker endpoint: {endpoint!r}",
+                    )
+                )
+                st.session_state[_ChatPageState.SCROLL_BOTTOM] = True
+                st.rerun()
+                return
+            broker_sock = (
+                Path(endpoint[len("unix://") :]).expanduser().resolve()
+            )
+            if not broker_sock.exists():
+                st.session_state[_ChatPageState.MESSAGES].append(
+                    ChatMessage(
+                        role=MessageRole.ASSISTANT,
+                        content=(
+                            "Broker socket ещё не готов. "
+                            "Откройте вкладку Trace и повторите отправку через секунду."
+                        ),
+                    )
+                )
+                st.session_state[_ChatPageState.SCROLL_BOTTOM] = True
+                st.rerun()
+                return
+            out = _send_work_prompt_to_broker(
+                broker_socket=broker_sock,
+                chat_id=chat_id,
+                namespace=ns,
+                prompt=prompt,
+            )
+            st.session_state["ailit_rt_last_action_resp"] = out
+            st.session_state[_ChatPageState.MESSAGES].append(
+                ChatMessage(
+                    role=MessageRole.ASSISTANT,
+                    content=(
+                        "Prompt отправлен в runtime (action.start). "
+                        "Следите за событиями во вкладке Trace.\n\n"
+                        f"Ответ: `{out}`"
+                    ),
+                )
+            )
+            st.session_state[_ChatPageState.SCROLL_BOTTOM] = True
+            st.rerun()
+            return
 
         base_snap: dict[str, object] = {
             "choice": choice,
