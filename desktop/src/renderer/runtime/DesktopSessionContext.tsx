@@ -2,7 +2,13 @@ import React from "react";
 
 import type { ProjectRegistryEntry, RuntimeResponseEnvelope } from "@shared/ipc";
 
+import { DEFAULT_AGENT_MANIFEST_V1 } from "../state/agentManifest";
 import { buildUserPromptAction } from "./envelopeFactory";
+import {
+  buildAgentDialogueMessages,
+  deriveAgentLinkKeysFromTrace,
+  type AgentDialogueMessage
+} from "./agentDialogueProjection";
 import { dedupKeyForRow, RuntimeTraceNormalizer, type NormalizedTraceProjection } from "./traceNormalize";
 import { newMessageId } from "./uuid";
 
@@ -29,6 +35,8 @@ export type DesktopSessionValue = {
   readonly selectedProjectIds: readonly string[];
   readonly rawTraceRows: readonly Record<string, unknown>[];
   readonly normalizedRows: readonly NormalizedTraceProjection[];
+  readonly agentDialogueMessages: readonly AgentDialogueMessage[];
+  readonly agentLinkKeys: ReturnType<typeof deriveAgentLinkKeysFromTrace>;
   readonly chatLines: readonly ChatLine[];
   readonly reconnectAttempt: number;
   readonly refreshStatus: () => Promise<void>;
@@ -151,6 +159,16 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
 
   const normalizedRows: NormalizedTraceProjection[] = React.useMemo(
     () => rawTraceRows.map((r) => normalizer.normalizeLine(r)),
+    [rawTraceRows]
+  );
+
+  const agentDialogueMessages: readonly AgentDialogueMessage[] = React.useMemo(
+    () => buildAgentDialogueMessages(rawTraceRows, DEFAULT_AGENT_MANIFEST_V1, selectedProjectIds),
+    [rawTraceRows, selectedProjectIds]
+  );
+
+  const agentLinkKeys = React.useMemo(
+    () => deriveAgentLinkKeysFromTrace(rawTraceRows),
     [rawTraceRows]
   );
 
@@ -401,6 +419,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     selectedProjectIds,
     rawTraceRows,
     normalizedRows,
+    agentDialogueMessages,
+    agentLinkKeys,
     chatLines,
     reconnectAttempt,
     refreshStatus,

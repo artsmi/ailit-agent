@@ -15,6 +15,7 @@ export function ReportsPage(): React.JSX.Element {
           title: p.title
         })),
         chat: s.chatLines.map((c) => ({ from: c.from, text: c.text, atIso: c.atIso })),
+        agentDialogueMessages: s.agentDialogueMessages,
         normalizedRows: s.normalizedRows,
         rawTraceRows: s.rawTraceRows,
         toolLogs: s.rawTraceRows.slice(0, 32).map((r) => JSON.stringify(r, null, 0).slice(0, 240)),
@@ -30,6 +31,7 @@ export function ReportsPage(): React.JSX.Element {
     s.chatLines,
     s.connection,
     s.lastError,
+    s.agentDialogueMessages,
     s.normalizedRows,
     s.rawTraceRows,
     s.registry,

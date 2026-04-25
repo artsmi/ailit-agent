@@ -1,3 +1,4 @@
+import type { AgentDialogueMessage } from "../runtime/agentDialogueProjection";
 import type { NormalizedTraceProjection } from "../runtime/traceNormalize";
 import { mockWorkspace } from "./mockData";
 
@@ -85,6 +86,7 @@ export function buildMockSessionReportV1(): AilitDesktopSessionReportV1 {
 export function buildLiveSessionReportV1(params: {
   readonly projects: AilitDesktopSessionReportV1["projects"];
   readonly chat: AilitDesktopSessionReportV1["chat"];
+  readonly agentDialogueMessages: readonly AgentDialogueMessage[] | null;
   readonly normalizedRows: readonly NormalizedTraceProjection[];
   readonly rawTraceRows: readonly Record<string, unknown>[];
   readonly toolLogs: readonly string[];
@@ -105,13 +107,22 @@ export function buildLiveSessionReportV1(params: {
     generatedAtIso: nowIso(),
     projects: params.projects,
     chat: params.chat,
-    agentDialogue: params.normalizedRows.map((n) => ({
-      messageId: n.messageId,
-      label: n.kind,
-      text: n.humanLine,
-      technical: n.technicalLine,
-      atIso: n.createdAt
-    })),
+    agentDialogue:
+      params.agentDialogueMessages && params.agentDialogueMessages.length > 0
+        ? params.agentDialogueMessages.map((d) => ({
+            messageId: d.rawRef.messageId,
+            label: `${d.fromDisplay} → ${d.toDisplay}`,
+            text: d.humanText,
+            technical: d.technicalSummary,
+            atIso: d.createdAt
+          }))
+        : params.normalizedRows.map((n) => ({
+            messageId: n.messageId,
+            label: n.kind,
+            text: n.humanLine,
+            technical: n.technicalLine,
+            atIso: n.createdAt
+          })),
     pag: { nodes: [], edges: [] },
     toolLogs: params.toolLogs,
     usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 },
