@@ -1,6 +1,6 @@
 # ailit-agent
 
-Репозиторий CLI и runtime-ядра **`ailit`**: глобальный конфиг, `ailit chat`, `ailit agent`, TUI (`ailit tui`), workflow engine и `agent_core`.
+Репозиторий CLI и runtime-ядра **`ailit`**: глобальный конфиг, продуктовый UI **`ailit desktop`** (Linux), legacy `ailit chat`, `ailit agent`, TUI (`ailit tui`), workflow engine и `agent_core`.
 
 ## Статус разработки (2026-04)
 
@@ -14,13 +14,13 @@
 | **Чтение + память (read‑6)** | **Закрыто:** протокол grep→range-read, `read_symbol` (.py), метрика duplicate read, KB-first hints при `memory.enabled`, прозрачность N/100 в чате, R4.4 digest после `kb_fetch`. |
 | **Граф архитектуры проекта + GUI «ailit memory» (workflow 7)** | [**`plan/7-workflow-project-architecture-graph.md`**](plan/7-workflow-project-architecture-graph.md) — **закрыто:** PAG, автоиндексация, `ailit memory`, `AgentMemory` / `AgentWork`, post-edit sync. |
 | **Low-level agents runtime + broker supervisor (workflow 8)** | [**`plan/8-agents-runtime.md`**](plan/8-agents-runtime.md) — **закрыто:** реализованы этапы **G8.0–G8.8** (supervisor/broker/subprocess agents, `MemoryGrant` enforcement, `ailit chat` client/viewer + trace tab, `scripts/install` с `systemd --user`, e2e readiness/деградации). |
-| **Standalone UI `ailit desktop` (workflow 9)** | [**`plan/9-ailit-ui.md`**](plan/9-ailit-ui.md) — **текущий workflow:** Linux-only Electron desktop binary вместо `ailit chat`, Candy brandbook, mock-first UX checkpoint, `ailit project add`, runtime bridge, dynamic agents UI, PAG graph realtime highlights. |
+| **Standalone UI `ailit desktop` (workflow 9)** | [**`plan/9-ailit-ui.md`**](plan/9-ailit-ui.md) — **закрыт (G9.9):** Linux-only Electron, `ailit project add`, runtime bridge, отчёты MD/JSON, PAG graph. |
 
 ## Как работать по проекту
 
 1. **Workflow:** обязательный порядок задач и правило «конец workflow → research и постановка» — в [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc).
 2. **Стратегия и критерии этапов:** [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md) (актуально); bash/shell — [`plan/ailit-bash-strategy.md`](plan/ailit-bash-strategy.md); закрытая ветка — [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md).
-3. **Текущий workflow:** работа идёт по [`plan/9-ailit-ui.md`](plan/9-ailit-ui.md). Токен-экономия и память: ветка M3 закрыта; runtime M4 — [`plan/workflow-memory-4.md`](plan/workflow-memory-4.md). Сводка M3: [`docs/ailit-ai-memory-implementation.md`](docs/ailit-ai-memory-implementation.md).
+3. **Workflow 9 (`ailit desktop`)** закрыт по [`plan/9-ailit-ui.md`](plan/9-ailit-ui.md); следующая крупная ветка — по согласованию (см. [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc)). Токен-экономия и память: M3 закрыта; runtime M4 — [`plan/workflow-memory-4.md`](plan/workflow-memory-4.md). Сводка M3: [`docs/ailit-ai-memory-implementation.md`](docs/ailit-ai-memory-implementation.md).
 4. **Оглавление документации:** [`docs/INDEX.md`](docs/INDEX.md).
 
 ## Установка и быстрая проверка
@@ -40,6 +40,15 @@ ailit --help
 systemctl --user status ailit.service
 journalctl --user -u ailit.service -f
 ```
+
+### `ailit desktop` и проекты (workflow 9)
+
+- Регистрация проекта в workspace: `ailit project add` (без аргумента — текущий каталог) или `ailit project add /abs/path`.
+- Индексация PAG для памяти: `ailit memory index --project-root PATH` (подсказка печатается после `project add`).
+- Запуск UI: после `./scripts/install` — `ailit desktop`; без собранного AppImage — `ailit desktop --dev` из клона (нужен Node.js, каталог `desktop/`).
+- Runtime: `ailit runtime status` (если сокета нет — в stderr подсказки `systemctl` / `journalctl` для `ailit.service`).
+
+**Диагностика desktop:** нет бинарника в `~/.local/share/ailit/desktop/ailit-desktop.AppImage` — повторить `./scripts/install`, либо `ailit desktop --dev`. Переменная `AILIT_INSTALL_PREFIX` задаёт префикс, как в `scripts/install`.
 
 TUI (нужен extra `[tui]`):
 
