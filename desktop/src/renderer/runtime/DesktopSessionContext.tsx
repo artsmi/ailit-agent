@@ -102,6 +102,10 @@ function pushChatIfNew(
   setChat((c) => [...c, line]);
 }
 
+function chatLineId(kind: "user" | "assistant" | "system", messageId: string): string {
+  return `${kind}:${messageId}`;
+}
+
 export function DesktopSessionProvider({ children }: { readonly children: React.ReactNode }): React.JSX.Element {
   const [connection, setConnection] = React.useState<ConnState>("idle");
   const [runtimeDir, setRuntimeDir] = React.useState<string | null>(null);
@@ -146,11 +150,26 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       for (const row of rows) {
         const n: NormalizedTraceProjection = normalizer.normalizeLine(row);
         if (n.kind === "user_prompt") {
-          pushChatIfNew(setChatLines, seenChatIds, { id: n.messageId, from: "user", text: n.humanLine, atIso: n.createdAt || new Date().toISOString() });
+          pushChatIfNew(setChatLines, seenChatIds, {
+            id: chatLineId("user", n.messageId),
+            from: "user",
+            text: n.humanLine,
+            atIso: n.createdAt || new Date().toISOString()
+          });
         } else if (n.kind === "assistant_response") {
-          pushChatIfNew(setChatLines, seenChatIds, { id: n.messageId, from: "assistant", text: n.humanLine, atIso: n.createdAt || new Date().toISOString() });
+          pushChatIfNew(setChatLines, seenChatIds, {
+            id: chatLineId("assistant", n.messageId),
+            from: "assistant",
+            text: n.humanLine,
+            atIso: n.createdAt || new Date().toISOString()
+          });
         } else if (n.kind === "error_row") {
-          pushChatIfNew(setChatLines, seenChatIds, { id: n.messageId, from: "system", text: n.humanLine, atIso: n.createdAt || new Date().toISOString() });
+          pushChatIfNew(setChatLines, seenChatIds, {
+            id: chatLineId("system", n.messageId),
+            from: "system",
+            text: n.humanLine,
+            atIso: n.createdAt || new Date().toISOString()
+          });
         }
       }
     },
@@ -332,7 +351,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         workspace: { projectIds: ws0.pids, projectRoots: [...ws0.roots] }
       });
       pushChatIfNew(setChatLines, seenChatIds, {
-        id: built.messageId,
+        id: chatLineId("user", built.messageId),
         from: "user",
         text: t,
         atIso: new Date().toISOString()
@@ -345,7 +364,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       const payloadStr: string = r.response.payload ? JSON.stringify(r.response.payload) : "";
       const asstId: string = r.response.message_id;
       const line: ChatLine = {
-        id: asstId,
+        id: chatLineId("assistant", asstId),
         from: "assistant",
         text: r.response.ok ? `ack: ${payloadStr}` : `error: ${JSON.stringify(r.response.error)}`,
         atIso: r.response.created_at
