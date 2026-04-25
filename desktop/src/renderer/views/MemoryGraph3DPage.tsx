@@ -56,7 +56,7 @@ export function MemoryGraph3DPage(): React.JSX.Element {
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const [size, setSize] = React.useState<{ readonly w: number; readonly h: number }>({ w: 900, h: 560 });
   const [highlight, setHighlight] = React.useState<HighlightState | null>(null);
-  const [, forceTick] = React.useState<number>(0);
+  const highlightRef = React.useRef<HighlightState | null>(null);
 
   const data: ForceGraphData = React.useMemo(() => {
     const nodes: GraphNode[] = mockWorkspace.pag.nodes.map((n) => ({ id: n.id, label: n.label, level: n.level }));
@@ -65,7 +65,17 @@ export function MemoryGraph3DPage(): React.JSX.Element {
   }, []);
 
   React.useEffect(() => {
-    const id: number = window.setInterval(() => forceTick((x) => x + 1), 80);
+    highlightRef.current = highlight;
+  }, [highlight]);
+
+  React.useEffect(() => {
+    const id: number = window.setInterval(() => {
+      const fg = ref.current;
+      if (typeof fg === "undefined") {
+        return;
+      }
+      fg.refresh();
+    }, 80);
     return () => window.clearInterval(id);
   }, []);
 
@@ -83,18 +93,24 @@ export function MemoryGraph3DPage(): React.JSX.Element {
     return () => ro.disconnect();
   }, []);
 
-  const atMs: number = nowMs();
-  const alive: boolean = highlight !== null && isAlive(highlight, atMs);
-  const glow: number = highlight !== null && alive ? intensity01(highlight, atMs) : 0;
+  function getGlow(): { readonly alive: boolean; readonly glow: number } {
+    const h: HighlightState | null = highlightRef.current;
+    const atMs: number = nowMs();
+    const alive: boolean = h !== null && isAlive(h, atMs);
+    const glow: number = h !== null && alive ? intensity01(h, atMs) : 0;
+    return { alive, glow };
+  }
 
   function triggerMockSearchHighlight(): void {
-    setHighlight({
+    const h: HighlightState = {
       kind: "pag.search.highlight",
       nodeIds: ["B:tools/ailit/cli.py", "B:tools/agent_core/runtime/broker.py"],
       edgeIds: ["e1", "e2"],
       ttlMs: 3000,
       startedAtMs: nowMs()
-    });
+    };
+    setHighlight(h);
+    highlightRef.current = h;
   }
 
   function focusRoot(): void {
@@ -148,14 +164,18 @@ export function MemoryGraph3DPage(): React.JSX.Element {
               }}
               nodeVal={(n: unknown) => {
                 const node = n as GraphNode;
+                const { alive, glow } = getGlow();
                 const base: number = node.level === "A" ? 9 : node.level === "B" ? 7 : 5;
-                const hot: boolean = alive && highlight !== null && highlight.nodeIds.includes(node.id);
+                const h: HighlightState | null = highlightRef.current;
+                const hot: boolean = alive && h !== null && h.nodeIds.includes(node.id);
                 return hot ? base + glow * 10 : base;
               }}
               nodeColor={(n: unknown) => {
                 const node = n as GraphNode;
+                const { alive } = getGlow();
                 const base: string = levelColor(node.level);
-                const hot: boolean = alive && highlight !== null && highlight.nodeIds.includes(node.id);
+                const h: HighlightState | null = highlightRef.current;
+                const hot: boolean = alive && h !== null && h.nodeIds.includes(node.id);
                 if (!hot) {
                   return base;
                 }
@@ -163,12 +183,16 @@ export function MemoryGraph3DPage(): React.JSX.Element {
               }}
               linkWidth={(l: unknown) => {
                 const link = l as GraphLink;
-                const hot: boolean = alive && highlight !== null && highlight.edgeIds.includes(link.id);
+                const { alive, glow } = getGlow();
+                const h: HighlightState | null = highlightRef.current;
+                const hot: boolean = alive && h !== null && h.edgeIds.includes(link.id);
                 return hot ? 1.8 + glow * 4.2 : 0.8;
               }}
               linkColor={(l: unknown) => {
                 const link = l as GraphLink;
-                const hot: boolean = alive && highlight !== null && highlight.edgeIds.includes(link.id);
+                const { alive, glow } = getGlow();
+                const h: HighlightState | null = highlightRef.current;
+                const hot: boolean = alive && h !== null && h.edgeIds.includes(link.id);
                 if (hot) {
                   return `rgba(224, 64, 160, ${0.35 + glow * 0.55})`;
                 }
@@ -176,12 +200,16 @@ export function MemoryGraph3DPage(): React.JSX.Element {
               }}
               linkDirectionalParticles={(l: unknown) => {
                 const link = l as GraphLink;
-                const hot: boolean = alive && highlight !== null && highlight.edgeIds.includes(link.id);
+                const { alive } = getGlow();
+                const h: HighlightState | null = highlightRef.current;
+                const hot: boolean = alive && h !== null && h.edgeIds.includes(link.id);
                 return hot ? 2 : 0;
               }}
               linkDirectionalParticleWidth={(l: unknown) => {
                 const link = l as GraphLink;
-                const hot: boolean = alive && highlight !== null && highlight.edgeIds.includes(link.id);
+                const { alive } = getGlow();
+                const h: HighlightState | null = highlightRef.current;
+                const hot: boolean = alive && h !== null && h.edgeIds.includes(link.id);
                 return hot ? 2.5 : 0;
               }}
               onEngineStop={() => {
