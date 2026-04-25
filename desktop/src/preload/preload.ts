@@ -10,6 +10,7 @@ import type {
   RuntimeSupervisorCreateBrokerResponse,
   RuntimeSupervisorStatusResponse,
   RuntimeSupervisorStopBrokerResponse,
+  PagGraphSliceResult,
   SaveFileResult,
   TraceChannelEvent
 } from "../shared/ipc";
@@ -73,6 +74,17 @@ const api: DesktopApi = {
   },
   async saveTextFile(params: { readonly suggestedName: string; readonly content: string }): Promise<SaveFileResult> {
     return (await ipcRenderer.invoke("ailit:saveTextFile", params)) as SaveFileResult;
+  },
+  async pagGraphSlice(params: {
+    readonly namespace: string;
+    readonly dbPath?: string;
+    readonly level: string | null;
+    readonly nodeLimit: number;
+    readonly nodeOffset: number;
+    readonly edgeLimit: number;
+    readonly edgeOffset: number;
+  }): Promise<PagGraphSliceResult> {
+    return (await ipcRenderer.invoke("ailit:pagGraphSlice", params)) as PagGraphSliceResult;
   }
 };
 

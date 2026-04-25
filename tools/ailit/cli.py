@@ -426,7 +426,7 @@ def main(argv: list[str] | None = None) -> int:
         cmd_kb_rebuild_index,
         cmd_kb_ttl_apply,
     )
-    from ailit.memory_cli import cmd_memory_index
+    from ailit.memory_cli import cmd_memory_index, cmd_memory_pag_slice
     from ailit.models_cli import register_models_parser
     from ailit.desktop_cli import register_desktop_parser
     from ailit.project_cli import register_project_parser
@@ -870,6 +870,40 @@ def main(argv: list[str] | None = None) -> int:
         help="Полный re-index (в MVP: без оптимизаций)",
     )
     p_idx.set_defaults(func=cmd_memory_index)
+
+    p_ps = mem_sub.add_parser(
+        "pag-slice",
+        help=(
+            "JSON-срез PAG для ailit desktop (G9.8); "
+            "не для ручного редактирования графа"
+        ),
+    )
+    p_ps.add_argument(
+        "--namespace",
+        type=str,
+        required=True,
+        help="PAG namespace (как после memory index)",
+    )
+    p_ps.add_argument(
+        "--db-path",
+        type=str,
+        required=False,
+        default=None,
+        dest="db_path",
+    )
+    p_ps.add_argument(
+        "--level",
+        type=str,
+        required=False,
+        default=None,
+        help="Фильтр: A, B, C или all (по умолчанию — все уровни в лимите)",
+    )
+    p_ps.add_argument("--node-limit", type=int, default=500)
+    p_ps.add_argument("--node-offset", type=int, default=0)
+    p_ps.add_argument("--edge-limit", type=int, default=500)
+    p_ps.add_argument("--edge-offset", type=int, default=0)
+    p_ps.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
+    p_ps.set_defaults(func=cmd_memory_pag_slice)
 
     args = parser.parse_args(args_in)
     func = getattr(args, "func", None)

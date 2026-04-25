@@ -19,7 +19,8 @@ const api: DesktopApi = {
       entries: [],
       activeProjectIds: []
     }),
-  saveTextFile: () => Promise.resolve({ ok: false, error: "no headless" })
+  saveTextFile: () => Promise.resolve({ ok: false, error: "no headless" }),
+  pagGraphSlice: () => Promise.resolve({ ok: false, kind: "ailit_pag_graph_slice_v1", error: "not in test" })
 };
 
 Object.defineProperty(window, "ailitDesktop", {

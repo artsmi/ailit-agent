@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import { brokerJsonRequest } from "./brokerSocket";
 import { defaultRuntimeDir, supervisorSocketPath } from "./defaultRuntimeDir";
 import { listProjectRegistry } from "./projectRegistryBridge";
+import { runPagGraphSlice, type PagGraphSliceResult } from "./pagGraphBridge";
 import { readDurableTraceRows } from "./readTraceJsonl";
 import { supervisorJsonRequest } from "./supervisorSocket";
 import { traceSubscribe, traceUnsubscribe } from "./traceSocketPool";
@@ -148,6 +149,32 @@ export function registerIpcHandlers(): void {
   ipcMain.handle("ailit:projectRegistryList", async (_e: unknown, params: { readonly startPath?: string }) => {
     return listProjectRegistry(params.startPath);
   });
+
+  ipcMain.handle(
+    "ailit:pagGraphSlice",
+    async (
+      _e: unknown,
+      params: {
+        readonly namespace: string;
+        readonly dbPath?: string;
+        readonly level: string | null;
+        readonly nodeLimit: number;
+        readonly nodeOffset: number;
+        readonly edgeLimit: number;
+        readonly edgeOffset: number;
+      }
+    ): Promise<PagGraphSliceResult> => {
+      return runPagGraphSlice({
+        namespace: params.namespace,
+        dbPath: params.dbPath,
+        level: params.level,
+        nodeLimit: params.nodeLimit,
+        nodeOffset: params.nodeOffset,
+        edgeLimit: params.edgeLimit,
+        edgeOffset: params.edgeOffset
+      });
+    }
+  );
 
   ipcMain.handle(
     "ailit:saveTextFile",

@@ -108,6 +108,26 @@ export type ProjectRegistryResult =
 
 export type SaveFileResult = { readonly ok: true } | { readonly ok: false; readonly error: string };
 
+export type PagGraphSliceResult =
+  | {
+      readonly ok: true;
+      readonly kind: "ailit_pag_graph_slice_v1";
+      readonly namespace: string;
+      readonly db_path: string;
+      readonly pag_state: string;
+      readonly level_filter: string | null;
+      readonly nodes: readonly Record<string, unknown>[];
+      readonly edges: readonly Record<string, unknown>[];
+      readonly limits: {
+        readonly node_limit: number;
+        readonly node_offset: number;
+        readonly edge_limit: number;
+        readonly edge_offset: number;
+      };
+      readonly has_more: { readonly nodes: boolean; readonly edges: boolean };
+    }
+  | { readonly ok: false; readonly kind: "ailit_pag_graph_slice_v1"; readonly error: string; readonly code?: string };
+
 export type DesktopTraceRowEvent = {
   readonly chatId: string;
   readonly row: Record<string, unknown>;
@@ -141,5 +161,14 @@ export type DesktopApi = {
   readonly onTraceChannel: (handler: (evt: TraceChannelEvent) => void) => () => void;
   readonly projectRegistryList: (params: { readonly startPath?: string }) => Promise<ProjectRegistryResult>;
   readonly saveTextFile: (params: { readonly suggestedName: string; readonly content: string }) => Promise<SaveFileResult>;
+  readonly pagGraphSlice: (params: {
+    readonly namespace: string;
+    readonly dbPath?: string;
+    readonly level: string | null;
+    readonly nodeLimit: number;
+    readonly nodeOffset: number;
+    readonly edgeLimit: number;
+    readonly edgeOffset: number;
+  }) => Promise<PagGraphSliceResult>;
 };
 
