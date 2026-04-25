@@ -102,6 +102,19 @@ function pushChatIfNew(
   setChat((c) => [...c, line]);
 }
 
+function upsertChatLine(
+  setChat: React.Dispatch<React.SetStateAction<ChatLine[]>>,
+  seen: React.MutableRefObject<Set<string>>,
+  line: ChatLine
+): void {
+  if (!seen.current.has(line.id)) {
+    seen.current.add(line.id);
+    setChat((c) => [...c, line]);
+    return;
+  }
+  setChat((c) => c.map((x) => (x.id === line.id ? line : x)));
+}
+
 function chatLineId(kind: "user" | "assistant" | "system", messageId: string): string {
   return `${kind}:${messageId}`;
 }
@@ -156,8 +169,25 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
             text: n.humanLine,
             atIso: n.createdAt || new Date().toISOString()
           });
-        } else if (n.kind === "assistant_response") {
-          pushChatIfNew(setChatLines, seenChatIds, {
+        } else if (n.kind === "assistant_delta") {
+          const id = chatLineId("assistant", n.messageId);
+          setChatLines((cur) => {
+            const found = cur.find((x) => x.id === id);
+            const prevText = found ? found.text : "";
+            const next: ChatLine = {
+              id,
+              from: "assistant",
+              text: prevText + n.humanLine,
+              atIso: n.createdAt || new Date().toISOString()
+            };
+            if (!seenChatIds.current.has(id)) {
+              seenChatIds.current.add(id);
+              return [...cur, next];
+            }
+            return cur.map((x) => (x.id === id ? next : x));
+          });
+        } else if (n.kind === "assistant_final") {
+          upsertChatLine(setChatLines, seenChatIds, {
             id: chatLineId("assistant", n.messageId),
             from: "assistant",
             text: n.humanLine,

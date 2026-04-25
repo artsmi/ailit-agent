@@ -1,6 +1,8 @@
 export type NormalizedKind =
   | "user_prompt"
   | "assistant_response"
+  | "assistant_delta"
+  | "assistant_final"
   | "tool_event"
   | "usage"
   | "pag"
@@ -59,6 +61,26 @@ function isResponseRow(row: Record<string, unknown>): boolean {
   return typeof row["ok"] === "boolean" && "payload" in row;
 }
 
+function asDict(v: unknown): Record<string, unknown> | null {
+  if (v && typeof v === "object" && !Array.isArray(v)) {
+    return v as Record<string, unknown>;
+  }
+  return null;
+}
+
+function normalizeTopicPublish(row: Record<string, unknown>): { readonly eventName: string; readonly payload: Record<string, unknown> } | null {
+  const pl = asDict(row["payload"]);
+  if (!pl || pl["type"] !== "topic.publish") {
+    return null;
+  }
+  const eventName: unknown = pl["event_name"];
+  const inner: Record<string, unknown> | null = asDict(pl["payload"]);
+  if (typeof eventName !== "string" || !inner) {
+    return null;
+  }
+  return { eventName, payload: inner };
+}
+
 /**
  * Нормализация `ailit_agent_runtime_v1` JSON-line row → проекция UI (G9.5.3).
  */
@@ -72,6 +94,65 @@ export class RuntimeTraceNormalizer {
     const typ: string = strField(row, "type");
     const fromAgent: string = strField(row, "from_agent");
     const toAgent: string | null = typeof row["to_agent"] === "string" || row["to_agent"] === null ? (row["to_agent"] as string | null) : strField(row, "to_agent") || null;
+    if (typ === "topic.publish") {
+      const tp = normalizeTopicPublish(row);
+      if (tp) {
+        const innerMid: string = typeof tp.payload["message_id"] === "string" ? (tp.payload["message_id"] as string) : messageId;
+        const txt: string = typeof tp.payload["text"] === "string" ? (tp.payload["text"] as string) : "";
+        if (tp.eventName === "assistant.delta") {
+          return {
+            kind: "assistant_delta",
+            messageId: innerMid,
+            chatId,
+            namespace,
+            createdAt,
+            humanLine: txt,
+            technicalLine: "assistant.delta",
+            raw: redactedRaw,
+            redacted: true
+          };
+        }
+        if (tp.eventName === "assistant.final") {
+          return {
+            kind: "assistant_final",
+            messageId: innerMid,
+            chatId,
+            namespace,
+            createdAt,
+            humanLine: txt,
+            technicalLine: "assistant.final",
+            raw: redactedRaw,
+            redacted: true
+          };
+        }
+        if (tp.eventName === "model.response") {
+          return {
+            kind: "usage",
+            messageId: innerMid,
+            chatId,
+            namespace,
+            createdAt,
+            humanLine: "usage",
+            technicalLine: JSON.stringify(redactObject(tp.payload["usage"] ?? {}, 0)).slice(0, 200),
+            raw: redactedRaw,
+            redacted: true
+          };
+        }
+        if (tp.eventName.startsWith("tool.") || tp.eventName.startsWith("bash.")) {
+          return {
+            kind: "tool_event",
+            messageId: innerMid,
+            chatId,
+            namespace,
+            createdAt,
+            humanLine: tp.eventName,
+            technicalLine: JSON.stringify(redactObject(tp.payload, 0)).slice(0, 200),
+            raw: redactedRaw,
+            redacted: true
+          };
+        }
+      }
+    }
     if (isResponseRow(row) && (typ === "action.start" || typ === "service.request" || typ === "topic.publish")) {
       const ok: boolean = Boolean((row as { ok?: boolean }).ok);
       const pl = (row as { payload?: unknown }).payload;
