@@ -55,8 +55,9 @@ export function MemoryGraph3DPage(): React.JSX.Element {
   const ref = React.useRef<ForceGraphMethods | undefined>(undefined);
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const [size, setSize] = React.useState<{ readonly w: number; readonly h: number }>({ w: 900, h: 560 });
-  const [highlight, setHighlight] = React.useState<HighlightState | null>(null);
   const highlightRef = React.useRef<HighlightState | null>(null);
+  const highlightFrameRef = React.useRef<number | null>(null);
+  const initialFitDoneRef = React.useRef<boolean>(false);
 
   const data: ForceGraphData = React.useMemo(() => {
     const nodes: GraphNode[] = mockWorkspace.pag.nodes.map((n) => ({ id: n.id, label: n.label, level: n.level }));
@@ -65,18 +66,11 @@ export function MemoryGraph3DPage(): React.JSX.Element {
   }, []);
 
   React.useEffect(() => {
-    highlightRef.current = highlight;
-  }, [highlight]);
-
-  React.useEffect(() => {
-    const id: number = window.setInterval(() => {
-      const fg = ref.current;
-      if (typeof fg === "undefined") {
-        return;
+    return () => {
+      if (highlightFrameRef.current !== null) {
+        window.cancelAnimationFrame(highlightFrameRef.current);
       }
-      fg.refresh();
-    }, 80);
-    return () => window.clearInterval(id);
+    };
   }, []);
 
   React.useEffect(() => {
@@ -109,8 +103,35 @@ export function MemoryGraph3DPage(): React.JSX.Element {
       ttlMs: 3000,
       startedAtMs: nowMs()
     };
-    setHighlight(h);
     highlightRef.current = h;
+    runHighlightRefreshLoop();
+  }
+
+  function runHighlightRefreshLoop(): void {
+    if (highlightFrameRef.current !== null) {
+      window.cancelAnimationFrame(highlightFrameRef.current);
+    }
+
+    const tick = (): void => {
+      const fg = ref.current;
+      const h: HighlightState | null = highlightRef.current;
+      if (typeof fg !== "undefined") {
+        fg.refresh();
+      }
+
+      if (h !== null && isAlive(h, nowMs())) {
+        highlightFrameRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
+
+      highlightRef.current = null;
+      if (typeof fg !== "undefined") {
+        fg.refresh();
+      }
+      highlightFrameRef.current = null;
+    };
+
+    highlightFrameRef.current = window.requestAnimationFrame(tick);
   }
 
   function focusRoot(): void {
@@ -158,6 +179,10 @@ export function MemoryGraph3DPage(): React.JSX.Element {
               height={size.h}
               graphData={data as unknown as { nodes: object[]; links: object[] }}
               backgroundColor="rgba(0,0,0,0)"
+              warmupTicks={80}
+              cooldownTicks={0}
+              d3VelocityDecay={0.9}
+              enableNodeDrag={false}
               nodeLabel={(n: unknown) => {
                 const node = n as GraphNode;
                 return `${node.label}\n${node.id}`;
@@ -213,11 +238,15 @@ export function MemoryGraph3DPage(): React.JSX.Element {
                 return hot ? 2.5 : 0;
               }}
               onEngineStop={() => {
+                if (initialFitDoneRef.current) {
+                  return;
+                }
                 const fg = ref.current;
                 if (typeof fg === "undefined") {
                   return;
                 }
                 fg.zoomToFit(650, 90);
+                initialFitDoneRef.current = true;
               }}
             />
           </div>
