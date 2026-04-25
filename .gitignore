@@ -23,3 +23,8 @@ venv/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+
+# Node / Electron (desktop/)
+desktop/node_modules/
+desktop/.vite/
+desktop/dist/
