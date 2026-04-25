@@ -1,5 +1,5 @@
 import React from "react";
-import { createBrowserRouter, Navigate } from "react-router-dom";
+import { createHashRouter, Navigate } from "react-router-dom";
 import { AppShell } from "./shell/AppShell";
 import { ChatPage } from "./views/ChatPage";
 import { AgentDialoguePage } from "./views/AgentDialoguePage";
@@ -10,7 +10,9 @@ import { ProjectsPage } from "./views/ProjectsPage";
 import { ReportsPage } from "./views/ReportsPage";
 import { RuntimeStatusPage } from "./views/RuntimeStatusPage";
 
-export const router = createBrowserRouter([
+// Hash — иначе при `file://` (AppImage/prod) pathname = путь к index.html, а не "/",
+// и BrowserRouter не матчит ни один route → пустой экран.
+export const router = createHashRouter([
   {
     path: "/",
     element: <AppShell />,
