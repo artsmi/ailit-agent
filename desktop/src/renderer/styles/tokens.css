@@ -1,0 +1,23 @@
+:root {
+  --candy-accent: #e040a0;
+  --candy-accent-2: #7c52aa;
+  --candy-bg: #fff7fb;
+  --candy-surface: #ffffff;
+  --candy-text: #1b1b1f;
+  --candy-text-2: #5a5a66;
+  --candy-border: rgba(20, 20, 30, 0.08);
+
+  --radius-pill: 999px;
+  --radius-card: 18px;
+  --radius-input: 14px;
+
+  --shadow-card: 0 12px 30px rgba(30, 20, 40, 0.12);
+  --shadow-glow: 0 0 0 3px rgba(224, 64, 160, 0.25), 0 14px 40px rgba(224, 64, 160, 0.15);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+}
+
