@@ -81,6 +81,8 @@ class BrokerProcessManager:
                 py,
                 "-m",
                 "agent_core.runtime.broker",
+                "--runtime-dir",
+                str(self._paths.runtime_dir),
                 "--socket-path",
                 str(sock),
                 "--chat-id",
