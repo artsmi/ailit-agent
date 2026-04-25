@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 
 from agent_core.capabilities import Capability
 from agent_core.models import (
@@ -27,6 +28,8 @@ from agent_core.tool_runtime.permission import (
 from agent_core.tool_runtime.bash_tools import bash_tool_registry
 from agent_core.tool_runtime.registry import default_builtin_registry
 from agent_core.memory.kb_tools import KbToolsConfig, build_kb_tool_registry
+from agent_core.memory.pag_indexer import index_project_to_default_store
+from agent_core.memory.sqlite_pag import SqlitePagStore
 
 
 class ScriptedProvider:
@@ -60,6 +63,138 @@ class ScriptedProvider:
             return
         r = self.complete(request)
         yield StreamDone(response=r)
+
+
+class CapturingScriptedProvider(ScriptedProvider):
+    """Scripted provider that captures the last ChatRequest."""
+
+    def __init__(
+        self,
+        responses: list[NormalizedChatResponse],
+        *,
+        stream: bool = False,
+    ) -> None:
+        super().__init__(responses, stream=stream)
+        self.last_request: object | None = None
+
+    def complete(self, request: object) -> NormalizedChatResponse:
+        self.last_request = request
+        return super().complete(request)
+
+    def stream(self, request: object) -> Iterator[StreamEvent]:
+        self.last_request = request
+        yield from super().stream(request)
+
+
+def test_loop_injects_pag_slice_when_available(
+    tmp_path: object,
+    monkeypatch: object,
+) -> None:
+    """PAG-first: inject a system message with PAG slice + emit telemetry."""
+    root = Path(str(tmp_path)).resolve()
+    monkeypatch.setenv("AILIT_WORK_ROOT", str(root))
+    db_path = root / "pag.sqlite3"
+    monkeypatch.setenv("AILIT_PAG", "1")
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db_path))
+    # Create a tiny project and index it into PAG.
+    (root / "tools").mkdir(parents=True, exist_ok=True)
+    (root / "tools" / "cli.py").write_text(
+        "def main() -> int:\n    return 0\n",
+        encoding="utf-8",
+    )
+    ns = index_project_to_default_store(
+        project_root=root,
+        db_path=db_path,
+        full=True,
+    )
+    assert ns
+
+    r1 = NormalizedChatResponse(
+        text_parts=("ok",),
+        tool_calls=(),
+        finish_reason=FinishReason.STOP,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    prov = CapturingScriptedProvider([r1])
+    runner = SessionRunner(prov, default_builtin_registry())
+    messages = [ChatMessage(role=MessageRole.USER, content="Где entrypoint?")]
+    out = runner.run(messages, ApprovalSession(), SessionSettings(model="m"))
+    assert out.state is SessionState.FINISHED
+    # Ensure PAG slice was injected into the request context.
+    req = prov.last_request
+    assert req is not None
+    ctx = getattr(req, "messages", None)
+    assert ctx is not None
+    sys_msgs = [
+        m
+        for m in ctx
+        if getattr(m, "role", None) is MessageRole.SYSTEM
+    ]
+    assert any("PAG slice" in (m.content or "") for m in sys_msgs)
+    # Telemetry: requested/responded and used (or rejected).
+    types = [e.get("event_type") for e in out.events]
+    assert "agent_memory.requested" in types
+    assert "agent_memory.responded" in types
+    assert "agent_work.pag_slice_used" in types
+
+
+def test_loop_pag_sync_after_write_file(
+    tmp_path: object,
+    monkeypatch: object,
+) -> None:
+    """After write_file, runtime sync updates PAG for the written path."""
+    root = Path(str(tmp_path)).resolve()
+    monkeypatch.setenv("AILIT_WORK_ROOT", str(root))
+    db_path = root / "pag.sqlite3"
+    monkeypatch.setenv("AILIT_PAG", "1")
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db_path))
+    monkeypatch.setenv("AILIT_PAG_SYNC_ON_WRITE", "1")
+    # Seed PAG with A node for the project.
+    ns = index_project_to_default_store(
+        project_root=root,
+        db_path=db_path,
+        full=True,
+    )
+    assert ns
+
+    tc = ToolCallNormalized(
+        call_id="w1",
+        tool_name="write_file",
+        arguments_json='{"path":"new.txt","content":"hi"}',
+        stream_index=0,
+        provider_name="scripted",
+    )
+    r1 = NormalizedChatResponse(
+        text_parts=(),
+        tool_calls=(tc,),
+        finish_reason=FinishReason.TOOL_CALLS,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    r2 = NormalizedChatResponse(
+        text_parts=("done",),
+        tool_calls=(),
+        finish_reason=FinishReason.STOP,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    runner = SessionRunner(
+        ScriptedProvider([r1, r2]),
+        default_builtin_registry(),
+        permission_engine=PermissionEngine(
+            write_default=PermissionDecision.ALLOW,
+            shell_default=PermissionDecision.ALLOW,
+        ),
+    )
+    messages = [ChatMessage(role=MessageRole.USER, content="write")]
+    out = runner.run(messages, ApprovalSession(), SessionSettings(model="m"))
+    assert out.state is SessionState.FINISHED
+    store = SqlitePagStore(db_path)
+    b = store.fetch_node(namespace=ns, node_id="B:new.txt")
+    assert b is not None
+    types = [e.get("event_type") for e in out.events]
+    assert "agent_memory.synced_changes" in types
 
 
 def test_loop_two_write_file_one_user_turn(

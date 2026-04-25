@@ -371,6 +371,7 @@ class SessionRunner:
         self._base_registry = registry
         self._context_page_store = ContextPageStore()
         self._recent_reads = RecentFileReadStore()
+        self._pag_namespace: str = ""
         perm = permission_engine or PermissionEngine()
         self._perm = perm
 
@@ -463,6 +464,159 @@ class SessionRunner:
                 "call_id": str(call_id),
                 **data,
             },
+            diag_sink,
+            event_sink,
+        )
+
+    def _maybe_inject_pag_slice(
+        self,
+        *,
+        messages: list[ChatMessage],
+        events: list[dict[str, Any]],
+        diag_sink: Callable[[dict[str, Any]], None] | None,
+        event_sink: SessionEventSink | None,
+    ) -> tuple[str, tuple[str, ...], str | None]:
+        """Inject a compact PAG slice as a system message (G7.4).
+
+        Returns:
+            (namespace, target_file_paths, fallback_reason)
+        """
+        from agent_core.memory.pag_runtime import (  # noqa: WPS433
+            PagRuntimeAgentMemory,
+            PagRuntimeConfig,
+            safe_event_payload_for_slice,
+        )
+
+        cfg = PagRuntimeConfig.from_env()
+        if not cfg.enabled:
+            return "", (), "disabled"
+        goal = ""
+        for m in reversed(messages[-12:]):
+            if m.role is MessageRole.USER:
+                goal = m.content or ""
+                break
+        mem = PagRuntimeAgentMemory(cfg)
+        self._emit(
+            events,
+            "agent_memory.requested",
+            {
+                "contract_version": "ailit_pag_runtime_v1",
+                "query_kind": "task",
+                "level": "B",
+                "db_path": str(mem.db_path),
+            },
+            diag_sink,
+            event_sink,
+        )
+        slice_res = mem.build_slice_for_goal(
+            project_root=Path(work_root()),
+            goal=goal,
+            query_kind="task",
+        )
+        self._pag_namespace = str(slice_res.namespace or "").strip()
+        self._emit(
+            events,
+            "agent_memory.responded",
+            {
+                "contract_version": "ailit_pag_runtime_v1",
+                **safe_event_payload_for_slice(slice_result=slice_res),
+            },
+            diag_sink,
+            event_sink,
+        )
+        if slice_res.used and slice_res.injected_text:
+            messages.append(
+                ChatMessage(
+                    role=MessageRole.SYSTEM,
+                    content=slice_res.injected_text,
+                ),
+            )
+            self._emit(
+                events,
+                "agent_work.pag_slice_used",
+                {
+                    "namespace": slice_res.namespace,
+                    "files": list(slice_res.target_file_paths),
+                },
+                diag_sink,
+                event_sink,
+            )
+            if slice_res.target_file_paths:
+                self._emit(
+                    events,
+                    "agent_work.files_shortlisted",
+                    {
+                        "namespace": slice_res.namespace,
+                        "files": list(slice_res.target_file_paths),
+                    },
+                    diag_sink,
+                    event_sink,
+                )
+            return self._pag_namespace, slice_res.target_file_paths, None
+        self._emit(
+            events,
+            "agent_work.pag_slice_rejected",
+            {
+                "namespace": slice_res.namespace,
+                "staleness_state": slice_res.staleness_state,
+                "fallback_reason": slice_res.fallback_reason,
+            },
+            diag_sink,
+            event_sink,
+        )
+        return self._pag_namespace, (), slice_res.fallback_reason
+
+    def _maybe_sync_pag_after_write_file(
+        self,
+        *,
+        namespace: str,
+        written_paths: Sequence[str],
+        events: list[dict[str, Any]],
+        diag_sink: Callable[[dict[str, Any]], None] | None,
+        event_sink: SessionEventSink | None,
+    ) -> None:
+        from agent_core.memory.pag_runtime import (  # noqa: WPS433
+            PagRuntimeAgentMemory,
+            PagRuntimeConfig,
+            changed_ranges_from_write,
+            safe_event_payload_for_sync,
+        )
+
+        cfg = PagRuntimeConfig.from_env()
+        if not cfg.enabled or not cfg.sync_on_write_file:
+            return
+        ns = str(namespace).strip()
+        if not written_paths:
+            return
+        if not ns:
+            try:
+                rc = detect_repo_context(Path(work_root()))
+            except Exception:  # noqa: BLE001
+                rc = None
+            if rc is not None:
+                ns = namespace_for_repo(
+                    repo_uri=rc.repo_uri,
+                    repo_path=rc.repo_path,
+                    branch=rc.branch,
+                )
+        if not ns:
+            return
+        mem = PagRuntimeAgentMemory(cfg)
+        ranges = changed_ranges_from_write(relative_paths=written_paths)
+        mem.sync_after_write(
+            project_root=Path(work_root()),
+            namespace=ns,
+            changed_paths=written_paths,
+            changed_ranges=ranges,
+        )
+        self._emit(
+            events,
+            "agent_memory.synced_changes",
+            safe_event_payload_for_sync(
+                namespace=ns,
+                changed_paths=written_paths,
+                changed_ranges=ranges,
+            ),
             diag_sink,
             event_sink,
         )
@@ -919,6 +1073,21 @@ class SessionRunner:
         event_sink: SessionEventSink | None,
     ) -> None:
         """Добавить TOOL: pager → char budget (батч) → сообщения."""
+        written: list[str] = []
+        for tr in results:
+            if tr.tool_name == "write_file" and tr.error is None:
+                ext = tr.extras or {}
+                rp = ext.get("relative_path")
+                if isinstance(rp, str) and rp.strip():
+                    written.append(rp.strip())
+        if written:
+            self._maybe_sync_pag_after_write_file(
+                namespace=self._pag_namespace,
+                written_paths=tuple(sorted(set(written))),
+                events=events,
+                diag_sink=diag_sink,
+                event_sink=event_sink,
+            )
         pcfg = settings.context_pager
         rows: list[tuple[ToolInvocation, ToolRunResult, str]] = []
         for inv, tr in zip(invs, results, strict=True):
@@ -1118,6 +1287,7 @@ class SessionRunner:
         agent_steps = 0
         last_model_tool_sig: str | None = None
         same_tool_sig_n = 0
+        pag_namespace: str = ""
 
         for turn in range(_effective_max_turns(settings)):
             if cancel is not None and cancel.is_set():
@@ -2582,6 +2752,18 @@ class SessionRunner:
                                     diag_sink,
                                     event_sink,
                                 )
+
+            # G7.4: PAG-first context slice before the model request.
+            if messages and messages[-1].role in (
+                MessageRole.USER,
+                MessageRole.SYSTEM,
+            ):
+                pag_namespace, _, _ = self._maybe_inject_pag_slice(
+                    messages=messages,
+                    events=events,
+                    diag_sink=diag_sink,
+                    event_sink=event_sink,
+                )
 
             ctx = self._prepare_context(
                 messages,
