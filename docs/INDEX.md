@@ -62,7 +62,7 @@
 ### Реализация AI memory в ailit (снимок + доноры)
 
 - [`ailit-ai-memory-implementation.md`](ailit-ai-memory-implementation.md) — **актуальная** реализация (код, CLI, события), **сопоставление с донорами** (сильные/слабые стороны), ссылки на `plan/`. **Workflow M3** по документации **завершён**; детальная стратегия — в `plan/workflow-memory-3.md` и `plan/m3-*.md`.
-- **Namespace при репозитории без `git`:** ветка и стабильный `repo_uri` в политике retrieval слабее, чем при `git init` + `origin` — match по path; см. `plan/6-read-improve-strategy.md` (R4.2) и `memory_preview` / сессия в `ailit chat`.
+- **Namespace при репозитории без `git`:** ветка и стабильный `repo_uri` в политике retrieval слабее, чем при `git init` + `origin` — match по path; см. `memory_preview` / сессию в `ailit chat` и канон уровней в [`memory-canon.md`](memory-canon.md).
 - **Граф архитектуры проекта (PAG) + веб-GUI `ailit memory`:** [`../plan/7-workflow-project-architecture-graph.md`](../plan/7-workflow-project-architecture-graph.md) (workflow `arch-graph-7`, постановка; анализ доноров внутри документа).
 
 ### Provider layer (код, этап 3)

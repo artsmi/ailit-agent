@@ -12,7 +12,7 @@
 
 - **Связь с M3/M4 / KB:** сегодня auto-KB пишет **лёгкие** факты (`repo_tree` = сырой `list_dir`, `repo_signals` = пути маркерных файлов) — см. `tools/agent_core/session/loop.py` (например, `repo_tree` ~L1632–1780, `repo_signals` ~L1783–1935). Это **не** граф и **не** смысловые описания «с чем связан узёл».
 - **Workflow 7** добавляет **отдельный слой** — **project architecture graph** (PAG), не заменяя `kb_records` целиком: либо **расширение схемы** хранения, либо **соседняя** таблица/файл в `~/.ailit`, с явной **версией контракта** и миграциями.
-- **Read-6** (`plan/6-read-improve-strategy.md`): `read_symbol` / range-read — **источник атрибутов** для файлов `.py` (и задел под другие языки); PAG **потребляет** эти примитивы, не дублируя парсер «втихаря».
+- **Read/runtime primitives:** `read_symbol` / range-read уже реализованы в `tools/agent_core/tool_runtime/python_read_symbol.py`, `tools/agent_core/tool_runtime/builtins.py`, `tools/agent_core/tool_runtime/workdir_paths.py`; PAG **потребляет** эти примитивы как источник атрибутов для файлов `.py` и задел под другие языки, не дублируя парсер «втихаря».
 - **Имена runtime-ролей:** в коде / UI / документации использовать **`AgentMemory`** и **`AgentWork`** как канонические названия двух постоянно взаимодействующих контекстов. Старые описательные имена вроде `ContextPAG` / `ContextWork` допустимы только как пояснение в design note, но **не** как публичное API.
 
 ---
