@@ -72,3 +72,21 @@ def test_project_add_invalid_path_exit_2(
     assert rc == 2
     err = capsys.readouterr().err
     assert "Некорректный путь проекта" in err
+
+
+def test_project_list_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`project list --json` prints one JSON object with entries."""
+    proj = tmp_path / "repo"
+    proj.mkdir()
+    monkeypatch.chdir(proj)
+    assert main(["project", "add"]) == 0
+    capsys.readouterr()
+    assert main(["project", "list", "--json", "--start", str(proj)]) == 0
+    out = capsys.readouterr().out
+    assert "registry_file" in out
+    assert "active_project_ids" in out
+    assert "entries" in out

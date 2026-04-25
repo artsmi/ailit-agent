@@ -1,2 +1,29 @@
 import "@testing-library/jest-dom/vitest";
+import type { DesktopApi } from "@shared/ipc";
+const api: DesktopApi = {
+  ping: () => Promise.resolve("pong"),
+  supervisorStatus: () => Promise.resolve({ ok: false, error: "not available in unit test" }),
+  supervisorBrokers: () => Promise.resolve({ ok: false, error: "not available" }),
+  supervisorCreateOrGetBroker: () => Promise.resolve({ ok: false, error: { code: "test", message: "n/a" } }),
+  supervisorStopBroker: () => Promise.resolve({ ok: true, result: null }),
+  brokerRequest: () => Promise.resolve({ ok: false, error: "n/a" }),
+  traceReadDurable: () => Promise.resolve({ ok: true, rows: [] }),
+  traceSubscribe: () => Promise.resolve({ ok: true }),
+  traceUnsubscribe: () => Promise.resolve({ ok: true }),
+  onTraceRow: () => () => {},
+  onTraceChannel: () => () => {},
+  projectRegistryList: () =>
+    Promise.resolve({
+      ok: true,
+      registryFile: "/tmp/.ailit/config.yaml",
+      entries: [],
+      activeProjectIds: []
+    }),
+  saveTextFile: () => Promise.resolve({ ok: false, error: "no headless" })
+};
 
+Object.defineProperty(window, "ailitDesktop", {
+  value: api,
+  configurable: true,
+  writable: true
+});

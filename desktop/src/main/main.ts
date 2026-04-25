@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog } from "electron";
 import * as path from "node:path";
 
+import { registerIpcHandlers } from "./registerIpc";
+
 function getRendererUrl(): string {
   const devUrlRaw: string | undefined = process.env["AILIT_DESKTOP_DEV_URL"];
   if (typeof devUrlRaw === "string" && devUrlRaw.length > 0) {
@@ -53,6 +55,7 @@ app.on("window-all-closed", () => {
 });
 
 app.whenReady().then(async () => {
+  registerIpcHandlers();
   await createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

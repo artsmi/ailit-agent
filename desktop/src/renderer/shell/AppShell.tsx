@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink, Outlet } from "react-router-dom";
-import { MockWorkspaceBadge } from "./MockWorkspaceBadge";
+import { WorkspaceBadge } from "./WorkspaceBadge";
 
 type NavItem = {
   readonly to: string;
@@ -45,9 +45,9 @@ export function AppShell(): React.JSX.Element {
         <header className="topbar">
           <div className="pill">
             <span>Workflow 9</span>
-            <span className="mono">G9.1 mock</span>
+            <span className="mono">G9.5+</span>
           </div>
-          <MockWorkspaceBadge />
+          <WorkspaceBadge />
         </header>
         <div className="page">
           <Outlet />

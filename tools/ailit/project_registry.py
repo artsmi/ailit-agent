@@ -60,6 +60,15 @@ class ProjectRegistryWriteResult:
     path: Path
 
 
+@dataclass(frozen=True, slots=True)
+class ProjectRegistryListResult:
+    """Snapshot of `projects` section in `.ailit/config.yaml`."""
+
+    registry_file: Path
+    entries: tuple[dict[str, Any], ...]
+    active_project_ids: tuple[str, ...]
+
+
 class LocalYamlFileStore:
     """Atomic YAML mapping read/write for local `.ailit/config.yaml`."""
 
@@ -175,4 +184,33 @@ class ProjectRegistryEditor:
             namespace=namespace,
             title=title,
             path=abs_path,
+        )
+
+    def read_registry(self, *, start: Path) -> ProjectRegistryListResult:
+        """Прочитать registry из ближайшего к `start` `.ailit/config.yaml`."""
+        registry_file = self._locator.find_registry_file(start)
+        data = self._store.load_mapping(registry_file)
+        projects = data.get("projects")
+        if not isinstance(projects, dict):
+            return ProjectRegistryListResult(
+                registry_file=registry_file,
+                entries=(),
+                active_project_ids=(),
+            )
+        raw_entries = projects.get("entries")
+        entries: list[dict[str, Any]] = []
+        if isinstance(raw_entries, list):
+            for item in raw_entries:
+                if isinstance(item, dict):
+                    entries.append(dict(item))
+        raw_active = projects.get("active_project_ids")
+        active: list[str] = []
+        if isinstance(raw_active, list):
+            for x in raw_active:
+                if isinstance(x, str) and x.strip():
+                    active.append(x)
+        return ProjectRegistryListResult(
+            registry_file=registry_file,
+            entries=tuple(entries),
+            active_project_ids=tuple(active),
         )

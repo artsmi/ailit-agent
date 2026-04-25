@@ -1,6 +1,8 @@
+import type { NormalizedTraceProjection } from "../runtime/traceNormalize";
 import { mockWorkspace } from "./mockData";
 
-export type MockSessionReportV1 = {
+/** Единый отчёт G9.6: mock или live, JSON schema `ailit_desktop_session_report_v1`. */
+export type AilitDesktopSessionReportV1 = {
   readonly kind: "ailit_desktop_session_report_v1";
   readonly generatedAtIso: string;
   readonly projects: readonly {
@@ -10,16 +12,15 @@ export type MockSessionReportV1 = {
     readonly title: string;
   }[];
   readonly chat: readonly {
-    readonly from: "user" | "assistant";
+    readonly from: "user" | "assistant" | "system";
     readonly text: string;
     readonly atIso: string;
   }[];
   readonly agentDialogue: readonly {
-    readonly fromAgent: string;
-    readonly toAgent: string;
-    readonly humanText: string;
-    readonly technicalSummary: string;
-    readonly severity: "info" | "warning" | "error";
+    readonly messageId: string;
+    readonly label: string;
+    readonly text: string;
+    readonly technical: string;
     readonly atIso: string;
   }[];
   readonly pag: {
@@ -32,10 +33,13 @@ export type MockSessionReportV1 = {
     readonly tokensOut: number;
     readonly costUsd: number;
   };
+  readonly rawTraceMessageIds: readonly string[];
   readonly runtimeHealth: {
-    readonly mode: "mock";
-    readonly supervisor: "unknown";
-    readonly broker: "unknown";
+    readonly mode: "mock" | "live";
+    readonly connection: string;
+    readonly runtimeDir: string | null;
+    readonly brokerEndpoint: string | null;
+    readonly lastError: string | null;
   };
 };
 
@@ -43,7 +47,7 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-export function buildMockSessionReportV1(): MockSessionReportV1 {
+export function buildMockSessionReportV1(): AilitDesktopSessionReportV1 {
   return {
     kind: "ailit_desktop_session_report_v1",
     generatedAtIso: nowIso(),
@@ -55,11 +59,10 @@ export function buildMockSessionReportV1(): MockSessionReportV1 {
     })),
     chat: mockWorkspace.chat.map((m) => ({ from: m.from, text: m.text, atIso: m.atIso })),
     agentDialogue: mockWorkspace.agentDialogue.map((d) => ({
-      fromAgent: d.fromAgent,
-      toAgent: d.toAgent,
-      humanText: d.humanText,
-      technicalSummary: d.technicalSummary,
-      severity: d.severity,
+      messageId: d.id,
+      label: `${d.fromAgent} → ${d.toAgent}`,
+      text: d.humanText,
+      technical: d.technicalSummary,
       atIso: d.atIso
     })),
     pag: {
@@ -68,20 +71,78 @@ export function buildMockSessionReportV1(): MockSessionReportV1 {
     },
     toolLogs: mockWorkspace.toolLogs,
     usage: mockWorkspace.usage,
+    rawTraceMessageIds: [],
     runtimeHealth: {
       mode: "mock",
-      supervisor: "unknown",
-      broker: "unknown"
+      connection: "mock",
+      runtimeDir: null,
+      brokerEndpoint: null,
+      lastError: null
     }
   };
 }
 
-export function reportToMarkdown(report: MockSessionReportV1): string {
+export function buildLiveSessionReportV1(params: {
+  readonly projects: AilitDesktopSessionReportV1["projects"];
+  readonly chat: AilitDesktopSessionReportV1["chat"];
+  readonly normalizedRows: readonly NormalizedTraceProjection[];
+  readonly rawTraceRows: readonly Record<string, unknown>[];
+  readonly toolLogs: readonly string[];
+  readonly connection: string;
+  readonly runtimeDir: string | null;
+  readonly brokerEndpoint: string | null;
+  readonly lastError: string | null;
+}): AilitDesktopSessionReportV1 {
+  const mids: string[] = [];
+  for (const r of params.rawTraceRows) {
+    const m: unknown = r["message_id"];
+    if (typeof m === "string" && m) {
+      mids.push(m);
+    }
+  }
+  return {
+    kind: "ailit_desktop_session_report_v1",
+    generatedAtIso: nowIso(),
+    projects: params.projects,
+    chat: params.chat,
+    agentDialogue: params.normalizedRows.map((n) => ({
+      messageId: n.messageId,
+      label: n.kind,
+      text: n.humanLine,
+      technical: n.technicalLine,
+      atIso: n.createdAt
+    })),
+    pag: { nodes: [], edges: [] },
+    toolLogs: params.toolLogs,
+    usage: { tokensIn: 0, tokensOut: 0, costUsd: 0 },
+    rawTraceMessageIds: mids,
+    runtimeHealth: {
+      mode: "live",
+      connection: params.connection,
+      runtimeDir: params.runtimeDir,
+      brokerEndpoint: params.brokerEndpoint,
+      lastError: params.lastError
+    }
+  };
+}
+
+export function reportToMarkdown(report: AilitDesktopSessionReportV1): string {
   const lines: string[] = [];
   lines.push(`# ailit desktop report`);
   lines.push(``);
   lines.push(`- generated_at: ${report.generatedAtIso}`);
-  lines.push(`- mode: ${report.runtimeHealth.mode}`);
+  lines.push(
+    `- mode: ${report.runtimeHealth.mode} (connection=${report.runtimeHealth.connection})`
+  );
+  if (report.runtimeHealth.runtimeDir) {
+    lines.push(`- runtime_dir: \`${report.runtimeHealth.runtimeDir}\``);
+  }
+  if (report.runtimeHealth.brokerEndpoint) {
+    lines.push(`- broker: \`${report.runtimeHealth.brokerEndpoint}\``);
+  }
+  if (report.runtimeHealth.lastError) {
+    lines.push(`- last_error: ${report.runtimeHealth.lastError}`);
+  }
   lines.push(``);
   lines.push(`## Projects`);
   for (const p of report.projects) {
@@ -92,16 +153,24 @@ export function reportToMarkdown(report: MockSessionReportV1): string {
   lines.push(``);
   lines.push(`## Chat transcript`);
   for (const m of report.chat) {
-    const who: string = m.from === "user" ? "User" : "Assistant";
+    const who: string = m.from === "user" ? "User" : m.from === "system" ? "System" : "Assistant";
     lines.push(`- **${who}** (${m.atIso})`);
     lines.push(`  - ${m.text}`);
   }
   lines.push(``);
-  lines.push(`## Agent dialogue`);
+  lines.push(`## Agent dialogue (from trace / mock)`);
   for (const d of report.agentDialogue) {
-    lines.push(`- **${d.fromAgent} → ${d.toAgent}** (${d.atIso})`);
-    lines.push(`  - ${d.humanText}`);
-    lines.push(`  - _${d.technicalSummary}_`);
+    lines.push(`- **${d.label}** [${d.messageId}] (${d.atIso})`);
+    lines.push(`  - ${d.text}`);
+    lines.push(`  - _${d.technical}_`);
+  }
+  lines.push(``);
+  lines.push(`## Raw trace message ids`);
+  for (const id of report.rawTraceMessageIds.slice(0, 500)) {
+    lines.push(`- \`${id}\``);
+  }
+  if (report.rawTraceMessageIds.length > 500) {
+    lines.push(`- … ${report.rawTraceMessageIds.length - 500} more`);
   }
   lines.push(``);
   lines.push(`## Usage`);
@@ -109,7 +178,7 @@ export function reportToMarkdown(report: MockSessionReportV1): string {
   lines.push(`- tokens_out: ${report.usage.tokensOut}`);
   lines.push(`- cost_usd: ${report.usage.costUsd}`);
   lines.push(``);
-  lines.push(`## Tool logs`);
+  lines.push(`## Tool logs / trace summary`);
   for (const row of report.toolLogs) {
     lines.push(`- ${row}`);
   }
@@ -127,19 +196,36 @@ function downloadTextFile(params: { readonly filename: string; readonly content:
   URL.revokeObjectURL(url);
 }
 
-export function downloadReportJson(report: MockSessionReportV1): void {
+export async function saveReportJsonViaBridge(report: AilitDesktopSessionReportV1): Promise<void> {
+  if (window.ailitDesktop?.saveTextFile) {
+    const r: Awaited<ReturnType<NonNullable<typeof window.ailitDesktop.saveTextFile>>> = await window.ailitDesktop.saveTextFile({
+      suggestedName: "ailit-session-report.json",
+      content: JSON.stringify(report, null, 2)
+    });
+    if (r.ok) {
+      return;
+    }
+  }
   downloadTextFile({
-    filename: "ailit-session-report.mock.json",
+    filename: "ailit-session-report.json",
     content: JSON.stringify(report, null, 2),
     mime: "application/json"
   });
 }
 
-export function downloadReportMarkdown(report: MockSessionReportV1): void {
+export async function saveReportMarkdownViaBridge(report: AilitDesktopSessionReportV1): Promise<void> {
+  if (window.ailitDesktop?.saveTextFile) {
+    const r: Awaited<ReturnType<NonNullable<typeof window.ailitDesktop.saveTextFile>>> = await window.ailitDesktop.saveTextFile({
+      suggestedName: "ailit-session-report.md",
+      content: reportToMarkdown(report)
+    });
+    if (r.ok) {
+      return;
+    }
+  }
   downloadTextFile({
-    filename: "ailit-session-report.mock.md",
+    filename: "ailit-session-report.md",
     content: reportToMarkdown(report),
     mime: "text/markdown"
   });
 }
-
