@@ -63,7 +63,13 @@ class BrokerProcessManager:
         self._paths = paths
         self._cmd = cmd
 
-    def spawn(self, *, chat_id: str) -> tuple[int, str]:
+    def spawn(
+        self,
+        *,
+        chat_id: str,
+        namespace: str,
+        project_root: str,
+    ) -> tuple[int, str]:
         """Запустить broker и вернуть (pid, endpoint)."""
         sock = self._paths.broker_socket(chat_id=chat_id)
         endpoint = f"unix://{sock}"
@@ -74,8 +80,15 @@ class BrokerProcessManager:
             cmd = [
                 py,
                 "-m",
-                "agent_core.runtime.broker_placeholder",
+                "agent_core.runtime.broker",
+                "--socket-path",
                 str(sock),
+                "--chat-id",
+                str(chat_id),
+                "--namespace",
+                str(namespace),
+                "--project-root",
+                str(project_root),
             ]
         p = subprocess.Popen(
             cmd,
@@ -158,7 +171,11 @@ class AilitRuntimeSupervisor:
                 if refreshed.state == "running":
                     self._brokers[chat_id] = refreshed
                     return refreshed
-            pid, endpoint = self._mgr.spawn(chat_id=chat_id)
+            pid, endpoint = self._mgr.spawn(
+                chat_id=chat_id,
+                namespace=namespace,
+                project_root=project_root,
+            )
             now = time.time()
             rec = BrokerRecord(
                 chat_id=chat_id,

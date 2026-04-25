@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from agent_core.runtime.paths import RuntimePaths, default_runtime_dir
+from agent_core.runtime.broker import main as broker_main
 from agent_core.runtime.supervisor import (
     run_supervisor_server,
     supervisor_request,
@@ -73,6 +74,39 @@ def register_runtime_parser(sub: argparse._SubParsersAction) -> None:
         help="Runtime dir",
     )
     p_stop.set_defaults(func=cmd_runtime_stop_broker)
+
+    p_broker = rt_sub.add_parser(
+        "broker",
+        help="Запустить AgentBroker (blocking; internal)",
+    )
+    p_broker.add_argument(
+        "--runtime-dir",
+        type=str,
+        default="",
+        help="Runtime dir",
+    )
+    p_broker.add_argument(
+        "--socket-path",
+        type=str,
+        required=True,
+        help="Unix socket",
+    )
+    p_broker.add_argument(
+        "--chat-id",
+        type=str,
+        required=True,
+        help="Chat id",
+    )
+    p_broker.add_argument(
+        "--namespace",
+        type=str,
+        required=True,
+        help="Namespace",
+    )
+    p_broker.add_argument(
+        "--project-root", type=str, required=True, help="Project root"
+    )
+    p_broker.set_defaults(func=cmd_runtime_broker)
 
 
 def _runtime_dir_from_args(args: argparse.Namespace) -> Path:
@@ -142,3 +176,20 @@ def cmd_runtime_stop_broker(args: argparse.Namespace) -> int:
     )
     _print_json(resp)
     return 0
+
+
+def cmd_runtime_broker(args: argparse.Namespace) -> int:
+    """`ailit runtime broker`."""
+    argv = [
+        "--runtime-dir",
+        str(_runtime_dir_from_args(args)),
+        "--socket-path",
+        str(getattr(args, "socket_path")),
+        "--chat-id",
+        str(getattr(args, "chat_id")),
+        "--namespace",
+        str(getattr(args, "namespace")),
+        "--project-root",
+        str(getattr(args, "project_root")),
+    ]
+    return int(broker_main(argv))
