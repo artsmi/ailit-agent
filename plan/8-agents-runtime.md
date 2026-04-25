@@ -280,6 +280,136 @@ journalctl --user -u ailit.service -f
 
 **Проверки:** review; без кода.
 
+### Design note G8.0 — системные границы и контракты
+
+#### Системные границы (in-scope / out-of-scope)
+
+In-scope для Workflow 8:
+
+- Runtime-слой: `AilitRuntimeSupervisor` (долго живущий процесс), per-chat `AgentBroker` (маршрутизация), subprocess-agents (`AgentWork`, `AgentMemory`, `AgentDummy`).
+- Локальный транспорт и lifecycle: start/stop, health, reconnect, timeouts, cancel.
+- Durable trace store как append-only журнал событий и сообщений для UI и отладки.
+- Контракты доступа к коду: `MemoryGrant` как обязательная политика чтения проектных файлов через tools.
+
+Out-of-scope (явно не делаем в этом workflow):
+
+- Сетевой/distributed runtime (multi-host discovery, remote broker, authn/authz по сети).
+- Полноценный high-level planner/orchestrator (`ProductAgent`) как продуктовая функция. В этом workflow только готовим substrate (topics/services/actions + trace) для будущего `ProductAgent -> many`.
+- Гарантии exactly-once delivery. Для MVP достаточно at-least-once/at-most-once с идемпотентными обработчиками и trace для диагностики.
+
+#### Термины и роли (ключевой запрет смешивания)
+
+- `AgentWork` и `AgentMemory` — **low-level runtime agents**: узкие роли исполнения внутри одного chat runtime.
+- `ProductAgent` — **high-level agent** (будущий): оперирует целями/эпиками и управляет несколькими low-level agents через topic/action/service модель.
+
+Запрет:
+
+- Нельзя называть `AgentWork` «ProductAgent» или смешивать их обязанности. `AgentWork` не должен брать на себя orchestration множества агентов и стратегическое планирование продукта; он исполняет user prompt в рамках одного chat, пользуясь `AgentMemory` и tools.
+
+#### Схемы системных границ (one chat / multiple chats / future ProductAgent)
+
+One chat (MVP):
+
+```
+ailit chat (UI client/viewer)
+  |
+  | (supervisor API: unix socket)
+  v
+AilitRuntimeSupervisor
+  |
+  | (spawn/get broker for chat_id)
+  v
+AgentBroker(chat_id=A)
+  |         |
+  |         +-- subprocess: AgentMemory:A
+  +-- subprocess: AgentWork:A
+```
+
+Multiple chats (несколько UI-сессий; один supervisor):
+
+```
+ailit chat A ----\
+                  \ (unix socket)
+ailit chat B -----+--> AilitRuntimeSupervisor
+                        |
+                        +-- AgentBroker(chat_id=A) -> Work:A + Memory:A
+                        |
+                        +-- AgentBroker(chat_id=B) -> Work:B + Memory:B
+
+Shared local DB: PAG/KB + trace store + registry
+```
+
+Future ProductAgent readiness (не реализуем, но не ломаем контракт):
+
+```
+ProductAgent (future)
+   |
+   | topics/actions/services via broker
+   v
+AgentBroker(chat_id=A) -> many low-level agents (Work/Memory/...)
+```
+
+#### Transport decisions (MVP) и формат сообщений
+
+Решение для MVP:
+
+- Supervisor API: **Unix socket**, локальный, path под `$XDG_RUNTIME_DIR/ailit/` или `$AILIT_RUNTIME_DIR/`.
+- Broker и agents: **subprocess**-модель (broker отдельным процессом; агенты — subprocess под broker).
+- Message framing: один из вариантов фиксируется реализацией (и должен быть совместим с trace store):
+  - JSON lines (один JSON per line), либо
+  - length-prefixed JSON (чёткая граница сообщений, устойчивость к многострочным payload).
+
+Минимальные требования к каждому сообщению:
+
+- Должно быть парсимо в envelope с `contract_version`, идентификаторами (`runtime_id`, `chat_id`, `broker_id`, `trace_id`, `message_id`) и `created_at`.
+- Должно быть пригодно для записи в durable trace store (append-only).
+
+#### Reconnect / timeout / cancel: контракты поведения
+
+Reconnect:
+
+- UI (`ailit chat`) **не держит** runtime state. При reconnect UI запрашивает у supervisor актуальный broker endpoint для `chat_id` и переподписывается на `agent.trace`.
+- Broker должен поддерживать повторную подписку без потери работоспособности: допустима потеря live-событий, но durable trace позволяет восстановить историю.
+
+Timeouts:
+
+- `service.request` имеет timeout; при превышении возвращается structured error (например, `runtime_timeout`), а в trace пишется `service.timeout`.
+- Внутренние healthchecks supervisor↔broker и broker↔agent также timeout-based; таймаут переводит сущность в `unavailable`/`failed`.
+
+Cancel:
+
+- Для `action.*` обязателен `action.cancel_requested`. Cancel не гарантирует остановку «мгновенно», но должен приводить к одному из финалов:
+  - `action.completed` (если успели завершить),
+  - `action.failed` со structured причиной,
+  - `action.cancelled` (если действие корректно поддерживает отмену).
+
+#### Crash/failure контракты и UX сообщения
+
+Broker crash:
+
+- Supervisor помечает broker `failed`, удаляет endpoint из активного registry и создаёт новый broker при следующем запросе UI/клиента.
+- UI показывает понятный статус: «runtime broker crashed; reconnecting…», затем переподключается через supervisor.
+
+AgentMemory crash:
+
+- Broker помечает `AgentMemory` как `unavailable` и **не включает raw-read fallback**.
+- Любой запрос `AgentWork` к memory services/actions возвращает structured ошибку `memory_unavailable`.
+- UI отображает пользователю сообщение уровня продукта: **`Memory unavailable`** + hint (например, «перезапустите runtime service / проверьте логи supervisor»), а не стек-трейс.
+
+AgentWork crash:
+
+- Action `work.handle_user_prompt` завершается `action.failed` со structured причиной `agent_crashed`.
+- UI сообщает, что задача прервана, и предлагает повторить (новая action).
+
+Broken JSON / protocol violation:
+
+- Broker обязан изолировать поломку: некорректное сообщение от агента не валит broker; фиксируется `policy.violation`/`protocol.error` в trace, агент переводится в `failed`.
+
+#### System boundary для secrets и содержимого файлов (trace redaction)
+
+- Durable trace store **не должен** содержать содержимое файлов проекта; допустимы только `path`, `ranges`, хэши/размеры/метаданные и redacted payload.
+- UI по умолчанию показывает summary + redacted JSON; полный чувствительный payload доступен только в явном debug режиме (определяется в G8.6).
+
 ---
 
 ## Этап G8.1 — Models, registry, trace store
