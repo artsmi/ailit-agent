@@ -24,7 +24,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from agent_core.runtime.errors import RuntimeProtocolError
 from agent_core.runtime.models import (
@@ -101,9 +101,16 @@ class _LiveSubscribers:
 class _AgentProcess:
     """Subprocess агент с JSON-lines протоколом stdin/stdout."""
 
-    def __init__(self, name: str, cmd: list[str]) -> None:
+    def __init__(
+        self,
+        name: str,
+        cmd: list[str],
+        *,
+        on_outbound_event: Callable[[Mapping[str, Any]], None] | None = None,
+    ) -> None:
         self._name = name
         self._cmd = cmd
+        self._on_outbound_event = on_outbound_event
         self._proc = subprocess.Popen(  # noqa: S603
             cmd,
             stdin=subprocess.PIPE,
@@ -173,6 +180,19 @@ class _AgentProcess:
                 continue
             if not isinstance(obj, dict):
                 continue
+            if "ok" not in obj:
+                # Агент может эмитить runtime события: topic.publish/action.*.
+                # Broker добавляет их в trace и рассылает подписчикам.
+                try:
+                    env_req = RuntimeRequestEnvelope.from_dict(obj)
+                except Exception:
+                    continue
+                if self._on_outbound_event is not None:
+                    try:
+                        self._on_outbound_event(env_req.to_dict())
+                    except Exception:
+                        pass
+                continue
             try:
                 env = RuntimeResponseEnvelope(
                     contract_version=str(obj.get("contract_version", "")),
@@ -236,7 +256,11 @@ class AgentBroker:
                 "--namespace",
                 self._cfg.namespace,
             ]
-            self._agents["AgentWork"] = _AgentProcess("AgentWork", cmd)
+            self._agents["AgentWork"] = _AgentProcess(
+                "AgentWork",
+                cmd,
+                on_outbound_event=self.append_trace,
+            )
 
     def spawn_memory(self) -> None:
         """Поднять AgentMemory subprocess (MVP)."""
