@@ -6,7 +6,7 @@
 
 ## Канонический дизайн
 
-- Канон Candy-дизайна находится вне репозитория: `/home/artem/Desktop/ айлит/stitch_example_showcase_system/`.
+- Канон Candy-дизайна находится вне репозитория: `/home/artem/Desktop/айлит/stitch_example_showcase_system/` (каталог `Desktop/айлит` — все UI-рефы).
 - Внутри репозитория источник правды по tokens/правилам — [`BRANDBOOK_CANDY.md`](BRANDBOOK_CANDY.md).
 
 ## Ownership: runtime vs UI
@@ -39,7 +39,7 @@
 ## In-scope для Workflow 9 (MVP)
 
 - Electron shell (main/preload/renderer) + typed IPC (renderer без прямых Node API).
-- Candy UI shell (routes: Chat / Agent dialogue / Current agents / Memory Graph / Projects / Reports / Runtime status).
+- Candy UI shell (маршруты: Чат / Агенты / Проекты / Команда / Память 2D|3D / Отчёты / Runtime; старые пути редиректятся).
 - Mock data для 2 проектов + `AgentWork`/`AgentMemory`.
 - PAG-only Memory Graph, без KB/knowledge graph.
 - Realtime PAG search highlight с затуханием примерно 3 секунды (live-only).

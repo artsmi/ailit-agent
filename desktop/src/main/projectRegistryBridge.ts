@@ -49,8 +49,9 @@ function mapEntry(row: Record<string, unknown>, activeIds: ReadonlySet<string>):
  * CLI: `ailit project list --json` (глобальный ``~/.ailit``, PATH=ailit в install).
  */
 export async function listProjectRegistry(
-  _startPath: string | undefined
+  startPath: string | undefined
 ): Promise<ProjectRegistryListOutcome> {
+  void startPath;
   const ailitBin: string = (process.env["AILIT_CLI"] ?? "ailit").trim() || "ailit";
   const args: string[] = ["project", "list", "--json"];
   try {

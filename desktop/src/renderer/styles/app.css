@@ -7,11 +7,12 @@ body {
 
 body {
   margin: 0;
+  font-size: var(--font-body);
   font-family: "DM Sans", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   color: var(--candy-text);
-  background: radial-gradient(1200px 800px at 10% 10%, rgba(224, 64, 160, 0.12), transparent 45%),
-    radial-gradient(900px 700px at 90% 0%, rgba(124, 82, 170, 0.14), transparent 40%),
-    var(--candy-bg);
+  background: radial-gradient(1200px 800px at 10% 10%, rgba(224, 64, 160, 0.1), transparent 45%),
+    radial-gradient(900px 700px at 90% 0%, rgba(124, 82, 170, 0.1), transparent 40%),
+    #fef8fc;
 }
 
 button {
@@ -20,15 +21,15 @@ button {
 
 .app {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 15.5rem 1fr;
   min-height: 100vh;
 }
 
 .sidebar {
-  padding: var(--space-5) var(--space-4);
+  padding: 0.9rem 0.75rem;
   border-right: 1px solid var(--candy-border);
-  background: rgba(255, 255, 255, 0.6);
-  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(8px);
 }
 
 .brand {
@@ -50,24 +51,52 @@ button {
 }
 
 .brandTitle {
+  font-size: 1.05rem;
   font-weight: 800;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+}
+
+.ctaNewDialog {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin: 0.75rem 0 0.5rem 0;
+  padding: 0.55rem 0.6rem;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  color: var(--candy-accent);
+  background: #fff;
+  border: 1px solid rgba(224, 64, 160, 0.3);
+  border-radius: 9999px;
+  box-shadow: 0 1px 3px rgba(224, 64, 160, 0.1);
+  cursor: pointer;
+  transition: background 0.16s, transform 0.12s;
+}
+
+.ctaNewDialog:hover {
+  background: #fff5fa;
+  transform: translateY(-1px);
 }
 
 .nav {
-  margin-top: var(--space-5);
+  margin-top: 0.35rem;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 0.25rem;
 }
 
 .navLink {
   text-decoration: none;
-  color: var(--candy-text);
-  padding: 10px 12px;
-  border-radius: var(--radius-pill);
+  color: var(--candy-text-2);
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.4rem 0.65rem;
+  border-radius: 9999px;
   border: 1px solid transparent;
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, color 0.12s;
 }
 
 .navLink:hover {
@@ -77,29 +106,55 @@ button {
 }
 
 .navLinkActive {
-  border-color: rgba(224, 64, 160, 0.35);
-  box-shadow: var(--shadow-glow);
+  color: var(--candy-accent) !important;
+  background: #fff;
+  border-color: rgba(224, 64, 160, 0.25);
+  box-shadow: 0 2px 8px rgba(224, 64, 160, 0.12);
 }
 
 .main {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  flex: 1;
 }
 
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: var(--space-4) var(--space-5);
+  justify-content: flex-end;
+  min-height: 2.5rem;
+  padding: 0.35rem 0.9rem 0.35rem 0.5rem;
   border-bottom: 1px solid var(--candy-border);
-  background: rgba(255, 255, 255, 0.55);
-  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(6px);
+}
+
+.wbText {
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  color: var(--candy-text-2);
+}
+
+.enTok {
+  text-transform: lowercase;
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--candy-text-2);
 }
 
 .page {
-  padding: var(--space-5);
+  padding: 0.6rem 0.85rem 0.9rem 0.85rem;
   min-width: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .card {
@@ -160,7 +215,307 @@ button {
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
     monospace;
-  font-size: 12px;
-  color: rgba(20, 20, 30, 0.76);
+  font-size: 0.65rem;
+  color: rgba(20, 20, 30, 0.7);
+}
+
+.secondaryButton {
+  border: 1px solid rgba(224, 64, 160, 0.3);
+  border-radius: 9999px;
+  padding: 0.45rem 0.8rem;
+  background: #fff;
+  color: var(--candy-text);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.smBtn {
+  font-size: 0.7rem !important;
+  padding: 0.35rem 0.75rem !important;
+  box-shadow: 0 6px 16px rgba(224, 64, 160, 0.18) !important;
+}
+
+.smPill {
+  font-size: 0.65rem;
+  padding: 0.2rem 0.5rem;
+}
+
+.pageSingle {
+  max-width: 54rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.pageTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.45rem 0.55rem 0.25rem 0.55rem;
+  border-bottom: 1px solid var(--candy-border);
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.cardFlush {
+  padding: 0;
+  overflow: hidden;
+}
+
+.cardFlush .cardHeader {
+  display: none;
+}
+
+.graphPad {
+  padding: 0.4rem 0.5rem 0.7rem 0.5rem;
+  min-width: 0;
+}
+
+.memPageRoot {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+.memChild {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.memStack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-height: 0;
+  flex: 1;
+  max-width: 100%;
+}
+
+.memoryModeBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.1rem;
+}
+
+.memToggle {
+  display: inline-flex;
+  gap: 0.2rem;
+  background: #fff0f5;
+  padding: 0.2rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(224, 64, 160, 0.2);
+}
+
+.memToggleOn {
+  background: #fff !important;
+  color: var(--candy-accent) !important;
+  font-weight: 800;
+}
+
+.smTitle {
+  font-size: 0.88rem;
+  font-weight: 800;
+  margin: 0;
+  padding: 0.1rem 0.2rem;
+}
+
+.mem2dHeader,
+.mem3dHeader {
+  font-size: 0.8rem;
+  font-weight: 800;
+  padding: 0.4rem 0.75rem 0.2rem;
+}
+
+.mem3dView {
+  min-height: 0;
+  width: 100%;
+  position: relative;
+}
+
+.mem2dRoot {
+  align-items: start;
+}
+
+@media (min-width: 900px) {
+  .mem2dRoot {
+    grid-template-columns: 1.1fr 0.9fr;
+  }
+}
+
+.chatPage {
+  max-width: 50rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.chatTop {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.chatSessionRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.sessionLbl {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--candy-text-2);
+}
+
+.sessionSelect {
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid var(--candy-border);
+  background: #fff;
+  min-width: 10rem;
+}
+
+.chatWorkspacePills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.chatCard {
+  display: flex;
+  flex-direction: column;
+  min-height: 16rem;
+}
+
+.chatStream {
+  flex: 1;
+  min-height: 8rem;
+  color: var(--candy-text);
+  font-size: 0.83rem;
+  line-height: 1.4;
+  overflow: auto;
+}
+
+.chatLine {
+  margin-bottom: 0.6rem;
+}
+
+.chatFrom {
+  font-size: 0.65rem;
+  font-weight: 800;
+  margin-bottom: 0.1rem;
+}
+
+.chatText {
+  color: var(--candy-text);
+  white-space: pre-wrap;
+}
+
+.chatComposer {
+  display: flex;
+  gap: 0.4rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--candy-border);
+  align-items: center;
+}
+
+.chatInput {
+  flex: 1 1 12rem;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.45rem 0.7rem;
+  border-radius: 9999px;
+  border: 1px solid rgba(224, 64, 160, 0.3);
+  background: #fff;
+}
+
+.errLine {
+  color: #a04010;
+  font-size: 0.75rem;
+  margin-bottom: 0.4rem;
+}
+
+.teamRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.teamFromTo {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--candy-text);
+}
+
+.timeHint {
+  font-size: 0.62rem;
+  opacity: 0.7;
+}
+
+.metaRow {
+  margin-top: 0.3rem;
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.metaSmall {
+  font-size: 0.6rem;
+}
+
+.metaTiny {
+  font-size: 0.6rem;
+  color: var(--candy-text-2);
+  margin-top: 0.1rem;
+}
+
+.emptyHint {
+  min-height: 0.1rem;
+}
+
+.linkBtn {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 0.7rem;
+  color: var(--candy-accent-2);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.chatActions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+}
+
+.fontW800 {
+  font-weight: 800;
+}
+
+/* @xyflow canvas */
+.react-flow__attribution {
+  display: none;
 }
 

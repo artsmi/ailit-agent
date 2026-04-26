@@ -33,8 +33,7 @@ type ForceGraphData = {
   readonly links: GraphLink[];
 };
 
-const GRAPH_VIEWPORT_WIDTH = 860;
-const GRAPH_VIEWPORT_HEIGHT = 560;
+const GRAPH_VIEWPORT_MIN_H = 420;
 
 function nowMs(): number {
   return Date.now();
@@ -67,11 +66,39 @@ function coordinateOrZero(value: number | undefined): number {
   return value;
 }
 
-export function MemoryGraph3DPage(): React.JSX.Element {
+type Mem3dProps = {
+  /** Без auto zoom onEngineStop; максимальная площадь под виз (реф 3D как принцип оформления). */
+  readonly noInitialAutoZoom?: boolean;
+};
+
+export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Element {
+  const { noInitialAutoZoom = true } = p;
   const ref = React.useRef<ForceGraphMethods | undefined>(undefined);
+  const hostRef = React.useRef<HTMLDivElement | null>(null);
+  const [viewSize, setViewSize] = React.useState<{ w: number; h: number }>({ w: 800, h: 560 });
   const highlightRef = React.useRef<HighlightState | null>(null);
   const highlightFrameRef = React.useRef<number | null>(null);
   const initialFitDoneRef = React.useRef<boolean>(false);
+
+  React.useLayoutEffect(() => {
+    const el: HTMLDivElement | null = hostRef.current;
+    if (!el) {
+      return;
+    }
+    const ro: ResizeObserver = new ResizeObserver((entries) => {
+      for (const e of entries) {
+        const w: number = Math.max(1, Math.floor(e.contentRect.width));
+        const h: number = Math.max(GRAPH_VIEWPORT_MIN_H, Math.floor(e.contentRect.height) || 560);
+        setViewSize({ w, h });
+      }
+    });
+    ro.observe(el);
+    const r: DOMRect = el.getBoundingClientRect();
+    if (r.width) {
+      setViewSize({ w: Math.max(1, Math.floor(r.width)), h: Math.max(GRAPH_VIEWPORT_MIN_H, Math.floor(r.height) || 560) });
+    }
+    return () => ro.disconnect();
+  }, []);
 
   const data: ForceGraphData = React.useMemo(() => {
     const nodes: GraphNode[] = mockWorkspace.pag.nodes.map((n) => ({ id: n.id, label: n.label, level: n.level }));
@@ -183,43 +210,34 @@ export function MemoryGraph3DPage(): React.JSX.Element {
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 16, minWidth: 0 }}>
-      <section className="card">
-        <div className="cardHeader">Memory Graph 3D (force-graph, mock)</div>
-        <div className="cardBody">
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-            <div className="pill">
-              <span>Obsidian-like</span>
-              <span className="mono">force layout • ttl≈3s</span>
-            </div>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-              <button className="primaryButton" type="button" onClick={triggerMockSearchHighlight}>
-                Trigger highlight
-              </button>
-              <button className="primaryButton" type="button" onClick={focusRoot}>
-                Zoom to fit
-              </button>
-            </div>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12, minWidth: 0, flex: 1, minHeight: 0 }}>
+      <section className="card" style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
+        <div className="mem3dHeader cardHeader">3D</div>
+        <div className="cardBody" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+            <button className="primaryButton smBtn" type="button" onClick={triggerMockSearchHighlight}>
+              Highlight
+            </button>
+            <button className="primaryButton smBtn" type="button" onClick={focusRoot}>
+              Fit
+            </button>
           </div>
-
           <div
+            ref={hostRef}
+            className="mem3dView"
             style={{
-              marginTop: 16,
-              width: GRAPH_VIEWPORT_WIDTH,
-              maxWidth: "100%",
-              height: GRAPH_VIEWPORT_HEIGHT,
+              flex: 1,
+              minHeight: GRAPH_VIEWPORT_MIN_H,
               borderRadius: 16,
               overflow: "hidden",
               border: "1px solid var(--candy-border)",
-              background: "rgba(255,255,255,0.35)",
-              marginLeft: "auto",
-              marginRight: "auto"
+              background: "rgba(255,255,255,0.35)"
             }}
           >
             <ForceGraph3D
               ref={ref}
-              width={GRAPH_VIEWPORT_WIDTH}
-              height={GRAPH_VIEWPORT_HEIGHT}
+              width={viewSize.w}
+              height={viewSize.h}
               graphData={data as unknown as { nodes: object[]; links: object[] }}
               backgroundColor="rgba(0,0,0,0)"
               warmupTicks={80}
@@ -282,42 +300,45 @@ export function MemoryGraph3DPage(): React.JSX.Element {
                 return hot ? 2.5 : 0;
               }}
               onEngineStop={() => {
+                if (noInitialAutoZoom) {
+                  if (initialFitDoneRef.current) {
+                    return;
+                  }
+                  const fg = ref.current;
+                  if (typeof fg === "undefined") {
+                    return;
+                  }
+                  freezeGraphAtCenteredCoordinates();
+                  initialFitDoneRef.current = true;
+                  return;
+                }
                 if (initialFitDoneRef.current) {
                   return;
                 }
-                const fg = ref.current;
-                if (typeof fg === "undefined") {
+                const fg0 = ref.current;
+                if (typeof fg0 === "undefined") {
                   return;
                 }
                 freezeGraphAtCenteredCoordinates();
-                fg.zoomToFit(650, 90);
+                fg0.zoomToFit(650, 90);
                 initialFitDoneRef.current = true;
               }}
             />
           </div>
         </div>
       </section>
-
-      <section className="card">
-        <div className="cardHeader">Legend / notes</div>
-        <div className="cardBody">
-          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
-            <span className="pill" style={{ background: "rgba(224, 64, 160, 0.10)" }}>
-              <span style={{ fontWeight: 800 }}>A</span>
-              <span className="mono">root / entry</span>
+      <section className="card smLegend">
+        <div className="cardBody" style={{ padding: "0.5rem 0.75rem" }}>
+          <div className="legendPills" style={{ gap: 6 }}>
+            <span className="pill smPill" style={{ background: "rgba(224, 64, 160, 0.10)" }}>
+              <span className="fontW800">A</span>
             </span>
-            <span className="pill" style={{ background: "rgba(124, 82, 170, 0.10)" }}>
-              <span style={{ fontWeight: 800 }}>B</span>
-              <span className="mono">core files</span>
+            <span className="pill smPill" style={{ background: "rgba(124, 82, 170, 0.10)" }}>
+              <span className="fontW800">B</span>
             </span>
-            <span className="pill" style={{ background: "rgba(20, 20, 30, 0.06)" }}>
-              <span style={{ fontWeight: 800 }}>C</span>
-              <span className="mono">docs / peripheral</span>
+            <span className="pill smPill" style={{ background: "rgba(20, 20, 30, 0.06)" }}>
+              <span className="fontW800">C</span>
             </span>
-          </div>
-          <div style={{ marginTop: 12 }} className="mono">
-            Это mock. В runtime версии источником nodes/edges будет PAG store/export, а highlight-триггеры будут приходить от
-            `AgentMemory` search events.
           </div>
         </div>
       </section>

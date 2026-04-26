@@ -19,5 +19,9 @@
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
+  --font-body: 0.8125rem;
+  --font-title: 1.05rem;
+  --font-small: 0.7rem;
+  --radius-lg: 1.1rem;
 }
 

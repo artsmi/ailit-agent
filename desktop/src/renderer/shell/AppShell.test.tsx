@@ -14,7 +14,7 @@ describe("AppShell", () => {
         </DesktopSessionProvider>
       </MemoryRouter>
     );
-    expect(screen.getByLabelText("ailit desktop")).toBeInTheDocument();
+    expect(screen.getByLabelText("Ailit")).toBeInTheDocument();
     expect(screen.getByLabelText("Навигация")).toBeInTheDocument();
   });
 });

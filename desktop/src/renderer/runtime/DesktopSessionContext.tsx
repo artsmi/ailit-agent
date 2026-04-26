@@ -3,6 +3,14 @@ import React from "react";
 import type { ProjectRegistryEntry, RuntimeResponseEnvelope } from "@shared/ipc";
 
 import { DEFAULT_AGENT_MANIFEST_V1 } from "../state/agentManifest";
+import {
+  loadPersistedUi,
+  newChatSession,
+  type LastAgentPairV1,
+  type ChatSessionRecordV1,
+  savePersistedUi,
+  type PersistedUiStateV1
+} from "../state/persistedUi";
 import { buildUserPromptAction } from "./envelopeFactory";
 import {
   buildAgentDialogueMessages,
@@ -12,7 +20,6 @@ import {
 import { dedupKeyForRow, RuntimeTraceNormalizer, type NormalizedTraceProjection } from "./traceNormalize";
 import { newMessageId } from "./uuid";
 
-const CHAT_ID: string = "ailit-desktop-1";
 const GOAL: string = "g-desktop";
 
 type ConnState = "idle" | "connecting" | "ready" | "error";
@@ -26,6 +33,16 @@ export type ChatLine = {
 
 export type DesktopSessionValue = {
   readonly chatId: string;
+  readonly sessions: readonly ChatSessionRecordV1[];
+  readonly activeSessionId: string;
+  readonly setActiveSessionId: (id: string) => void;
+  /** Рабочие проекты активной сессии: минимум один. */
+  readonly setActiveSessionProjectIds: (ids: readonly string[]) => void;
+  /** Переключить проект в workspace; не снимет последний. */
+  readonly toggleProject: (projectId: string) => void;
+  readonly createNewChatSession: (projectIds: readonly string[], label: string) => void;
+  readonly lastAgentPair: LastAgentPairV1 | null;
+  readonly setLastAgentPair: (pair: LastAgentPairV1 | null) => void;
   readonly connection: ConnState;
   readonly runtimeDir: string | null;
   readonly supervisorSummary: string | null;
@@ -41,8 +58,6 @@ export type DesktopSessionValue = {
   readonly reconnectAttempt: number;
   readonly refreshStatus: () => Promise<void>;
   readonly loadProjects: () => Promise<void>;
-  readonly setSelectedProjects: (ids: readonly string[]) => void;
-  readonly toggleProject: (projectId: string) => void;
   readonly connectToBroker: () => Promise<void>;
   readonly sendUserPrompt: (text: string) => Promise<void>;
   readonly resubscribeTrace: () => Promise<void>;
@@ -70,7 +85,9 @@ function getRuntimeDirFromStatus(st: unknown): string | null {
   return null;
 }
 
-function extractBroker(r: unknown): { readonly endpoint: string; readonly project_root: string; readonly namespace: string } | null {
+function extractBroker(
+  r: unknown
+): { readonly endpoint: string; readonly project_root: string; readonly namespace: string } | null {
   const o: Record<string, unknown> | null = asDict(r);
   if (!o || o["ok"] !== true) {
     return null;
@@ -119,20 +136,134 @@ function chatLineId(kind: "user" | "assistant" | "system", messageId: string): s
   return `${kind}:${messageId}`;
 }
 
+function validateSessions(
+  reg: readonly ProjectRegistryEntry[],
+  p: PersistedUiStateV1
+): PersistedUiStateV1 {
+  if (reg.length === 0) {
+    return p;
+  }
+  const allowed: Set<string> = new Set(reg.map((e) => e.projectId));
+  const dft: string = reg[0]!.projectId;
+  const sessions: ChatSessionRecordV1[] = p.sessions.map((s) => {
+    const next: string[] = s.projectIds.map((x) => x).filter((id) => allowed.has(id));
+    if (next.length === 0) {
+      return { ...s, projectIds: [dft] };
+    }
+    return { ...s, projectIds: next as unknown as readonly string[] };
+  });
+  return { ...p, sessions };
+}
+
 export function DesktopSessionProvider({ children }: { readonly children: React.ReactNode }): React.JSX.Element {
+  const [ui, setUi] = React.useState<PersistedUiStateV1>(loadPersistedUi);
   const [connection, setConnection] = React.useState<ConnState>("idle");
   const [runtimeDir, setRuntimeDir] = React.useState<string | null>(null);
   const [supervisorSummary, setSupervisorSummary] = React.useState<string | null>(null);
   const [brokerEndpoint, setBrokerEndpoint] = React.useState<string | null>(null);
   const [lastError, setLastError] = React.useState<string | null>(null);
   const [registry, setRegistry] = React.useState<readonly ProjectRegistryEntry[]>([]);
-  const [selectedProjectIds, setSelectedProjectIds] = React.useState<readonly string[]>([]);
   const [rawTraceRows, setRawTraceRows] = React.useState<Record<string, unknown>[]>([]);
   const [chatLines, setChatLines] = React.useState<ChatLine[]>([]);
   const [reconnectAttempt, setReconnectAttempt] = React.useState(0);
   const seenRowKeys: React.MutableRefObject<Set<string>> = React.useRef<Set<string>>(new Set());
   const seenChatIds: React.MutableRefObject<Set<string>> = React.useRef<Set<string>>(new Set());
   const registryWasEmpty: React.MutableRefObject<boolean> = React.useRef(true);
+  const subChatIdRef: React.MutableRefObject<string | null> = React.useRef(null);
+  const activeChatIdRef: React.MutableRefObject<string> = React.useRef("");
+
+  const setUiAndSave: (next: PersistedUiStateV1 | ((prev: PersistedUiStateV1) => PersistedUiStateV1)) => void = React.useCallback(
+    (next) => {
+      setUi((prev) => {
+        const resolved: PersistedUiStateV1 = typeof next === "function" ? (next as (p: PersistedUiStateV1) => PersistedUiStateV1)(prev) : next;
+        savePersistedUi(resolved);
+        return resolved;
+      });
+    },
+    []
+  );
+
+  const activeSession: ChatSessionRecordV1 = React.useMemo((): ChatSessionRecordV1 => {
+    return ui.sessions.find((s) => s.id === ui.activeSessionId) ?? ui.sessions[0]!;
+  }, [ui.sessions, ui.activeSessionId]);
+
+  activeChatIdRef.current = activeSession.chatId;
+
+  const setActiveSessionId: (id: string) => void = React.useCallback(
+    (id) => {
+      if (!id) {
+        return;
+      }
+      setUiAndSave((p) => {
+        if (!p.sessions.some((s) => s.id === id)) {
+          return p;
+        }
+        return { ...p, activeSessionId: id };
+      });
+    },
+    [setUiAndSave]
+  );
+
+  const setLastAgentPair: (pair: LastAgentPairV1 | null) => void = React.useCallback(
+    (pair) => {
+      setUiAndSave((p) => ({ ...p, lastAgentPair: pair }));
+    },
+    [setUiAndSave]
+  );
+
+  const setActiveSessionProjectIds: (ids: readonly string[]) => void = React.useCallback(
+    (ids) => {
+      if (ids.length === 0) {
+        return;
+      }
+      setUiAndSave((p) => ({
+        ...p,
+        sessions: p.sessions.map((s) => (s.id === p.activeSessionId ? { ...s, projectIds: [...ids] } : s))
+      }));
+    },
+    [setUiAndSave]
+  );
+
+  const toggleProject: (projectId: string) => void = React.useCallback(
+    (projectId) => {
+      setUiAndSave((p) => {
+        const cur: ChatSessionRecordV1 | undefined = p.sessions.find((s) => s.id === p.activeSessionId);
+        if (!cur) {
+          return p;
+        }
+        const set0: Set<string> = new Set(cur.projectIds);
+        if (set0.has(projectId)) {
+          if (set0.size <= 1) {
+            return p;
+          }
+          set0.delete(projectId);
+        } else {
+          set0.add(projectId);
+        }
+        const next: readonly string[] = [...set0];
+        return {
+          ...p,
+          sessions: p.sessions.map((s) => (s.id === cur.id ? { ...s, projectIds: next } : s))
+        };
+      });
+    },
+    [setUiAndSave]
+  );
+
+  const createNewChatSession: (projectIds: readonly string[], label: string) => void = React.useCallback(
+    (projectIds, label) => {
+      if (projectIds.length === 0) {
+        return;
+      }
+      const s: ChatSessionRecordV1 = newChatSession(projectIds, label);
+      setUiAndSave((p) => ({
+        ...p,
+        sessions: [...p.sessions, s],
+        activeSessionId: s.id
+      }));
+    },
+    [setUiAndSave]
+  );
 
   const mergeRows: (rows: readonly Record<string, unknown>[]) => void = React.useCallback((rows) => {
     setRawTraceRows((prev) => {
@@ -211,42 +342,23 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     [rawTraceRows]
   );
 
+  const selectedProjectIds: readonly string[] = activeSession.projectIds;
+
   const agentDialogueMessages: readonly AgentDialogueMessage[] = React.useMemo(
     () => buildAgentDialogueMessages(rawTraceRows, DEFAULT_AGENT_MANIFEST_V1, selectedProjectIds),
     [rawTraceRows, selectedProjectIds]
   );
 
-  const agentLinkKeys = React.useMemo(
-    () => deriveAgentLinkKeysFromTrace(rawTraceRows),
-    [rawTraceRows]
-  );
+  const agentLinkKeys = React.useMemo(() => deriveAgentLinkKeysFromTrace(rawTraceRows), [rawTraceRows]);
 
-  const refreshStatus: () => Promise<void> = React.useCallback(async () => {
-    const st: unknown = await window.ailitDesktop.supervisorStatus();
-    setRuntimeDir(getRuntimeDirFromStatus(st));
-    setSupervisorSummary(JSON.stringify(st, null, 0).slice(0, 2000));
-  }, []);
-
-  const loadProjects: () => Promise<void> = React.useCallback(async () => {
-    const res: Awaited<ReturnType<typeof window.ailitDesktop.projectRegistryList>> = await window.ailitDesktop.projectRegistryList({});
-    if (res.ok) {
-      setRegistry(res.entries);
-      setSelectedProjectIds((prev) => {
-        if (prev.length) {
-          return prev;
-        }
-        const act: string[] = res.entries.filter((e) => e.active).map((e) => e.projectId);
-        if (act.length) {
-          return act;
-        }
-        return res.entries[0] ? [res.entries[0].projectId] : [];
-      });
-    }
-  }, []);
-
-  const pickWorkspace: () => { namespace: string; projectRoot: string; pids: string[]; roots: readonly string[] } | null = React.useCallback(() => {
+  const pickWorkspace: () => {
+    namespace: string;
+    projectRoot: string;
+    pids: string[];
+    roots: readonly string[];
+  } | null = React.useCallback((): { namespace: string; projectRoot: string; pids: string[]; roots: readonly string[] } | null => {
     const byId: Map<string, ProjectRegistryEntry> = new Map(registry.map((e) => [e.projectId, e]));
-    const chain: string[] = selectedProjectIds.length ? [...selectedProjectIds] : registry.filter((e) => e.active).map((e) => e.projectId);
+    const chain: string[] = selectedProjectIds.length ? [...selectedProjectIds] : [];
     if (chain.length === 0 && registry[0]) {
       chain.push(registry[0].projectId);
     }
@@ -268,21 +380,44 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       namespace: first.namespace,
       projectRoot: first.path,
       pids,
-      roots: pids.map((pid) => byId.get(pid)!.path) as readonly string[]
+      roots: pids.map((pid) => (byId.get(pid) as ProjectRegistryEntry).path) as readonly string[]
     };
   }, [registry, selectedProjectIds]);
+
+  const refreshStatus: () => Promise<void> = React.useCallback(async () => {
+    const st: unknown = await window.ailitDesktop.supervisorStatus();
+    setRuntimeDir(getRuntimeDirFromStatus(st));
+    setSupervisorSummary(JSON.stringify(st, null, 0).slice(0, 2000));
+  }, []);
+
+  const loadProjects: () => Promise<void> = React.useCallback(async () => {
+    const res: Awaited<ReturnType<typeof window.ailitDesktop.projectRegistryList>> = await window.ailitDesktop.projectRegistryList(
+      {}
+    );
+    if (res.ok) {
+      setRegistry(res.entries);
+      setUiAndSave((p) => validateSessions(res.entries, p));
+    }
+  }, [setUiAndSave]);
 
   const resubscribeTrace: () => Promise<void> = React.useCallback(async () => {
     if (!brokerEndpoint || !runtimeDir) {
       return;
     }
-    await window.ailitDesktop.traceUnsubscribe({ chatId: CHAT_ID });
-    const dur: Awaited<ReturnType<typeof window.ailitDesktop.traceReadDurable>> = await window.ailitDesktop.traceReadDurable({ runtimeDir, chatId: CHAT_ID });
+    const cid: string = activeChatIdRef.current;
+    await window.ailitDesktop.traceUnsubscribe({ chatId: cid });
+    const dur: Awaited<ReturnType<typeof window.ailitDesktop.traceReadDurable>> = await window.ailitDesktop.traceReadDurable({
+      runtimeDir,
+      chatId: cid
+    });
     if (dur.ok) {
       mergeRows(dur.rows);
       projectChatFromTrace(dur.rows);
     }
-    const sub: { readonly ok: true } | { readonly ok: false; readonly error: string } = await window.ailitDesktop.traceSubscribe({ chatId: CHAT_ID, endpoint: brokerEndpoint });
+    const sub: { readonly ok: true } | { readonly ok: false; readonly error: string } = await window.ailitDesktop.traceSubscribe({
+      chatId: cid,
+      endpoint: brokerEndpoint
+    });
     if (!sub.ok) {
       setLastError(sub.error);
       setConnection("error");
@@ -292,8 +427,16 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   }, [brokerEndpoint, mergeRows, projectChatFromTrace, runtimeDir]);
 
   const connectToBroker: () => Promise<void> = React.useCallback(async () => {
+    const cid: string = activeSession.chatId;
     setConnection("connecting");
     setLastError(null);
+    if (subChatIdRef.current && subChatIdRef.current !== cid) {
+      try {
+        await window.ailitDesktop.traceUnsubscribe({ chatId: subChatIdRef.current });
+      } catch {
+        /* non-fatal */
+      }
+    }
     await refreshStatus();
     const st0: unknown = await window.ailitDesktop.supervisorStatus();
     const rd0: string | null = getRuntimeDirFromStatus(st0);
@@ -302,12 +445,12 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     }
     const ws0: { namespace: string; projectRoot: string; pids: string[]; roots: readonly string[] } | null = pickWorkspace();
     if (!ws0) {
-      setLastError("Нет выбранных проектов: `ailit project add`, затем выбор в «Проекты»/чате.");
+      setLastError("Нет выбранных проектов. Добавьте проекты (CLI) и создайте диалог.");
       setConnection("error");
       return;
     }
     const created: unknown = await window.ailitDesktop.supervisorCreateOrGetBroker({
-      chatId: CHAT_ID,
+      chatId: cid,
       namespace: ws0.namespace,
       projectRoot: ws0.projectRoot
     });
@@ -322,23 +465,30 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     const rd1: string | null = getRuntimeDirFromStatus(st1);
     if (!rd1) {
       setConnection("error");
-      setLastError("Не удалось получить runtime_dir из status.");
+      setLastError("runtime_dir not available from status.");
       return;
     }
     setRuntimeDir(rd1);
-    const dur1: Awaited<ReturnType<typeof window.ailitDesktop.traceReadDurable>> = await window.ailitDesktop.traceReadDurable({ runtimeDir: rd1, chatId: CHAT_ID });
+    const dur1: Awaited<ReturnType<typeof window.ailitDesktop.traceReadDurable>> = await window.ailitDesktop.traceReadDurable({
+      runtimeDir: rd1,
+      chatId: cid
+    });
     if (dur1.ok) {
       mergeRows(dur1.rows);
       projectChatFromTrace(dur1.rows);
     }
-    const sub1: { readonly ok: true } | { readonly ok: false; readonly error: string } = await window.ailitDesktop.traceSubscribe({ chatId: CHAT_ID, endpoint: br.endpoint });
+    const sub1: { readonly ok: true } | { readonly ok: false; readonly error: string } = await window.ailitDesktop.traceSubscribe({
+      chatId: cid,
+      endpoint: br.endpoint
+    });
     if (!sub1.ok) {
       setLastError(sub1.error);
       setConnection("error");
       return;
     }
+    subChatIdRef.current = cid;
     setConnection("ready");
-  }, [mergeRows, pickWorkspace, projectChatFromTrace, refreshStatus]);
+  }, [activeSession.chatId, mergeRows, pickWorkspace, projectChatFromTrace, refreshStatus]);
 
   React.useEffect(() => {
     void refreshStatus();
@@ -348,12 +498,32 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   React.useEffect(() => {
     if (registry.length > 0 && registryWasEmpty.current) {
       registryWasEmpty.current = false;
-      void connectToBroker();
+    }
+  }, [registry.length]);
+
+  const projKey: string = activeSession.projectIds.join("|");
+
+  React.useEffect(() => {
+    if (activeSession.projectIds.length === 0) {
+      return;
     }
     if (registry.length === 0) {
-      registryWasEmpty.current = true;
+      return;
     }
-  }, [connectToBroker, registry.length]);
+    seenRowKeys.current = new Set();
+    seenChatIds.current = new Set();
+    setRawTraceRows([]);
+    setChatLines([]);
+    setBrokerEndpoint(null);
+    void connectToBroker();
+  }, [
+    activeSession.chatId,
+    activeSession.id,
+    activeSession.projectIds.length,
+    connectToBroker,
+    projKey,
+    registry.length
+  ]);
 
   const sendUserPrompt: (text: string) => Promise<void> = React.useCallback(
     async (text) => {
@@ -363,17 +533,18 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       }
       const ep: string | null = brokerEndpoint;
       if (!ep) {
-        setLastError("Нет endpoint broker-а. Запустите supervisor и дождитесь connect.");
+        setLastError("Broker endpoint not ready.");
         return;
       }
+      const chatId0: string = activeSession.chatId;
       const ws0: { namespace: string; projectRoot: string; pids: string[]; roots: readonly string[] } | null = pickWorkspace();
       if (!ws0) {
-        setLastError("Нет выбранных проектов.");
+        setLastError("No workspace projects selected.");
         return;
       }
       const built: ReturnType<typeof buildUserPromptAction> = buildUserPromptAction({
-        chatId: CHAT_ID,
-        brokerId: `broker-${CHAT_ID}`,
+        chatId: chatId0,
+        brokerId: `broker-${chatId0}`,
         namespace: ws0.namespace,
         goalId: GOAL,
         traceId: newMessageId(),
@@ -386,7 +557,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         text: t,
         atIso: new Date().toISOString()
       });
-      const r: { readonly ok: true; readonly response: RuntimeResponseEnvelope } | { readonly ok: false; readonly error: string } = await window.ailitDesktop.brokerRequest({ endpoint: ep, request: built.envelope });
+      const r: { readonly ok: true; readonly response: RuntimeResponseEnvelope } | { readonly ok: false; readonly error: string } =
+        await window.ailitDesktop.brokerRequest({ endpoint: ep, request: built.envelope });
       if (!r.ok) {
         setLastError(r.error);
         return;
@@ -400,23 +572,21 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           atIso: r.response.created_at
         };
         pushChatIfNew(setChatLines, seenChatIds, errLine);
-        return;
       }
-      // Успех: не дублируем JSON ack в чате — ответ идёт из trace (assistant.delta / final).
     },
-    [brokerEndpoint, pickWorkspace]
+    [activeSession.chatId, brokerEndpoint, pickWorkspace]
   );
 
   React.useEffect(() => {
     const offRow: (() => void) | void = window.ailitDesktop.onTraceRow((evt) => {
-      if (evt.chatId !== CHAT_ID) {
+      if (evt.chatId !== activeChatIdRef.current) {
         return;
       }
       mergeRows([evt.row]);
       projectChatFromTrace([evt.row]);
     });
     const offCh: (() => void) | void = window.ailitDesktop.onTraceChannel((ch) => {
-      if (ch.chatId !== CHAT_ID) {
+      if (ch.chatId !== activeChatIdRef.current) {
         return;
       }
       if (ch.kind === "error" || ch.kind === "end") {
@@ -444,24 +614,16 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     };
   }, [mergeRows, projectChatFromTrace, resubscribeTrace]);
 
-  const setSelectedProjects = React.useCallback((ids: readonly string[]) => {
-    setSelectedProjectIds(ids);
-  }, []);
-
-  const toggleProject: (projectId: string) => void = React.useCallback((projectId) => {
-    setSelectedProjectIds((cur) => {
-      const s: Set<string> = new Set(cur);
-      if (s.has(projectId)) {
-        s.delete(projectId);
-      } else {
-        s.add(projectId);
-      }
-      return [...s];
-    });
-  }, []);
-
   const v: DesktopSessionValue = {
-    chatId: CHAT_ID,
+    chatId: activeSession.chatId,
+    sessions: ui.sessions,
+    activeSessionId: ui.activeSessionId,
+    setActiveSessionId,
+    setActiveSessionProjectIds,
+    toggleProject,
+    createNewChatSession,
+    lastAgentPair: ui.lastAgentPair,
+    setLastAgentPair,
     connection,
     runtimeDir,
     supervisorSummary,
@@ -477,8 +639,6 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     reconnectAttempt,
     refreshStatus,
     loadProjects,
-    setSelectedProjects,
-    toggleProject,
     connectToBroker,
     sendUserPrompt,
     resubscribeTrace

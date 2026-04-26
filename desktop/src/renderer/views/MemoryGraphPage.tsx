@@ -55,7 +55,7 @@ export function MemoryGraphPage(): React.JSX.Element {
   const [nodeOff, setNodeOff] = React.useState(0);
   const [edgeOff, setEdgeOff] = React.useState(0);
   const [err, setErr] = React.useState<string | null>(null);
-  const [loadState, setLoadState] = React.useState<string | null>(null);
+  const [, setLoadState] = React.useState<string | null>(null);
   const [nodes, setNodes] = React.useState<Record<string, unknown>[]>([]);
   const [edges, setEdges] = React.useState<Record<string, unknown>[]>([]);
   const [hasMore, setHasMore] = React.useState({ nodes: false, edges: false });
@@ -158,16 +158,11 @@ export function MemoryGraphPage(): React.JSX.Element {
   }
 
   return (
-    <div className="grid2">
+    <div className="grid2 mem2dRoot">
       <section className="card">
-        <div className="cardHeader">Memory Graph (PAG only)</div>
+        <div className="mem2dHeader cardHeader">2D</div>
         <div className="cardBody">
-          {ns0 ? <div className="mono" style={{ marginBottom: 8 }}>namespace: {ns0}</div> : (
-            <div className="mono" style={{ marginBottom: 8, color: "var(--candy-text-2)" }}>проект не выбран — мок-граф / подсветка</div>
-          )}
-          {err ? <div className="mono" style={{ color: "#b71c1c" }}>{err}</div> : null}
-          {loadState ? <div className="mono">state: {loadState}</div> : null}
-          {useLive ? <div className="mono" style={{ marginTop: 8 }}>live: подсветка из trace ({liveIds.size ? "active" : "idle"})</div> : null}
+          {err ? <div className="errLine" style={{ marginBottom: 8 }}>{err}</div> : null}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12, alignItems: "center" }}>
             {(["all", "A", "B", "C"] as const).map((lv) => (
               <button
@@ -216,11 +211,13 @@ export function MemoryGraphPage(): React.JSX.Element {
                 edges −page
               </button>
             ) : null}
-            <div className="pill">
-              <span>decay</span> <span className="mono">~3s</span>
-            </div>
-            <button className="primaryButton" type="button" onClick={triggerMockSearchHighlight} disabled={!useMock}>
-              mock highlight
+            <button
+              className="primaryButton smBtn"
+              type="button"
+              onClick={triggerMockSearchHighlight}
+              disabled={!useMock}
+            >
+              highlight
             </button>
           </div>
           <div style={{ marginTop: 16 }}>
@@ -250,8 +247,7 @@ export function MemoryGraphPage(): React.JSX.Element {
                 >
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 750 }}>{nrec.label}</div>
-                    <div className="mono">{nrec.id}</div>
-                    {nrec.staleness ? <div className="mono" style={{ fontSize: 12 }}>{nrec.staleness}</div> : null}
+                    {nrec.staleness ? <div className="metaTiny">{nrec.staleness}</div> : null}
                   </div>
                   <div className="pill" style={{ background: "transparent" }}>
                     <span>{nrec.level}</span>
@@ -263,7 +259,7 @@ export function MemoryGraphPage(): React.JSX.Element {
         </div>
       </section>
       <section className="card">
-        <div className="cardHeader">Рёбра (лист, лимит)</div>
+        <div className="cardHeader">Рёбра</div>
         <div className="cardBody">
           {(useMock ? mockWorkspace.pag.edges : edges).map((e) => {
             const er: { id: string; from: string; to: string; et: string } = useMock
@@ -288,14 +284,10 @@ export function MemoryGraphPage(): React.JSX.Element {
                 <div style={{ fontWeight: 750, display: "flex" }}>
                   {er.from} → {er.to}
                 </div>
-                <div className="mono">{er.id}</div>
-                {!useMock && er.et ? <div className="mono">{er.et}</div> : null}
+                {!useMock && er.et ? <div className="metaTiny">{er.et}</div> : null}
               </div>
             );
           })}
-          <div className="mono" style={{ marginTop: 8 }}>
-            KB-граф не отображается. Большой PAG — постраница, фильтр A/B/C, подсветка — только визуально, без хранения.
-          </div>
         </div>
       </section>
     </div>
