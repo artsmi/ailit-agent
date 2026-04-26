@@ -236,6 +236,7 @@ export function ChatPage(): React.JSX.Element {
                       if (m.lineKind === "reasoning") {
                         return (
                           <div className="candyChatReasoning" key={m.id}>
+                            <div className="candyChatReasoningLabel">Мысли</div>
                             <CandyMarkdownBody text={m.text} />
                           </div>
                         );
@@ -264,7 +265,7 @@ export function ChatPage(): React.JSX.Element {
                 </button>
                 <textarea
                   className="candyChatTextarea"
-                  rows={1}
+                  rows={2}
                   placeholder="Ответьте или введите команду…"
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
