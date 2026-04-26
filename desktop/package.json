@@ -17,7 +17,9 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-force-graph-3d": "^1.26.4",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.0.0",
+    "remark-gfm": "^4.0.1",
     "three": "^0.179.0"
   },
   "devDependencies": {

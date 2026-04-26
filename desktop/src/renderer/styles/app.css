@@ -903,35 +903,192 @@ button {
   color: #0f172a;
 }
 
-.candyChatGroup:has(.candyChatGroupLabelUser) .candyMsgText {
+.candyChatGroup:has(.candyChatGroupLabelUser) .candyMsgBlock .markdownBody {
   font-size: 0.95rem;
-  line-height: 1.55;
+  line-height: 1.6;
 }
 
-.candyMsgText,
-.candyChatSystemLine {
-  white-space: pre-wrap;
+.candyMsgBlock {
+  min-width: 0;
   color: #1e293b;
 }
 
-.candyChatSystemLine {
-  font-size: 0.72rem;
+.candyChatSystemBlock {
+  min-width: 0;
+  font-size: 0.85em;
   color: #6b5b2a;
 }
 
-.markdownBody {
+.candyChatSystemBlock .markdownBody {
   line-height: 1.5;
-  color: #0f172a;
-  word-wrap: break-word;
+  color: #6b5b2a;
 }
 
-.markdownBody code {
+/* MD+GFM — как в `ai_agent_minimalist_chat_candy_style` */
+.markdownBody {
+  line-height: 1.6;
+  color: #1e293b;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.markdownBody > *:first-child {
+  margin-top: 0;
+}
+
+.markdownBody > *:last-child {
+  margin-bottom: 0;
+}
+
+.markdownBody p {
+  margin: 0.45rem 0;
+}
+
+.markdownBody h1,
+.markdownBody h2,
+.markdownBody h3,
+.markdownBody h4 {
+  margin: 0.9rem 0 0.4rem;
+  line-height: 1.2;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.markdownBody h1 {
+  font-size: 1.15rem;
+  border-bottom: 1px solid #fce7f3;
+  padding-bottom: 0.2rem;
+}
+
+.markdownBody h2 {
+  font-size: 1.02rem;
+}
+
+.markdownBody h3,
+.markdownBody h4 {
+  font-size: 0.92rem;
+  color: #334155;
+}
+
+.markdownBody strong {
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.markdownBody a {
+  color: var(--candy-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+
+.markdownBody ul,
+.markdownBody ol {
+  margin: 0.45rem 0 0.45rem 0.4rem;
+  padding-left: 1.1rem;
+}
+
+.markdownBody li {
+  margin: 0.2rem 0;
+}
+
+.markdownBody li::marker {
+  color: #e879a9;
+}
+
+.markdownBody blockquote {
+  margin: 0.5rem 0;
+  padding: 0.35rem 0.55rem 0.35rem 0.75rem;
+  border-left: 3px solid #fbcfe8;
+  color: #475569;
+  background: rgba(253, 244, 255, 0.4);
+  border-radius: 0 0.35rem 0.35rem 0;
+}
+
+.markdownBody hr {
+  margin: 0.8rem 0;
+  border: 0;
+  border-top: 1px solid #fce7f3;
+}
+
+.markdownBody :not(pre) > code,
+.markdownBody p code,
+.markdownBody li code,
+.markdownBody td code,
+.markdownBody th code {
   padding: 0.1rem 0.35rem;
   border-radius: 9999px;
-  font-size: 0.88em;
+  font-size: 0.86em;
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   color: #be185d;
   background: #fef2f8;
+}
+
+.markdownBody pre {
+  margin: 0.5rem 0;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0.4rem;
+  background: #fdf2f8;
+  border: 1px solid #fce7f3;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.markdownBody pre code {
+  display: block;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+  line-height: inherit;
+  color: #334155;
+  background: transparent;
+  white-space: pre;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+.markdownBodyTableWrap {
+  margin: 0.5rem 0;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 0.4rem;
+  border: 1px solid #fce7f3;
+  background: #fff;
+}
+
+.markdownBody table {
+  width: 100%;
+  min-width: 12rem;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.markdownBody th,
+.markdownBody td {
+  padding: 0.35rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid #fff1f5;
+  vertical-align: top;
+}
+
+.markdownBody th {
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  background: #fffafd;
+}
+
+.markdownBody tr:nth-child(even) td {
+  background: rgba(255, 250, 252, 0.8);
+}
+
+.markdownBodyTableWrap table {
+  margin: 0;
 }
 
 .candyChatConsole {
@@ -1050,9 +1207,11 @@ button {
 
 .candyChatInputWrap {
   position: relative;
-  max-width: 45rem;
+  z-index: 0;
+  box-sizing: border-box;
+  width: min(100% - 1.25rem, max(33.33vw, 18rem));
   margin: 0 auto;
-  padding: 0.25rem 0.6rem 0.75rem 0.6rem;
+  padding: 0.25rem 0.1rem 0.75rem 0.1rem;
   background: #fff;
 }
 

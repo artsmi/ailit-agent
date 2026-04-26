@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useLayoutEffect } from "react";
 
 import { ChatAnalyticsAside } from "../components/chat/ChatAnalyticsAside";
 import { CandyChatConsoleBlock } from "../components/chat/CandyChatConsoleBlock";
+import { CandyMarkdownBody } from "../components/chat/CandyMarkdownBody";
 import { ChatSessionTabs } from "../components/chat/ChatSessionTabs";
 import { useChatLayout } from "../shell/ChatLayoutContext";
 import { useDesktopSession, type ChatLine } from "../runtime/DesktopSessionContext";
@@ -54,12 +55,21 @@ export function ChatPage(): React.JSX.Element {
   const { openNewDialog } = useChatLayout();
   const [draft, setDraft] = React.useState("");
   const [aside, setAside] = React.useState(false);
+  const chatScrollRef: React.RefObject<HTMLDivElement | null> = React.useRef<HTMLDivElement | null>(null);
 
   const active: ChatSessionRecordV1 | undefined = s.sessions.find((x) => x.id === s.activeSessionId);
   const subFile: string =
     s.registry.find((e) => s.selectedProjectIds.includes(e.projectId))?.title ?? "—";
 
   const groups = React.useMemo(() => groupMessagesForLayout(s.chatLines), [s.chatLines]);
+
+  useLayoutEffect(() => {
+    const el: HTMLDivElement | null = chatScrollRef.current;
+    if (!el) {
+      return;
+    }
+    el.scrollTop = el.scrollHeight;
+  }, [s.chatLines, groups.length, aside, s.activeSessionId]);
 
   const addNewChat: () => void = React.useCallback(() => {
     if (s.registry.length === 0) {
@@ -119,7 +129,7 @@ export function ChatPage(): React.JSX.Element {
       <div className="candyChatSplit">
         <div className="candyChatMainCol">
           {s.lastError ? <div className="candyChatErrBanner">{s.lastError}</div> : null}
-          <div className="candyChatScroll">
+          <div className="candyChatScroll" ref={chatScrollRef}>
             <div className="candyChatScrollInner">
               {groups.map((g, gi) => (
                 <div className="candyChatGroup" key={`g-${gi}`}>
@@ -153,12 +163,10 @@ export function ChatPage(): React.JSX.Element {
                       }
                       return (
                         <div
-                          className={
-                            m.from === "system" ? "candyChatSystemLine markdownBody" : "candyMsgText markdownBody"
-                          }
+                          className={m.from === "system" ? "candyChatSystemBlock" : "candyMsgBlock"}
                           key={m.id}
                         >
-                          {m.text}
+                          <CandyMarkdownBody text={m.text} />
                         </div>
                       );
                     })}
