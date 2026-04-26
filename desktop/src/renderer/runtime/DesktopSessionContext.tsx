@@ -151,6 +151,14 @@ function chatLineId(kind: "user" | "assistant" | "system", messageId: string): s
   return `${kind}:${messageId}`;
 }
 
+/** ID строки тела ассистента: до первого `run_shell` с текстом — `assistant:…`, далее `asst-frag:…` (хронология vs bash). */
+function assistantStreamLineId(assistantMessageId: string, part: number): string {
+  if (part <= 0) {
+    return chatLineId("assistant", assistantMessageId);
+  }
+  return `asst-frag:${assistantMessageId}:p${String(part)}`;
+}
+
 function validateSessions(
   reg: readonly ProjectRegistryEntry[],
   p: PersistedUiStateV1
@@ -182,7 +190,10 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const [chatLines, setChatLines] = React.useState<ChatLine[]>([]);
   const [reconnectAttempt, setReconnectAttempt] = React.useState(0);
   const seenRowKeys: React.MutableRefObject<Set<string>> = React.useRef<Set<string>>(new Set());
+  const projectedRowKeysRef: React.MutableRefObject<Set<string>> = React.useRef<Set<string>>(new Set());
   const seenChatIds: React.MutableRefObject<Set<string>> = React.useRef<Set<string>>(new Set());
+  /** Сегменты тела `message_id` (после run_shell, если в предыдущем сегменте уже был текст). */
+  const asstPartByMsgRef: React.MutableRefObject<Map<string, number>> = React.useRef<Map<string, number>>(new Map());
   const registryWasEmpty: React.MutableRefObject<boolean> = React.useRef(true);
   const subChatIdRef: React.MutableRefObject<string | null> = React.useRef(null);
   const activeChatIdRef: React.MutableRefObject<string> = React.useRef("");
@@ -379,6 +390,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         openReasoningLineIdRef.current = null;
         nextReasoningSegRef.current = 0;
         traceEventSeqRef.current = 0;
+        projectedRowKeysRef.current = new Set();
+        asstPartByMsgRef.current = new Map();
         seenChatIds.current = new Set();
         setChatLines([]);
       }
@@ -396,20 +409,15 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         const full: ChatLine = { ...line, order: slotOrder };
         setChatLines((c) => [...c, full]);
       };
-      const upsert: (line: Omit<ChatLine, "order">, slotOrder: number) => void = (line, slotOrder): void => {
-        if (!seenChatIds.current.has(line.id)) {
-          seenChatIds.current.add(line.id);
-          setChatLines((c) => [...c, { ...line, order: slotOrder }]);
-          return;
-        }
-        setChatLines((c) =>
-          c.map((x) => (x.id === line.id ? { ...line, order: x.order, atIso: line.atIso } : x))
-        );
-      };
       const rd: string | null = runtimeDir;
       const cid0: string = activeChatIdRef.current;
       const diagnosticLines: string[] = [];
       for (const row of rows) {
+        const dkey: string = dedupKeyForRow(row);
+        if (projectedRowKeysRef.current.has(dkey)) {
+          continue;
+        }
+        projectedRowKeysRef.current.add(dkey);
         traceEventSeqRef.current += 1;
         const eventSeq: number = traceEventSeqRef.current;
         const n: NormalizedTraceProjection = normalizer.normalizeLine(row);
@@ -419,6 +427,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           nextReasoningSegRef.current = 0;
           streamTextAccRef.current.clear();
           bashTextByCallRef.current = new Map();
+          asstPartByMsgRef.current.clear();
           pushLine(
             {
               id: chatLineId("user", n.messageId),
@@ -430,7 +439,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           );
         } else if (n.kind === "assistant_delta") {
           closeReasoningSegment();
-          const id: string = chatLineId("assistant", n.messageId);
+          const p: number = asstPartByMsgRef.current.get(n.messageId) ?? 0;
+          const id: string = assistantStreamLineId(n.messageId, p);
           const acc: Map<string, string> = streamTextAccRef.current;
           const prevText: string = acc.get(id) ?? "";
           const nextText: string = nextStreamLineText(n.textMode, prevText, n.humanLine);
@@ -482,17 +492,46 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         } else if (n.kind === "assistant_final") {
           closeReasoningSegment();
           setAgentTurnInProgress(false);
-          const asstId: string = chatLineId("assistant", n.messageId);
-          streamTextAccRef.current.set(asstId, nfc(n.humanLine));
-          upsert(
-            {
+          const m: string = n.messageId;
+          const asstId: string = chatLineId("assistant", m);
+          const tFull: string = nfc(n.humanLine);
+          const atIso: string = n.createdAt || new Date().toISOString();
+          for (const k of [...streamTextAccRef.current.keys()]) {
+            if (k === asstId || k.startsWith(`asst-frag:${m}:`)) {
+              streamTextAccRef.current.delete(k);
+            }
+          }
+          streamTextAccRef.current.set(asstId, tFull);
+          asstPartByMsgRef.current.set(m, 0);
+          setChatLines((cur) => {
+            const removed: ChatLine[] = cur.filter(
+              (c) => c.id === asstId || c.id.startsWith(`asst-frag:${m}:`)
+            );
+            const orderFinal: number =
+              removed.length > 0 ? Math.min(...removed.map((c) => c.order)) : eventSeq;
+            for (const c of removed) {
+              if (c.id.startsWith("asst-frag:")) {
+                seenChatIds.current.delete(c.id);
+              }
+            }
+            const pruned: ChatLine[] = cur.filter(
+              (c) => c.id !== asstId && !c.id.startsWith(`asst-frag:${m}:`)
+            );
+            const merged: ChatLine = {
               id: asstId,
               from: "assistant",
-              text: n.humanLine,
-              atIso: n.createdAt || new Date().toISOString()
-            },
-            eventSeq
-          );
+              text: tFull,
+              atIso,
+              order: orderFinal
+            };
+            if (!pruned.some((c) => c.id === asstId)) {
+              if (!seenChatIds.current.has(asstId)) {
+                seenChatIds.current.add(asstId);
+              }
+              return [...pruned, merged];
+            }
+            return pruned.map((c) => (c.id === asstId ? merged : c));
+          });
         } else if (n.kind === "error_row") {
           setAgentTurnInProgress(false);
           closeReasoningSegment();
@@ -509,6 +548,16 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           closeReasoningSegment();
           const evName: string = n.humanLine.trim();
           const inner: Record<string, unknown> = extractToolEventInner(n.raw);
+          if (evName === "tool.call_started" && String(inner["tool"] ?? "") === "run_shell") {
+            const am: string = String(inner["message_id"] ?? "");
+            if (am.length > 0) {
+              const p0: number = asstPartByMsgRef.current.get(am) ?? 0;
+              const sk0: string = assistantStreamLineId(am, p0);
+              if ((streamTextAccRef.current.get(sk0) ?? "").length > 0) {
+                asstPartByMsgRef.current.set(am, p0 + 1);
+              }
+            }
+          }
           const isShellChannel: boolean = /bash|tool\.(bash|sh)|^bash\./i.test(evName);
           if (isShellChannel && isBashEventName(evName)) {
             const callId: string = callIdForBashEvent(inner, n.messageId);
@@ -750,6 +799,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     }
     seenRowKeys.current = new Set();
     seenChatIds.current = new Set();
+    projectedRowKeysRef.current = new Set();
+    asstPartByMsgRef.current = new Map();
     traceEventSeqRef.current = 0;
     openReasoningLineIdRef.current = null;
     nextReasoningSegRef.current = 0;

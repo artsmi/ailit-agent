@@ -3,6 +3,14 @@
 html,
 body {
   height: 100%;
+  overflow: hidden;
+}
+
+#root {
+  /* Цепочка 100% высоты: иначе сетка `.app` тянет страницу по body → «уезжают» topbar/чат-инпут. */
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -21,8 +29,11 @@ button {
 
 .app {
   display: grid;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
   grid-template-columns: minmax(0, 16rem) 1fr;
-  min-height: 100vh;
 }
 
 /* Боковое меню — `ai_agent_ui_library_candy_style` (SideNavBar) */
@@ -173,7 +184,9 @@ button {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  max-height: 100%;
   flex: 1;
+  overflow: hidden;
 }
 
 .topbar {
@@ -211,6 +224,9 @@ button {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  /* При `body { overflow: hidden }` длинные экраны (не чат) скроллятся здесь. */
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .page:has(> .candyChatRoot) {
@@ -579,7 +595,7 @@ button {
 .candyChatRoot {
   display: flex;
   min-width: 0;
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
@@ -898,9 +914,7 @@ button {
 
 .candyChatScroll {
   min-height: 0;
-  /* Было 40% — мало по высоте; даём чату большую долю и нижний порог по vh. */
-  flex: 1 1 70%;
-  min-height: min(100%, max(20rem, 52vh));
+  flex: 1 1 0;
   overflow-y: auto;
   overflow-x: hidden;
   scroll-behavior: auto;
