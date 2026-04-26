@@ -6,6 +6,9 @@
   --candy-text: #1b1b1f;
   --candy-text-2: #5a5a66;
   --candy-border: rgba(20, 20, 30, 0.08);
+  --candy-sidenav-bg: #fef7ff;
+  --candy-sidenav-border: #fce7f3;
+  --candy-sidenav-shadow: 0 20px 40px rgba(224, 64, 160, 0.05);
 
   --radius-pill: 999px;
   --radius-card: 18px;

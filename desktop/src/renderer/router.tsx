@@ -7,6 +7,7 @@ import { CurrentAgentsPage } from "./views/CurrentAgentsPage";
 import { MemoryPage } from "./views/MemoryPage";
 import { ProjectsPage } from "./views/ProjectsPage";
 import { ReportsPage } from "./views/ReportsPage";
+import { HelpPage } from "./views/HelpPage";
 import { RuntimeStatusPage } from "./views/RuntimeStatusPage";
 
 // Hash — иначе при `file://` (AppImage/prod) pathname = путь к index.html, а не "/",
@@ -24,6 +25,7 @@ export const router = createHashRouter([
       { path: "projects", element: <ProjectsPage /> },
       { path: "reports", element: <ReportsPage /> },
       { path: "runtime", element: <RuntimeStatusPage /> },
+      { path: "help", element: <HelpPage /> },
       { path: "agent-dialogue", element: <Navigate replace to="/team" /> },
       { path: "memory-graph", element: <Navigate replace to="/memory" /> },
       {

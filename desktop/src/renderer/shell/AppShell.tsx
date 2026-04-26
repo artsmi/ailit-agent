@@ -3,22 +3,33 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 
 import { NewDialogModal } from "../components/NewDialogModal";
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
+import { CandyMaterialIcon } from "./CandyMaterialIcon";
 import { WorkspaceBadge } from "./WorkspaceBadge";
 
-type NavItem = {
+type CandyNavItem = {
   readonly to: string;
   readonly label: string;
+  readonly icon: string;
 };
 
-const NAV_ITEMS: readonly NavItem[] = [
-  { to: "/chat", label: "Чат" },
-  { to: "/agents", label: "Агенты" },
-  { to: "/projects", label: "Проекты" },
-  { to: "/team", label: "Команда" },
-  { to: "/memory", label: "Память" },
-  { to: "/reports", label: "Отчёты" },
-  { to: "/runtime", label: "Runtime" }
+const PRIMARY_NAV: readonly CandyNavItem[] = [
+  { to: "/chat", label: "Чат", icon: "forum" },
+  { to: "/agents", label: "Агенты", icon: "smart_toy" },
+  { to: "/projects", label: "Проекты", icon: "folder_open" },
+  { to: "/team", label: "Команда", icon: "groups" },
+  { to: "/memory", label: "Память", icon: "hub" },
+  { to: "/reports", label: "Отчёты", icon: "bar_chart" }
 ];
+
+/** Нижняя зона, как в референсе: «Параметры» = runtime, отдельно от основного списка. */
+const FOOTER_NAV: readonly CandyNavItem[] = [
+  { to: "/runtime", label: "Параметры", icon: "settings" },
+  { to: "/help", label: "Справка", icon: "help_outline" }
+];
+
+function navClassName(isActive: boolean): string {
+  return isActive ? "candyNavLink candyNavLinkActive" : "candyNavLink";
+}
 
 export function AppShell(): React.JSX.Element {
   const s: ReturnType<typeof useDesktopSession> = useDesktopSession();
@@ -26,27 +37,39 @@ export function AppShell(): React.JSX.Element {
   const [openNew, setOpenNew] = React.useState(false);
   return (
     <div className="app">
-      <aside className="sidebar">
-        <div className="brand" aria-label="Ailit">
-          <div className="brandDot" />
-          <div>
-            <div className="brandTitle">Ailit</div>
-          </div>
+      <aside className="candySideNav" aria-label="Боковая панель">
+        <div className="candySideNavBrand" aria-label="Ailit">
+          <h1 className="candyBrandTitle">Ailit</h1>
+          <p className="candyBrandTagline">Интеллектуальные агенты</p>
         </div>
-        <button className="ctaNewDialog" type="button" onClick={() => setOpenNew(true)}>
-          + Новый диалог
+        <button className="candySideNavCta" type="button" onClick={() => setOpenNew(true)}>
+          <CandyMaterialIcon name="add" filled />
+          <span>Новый диалог</span>
         </button>
-        <nav className="nav" aria-label="Навигация">
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              className={({ isActive }) => (isActive ? "navLink navLinkActive" : "navLink")}
-              to={item.to}
-            >
-              {item.label}
+        <nav className="candySideNavMain" aria-label="Навигация">
+          {PRIMARY_NAV.map((item) => (
+            <NavLink key={item.to} to={item.to} className={({ isActive }) => navClassName(isActive)}>
+              {({ isActive }) => (
+                <>
+                  <CandyMaterialIcon name={item.icon} filled={isActive} />
+                  <span>{item.label}</span>
+                </>
+              )}
             </NavLink>
           ))}
         </nav>
+        <div className="candySideNavFooter">
+          {FOOTER_NAV.map((item) => (
+            <NavLink key={item.to} to={item.to} className={({ isActive }) => navClassName(isActive)}>
+              {({ isActive }) => (
+                <>
+                  <CandyMaterialIcon name={item.icon} filled={isActive} />
+                  <span>{item.label}</span>
+                </>
+              )}
+            </NavLink>
+          ))}
+        </div>
       </aside>
       <main className="main">
         <header className="topbar">
