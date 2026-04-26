@@ -11,7 +11,8 @@ import { useDesktopSession, type ChatLine } from "../runtime/DesktopSessionConte
 import type { ChatSessionRecordV1, ChatToolDisplayV1 } from "../state/persistedUi";
 import { CandyMaterialIcon } from "../shell/CandyMaterialIcon";
 
-const BOTTOM_STICK_PX: number = 88;
+/** Считаем «у низа», если до низа осталось не больше (px) — погрешность sub-pixel/scroll. */
+const NEAR_BOTTOM_PX: number = 32;
 
 function briefTitle(s: ChatSessionRecordV1, reg: ReturnType<typeof useDesktopSession>["registry"]): string {
   if (s.label && s.label !== "Session 1") {
@@ -62,6 +63,7 @@ export function ChatPage(): React.JSX.Element {
   const [historyOpen, setHistoryOpen] = React.useState(false);
   const chatScrollRef: React.RefObject<HTMLDivElement | null> = React.useRef<HTMLDivElement | null>(null);
   const stickToBottomRef: React.MutableRefObject<boolean> = React.useRef(true);
+  const innerObsRef: React.RefObject<HTMLDivElement | null> = React.useRef<HTMLDivElement | null>(null);
 
   const active: ChatSessionRecordV1 | undefined = s.sessions.find((x) => x.id === s.activeSessionId);
   const subFile: string =
@@ -84,9 +86,21 @@ export function ChatPage(): React.JSX.Element {
     if (!scroller) {
       return;
     }
+    if (scroller.scrollHeight <= scroller.clientHeight + 1) {
+      stickToBottomRef.current = true;
+      return;
+    }
     const gap: number = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
-    stickToBottomRef.current = gap <= BOTTOM_STICK_PX;
-  }, [BOTTOM_STICK_PX]);
+    stickToBottomRef.current = gap <= NEAR_BOTTOM_PX;
+  }, []);
+
+  const scrollToBottom: () => void = React.useCallback((): void => {
+    const scroller: HTMLDivElement | null = chatScrollRef.current;
+    if (!scroller) {
+      return;
+    }
+    scroller.scrollTop = scroller.scrollHeight;
+  }, []);
 
   React.useEffect((): (() => void) | void => {
     const scroller: HTMLDivElement | null = chatScrollRef.current;
@@ -103,16 +117,44 @@ export function ChatPage(): React.JSX.Element {
     };
   }, [recomputeStickFromScroller, s.activeSessionId, aside, visibleChatLines.length]);
 
+  React.useEffect((): (() => void) | void => {
+    const inner: HTMLDivElement | null = innerObsRef.current;
+    if (!inner || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const ro: ResizeObserver = new ResizeObserver(() => {
+      if (stickToBottomRef.current) {
+        requestAnimationFrame(() => {
+          scrollToBottom();
+          recomputeStickFromScroller();
+        });
+      }
+    });
+    ro.observe(inner);
+    return () => {
+      ro.disconnect();
+    };
+  }, [recomputeStickFromScroller, scrollToBottom, s.activeSessionId, visibleChatLines.length, aside]);
+
+  const chatStreamSig: string = React.useMemo((): string => {
+    return visibleChatLines
+      .map((m) => `${m.id}\t${m.text.length}\t${(m.text || "").slice(-40)}`)
+      .join("\n");
+  }, [visibleChatLines]);
+
   useLayoutEffect((): (() => void) | void => {
     if (!stickToBottomRef.current) {
       return;
     }
-    const scroller: HTMLDivElement | null = chatScrollRef.current;
-    if (!scroller) {
-      return;
-    }
-    scroller.scrollTop = scroller.scrollHeight;
-  }, [visibleChatLines, groups.length, aside, s.activeSessionId, s.lastError, s.agentTurnInProgress]);
+    scrollToBottom();
+    const raf0: number = requestAnimationFrame(() => {
+      scrollToBottom();
+      recomputeStickFromScroller();
+    });
+    return () => {
+      cancelAnimationFrame(raf0);
+    };
+  }, [chatStreamSig, groups.length, aside, s.activeSessionId, s.lastError, s.agentTurnInProgress, scrollToBottom, recomputeStickFromScroller]);
 
   React.useEffect((): void => {
     stickToBottomRef.current = true;
@@ -200,7 +242,7 @@ export function ChatPage(): React.JSX.Element {
         <div className="candyChatMainCol">
           {s.lastError ? <div className="candyChatErrBanner">{s.lastError}</div> : null}
           <div className="candyChatScroll" ref={chatScrollRef}>
-            <div className="candyChatScrollInner">
+            <div className="candyChatScrollInner" ref={innerObsRef}>
               {groups.map((g, gi) => (
                 <div className="candyChatGroup" key={`g-${gi}`}>
                   <div className="candyChatGroupHead">
@@ -287,6 +329,7 @@ export function ChatPage(): React.JSX.Element {
                     className="candyChatSend candyChatSendStop"
                     type="button"
                     title="Остановить"
+                    aria-label="Остановить"
                     onClick={() => {
                       void s.requestStopAgent();
                     }}
@@ -297,6 +340,7 @@ export function ChatPage(): React.JSX.Element {
                   <button
                     className="candyChatSend"
                     type="button"
+                    aria-label="Отправить"
                     onClick={() => {
                       const t: string = draft;
                       if (!t.trim()) {

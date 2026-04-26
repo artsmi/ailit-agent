@@ -18,6 +18,13 @@ import {
   deriveAgentLinkKeysFromTrace,
   type AgentDialogueMessage
 } from "./agentDialogueProjection";
+import {
+  buildBashLineDelta,
+  callIdForBashEvent,
+  extractToolEventInner,
+  isBashEventName,
+  shortToolLine
+} from "../components/chat/shellEventFormat";
 import { dedupKeyForRow, RuntimeTraceNormalizer, type NormalizedTraceProjection } from "./traceNormalize";
 import { mergeStreamText } from "./streamTextMerge";
 import { newMessageId } from "./uuid";
@@ -177,6 +184,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
    * накладывались на уже полный текст и давали «Давайтевайте».
    */
   const streamTextAccRef: React.MutableRefObject<Map<string, string>> = React.useRef(new Map());
+  /** Склейка bash.* по call_id: без сырого JSON, один блок в ленте. */
+  const bashTextByCallRef: React.MutableRefObject<Map<string, string>> = React.useRef(new Map());
   const [agentTurnInProgress, setAgentTurnInProgress] = React.useState(false);
 
   const setUiAndSave: (next: PersistedUiStateV1 | ((prev: PersistedUiStateV1) => PersistedUiStateV1)) => void = React.useCallback(
@@ -349,6 +358,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       const isBulkReplay: boolean = rows.length > 1;
       if (isBulkReplay) {
         streamTextAccRef.current = new Map();
+        bashTextByCallRef.current = new Map();
         openReasoningLineIdRef.current = null;
         nextReasoningSegRef.current = 0;
       }
@@ -382,6 +392,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           openReasoningLineIdRef.current = null;
           nextReasoningSegRef.current = 0;
           streamTextAccRef.current.clear();
+          bashTextByCallRef.current = new Map();
           pushLine({
             id: chatLineId("user", n.messageId),
             from: "user",
@@ -461,19 +472,51 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           });
         } else if (n.kind === "tool_event") {
           closeReasoningSegment();
-          const isShell: boolean = /bash|tool\.(bash|sh)|^bash\./i.test(n.humanLine);
-          const body: string = [n.humanLine, n.technicalLine].filter((x) => x.length > 0).join("\n");
-          const ch: "shell" | "tool" = isShell ? "shell" : "tool";
-          const sh: string = isShell ? "bash" : "sh";
-          pushLine({
-            id: `console:${n.messageId}:${n.humanLine}`,
-            from: "assistant",
-            text: body,
-            atIso: n.createdAt || new Date().toISOString(),
-            lineKind: "console",
-            consoleShell: sh,
-            consoleChannel: ch
-          });
+          const evName: string = n.humanLine.trim();
+          const inner: Record<string, unknown> = extractToolEventInner(n.raw);
+          const isShellChannel: boolean = /bash|tool\.(bash|sh)|^bash\./i.test(evName);
+          if (isShellChannel && isBashEventName(evName)) {
+            const callId: string = callIdForBashEvent(inner, n.messageId);
+            const lineId: string = `console:bash:call:${callId}`;
+            const prev: string = bashTextByCallRef.current.get(callId) ?? "";
+            const { next, didChange }: { next: string; didChange: boolean } = buildBashLineDelta(evName, inner, prev);
+            bashTextByCallRef.current.set(callId, next);
+            const atIso2: string = n.createdAt || new Date().toISOString();
+            if (next.length > 0 && (didChange || !seenChatIds.current.has(lineId))) {
+              if (!seenChatIds.current.has(lineId)) {
+                seenChatIds.current.add(lineId);
+                setChatLines((c) => [
+                  ...c,
+                  {
+                    id: lineId,
+                    from: "assistant",
+                    text: next,
+                    atIso: atIso2,
+                    lineKind: "console",
+                    consoleShell: "bash",
+                    consoleChannel: "shell",
+                    order: takeLineOrder()
+                  }
+                ]);
+              } else {
+                setChatLines((c) => c.map((x) => (x.id === lineId ? { ...x, text: next, atIso: atIso2 } : x)));
+              }
+            }
+          } else {
+            const body: string = shortToolLine(evName, inner) || evName;
+            const isShell: boolean = isShellChannel;
+            const ch: "shell" | "tool" = isShell ? "shell" : "tool";
+            const sh: string = isShell && /bash/i.test(evName) ? "bash" : isShell ? "sh" : "sh";
+            pushLine({
+              id: `console:${n.messageId}:${evName}`,
+              from: "assistant",
+              text: body,
+              atIso: n.createdAt || new Date().toISOString(),
+              lineKind: "console",
+              consoleShell: sh,
+              consoleChannel: ch
+            });
+          }
         }
       }
     },
@@ -659,6 +702,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     openReasoningLineIdRef.current = null;
     nextReasoningSegRef.current = 0;
     streamTextAccRef.current = new Map();
+    bashTextByCallRef.current = new Map();
     setAgentTurnInProgress(false);
     setRawTraceRows([]);
     setChatLines([]);

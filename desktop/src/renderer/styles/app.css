@@ -888,14 +888,16 @@ button {
 
 .candyChatScroll {
   min-height: 0;
-  flex: 1 1 40%;
+  /* Было 40% — мало по высоте; даём чату большую долю и нижний порог по vh. */
+  flex: 1 1 70%;
+  min-height: min(100%, max(20rem, 52vh));
   overflow-y: auto;
   overflow-x: hidden;
   scroll-behavior: auto;
 }
 
 .candyChatScrollInner {
-  max-width: 45rem;
+  max-width: 54rem;
   min-height: 0;
   margin: 0 auto;
   padding: 1.25rem 1rem 1.5rem 1rem;
@@ -1333,7 +1335,7 @@ button {
   box-sizing: border-box;
   /* Ширина полосы = колонка чата (см. candyChatInputWrap), не 22.5vw */
   width: 100%;
-  max-width: 45rem;
+  max-width: 54rem;
   min-width: 0;
   margin: 0.1rem auto 0.2rem;
   padding: 0.35rem 1rem 0.4rem;
@@ -1434,7 +1436,7 @@ button {
   flex-shrink: 0;
   /* Вся ширина ленты как у candyChatScrollInner; раньше min(…, 22.5vw) давал ~четверть экрана. */
   width: 100%;
-  max-width: 45rem;
+  max-width: 54rem;
   min-width: 0;
   margin: 0 auto;
   padding: 0.3rem 1rem 0.9rem 1rem;
