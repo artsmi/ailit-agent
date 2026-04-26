@@ -48,12 +48,14 @@
   "build": {
     "appId": "dev.ailit.desktop",
     "productName": "ailit",
+    "icon": "resources/icon.png",
     "directories": {
       "output": "dist-app"
     },
     "files": [
       "dist/**",
-      "package.json"
+      "package.json",
+      "resources/icon.png"
     ],
     "linux": {
       "target": [

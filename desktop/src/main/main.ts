@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { app, BrowserWindow, dialog } from "electron";
 import * as path from "node:path";
 
@@ -13,6 +14,11 @@ function getRendererUrl(): string {
   return `file://${indexHtmlPath}`;
 }
 
+function getWindowIconPath(): string | undefined {
+  const iconPath: string = path.join(app.getAppPath(), "resources", "icon.png");
+  return existsSync(iconPath) ? iconPath : undefined;
+}
+
 function getPreloadPath(): string {
   // tsconfig.preload: rootDir "src" → out mirrors src/preload/... →
   // dist/preload/preload/preload.js (не dist/preload/preload.js)
@@ -26,6 +32,7 @@ async function createWindow(): Promise<void> {
     minWidth: 980,
     minHeight: 640,
     backgroundColor: "#fff7fb",
+    icon: getWindowIconPath(),
     show: false,
     webPreferences: {
       contextIsolation: true,
