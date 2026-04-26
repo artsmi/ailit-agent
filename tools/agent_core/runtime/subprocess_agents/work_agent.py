@@ -349,7 +349,10 @@ class AgentWorkWorker:
             ws = req.payload.get("workspace")
             project_root = None
             if isinstance(ws, dict):
-                roots = ws.get("projectRoots")
+                # desktop: envelopeFactory — snake_case (project_roots, …).
+                roots = ws.get("project_roots")
+                if roots is None:
+                    roots = ws.get("projectRoots")
                 is_list = isinstance(roots, list)
                 has_first = is_list and bool(roots)
                 is_str = has_first and isinstance(roots[0], str)
