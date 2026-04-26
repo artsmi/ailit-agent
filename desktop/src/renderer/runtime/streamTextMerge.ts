@@ -1,18 +1,47 @@
 /**
- * Слияние фрагментов стрима: провайдеры иногда шлют кумулятивный снимок вместо дельты.
+ * Слияние фрагментов стрима: провайдеры шлют кумулятив, дельту или
+ * куски с перекрытием. Сравнение/накопление ведём в Unicode NFC.
+ */
+
+function toNfc(s: string): string {
+  return s.normalize("NFC");
+}
+
+/**
+ * Слияние накопленного текста `prev` и пришедшего `chunk`.
+ * Результат в NFC — для стабильного merge при следующей дельте.
  */
 export function mergeStreamText(prev: string, chunk: string): string {
-  if (chunk.length === 0) {
-    return prev;
+  const p: string = toNfc(prev);
+  const c: string = toNfc(chunk);
+  if (c.length === 0) {
+    return p;
   }
-  if (prev.length === 0) {
-    return chunk;
+  if (p.length === 0) {
+    return c;
   }
-  if (chunk.startsWith(prev)) {
-    return chunk;
+  if (c.startsWith(p)) {
+    return c;
   }
-  if (prev.startsWith(chunk)) {
-    return prev;
+  if (p.startsWith(c)) {
+    return p;
   }
-  return prev + chunk;
+  const maxK: number = Math.min(p.length, c.length) - 1;
+  const minLen: number = Math.min(p.length, c.length);
+  for (let k: number = maxK; k >= 1; k -= 1) {
+    if (p.slice(-k) !== c.slice(0, k)) {
+      continue;
+    }
+    if (k === 1 && minLen > 3) {
+      continue;
+    }
+    if (k === c.length) {
+      return p;
+    }
+    if (k === p.length) {
+      return c;
+    }
+    return p + c.slice(k);
+  }
+  return p + c;
 }
