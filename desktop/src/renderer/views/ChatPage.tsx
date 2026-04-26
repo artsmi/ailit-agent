@@ -1,5 +1,6 @@
 import React, { useLayoutEffect } from "react";
 
+import { CandyChatAgentStatusRow } from "../components/chat/CandyChatAgentStatusRow";
 import { ChatAnalyticsAside } from "../components/chat/ChatAnalyticsAside";
 import { ChatHistoryModal } from "../components/chat/ChatHistoryModal";
 import { CandyChatConsoleBlock } from "../components/chat/CandyChatConsoleBlock";
@@ -9,6 +10,8 @@ import { useChatLayout } from "../shell/ChatLayoutContext";
 import { useDesktopSession, type ChatLine } from "../runtime/DesktopSessionContext";
 import type { ChatSessionRecordV1, ChatToolDisplayV1 } from "../state/persistedUi";
 import { CandyMaterialIcon } from "../shell/CandyMaterialIcon";
+
+const BOTTOM_STICK_PX: number = 88;
 
 function briefTitle(s: ChatSessionRecordV1, reg: ReturnType<typeof useDesktopSession>["registry"]): string {
   if (s.label && s.label !== "Session 1") {
@@ -58,7 +61,7 @@ export function ChatPage(): React.JSX.Element {
   const [aside, setAside] = React.useState(false);
   const [historyOpen, setHistoryOpen] = React.useState(false);
   const chatScrollRef: React.RefObject<HTMLDivElement | null> = React.useRef<HTMLDivElement | null>(null);
-  const chatEndRef: React.RefObject<HTMLDivElement | null> = React.useRef<HTMLDivElement | null>(null);
+  const stickToBottomRef: React.MutableRefObject<boolean> = React.useRef(true);
 
   const active: ChatSessionRecordV1 | undefined = s.sessions.find((x) => x.id === s.activeSessionId);
   const subFile: string =
@@ -76,29 +79,44 @@ export function ChatPage(): React.JSX.Element {
 
   const groups = React.useMemo(() => groupMessagesForLayout(visibleChatLines), [visibleChatLines]);
 
-  useLayoutEffect(() => {
+  const recomputeStickFromScroller: () => void = React.useCallback((): void => {
     const scroller: HTMLDivElement | null = chatScrollRef.current;
-    const end: HTMLDivElement | null = chatEndRef.current;
     if (!scroller) {
       return;
     }
-    const scroll: () => void = (): void => {
-      if (end) {
-        end.scrollIntoView({ block: "end", behavior: "auto" });
-      } else {
-        scroller.scrollTop = scroller.scrollHeight;
-      }
+    const gap: number = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+    stickToBottomRef.current = gap <= BOTTOM_STICK_PX;
+  }, [BOTTOM_STICK_PX]);
+
+  React.useEffect((): (() => void) | void => {
+    const scroller: HTMLDivElement | null = chatScrollRef.current;
+    if (!scroller) {
+      return;
+    }
+    const onScroll: () => void = (): void => {
+      recomputeStickFromScroller();
     };
-    scroll();
-    const id0: number = requestAnimationFrame((): void => {
-      requestAnimationFrame((): void => {
-        scroll();
-      });
-    });
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    recomputeStickFromScroller();
     return () => {
-      cancelAnimationFrame(id0);
+      scroller.removeEventListener("scroll", onScroll);
     };
-  }, [visibleChatLines, groups.length, aside, s.activeSessionId, s.lastError]);
+  }, [recomputeStickFromScroller, s.activeSessionId, aside, visibleChatLines.length]);
+
+  useLayoutEffect((): (() => void) | void => {
+    if (!stickToBottomRef.current) {
+      return;
+    }
+    const scroller: HTMLDivElement | null = chatScrollRef.current;
+    if (!scroller) {
+      return;
+    }
+    scroller.scrollTop = scroller.scrollHeight;
+  }, [visibleChatLines, groups.length, aside, s.activeSessionId, s.lastError, s.agentTurnInProgress]);
+
+  React.useEffect((): void => {
+    stickToBottomRef.current = true;
+  }, [s.activeSessionId]);
 
   const addNewChat: () => void = React.useCallback(() => {
     if (s.registry.length === 0) {
@@ -234,9 +252,9 @@ export function ChatPage(): React.JSX.Element {
                   </div>
                 </div>
               ))}
-              <div aria-hidden="true" className="candyChatScrollEnd" ref={chatEndRef} />
             </div>
           </div>
+          <CandyChatAgentStatusRow active={s.agentTurnInProgress} />
           <div className="candyChatInputWrap">
             <div className="candyChatInputGlow" />
             <div className="candyChatInputBox">
@@ -253,23 +271,44 @@ export function ChatPage(): React.JSX.Element {
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
+                      if (s.agentTurnInProgress) {
+                        return;
+                      }
                       const t: string = draft;
                       setDraft("");
+                      stickToBottomRef.current = true;
                       void s.sendUserPrompt(t);
                     }
                   }}
                 />
-                <button
-                  className="candyChatSend"
-                  type="button"
-                  onClick={() => {
-                    const t: string = draft;
-                    setDraft("");
-                    void s.sendUserPrompt(t);
-                  }}
-                >
-                  <CandyMaterialIcon name="arrow_upward" filled />
-                </button>
+                {s.agentTurnInProgress ? (
+                  <button
+                    className="candyChatSend candyChatSendStop"
+                    type="button"
+                    title="Остановить"
+                    onClick={() => {
+                      void s.requestStopAgent();
+                    }}
+                  >
+                    <CandyMaterialIcon name="stop" filled />
+                  </button>
+                ) : (
+                  <button
+                    className="candyChatSend"
+                    type="button"
+                    onClick={() => {
+                      const t: string = draft;
+                      if (!t.trim()) {
+                        return;
+                      }
+                      setDraft("");
+                      stickToBottomRef.current = true;
+                      void s.sendUserPrompt(t);
+                    }}
+                  >
+                    <CandyMaterialIcon name="arrow_upward" filled />
+                  </button>
+                )}
               </div>
               <div className="candyChatInputMeta">
                 <div className="candyChatInputModel">

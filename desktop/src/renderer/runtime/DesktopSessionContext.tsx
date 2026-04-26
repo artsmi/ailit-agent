@@ -74,6 +74,9 @@ export type DesktopSessionValue = {
   readonly connectToBroker: () => Promise<void>;
   readonly sendUserPrompt: (text: string) => Promise<void>;
   readonly resubscribeTrace: () => Promise<void>;
+  /** Модель/рантайм обрабатывают ход (до assistant.final / стопа). */
+  readonly agentTurnInProgress: boolean;
+  readonly requestStopAgent: () => Promise<void>;
 };
 
 const Ctx = React.createContext<DesktopSessionValue | null>(null);
@@ -164,6 +167,11 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     traceLineOrderRef.current += 1;
     return traceLineOrderRef.current;
   }, []);
+  /** Текущая сегментированная «мысль» (тот же user-turn может иметь: мысль → tool → мысль). */
+  const openReasoningLineIdRef: React.MutableRefObject<string | null> = React.useRef(null);
+  /** Индекс сегмента s0, s1, … внутри trace assistant message_id. */
+  const nextReasoningSegRef: React.MutableRefObject<number> = React.useRef(0);
+  const [agentTurnInProgress, setAgentTurnInProgress] = React.useState(false);
 
   const setUiAndSave: (next: PersistedUiStateV1 | ((prev: PersistedUiStateV1) => PersistedUiStateV1)) => void = React.useCallback(
     (next) => {
@@ -332,6 +340,12 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
 
   const projectChatFromTrace: (rows: readonly Record<string, unknown>[]) => void = React.useCallback(
     (rows) => {
+      const closeReasoningSegment: () => void = (): void => {
+        if (openReasoningLineIdRef.current !== null) {
+          openReasoningLineIdRef.current = null;
+          nextReasoningSegRef.current += 1;
+        }
+      };
       const pushLine: (line: Omit<ChatLine, "order">) => void = (line): void => {
         if (seenChatIds.current.has(line.id)) {
           return;
@@ -353,6 +367,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       for (const row of rows) {
         const n: NormalizedTraceProjection = normalizer.normalizeLine(row);
         if (n.kind === "user_prompt") {
+          openReasoningLineIdRef.current = null;
+          nextReasoningSegRef.current = 0;
           pushLine({
             id: chatLineId("user", n.messageId),
             from: "user",
@@ -360,6 +376,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
             atIso: n.createdAt || new Date().toISOString()
           });
         } else if (n.kind === "assistant_delta") {
+          closeReasoningSegment();
           const id: string = chatLineId("assistant", n.messageId);
           setChatLines((cur) => {
             const found: ChatLine | undefined = cur.find((x) => x.id === id);
@@ -379,13 +396,20 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
             return cur.map((x) => (x.id === id ? next : x));
           });
         } else if (n.kind === "assistant_thinking_delta") {
-          const id: string = `assistant-think:${n.messageId}`;
+          const mid: string = n.messageId;
+          let lineId: string;
+          if (openReasoningLineIdRef.current === null) {
+            lineId = `assistant-think:${mid}:s${nextReasoningSegRef.current}`;
+            openReasoningLineIdRef.current = lineId;
+          } else {
+            lineId = openReasoningLineIdRef.current;
+          }
           setChatLines((cur) => {
-            const found: ChatLine | undefined = cur.find((x) => x.id === id);
+            const found: ChatLine | undefined = cur.find((x) => x.id === lineId);
             const prevText: string = found ? found.text : "";
             const nextText: string = mergeStreamText(prevText, n.humanLine);
             const next: ChatLine = {
-              id,
+              id: lineId,
               from: "assistant",
               text: nextText,
               atIso: n.createdAt || new Date().toISOString(),
@@ -393,12 +417,14 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
               order: found ? found.order : takeLineOrder()
             };
             if (!found) {
-              seenChatIds.current.add(id);
+              seenChatIds.current.add(lineId);
               return [...cur, next];
             }
-            return cur.map((x) => (x.id === id ? next : x));
+            return cur.map((x) => (x.id === lineId ? next : x));
           });
         } else if (n.kind === "assistant_final") {
+          closeReasoningSegment();
+          setAgentTurnInProgress(false);
           upsert({
             id: chatLineId("assistant", n.messageId),
             from: "assistant",
@@ -406,6 +432,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
             atIso: n.createdAt || new Date().toISOString()
           });
         } else if (n.kind === "error_row") {
+          setAgentTurnInProgress(false);
+          closeReasoningSegment();
           pushLine({
             id: chatLineId("system", n.messageId),
             from: "system",
@@ -413,6 +441,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
             atIso: n.createdAt || new Date().toISOString()
           });
         } else if (n.kind === "tool_event") {
+          closeReasoningSegment();
           const isShell: boolean = /bash|tool\.(bash|sh)|^bash\./i.test(n.humanLine);
           const body: string = [n.humanLine, n.technicalLine].filter((x) => x.length > 0).join("\n");
           const ch: "shell" | "tool" = isShell ? "shell" : "tool";
@@ -608,6 +637,9 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     seenRowKeys.current = new Set();
     seenChatIds.current = new Set();
     traceLineOrderRef.current = 0;
+    openReasoningLineIdRef.current = null;
+    nextReasoningSegRef.current = 0;
+    setAgentTurnInProgress(false);
     setRawTraceRows([]);
     setChatLines([]);
     setBrokerEndpoint(null);
@@ -638,6 +670,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         setLastError("No workspace projects selected.");
         return;
       }
+      setAgentTurnInProgress(true);
       const built: ReturnType<typeof buildUserPromptAction> = buildUserPromptAction({
         chatId: chatId0,
         brokerId: `broker-${chatId0}`,
@@ -664,10 +697,12 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       const r: { readonly ok: true; readonly response: RuntimeResponseEnvelope } | { readonly ok: false; readonly error: string } =
         await window.ailitDesktop.brokerRequest({ endpoint: ep, request: built.envelope });
       if (!r.ok) {
+        setAgentTurnInProgress(false);
         setLastError(r.error);
         return;
       }
       if (!r.response.ok) {
+        setAgentTurnInProgress(false);
         const asstIdErr: string = r.response.message_id;
         const errId: string = chatLineId("system", asstIdErr);
         if (!seenChatIds.current.has(errId)) {
@@ -687,6 +722,24 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     },
     [activeSession.chatId, brokerEndpoint, pickWorkspace, takeLineOrder]
   );
+
+  const requestStopAgent: () => Promise<void> = React.useCallback(async () => {
+    setAgentTurnInProgress(false);
+    openReasoningLineIdRef.current = null;
+    const cid: string = activeSession.chatId;
+    setBrokerEndpoint(null);
+    try {
+      await window.ailitDesktop.supervisorStopBroker({ chatId: cid });
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    }
+    setConnection("connecting");
+    try {
+      await connectToBroker();
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    }
+  }, [activeSession.chatId, connectToBroker]);
 
   React.useEffect(() => {
     const offRow: (() => void) | void = window.ailitDesktop.onTraceRow((evt) => {
@@ -756,7 +809,9 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     loadProjects,
     connectToBroker,
     sendUserPrompt,
-    resubscribeTrace
+    resubscribeTrace,
+    agentTurnInProgress,
+    requestStopAgent
   };
 
   return <Ctx.Provider value={v}>{children}</Ctx.Provider>;

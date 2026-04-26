@@ -896,17 +896,11 @@ button {
 
 .candyChatScrollInner {
   max-width: 45rem;
-  min-height: min(40vh, 12rem);
+  min-height: 0;
   margin: 0 auto;
   padding: 1.25rem 1rem 1.5rem 1rem;
   box-sizing: border-box;
   font-size: 0.8rem;
-}
-
-.candyChatScrollEnd {
-  height: 1px;
-  min-height: 0;
-  pointer-events: none;
 }
 
 .candyChatGroup {
@@ -1306,10 +1300,108 @@ button {
   word-break: break-word;
 }
 
+.candyChatAgentStatus {
+  position: relative;
+  z-index: 0;
+  flex-shrink: 0;
+  width: min(100% - 1.25rem, max(33.33vw, 18rem));
+  margin: 0.1rem auto 0.2rem;
+  padding: 0.35rem 0.6rem 0.4rem;
+  overflow: hidden;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  color: #9d174d;
+  background: linear-gradient(90deg, #fff0f6 0%, #fdf2f8 50%, #fff0f6 100%);
+  border: 1px solid #fce7f3;
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+}
+
+.candyChatAgentStatusShimmer {
+  position: absolute;
+  background: linear-gradient(90deg, transparent, rgba(244, 63, 133, 0.12), transparent);
+  animation: candyChatShimmer 1.5s ease-in-out infinite;
+  pointer-events: none;
+  inset: 0;
+}
+
+.candyChatAgentStatusInner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.candyChatAgentStatusIcon {
+  line-height: 0;
+  opacity: 0.9;
+}
+
+.candyChatAgentStatusIcon .candyMaterialIcon {
+  font-size: 0.95rem;
+  color: #db2777;
+}
+
+.candyChatAgentStatusText {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.candyChatAgentStatusDots {
+  display: inline-flex;
+  gap: 0.1rem;
+  line-height: 0;
+  margin-left: 0.1rem;
+}
+
+.candyChatAgentDot {
+  display: inline-block;
+  width: 0.2rem;
+  height: 0.2rem;
+  border-radius: 9999px;
+  background: #ec4899;
+  animation: candyChatDotBounce 0.8s ease-in-out infinite;
+}
+
+.candyChatAgentDot:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.candyChatAgentDot:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+@keyframes candyChatShimmer {
+  0%,
+  100% {
+    transform: translateX(-20%);
+  }
+
+  50% {
+    transform: translateX(20%);
+  }
+}
+
+@keyframes candyChatDotBounce {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+
+  50% {
+    transform: translateY(-0.12rem);
+    opacity: 1;
+  }
+}
+
 .candyChatInputWrap {
   position: relative;
   z-index: 0;
   box-sizing: border-box;
+  flex-shrink: 0;
   width: min(100% - 1.25rem, max(33.33vw, 18rem));
   margin: 0 auto;
   padding: 0.25rem 0.1rem 0.75rem 0.1rem;
@@ -1393,6 +1485,17 @@ button {
 .candyChatTextarea {
   box-shadow: none;
   outline: 0;
+}
+
+.candyChatSend.candyChatSendStop {
+  color: #9f1239;
+  background: #ffe4e6;
+  box-shadow: 0 0 0 1px #fecdd3 inset;
+}
+
+.candyChatSend.candyChatSendStop:hover {
+  color: #881337;
+  background: #fecdd3;
 }
 
 .candyChatSend {
