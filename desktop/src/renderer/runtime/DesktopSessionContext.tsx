@@ -29,6 +29,9 @@ export type ChatLine = {
   readonly from: "user" | "assistant" | "system";
   readonly text: string;
   readonly atIso: string;
+  /** Сообщение-консоль (tool/shell) — рендер как в minimalist candy ref. */
+  readonly lineKind?: "message" | "console";
+  readonly consoleShell?: string;
 };
 
 export type DesktopSessionValue = {
@@ -41,6 +44,7 @@ export type DesktopSessionValue = {
   /** Переключить проект в workspace; не снимет последний. */
   readonly toggleProject: (projectId: string) => void;
   readonly createNewChatSession: (projectIds: readonly string[], label: string) => void;
+  readonly renameSession: (sessionId: string, label: string) => void;
   readonly lastAgentPair: LastAgentPairV1 | null;
   readonly setLastAgentPair: (pair: LastAgentPairV1 | null) => void;
   readonly connection: ConnState;
@@ -265,6 +269,25 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     [setUiAndSave]
   );
 
+  const renameSession: (sessionId: string, label: string) => void = React.useCallback(
+    (sessionId, t) => {
+      const next: string = t.trim();
+      if (!next) {
+        return;
+      }
+      setUiAndSave((p) => {
+        if (!p.sessions.some((x) => x.id === sessionId)) {
+          return p;
+        }
+        return {
+          ...p,
+          sessions: p.sessions.map((s) => (s.id === sessionId ? { ...s, label: next } : s))
+        };
+      });
+    },
+    [setUiAndSave]
+  );
+
   const mergeRows: (rows: readonly Record<string, unknown>[]) => void = React.useCallback((rows) => {
     setRawTraceRows((prev) => {
       const next: Record<string, unknown>[] = [...prev];
@@ -330,6 +353,17 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
             from: "system",
             text: n.humanLine,
             atIso: n.createdAt || new Date().toISOString()
+          });
+        } else if (n.kind === "tool_event") {
+          const shell: string = /bash|tool\.(bash|sh)|^bash\./i.test(n.humanLine) ? "bash" : "sh";
+          const body: string = [n.humanLine, n.technicalLine].filter((x) => x.length > 0).join("\n");
+          pushChatIfNew(setChatLines, seenChatIds, {
+            id: `console:${n.messageId}`,
+            from: "assistant",
+            text: body,
+            atIso: n.createdAt || new Date().toISOString(),
+            lineKind: "console",
+            consoleShell: shell
           });
         }
       }
@@ -622,6 +656,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     setActiveSessionProjectIds,
     toggleProject,
     createNewChatSession,
+    renameSession,
     lastAgentPair: ui.lastAgentPair,
     setLastAgentPair,
     connection,

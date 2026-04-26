@@ -213,6 +213,10 @@ button {
   flex-direction: column;
 }
 
+.page:has(> .candyChatRoot) {
+  padding: 0;
+}
+
 .card {
   border-radius: var(--radius-card);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.8));
@@ -568,6 +572,838 @@ button {
 
 .fontW800 {
   font-weight: 800;
+}
+
+/* --- чат: ai_agent_minimalist_chat_candy_style --- */
+.candyChatRoot {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+}
+
+.candyChatHeader {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  min-height: 3.75rem;
+  padding: 0 0.5rem 0 1.25rem;
+  border-bottom: 1px solid #fce7f3;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(6px);
+}
+
+.candyChatHeaderLeft {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 12rem;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.candyChatHeaderTitle {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.candyChatHeaderRule {
+  display: block;
+  width: 1px;
+  min-height: 0.8rem;
+  max-height: 0.8rem;
+  background: #e2e8f0;
+  flex-shrink: 0;
+}
+
+.candyChatHeaderSub {
+  overflow: hidden;
+  min-width: 0;
+  flex: 0 1 14rem;
+  text-overflow: ellipsis;
+  font-size: 0.7rem;
+  font-weight: 500;
+  white-space: nowrap;
+  color: #64748b;
+}
+
+.candyChatHeaderRight {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.1rem 0.25rem;
+  padding: 0 0.25rem 0 0.25rem;
+}
+
+.candyChatHeaderBtn,
+.candyChatHeaderIconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-height: 2rem;
+  padding: 0.2rem 0.55rem;
+  font: inherit;
+  color: #64748b;
+  background: none;
+  border: 0;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.candyChatHeaderIconBtn {
+  min-width: 2rem;
+  padding: 0.2rem;
+}
+
+.candyChatHeaderBtn:hover,
+.candyChatHeaderIconBtn:hover {
+  color: var(--candy-accent);
+  background: #fdf2f8;
+}
+
+.candyChatHeaderBtn .candyMaterialIcon,
+.candyChatHeaderIconBtn .candyMaterialIcon {
+  color: currentColor;
+  font-size: 1.1rem;
+}
+
+.candyChatHeaderBtnText {
+  display: none;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+@media (min-width: 800px) {
+  .candyChatHeaderBtnText {
+    display: inline;
+  }
+}
+
+.candyChatErrBanner {
+  margin: 0.35rem 1rem 0.25rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: 9999px;
+  background: #fff1f1;
+  font-size: 0.7rem;
+  color: #9b1c1c;
+  word-break: break-word;
+}
+
+.candyChatTabs {
+  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
+  border-bottom: 1px solid #fff1f5;
+  background: #fff;
+}
+
+.candyChatTabsTrack {
+  display: flex;
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.4rem 0.75rem 0.5rem 0.75rem;
+  scrollbar-width: thin;
+  scrollbar-color: #fbcfe8 transparent;
+}
+
+.candyChatTab {
+  max-width: 10rem;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.candyChatTabActive {
+  box-shadow: 0 0 0 1px rgba(224, 64, 160, 0.2);
+}
+
+.candyChatTabBtn,
+.candyChatTabAdd,
+.candyChatTabInput {
+  font: inherit;
+}
+
+.candyChatTabAdd {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.8rem;
+  min-width: 1.8rem;
+  max-width: 1.8rem;
+  min-height: 1.8rem;
+  color: #64748b;
+  background: #f8fafc;
+  border: 1px dashed #e2e8f0;
+  border-radius: 9999px;
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.candyChatTabAdd:hover {
+  color: var(--candy-accent);
+  background: #fdf2f8;
+  border-color: #fbcfe8;
+}
+
+.candyChatTabAdd .candyMaterialIcon {
+  color: currentColor;
+  font-size: 0.9rem;
+}
+
+.candyChatTabBtn {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  padding: 0.3rem 0.65rem 0.35rem;
+  text-align: left;
+  color: #475569;
+  background: transparent;
+  border: 0;
+  border-radius: 9999px;
+  transition: background 0.12s, color 0.12s;
+  cursor: pointer;
+}
+
+.candyChatTab .candyChatTabLabel {
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 500;
+  overflow: hidden;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.candyChatTabActive .candyChatTabBtn,
+.candyChatTabBtn:hover {
+  color: var(--candy-accent);
+  background: rgba(253, 244, 255, 0.8);
+}
+
+.candyChatTabInput {
+  display: block;
+  width: 7rem;
+  min-width: 0;
+  padding: 0.2rem 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: #0f172a;
+  background: #fff;
+  border: 1px solid #fbcfe8;
+  border-radius: 0.4rem;
+}
+
+.candyChatSplit {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: row;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.candyChatMainCol {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.candyChatScroll {
+  min-height: 0;
+  flex: 1 1 40%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scroll-behavior: smooth;
+}
+
+.candyChatScrollInner {
+  max-width: 45rem;
+  min-height: min(40vh, 12rem);
+  margin: 0 auto;
+  padding: 1.25rem 1rem 1.5rem 1rem;
+  box-sizing: border-box;
+  font-size: 0.8rem;
+}
+
+.candyChatGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 1.2rem;
+}
+
+.candyChatGroupHead {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: #94a3b8;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.candyChatGroupLabelAi,
+.candyChatGroupLabelUser {
+  color: var(--candy-accent);
+}
+
+.candyChatGroupLabelUser {
+  color: #94a3b8;
+}
+
+.candyChatAvatar {
+  display: flex;
+  width: 1.3rem;
+  min-width: 1.3rem;
+  min-height: 1.3rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+}
+
+.candyChatAvatar .candyMaterialIcon {
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.candyChatAvatarUser {
+  background: #f1f5f9;
+}
+
+.candyChatAvatarAi {
+  background: #fdf2f8;
+}
+
+.candyChatAvatarAi .candyMaterialIcon {
+  color: var(--candy-accent);
+}
+
+.candyChatGroupBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  line-height: 1.5;
+  color: #0f172a;
+}
+
+.candyChatGroup:has(.candyChatGroupLabelUser) .candyMsgText {
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.candyMsgText,
+.candyChatSystemLine {
+  white-space: pre-wrap;
+  color: #1e293b;
+}
+
+.candyChatSystemLine {
+  font-size: 0.72rem;
+  color: #6b5b2a;
+}
+
+.markdownBody {
+  line-height: 1.5;
+  color: #0f172a;
+  word-wrap: break-word;
+}
+
+.markdownBody code {
+  padding: 0.1rem 0.35rem;
+  border-radius: 9999px;
+  font-size: 0.88em;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color: #be185d;
+  background: #fef2f8;
+}
+
+.candyChatConsole {
+  max-width: 100%;
+  margin: 0.1rem 0 0.45rem 0;
+}
+
+.candyChatConsole .candyChatConsoleInner {
+  border: 1px solid #ffe4f0;
+  border-radius: 1.25rem;
+  overflow: hidden;
+  background: rgba(255, 241, 249, 0.45);
+}
+
+.candyChatConsoleHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #fff1f3;
+  padding: 0.4rem 0.85rem;
+  background: rgba(255, 255, 255, 0.5);
+  font-size: 0.55rem;
+}
+
+.candyChatConsoleHeadLabel,
+.candyChatConsoleHeadShell {
+  font-size: 0.55rem;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+.candyChatConsoleHeadLabel {
+  color: var(--candy-accent);
+}
+
+.candyChatConsoleHeadShell {
+  color: #e879a9;
+}
+
+.candyChatConsoleBody {
+  padding: 0.5rem 0.85rem 0.5rem 0.85rem;
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.4;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color: #334155;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+  overflow: hidden;
+}
+
+.candyChatConsoleLine {
+  white-space: pre-wrap;
+}
+
+.candyChatConsoleDetails {
+  margin: 0;
+}
+
+.candyChatConsoleMore {
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  width: max-content;
+  min-height: 1.5rem;
+  margin: 0.1rem 0 0.15rem 0;
+  list-style: none;
+  line-height: 1.1;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  text-decoration: underline 2px;
+  text-decoration-color: rgba(224, 64, 160, 0.3);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.1rem;
+  color: var(--candy-accent);
+  cursor: pointer;
+}
+
+.candyChatConsoleDetails summary::-webkit-details-marker {
+  display: none;
+}
+
+.candyChatConsoleDetails[open] .candyChatConsoleMoreIconWrap {
+  transform: rotate(180deg);
+}
+
+.candyChatConsoleMoreIconWrap {
+  display: flex;
+  align-items: center;
+  line-height: 0;
+  transition: transform 0.2s ease;
+}
+
+.candyChatConsoleRest {
+  max-width: 100%;
+  margin-top: 0.2rem;
+  padding-top: 0.2rem;
+  color: #64748b;
+  border-top: 1px solid rgba(252, 231, 241, 0.7);
+  font-size: 0.7rem;
+  line-height: 1.35;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-style: normal;
+  font-weight: 400;
+  opacity: 0.9;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.candyChatInputWrap {
+  position: relative;
+  max-width: 45rem;
+  margin: 0 auto;
+  padding: 0.25rem 0.6rem 0.75rem 0.6rem;
+  background: #fff;
+}
+
+.candyChatInputGlow {
+  position: absolute;
+  z-index: 0;
+  border-radius: 9999px;
+  opacity: 0.08;
+  transition: opacity 0.2s ease;
+  background: var(--candy-accent);
+  pointer-events: none;
+  filter: blur(1.1rem);
+  inset: 0.6rem 1rem 1.1rem 1rem;
+}
+
+.candyChatInputWrap:has(textarea:focus) .candyChatInputGlow,
+.candyChatInputWrap:has(textarea:hover) .candyChatInputGlow {
+  opacity: 0.12;
+}
+
+.candyChatInputBox {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.candyChatInputWrap:has(textarea:focus) .candyChatInputBox,
+.candyChatInputWrap:has(textarea:hover) .candyChatInputBox {
+  box-shadow: 0 0 0 1px rgba(224, 64, 160, 0.1);
+  border-color: #fbcfe8;
+}
+
+.candyChatInputRow {
+  display: flex;
+  min-width: 0;
+  align-items: flex-end;
+  flex-wrap: nowrap;
+  gap: 0.15rem 0.25rem;
+  padding: 0.1rem 0.25rem 0.1rem 0.1rem;
+}
+
+.candyChatInputAttach {
+  margin-bottom: 0.1rem;
+  line-height: 0;
+  color: #94a3b8;
+  background: none;
+  border: 0;
+  border-radius: 9999px;
+  cursor: not-allowed;
+  padding: 0.25rem;
+  opacity: 0.4;
+  transition: color 0.12s;
+}
+
+.candyChatTextarea {
+  font: inherit;
+  font-size: 0.8rem;
+  min-height: 1.1rem;
+  min-width: 0;
+  max-height: 7rem;
+  margin: 0.15rem 0 0.1rem 0;
+  line-height: 1.3;
+  flex: 1 1 auto;
+  color: #0f172a;
+  background: #fff;
+  border: 0;
+  box-shadow: none;
+  padding: 0.45rem 0.25rem 0.4rem 0.25rem;
+  resize: none;
+}
+
+.candyChatTextarea:focus,
+.candyChatTextarea {
+  box-shadow: none;
+  outline: 0;
+}
+
+.candyChatSend {
+  line-height: 0;
+  flex-shrink: 0;
+  min-width: 2.1rem;
+  min-height: 2.1rem;
+  max-width: 2.1rem;
+  max-height: 2.1rem;
+  color: #fff;
+  background: var(--candy-accent);
+  border: 0;
+  border-radius: 9999px;
+  box-shadow: 0 0.1rem 0.3rem rgba(224, 64, 160, 0.25);
+  margin-bottom: 0.1rem;
+  padding: 0.25rem;
+  cursor: pointer;
+  transition: background 0.1s, transform 0.12s;
+}
+
+.candyChatSend .candyMaterialIcon {
+  color: #fff;
+  font-size: 1.05rem;
+  font-style: normal;
+  font-weight: 400;
+}
+
+.candyChatSend:hover {
+  filter: brightness(1.05);
+}
+
+.candyChatSend:active {
+  transform: scale(0.96);
+}
+
+.candyChatInputMeta {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid #fff5fa;
+  padding: 0.1rem 0.65rem 0.15rem 0.65rem;
+  font-size: 0.55rem;
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1.1;
+  color: #cbd5e1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  gap: 0.2rem 0.5rem;
+}
+
+.candyChatInputModel {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.1rem 0.25rem;
+  font-size: 0.55rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--candy-accent);
+}
+
+.candyChatInputModel .candyMaterialIcon {
+  line-height: 0;
+  font-size: 0.65rem;
+  color: currentColor;
+}
+
+.candyChatInputModel span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.55rem;
+  font-style: normal;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.candyChatInputHint {
+  flex: 0 0 auto;
+  min-width: 0;
+  font-size: 0.55rem;
+  font-style: normal;
+  font-weight: 500;
+  color: #cbd5e1;
+  letter-spacing: 0.02em;
+  white-space: normal;
+  text-align: right;
+  word-wrap: break-word;
+}
+
+.candyChatAside {
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  flex: 0 0 18.5rem;
+  min-height: 0;
+  max-width: 20rem;
+  flex-direction: column;
+  border-left: 1px solid #ffe4f0;
+  background: #fffafd;
+  padding: 0.5rem 0.65rem 0.75rem 0.9rem;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  font-synthesis: none;
+}
+
+.candyChatAsideHead {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+  line-height: 1.1;
+  gap: 0.1rem 0.25rem;
+  padding: 0.1rem 0.1rem 0.1rem 0.25rem;
+}
+
+.candyChatAsideTitle {
+  margin: 0;
+  font-size: 0.6rem;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  line-height: 1.1;
+  text-transform: uppercase;
+  color: #0f172a;
+}
+
+.candyChatAsideClose {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  min-height: 1.55rem;
+  max-width: 1.55rem;
+  max-height: 1.55rem;
+  font-size: 0.5rem;
+  line-height: 0;
+  color: #94a3b8;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 9999px;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+  cursor: pointer;
+  padding: 0.2rem 0.15rem;
+  font-style: normal;
+  font-weight: 500;
+  transition: color 0.12s, background 0.12s, border-color 0.12s, box-shadow 0.2s, transform 0.12s;
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.candyChatAsideClose:hover {
+  color: var(--candy-accent);
+  background: #fff5fc;
+  border-color: #fbcfe8;
+}
+
+.candyChatAsideBody {
+  min-height: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  padding: 0.1rem 0.05rem 0.15rem 0.05rem;
+  line-height: 1.35;
+}
+
+.candyChatAsideSection {
+  min-width: 0;
+  margin-bottom: 0.5rem;
+}
+
+.candyChatAsideH3 {
+  margin: 0 0 0.28rem 0.05rem;
+  font-size: 0.55rem;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--candy-accent);
+}
+
+.candyChatAsideCard {
+  min-width: 0;
+  border-radius: 0.5rem 1.25rem 0.5rem 1.25rem;
+  border: 1px solid #ffe0ef;
+  background: #fff;
+  padding: 0.4rem 0.55rem 0.45rem 0.5rem;
+  line-height: 1.3;
+  box-shadow: 0 1px 0 rgba(224, 64, 160, 0.04);
+}
+
+.candyChatAsideRow {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  margin-bottom: 0.15rem;
+  font-size: 0.68rem;
+  line-height: 1.1;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.candyChatAsideRow .candyMaterialIcon {
+  font-size: 0.9rem;
+  line-height: 0;
+  color: var(--candy-accent);
+}
+
+.candyChatAsideProjTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.candyChatAsideDesc {
+  margin: 0;
+  font-size: 0.58rem;
+  line-height: 1.25;
+  text-align: left;
+  color: #64748b;
+  word-wrap: break-word;
+}
+
+.candyChatAsidePillRow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  border-radius: 9999px;
+  border: 1px solid #ffe0ef;
+  background: #fff;
+  padding: 0.3rem 0.45rem;
+  line-height: 1.1;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.02);
+}
+
+.candyChatAsidePillLabel {
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 500;
+  line-height: 1.1;
+  color: #64748b;
+  word-break: break-word;
+  padding: 0 0.1rem 0.05rem 0;
+}
+
+.candyChatAsidePillVal {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  font-size: 0.5rem;
+  line-height: 1.1;
+  font-style: normal;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #166534;
+  background: #d1fae5;
+  border-radius: 9999px;
+  padding: 0.12rem 0.35rem 0.12rem 0.35rem;
 }
 
 /* @xyflow canvas */

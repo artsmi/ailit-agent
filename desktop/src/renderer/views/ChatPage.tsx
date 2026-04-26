@@ -1,7 +1,12 @@
 import React from "react";
 
-import { useDesktopSession } from "../runtime/DesktopSessionContext";
+import { ChatAnalyticsAside } from "../components/chat/ChatAnalyticsAside";
+import { CandyChatConsoleBlock } from "../components/chat/CandyChatConsoleBlock";
+import { ChatSessionTabs } from "../components/chat/ChatSessionTabs";
+import { useChatLayout } from "../shell/ChatLayoutContext";
+import { useDesktopSession, type ChatLine } from "../runtime/DesktopSessionContext";
 import type { ChatSessionRecordV1 } from "../state/persistedUi";
+import { CandyMaterialIcon } from "../shell/CandyMaterialIcon";
 
 function briefTitle(s: ChatSessionRecordV1, reg: ReturnType<typeof useDesktopSession>["registry"]): string {
   if (s.label && s.label !== "Session 1") {
@@ -14,98 +19,207 @@ function briefTitle(s: ChatSessionRecordV1, reg: ReturnType<typeof useDesktopSes
   return t || s.label;
 }
 
+function connectionLabel(c: ReturnType<typeof useDesktopSession>["connection"]): string {
+  if (c === "ready") {
+    return "Готово";
+  }
+  if (c === "connecting") {
+    return "Подключение…";
+  }
+  if (c === "error") {
+    return "Ошибка";
+  }
+  return "—";
+}
+
+function groupMessagesForLayout(lines: readonly ChatLine[]): { readonly kind: "user" | "ai"; readonly items: readonly ChatLine[] }[] {
+  const out: { kind: "user" | "ai"; items: ChatLine[] }[] = [];
+  for (const m of lines) {
+    const k: "user" | "ai" = m.from === "user" ? "user" : "ai";
+    const last: { kind: "user" | "ai"; items: ChatLine[] } | undefined = out[out.length - 1];
+    if (last !== undefined && last.kind === k) {
+      last.items.push(m);
+    } else {
+      out.push({ kind: k, items: [m] });
+    }
+  }
+  return out;
+}
+
 /**
- * Чат: сессии в dropdown, новый диалог — в shell.
+ * Чат в стиле `ai_agent_minimalist_chat_candy_style`: вкладки сессий, консоль tool/shell, опциональная правая панель.
  */
 export function ChatPage(): React.JSX.Element {
   const s: ReturnType<typeof useDesktopSession> = useDesktopSession();
+  const { openNewDialog } = useChatLayout();
   const [draft, setDraft] = React.useState("");
+  const [aside, setAside] = React.useState(false);
+
+  const active: ChatSessionRecordV1 | undefined = s.sessions.find((x) => x.id === s.activeSessionId);
+  const subFile: string =
+    s.registry.find((e) => s.selectedProjectIds.includes(e.projectId))?.title ?? "—";
+
+  const groups = React.useMemo(() => groupMessagesForLayout(s.chatLines), [s.chatLines]);
+
+  const addNewChat: () => void = React.useCallback(() => {
+    if (s.registry.length === 0) {
+      void s.loadProjects();
+      openNewDialog();
+      return;
+    }
+    if (s.selectedProjectIds.length === 0) {
+      openNewDialog();
+      return;
+    }
+    const n: number = s.sessions.length + 1;
+    s.createNewChatSession(s.selectedProjectIds, `Диалог ${n}`);
+  }, [openNewDialog, s]);
+
   return (
-    <div className="chatPage">
-      <div className="chatTop">
-        <div className="chatSessionRow">
-          <label className="sessionLbl" htmlFor="sessionPick">
-            Сессия
-          </label>
-          <select
-            className="sessionSelect"
-            id="sessionPick"
-            value={s.activeSessionId}
-            onChange={(e) => {
-              s.setActiveSessionId(e.target.value);
-            }}
-          >
-            {s.sessions.map((sess) => (
-              <option key={sess.id} value={sess.id}>
-                {briefTitle(sess, s.registry)}
-              </option>
-            ))}
-          </select>
+    <div className="candyChatRoot" data-candy-chat="1">
+      <div className="candyChatHeader">
+        <div className="candyChatHeaderLeft">
+          <span className="candyChatHeaderTitle">{active ? briefTitle(active, s.registry) : "Чат"}</span>
+          <span className="candyChatHeaderRule" />
+          <span className="candyChatHeaderSub">{subFile}</span>
         </div>
-        <div className="chatWorkspacePills">
-          {s.registry
-            .filter((p) => s.selectedProjectIds.includes(p.projectId))
-            .map((p) => (
-              <span className="pill smPill" key={p.projectId}>
-                {p.title}
-              </span>
-            ))}
-        </div>
-        <div className="chatActions">
-          <button className="linkBtn" type="button" onClick={() => void s.loadProjects()}>
-            registry
+        <div className="candyChatHeaderRight">
+          <button className="candyChatHeaderBtn" type="button" onClick={() => setAside((v) => !v)} title="Аналитика">
+            <CandyMaterialIcon name="analytics" />
+            <span className="candyChatHeaderBtnText">Аналитика</span>
           </button>
-          <button className="linkBtn" type="button" onClick={() => void s.connectToBroker()}>
-            reconnect
+          <button
+            className="candyChatHeaderIconBtn"
+            type="button"
+            onClick={() => void s.loadProjects()}
+            title="Обновить registry"
+          >
+            <CandyMaterialIcon name="sync" />
+          </button>
+          <button
+            className="candyChatHeaderIconBtn"
+            type="button"
+            onClick={() => void s.connectToBroker()}
+            title="Переподключить broker"
+          >
+            <CandyMaterialIcon name="lan" />
           </button>
         </div>
       </div>
-      <section className="card chatCard">
-        <div className="cardBody chatStream">
-          {s.lastError ? <div className="errLine">{s.lastError}</div> : null}
-          {s.chatLines.map((m) => (
-            <div className="chatLine" key={m.id}>
-              <div
-                className="chatFrom"
-                style={{
-                  color:
-                    m.from === "user" ? "var(--candy-text)" : m.from === "system" ? "#6b5b2a" : "var(--candy-accent)"
-                }}
-              >
-                {m.from === "user" ? "User" : m.from === "system" ? "System" : "Assistant"}
-              </div>
-              <div className="chatText">{m.text}</div>
+
+      <ChatSessionTabs
+        activeSessionId={s.activeSessionId}
+        sessions={s.sessions}
+        titleFor={(sess) => briefTitle(sess, s.registry)}
+        onAdd={addNewChat}
+        onRename={(id, label) => s.renameSession(id, label)}
+        onSelect={(id) => s.setActiveSessionId(id)}
+      />
+
+      <div className="candyChatSplit">
+        <div className="candyChatMainCol">
+          {s.lastError ? <div className="candyChatErrBanner">{s.lastError}</div> : null}
+          <div className="candyChatScroll">
+            <div className="candyChatScrollInner">
+              {groups.map((g, gi) => (
+                <div className="candyChatGroup" key={`g-${gi}`}>
+                  <div className="candyChatGroupHead">
+                    {g.kind === "user" ? (
+                      <>
+                        <div className="candyChatAvatar candyChatAvatarUser" aria-hidden="true">
+                          <CandyMaterialIcon name="person" />
+                        </div>
+                        <span className="candyChatGroupLabel candyChatGroupLabelUser">Вы</span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="candyChatAvatar candyChatAvatarAi" aria-hidden="true">
+                          <CandyMaterialIcon name="smart_toy" />
+                        </div>
+                        <span className="candyChatGroupLabel candyChatGroupLabelAi">Ailit</span>
+                      </>
+                    )}
+                  </div>
+                  <div className="candyChatGroupBody">
+                    {g.items.map((m) => {
+                      if (m.lineKind === "console") {
+                        return (
+                          <CandyChatConsoleBlock
+                            key={m.id}
+                            shell={m.consoleShell ?? "sh"}
+                            text={m.text}
+                          />
+                        );
+                      }
+                      return (
+                        <div
+                          className={
+                            m.from === "system" ? "candyChatSystemLine markdownBody" : "candyMsgText markdownBody"
+                          }
+                          key={m.id}
+                        >
+                          {m.text}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
+          <div className="candyChatInputWrap">
+            <div className="candyChatInputGlow" />
+            <div className="candyChatInputBox">
+              <div className="candyChatInputRow">
+                <button className="candyChatInputAttach" type="button" tabIndex={-1} disabled title="Скоро">
+                  <CandyMaterialIcon name="add" />
+                </button>
+                <textarea
+                  className="candyChatTextarea"
+                  rows={1}
+                  placeholder="Ответьте или введите команду…"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      const t: string = draft;
+                      setDraft("");
+                      void s.sendUserPrompt(t);
+                    }
+                  }}
+                />
+                <button
+                  className="candyChatSend"
+                  type="button"
+                  onClick={() => {
+                    const t: string = draft;
+                    setDraft("");
+                    void s.sendUserPrompt(t);
+                  }}
+                >
+                  <CandyMaterialIcon name="arrow_upward" filled />
+                </button>
+              </div>
+              <div className="candyChatInputMeta">
+                <div className="candyChatInputModel">
+                  <CandyMaterialIcon name="memory" />
+                  <span>ailit</span>
+                </div>
+                <span className="candyChatInputHint">Shift+Enter — новая строка</span>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="chatComposer">
-          <input
-            className="chatInput"
-            value={draft}
-            placeholder="Сообщение…"
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                const t: string = draft;
-                setDraft("");
-                void s.sendUserPrompt(t);
-              }
-            }}
+        {aside ? (
+          <ChatAnalyticsAside
+            connectionLabel={connectionLabel(s.connection)}
+            onClose={() => setAside(false)}
+            registry={s.registry}
+            selectedProjectIds={s.selectedProjectIds}
           />
-          <button
-            className="primaryButton smBtn"
-            type="button"
-            onClick={() => {
-              const t: string = draft;
-              setDraft("");
-              void s.sendUserPrompt(t);
-            }}
-          >
-            Send
-          </button>
-        </div>
-      </section>
+        ) : null}
+      </div>
     </div>
   );
 }
