@@ -46,12 +46,13 @@ function mapEntry(row: Record<string, unknown>, activeIds: ReadonlySet<string>):
 }
 
 /**
- * CLI: `ailit project list --json --start <path>` (PATH=ailit в install).
+ * CLI: `ailit project list --json` (глобальный ``~/.ailit``, PATH=ailit в install).
  */
-export async function listProjectRegistry(startPath: string | undefined): Promise<ProjectRegistryListOutcome> {
+export async function listProjectRegistry(
+  _startPath: string | undefined
+): Promise<ProjectRegistryListOutcome> {
   const ailitBin: string = (process.env["AILIT_CLI"] ?? "ailit").trim() || "ailit";
-  const start: string = (startPath ?? process.cwd()).trim() || process.cwd();
-  const args: string[] = ["project", "list", "--json", "--start", start];
+  const args: string[] = ["project", "list", "--json"];
   try {
     const { stdout, stderr } = await execFileAsync(ailitBin, args, {
       env: process.env,

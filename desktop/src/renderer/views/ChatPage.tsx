@@ -42,7 +42,7 @@ export function ChatPage(): React.JSX.Element {
                 ))}
               </div>
             ) : (
-              <div className="mono">Список пуст: выполните `ailit project add` в каталоге с кодом, затем «Load».</div>
+              <div className="mono">Список пуст: `ailit project add` (реестр в ~/.ailit), затем «Load registry».</div>
             )}
             <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button className="primaryButton" type="button" onClick={() => void s.loadProjects()}>

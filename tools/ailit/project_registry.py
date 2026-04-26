@@ -1,6 +1,10 @@
-"""Project registry storage for `ailit desktop` (Workflow 9, G9.3).
+"""Project registry в глобальном ``~/.ailit`` (Workflow 9, G9.3).
 
-Хранит список проектов в ближайшем `.ailit/config.yaml` (upwards discovery).
+Структура:
+- ``~/.ailit/config.yaml`` — ``active_project_ids`` и ``schema_version``
+- ``~/.ailit/projects/<project_id>/config.yaml`` — метаданные одного проекта
+
+Перемещение репозитория на диск = новый ``project_id`` (строго новый проект).
 Provider/model не являются частью project registry.
 """
 
@@ -14,7 +18,11 @@ from typing import Any
 
 import yaml
 
-from ailit.project_config_discovery import ProjectAilitConfigDiscovery
+from ailit.global_ailit_layout import (
+    user_global_config_path,
+    user_project_dir,
+    user_projects_root,
+)
 
 
 def _now_utc_iso_z() -> str:
@@ -62,7 +70,7 @@ class ProjectRegistryWriteResult:
 
 @dataclass(frozen=True, slots=True)
 class ProjectRegistryListResult:
-    """Snapshot of `projects` section in `.ailit/config.yaml`."""
+    """Снимок глобального registry."""
 
     registry_file: Path
     entries: tuple[dict[str, Any], ...]
@@ -70,7 +78,7 @@ class ProjectRegistryListResult:
 
 
 class LocalYamlFileStore:
-    """Atomic YAML mapping read/write for local `.ailit/config.yaml`."""
+    """Atomic YAML read/write."""
 
     def load_mapping(self, path: Path) -> dict[str, Any]:
         if not path.is_file():
@@ -102,115 +110,97 @@ class LocalYamlFileStore:
             raise
 
 
-class ProjectRegistryLocator:
-    """Finds nearest `.ailit/config.yaml` to store registry."""
-
-    def find_registry_file(self, start: Path) -> Path:
-        found = ProjectAilitConfigDiscovery.collect_deepest_first(start)
-        if found:
-            return found[0]
-        return (start.resolve() / ".ailit" / "config.yaml").resolve()
-
-
 class ProjectRegistryEditor:
-    """Read/modify/write `projects` section inside `.ailit/config.yaml`."""
+    """Read/modify глобальный project registry в ``~/.ailit``."""
 
-    def __init__(
-        self,
-        locator: ProjectRegistryLocator | None = None,
-        store: LocalYamlFileStore | None = None,
-    ) -> None:
-        self._locator = locator or ProjectRegistryLocator()
+    def __init__(self, store: LocalYamlFileStore | None = None) -> None:
         self._store = store or LocalYamlFileStore()
 
+    def _global_path(self) -> Path:
+        return user_global_config_path()
+
+    def _load_global(self) -> dict[str, Any]:
+        return self._store.load_mapping(self._global_path())
+
+    def _save_global(self, data: dict[str, Any]) -> None:
+        self._store.save_mapping(self._global_path(), data)
+
     def add_project(
-        self, project_root: Path, *, start: Path
+        self,
+        project_root: Path,
     ) -> ProjectRegistryWriteResult:
+        """Добавить/обновить проект: id от абсолютного пути (стабилен)."""
         abs_path = project_root.resolve()
         project_id = _stable_project_id(abs_path)
         namespace = _derive_namespace(abs_path)
         title = abs_path.name
-        registry_file = self._locator.find_registry_file(start)
+        pdir = user_project_dir(project_id)
+        per_project_file = pdir / "config.yaml"
 
-        data = self._store.load_mapping(registry_file)
-        projects = data.get("projects")
-        if not isinstance(projects, dict):
-            projects = {}
-            data["projects"] = projects
-
-        entries = projects.get("entries")
-        if not isinstance(entries, list):
-            entries = []
-            projects["entries"] = entries
-
-        active_ids = projects.get("active_project_ids")
-        if not isinstance(active_ids, list):
-            active_ids = []
-            projects["active_project_ids"] = active_ids
-
-        abs_path_str = str(abs_path)
-        existing: dict[str, Any] | None = None
-        for row in entries:
-            if (
-                isinstance(row, dict)
-                and str(row.get("path", "")).strip() == abs_path_str
-            ):
-                existing = row
-                break
-
-        if existing is None:
-            existing = {}
-            entries.append(existing)
-
-        existing.update(
+        per_data: dict[str, Any] = self._store.load_mapping(per_project_file)
+        per_data.update(
             {
                 "project_id": str(project_id),
-                "path": abs_path_str,
+                "path": str(abs_path),
                 "namespace": str(namespace),
                 "title": str(title),
-                "added_at": str(existing.get("added_at") or _now_utc_iso_z()),
+                "added_at": str(
+                    per_data.get("added_at") or _now_utc_iso_z()
+                ),
                 "active": True,
             }
         )
+        self._store.save_mapping(per_project_file, per_data)
 
-        if project_id not in active_ids:
-            active_ids.append(project_id)
-
-        self._store.save_mapping(registry_file, data)
+        g = self._load_global()
+        if g.get("schema_version") is None:
+            g["schema_version"] = 1
+        active = g.get("active_project_ids")
+        if not isinstance(active, list):
+            active = []
+        g["active_project_ids"] = active
+        if project_id not in active:
+            active.append(project_id)
+        self._save_global(g)
 
         return ProjectRegistryWriteResult(
-            registry_file=registry_file,
+            registry_file=self._global_path(),
             project_id=project_id,
             namespace=namespace,
             title=title,
             path=abs_path,
         )
 
-    def read_registry(self, *, start: Path) -> ProjectRegistryListResult:
-        """Прочитать registry из ближайшего к `start` `.ailit/config.yaml`."""
-        registry_file = self._locator.find_registry_file(start)
-        data = self._store.load_mapping(registry_file)
-        projects = data.get("projects")
-        if not isinstance(projects, dict):
-            return ProjectRegistryListResult(
-                registry_file=registry_file,
-                entries=(),
-                active_project_ids=(),
-            )
-        raw_entries = projects.get("entries")
-        entries: list[dict[str, Any]] = []
-        if isinstance(raw_entries, list):
-            for item in raw_entries:
-                if isinstance(item, dict):
-                    entries.append(dict(item))
-        raw_active = projects.get("active_project_ids")
+    def read_registry(self) -> ProjectRegistryListResult:
+        """Считать ``projects/`` и глобальный список active."""
+        g = self._load_global()
+        raw_active = g.get("active_project_ids")
         active: list[str] = []
         if isinstance(raw_active, list):
             for x in raw_active:
                 if isinstance(x, str) and x.strip():
-                    active.append(x)
+                    active.append(x.strip())
+
+        entries: list[dict[str, Any]] = []
+        proot = user_projects_root()
+        if proot.is_dir():
+            for sub in sorted(proot.iterdir(), key=lambda p: p.name):
+                if not sub.is_dir():
+                    continue
+                f = sub / "config.yaml"
+                if not f.is_file():
+                    continue
+                row = self._store.load_mapping(f)
+                if not row.get("project_id") or not row.get("path"):
+                    continue
+                row = dict(row)
+                pid = str(row.get("project_id", ""))
+                row["active"] = pid in set(active) or bool(row.get("active"))
+                entries.append(row)
+
+        entries.sort(key=lambda r: str(r.get("project_id", "")))
         return ProjectRegistryListResult(
-            registry_file=registry_file,
+            registry_file=self._global_path(),
             entries=tuple(entries),
             active_project_ids=tuple(active),
         )

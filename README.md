@@ -43,7 +43,8 @@ journalctl --user -u ailit.service -f
 
 ### `ailit desktop` и проекты (workflow 9)
 
-- Регистрация проекта в workspace: `ailit project add` (без аргумента — текущий каталог) или `ailit project add /abs/path`.
+- Реестр проектов **глобальный**: `~/.ailit/config.yaml` (active) и `~/.ailit/projects/<project_id>/config.yaml` на проект. В каталоге репозитория **не** создаётся `.ailit` для registry.
+- Регистрация: `ailit project add` (текущий каталог) или `ailit project add /abs/path`.
 - Индексация PAG для памяти: `ailit memory index --project-root PATH` (подсказка печатается после `project add`).
 - Запуск UI: после `./scripts/install` — `ailit desktop`; без собранного AppImage — `ailit desktop --dev` из клона (нужен Node.js, каталог `desktop/`).
 - Runtime: `ailit runtime status` (если сокета нет — в stderr подсказки `systemctl` / `journalctl` для `ailit.service`).

@@ -12,7 +12,7 @@ from ailit.project_registry import ProjectRegistryEditor
 
 
 def cmd_project_add(args: argparse.Namespace) -> int:
-    """Register project in local `.ailit/config.yaml` and activate it."""
+    """Записать проект в глобальный ``~/.ailit`` и активировать."""
     raw = getattr(args, "path", None)
     project_root = (
         Path(str(raw)).expanduser().resolve() if raw else Path.cwd().resolve()
@@ -21,7 +21,7 @@ def cmd_project_add(args: argparse.Namespace) -> int:
         sys.stderr.write(f"Некорректный путь проекта: {project_root}\n")
         return 2
 
-    res = ProjectRegistryEditor().add_project(project_root, start=Path.cwd())
+    res = ProjectRegistryEditor().add_project(project_root)
     sys.stdout.write(f"registry_file={res.registry_file}\n")
     sys.stdout.write(f"project_id={res.project_id}\n")
     sys.stdout.write(f"namespace={res.namespace}\n")
@@ -33,13 +33,8 @@ def cmd_project_add(args: argparse.Namespace) -> int:
 
 
 def cmd_project_list(args: argparse.Namespace) -> int:
-    """Print project registry (human or JSON) for desktop."""
-    start = (
-        Path(str(getattr(args, "start", "") or "")).expanduser().resolve()
-        if str(getattr(args, "start", "") or "").strip()
-        else Path.cwd().resolve()
-    )
-    res = ProjectRegistryEditor().read_registry(start=start)
+    """Human/JSON listing; только глобальный ``~/.ailit``."""
+    res = ProjectRegistryEditor().read_registry()
     as_json = bool(getattr(args, "as_json", False))
     if as_json:
         payload: dict[str, Any] = {
@@ -81,7 +76,7 @@ def register_project_parser(sub: Any) -> None:
     p_sub = p.add_subparsers(dest="project_cmd", required=True)
     p_add = p_sub.add_parser(
         "add",
-        help="Добавить проект в локальный registry (.ailit/config.yaml)",
+        help="Добавить проект в глобальный registry (~/.ailit)",
     )
     p_add.add_argument(
         "path",
@@ -92,13 +87,7 @@ def register_project_parser(sub: Any) -> None:
     p_add.set_defaults(func=cmd_project_add)
     p_list = p_sub.add_parser(
         "list",
-        help="Показать зарегистрированные проекты (для ailit desktop)",
-    )
-    p_list.add_argument(
-        "--start",
-        type=str,
-        default="",
-        help="Каталог, от которого искать ближайший `.ailit/config.yaml`",
+        help="Показать зарегистрированные проекты (глобальный ~/.ailit)",
     )
     p_list.add_argument(
         "--json",
