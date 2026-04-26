@@ -15,6 +15,15 @@ export function traceJsonlRelativePath(chatId: string): string {
   return `trace/${traceJsonlFileName(chatId)}`;
 }
 
+/** Журнал UI/чата для диагностики (append-only, одна сессия = один файл). */
+export function desktopDiagnosticLogFileName(chatId: string): string {
+  return `desk-diagnostic-${safeChatIdForTraceFile(chatId)}.log`;
+}
+
+export function desktopDiagnosticLogRelativePath(chatId: string): string {
+  return `session/${desktopDiagnosticLogFileName(chatId)}`;
+}
+
 export function joinPosixPath(base: string, ...parts: string[]): string {
   const a: string = base.replace(/[/\\]+$/, "");
   const b: string = parts.map((p) => p.replace(/^[/\\]+|[/\\]+$/g, "")).filter(Boolean).join("/");

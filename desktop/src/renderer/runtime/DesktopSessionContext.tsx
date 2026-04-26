@@ -25,6 +25,7 @@ import {
   isBashEventName,
   shortToolLine
 } from "../components/chat/shellEventFormat";
+import { formatTraceProjectionDiagnosticLine } from "./desktopSessionDiagnosticLog";
 import { dedupKeyForRow, RuntimeTraceNormalizer, type NormalizedTraceProjection } from "./traceNormalize";
 import { newMessageId } from "./uuid";
 
@@ -185,11 +186,11 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const registryWasEmpty: React.MutableRefObject<boolean> = React.useRef(true);
   const subChatIdRef: React.MutableRefObject<string | null> = React.useRef(null);
   const activeChatIdRef: React.MutableRefObject<string> = React.useRef("");
-  const traceLineOrderRef: React.MutableRefObject<number> = React.useRef(0);
-  const takeLineOrder: () => number = React.useCallback((): number => {
-    traceLineOrderRef.current += 1;
-    return traceLineOrderRef.current;
-  }, []);
+  /**
+   * Монотонный «слот» = порядок строки trace (JSONL), в том числе дельт одного turn.
+   * `order` у ChatLine = slot первого появления id, обновления сохраняют order.
+   */
+  const traceEventSeqRef: React.MutableRefObject<number> = React.useRef(0);
   /** Текущая сегментированная «мысль» (тот же user-turn может иметь: мысль → tool → мысль). */
   const openReasoningLineIdRef: React.MutableRefObject<string | null> = React.useRef(null);
   /** Индекс сегмента s0, s1, … внутри trace assistant message_id. */
@@ -377,6 +378,9 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         bashTextByCallRef.current = new Map();
         openReasoningLineIdRef.current = null;
         nextReasoningSegRef.current = 0;
+        traceEventSeqRef.current = 0;
+        seenChatIds.current = new Set();
+        setChatLines([]);
       }
       const closeReasoningSegment: () => void = (): void => {
         if (openReasoningLineIdRef.current !== null) {
@@ -384,37 +388,46 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           nextReasoningSegRef.current += 1;
         }
       };
-      const pushLine: (line: Omit<ChatLine, "order">) => void = (line): void => {
+      const pushLine: (line: Omit<ChatLine, "order">, slotOrder: number) => void = (line, slotOrder): void => {
         if (seenChatIds.current.has(line.id)) {
           return;
         }
         seenChatIds.current.add(line.id);
-        const full: ChatLine = { ...line, order: takeLineOrder() };
+        const full: ChatLine = { ...line, order: slotOrder };
         setChatLines((c) => [...c, full]);
       };
-      const upsert: (line: Omit<ChatLine, "order">) => void = (line): void => {
+      const upsert: (line: Omit<ChatLine, "order">, slotOrder: number) => void = (line, slotOrder): void => {
         if (!seenChatIds.current.has(line.id)) {
           seenChatIds.current.add(line.id);
-          setChatLines((c) => [...c, { ...line, order: takeLineOrder() }]);
+          setChatLines((c) => [...c, { ...line, order: slotOrder }]);
           return;
         }
         setChatLines((c) =>
           c.map((x) => (x.id === line.id ? { ...line, order: x.order, atIso: line.atIso } : x))
         );
       };
+      const rd: string | null = runtimeDir;
+      const cid0: string = activeChatIdRef.current;
+      const diagnosticLines: string[] = [];
       for (const row of rows) {
+        traceEventSeqRef.current += 1;
+        const eventSeq: number = traceEventSeqRef.current;
         const n: NormalizedTraceProjection = normalizer.normalizeLine(row);
+        diagnosticLines.push(formatTraceProjectionDiagnosticLine(eventSeq, n));
         if (n.kind === "user_prompt") {
           openReasoningLineIdRef.current = null;
           nextReasoningSegRef.current = 0;
           streamTextAccRef.current.clear();
           bashTextByCallRef.current = new Map();
-          pushLine({
-            id: chatLineId("user", n.messageId),
-            from: "user",
-            text: n.humanLine,
-            atIso: n.createdAt || new Date().toISOString()
-          });
+          pushLine(
+            {
+              id: chatLineId("user", n.messageId),
+              from: "user",
+              text: n.humanLine,
+              atIso: n.createdAt || new Date().toISOString()
+            },
+            eventSeq
+          );
         } else if (n.kind === "assistant_delta") {
           closeReasoningSegment();
           const id: string = chatLineId("assistant", n.messageId);
@@ -429,7 +442,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
               from: "assistant",
               text: nextText,
               atIso: n.createdAt || new Date().toISOString(),
-              order: found ? found.order : takeLineOrder()
+              order: found ? found.order : eventSeq
             };
             if (!found) {
               seenChatIds.current.add(id);
@@ -458,7 +471,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
               text: nextText,
               atIso: n.createdAt || new Date().toISOString(),
               lineKind: "reasoning",
-              order: found ? found.order : takeLineOrder()
+              order: found ? found.order : eventSeq
             };
             if (!found) {
               seenChatIds.current.add(lineId);
@@ -471,21 +484,27 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           setAgentTurnInProgress(false);
           const asstId: string = chatLineId("assistant", n.messageId);
           streamTextAccRef.current.set(asstId, nfc(n.humanLine));
-          upsert({
-            id: asstId,
-            from: "assistant",
-            text: n.humanLine,
-            atIso: n.createdAt || new Date().toISOString()
-          });
+          upsert(
+            {
+              id: asstId,
+              from: "assistant",
+              text: n.humanLine,
+              atIso: n.createdAt || new Date().toISOString()
+            },
+            eventSeq
+          );
         } else if (n.kind === "error_row") {
           setAgentTurnInProgress(false);
           closeReasoningSegment();
-          pushLine({
-            id: chatLineId("system", n.messageId),
-            from: "system",
-            text: n.humanLine,
-            atIso: n.createdAt || new Date().toISOString()
-          });
+          pushLine(
+            {
+              id: chatLineId("system", n.messageId),
+              from: "system",
+              text: n.humanLine,
+              atIso: n.createdAt || new Date().toISOString()
+            },
+            eventSeq
+          );
         } else if (n.kind === "tool_event") {
           closeReasoningSegment();
           const evName: string = n.humanLine.trim();
@@ -511,7 +530,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
                     lineKind: "console",
                     consoleShell: "bash",
                     consoleChannel: "shell",
-                    order: takeLineOrder()
+                    order: eventSeq
                   }
                 ]);
               } else {
@@ -523,20 +542,30 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
             const isShell: boolean = isShellChannel;
             const ch: "shell" | "tool" = isShell ? "shell" : "tool";
             const sh: string = isShell && /bash/i.test(evName) ? "bash" : isShell ? "sh" : "sh";
-            pushLine({
-              id: `console:${n.messageId}:${evName}`,
-              from: "assistant",
-              text: body,
-              atIso: n.createdAt || new Date().toISOString(),
-              lineKind: "console",
-              consoleShell: sh,
-              consoleChannel: ch
-            });
+            pushLine(
+              {
+                id: `console:${n.messageId}:${evName}`,
+                from: "assistant",
+                text: body,
+                atIso: n.createdAt || new Date().toISOString(),
+                lineKind: "console",
+                consoleShell: sh,
+                consoleChannel: ch
+              },
+              eventSeq
+            );
           }
         }
       }
+      if (rd && diagnosticLines.length > 0) {
+        const chunk: number = 500;
+        for (let i: number = 0; i < diagnosticLines.length; i += chunk) {
+          const part: string[] = diagnosticLines.slice(i, i + chunk);
+          void window.ailitDesktop.appendSessionDiagnostic({ runtimeDir: rd, chatId: cid0, lines: part });
+        }
+      }
     },
-    [takeLineOrder]
+    [runtimeDir]
   );
 
   const normalizedRows: NormalizedTraceProjection[] = React.useMemo(
@@ -671,6 +700,13 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       return;
     }
     setRuntimeDir(rd1);
+    void window.ailitDesktop.appendSessionDiagnostic({
+      runtimeDir: rd1,
+      chatId: cid,
+      lines: [
+        `=== ailit-desktop broker connect ${new Date().toISOString()} chatId=${cid} sessionUi=${activeSession.id} ===`
+      ]
+    });
     const dur1: Awaited<ReturnType<typeof window.ailitDesktop.traceReadDurable>> = await window.ailitDesktop.traceReadDurable({
       runtimeDir: rd1,
       chatId: cid
@@ -690,7 +726,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     }
     subChatIdRef.current = cid;
     setConnection("ready");
-  }, [activeSession.chatId, mergeRows, pickWorkspace, projectChatFromTrace, refreshStatus]);
+  }, [activeSession.chatId, activeSession.id, mergeRows, pickWorkspace, projectChatFromTrace, refreshStatus]);
 
   React.useEffect(() => {
     void refreshStatus();
@@ -714,7 +750,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     }
     seenRowKeys.current = new Set();
     seenChatIds.current = new Set();
-    traceLineOrderRef.current = 0;
+    traceEventSeqRef.current = 0;
     openReasoningLineIdRef.current = null;
     nextReasoningSegRef.current = 0;
     streamTextAccRef.current = new Map();
@@ -763,6 +799,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       const userId: string = chatLineId("user", built.messageId);
       if (!seenChatIds.current.has(userId)) {
         seenChatIds.current.add(userId);
+        traceEventSeqRef.current += 1;
+        const userOrder: number = traceEventSeqRef.current;
         setChatLines((c) => [
           ...c,
           {
@@ -770,7 +808,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
             from: "user",
             text: t,
             atIso: new Date().toISOString(),
-            order: takeLineOrder()
+            order: userOrder
           }
         ]);
       }
@@ -787,6 +825,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         const errId: string = chatLineId("system", asstIdErr);
         if (!seenChatIds.current.has(errId)) {
           seenChatIds.current.add(errId);
+          traceEventSeqRef.current += 1;
+          const errOrder: number = traceEventSeqRef.current;
           setChatLines((c) => [
             ...c,
             {
@@ -794,13 +834,13 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
               from: "system",
               text: `Broker: ${JSON.stringify(r.response.error)}`,
               atIso: r.response.created_at,
-              order: takeLineOrder()
+              order: errOrder
             }
           ]);
         }
       }
     },
-    [activeSession.chatId, brokerEndpoint, pickWorkspace, takeLineOrder]
+    [activeSession.chatId, brokerEndpoint, pickWorkspace]
   );
 
   const requestStopAgent: () => Promise<void> = React.useCallback(async () => {

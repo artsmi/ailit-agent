@@ -176,59 +176,61 @@ export function ChatPage(): React.JSX.Element {
 
   return (
     <div className="candyChatRoot" data-candy-chat="1">
-      <div className="candyChatHeader">
-        <div className="candyChatHeaderLeft">
-          <span className="candyChatHeaderTitle">{active ? briefTitle(active, s.registry) : "Чат"}</span>
-          <span className="candyChatHeaderRule" />
-          <span className="candyChatHeaderSub">{subFile}</span>
-        </div>
-        <div className="candyChatHeaderRight">
-          <label className="candyChatHeaderToolMode">
-            <span className="candyChatHeaderToolModeLabel">tool</span>
-            <select
-              className="candyChatHeaderToolModeSelect"
-              value={s.toolDisplay}
-              title="Отображение вызовов tool.* в чате"
-              onChange={(e) => s.setToolDisplay(e.target.value as ChatToolDisplayV1)}
+      <div className="candyChatTopChrome">
+        <div className="candyChatHeader">
+          <div className="candyChatHeaderLeft">
+            <span className="candyChatHeaderTitle">{active ? briefTitle(active, s.registry) : "Чат"}</span>
+            <span className="candyChatHeaderRule" />
+            <span className="candyChatHeaderSub">{subFile}</span>
+          </div>
+          <div className="candyChatHeaderRight">
+            <label className="candyChatHeaderToolMode">
+              <span className="candyChatHeaderToolModeLabel">tool</span>
+              <select
+                className="candyChatHeaderToolModeSelect"
+                value={s.toolDisplay}
+                title="Отображение вызовов tool.* в чате"
+                onChange={(e) => s.setToolDisplay(e.target.value as ChatToolDisplayV1)}
+              >
+                <option value="normal">как в логе</option>
+                <option value="compact">мелко</option>
+                <option value="hidden">скрыть</option>
+              </select>
+            </label>
+            <button className="candyChatHeaderBtn" type="button" onClick={() => setAside((v) => !v)} title="Аналитика">
+              <CandyMaterialIcon name="analytics" />
+              <span className="candyChatHeaderBtnText">Аналитика</span>
+            </button>
+            <button
+              className="candyChatHeaderIconBtn"
+              type="button"
+              onClick={() => void s.loadProjects()}
+              title="Обновить registry"
             >
-              <option value="normal">как в логе</option>
-              <option value="compact">мелко</option>
-              <option value="hidden">скрыть</option>
-            </select>
-          </label>
-          <button className="candyChatHeaderBtn" type="button" onClick={() => setAside((v) => !v)} title="Аналитика">
-            <CandyMaterialIcon name="analytics" />
-            <span className="candyChatHeaderBtnText">Аналитика</span>
-          </button>
-          <button
-            className="candyChatHeaderIconBtn"
-            type="button"
-            onClick={() => void s.loadProjects()}
-            title="Обновить registry"
-          >
-            <CandyMaterialIcon name="sync" />
-          </button>
-          <button
-            className="candyChatHeaderIconBtn"
-            type="button"
-            onClick={() => void s.connectToBroker()}
-            title="Переподключить broker"
-          >
-            <CandyMaterialIcon name="lan" />
-          </button>
+              <CandyMaterialIcon name="sync" />
+            </button>
+            <button
+              className="candyChatHeaderIconBtn"
+              type="button"
+              onClick={() => void s.connectToBroker()}
+              title="Переподключить broker"
+            >
+              <CandyMaterialIcon name="lan" />
+            </button>
+          </div>
         </div>
-      </div>
 
-      <ChatSessionTabs
-        activeSessionId={s.activeSessionId}
-        sessions={s.sessions}
-        titleFor={(sess) => briefTitle(sess, s.registry)}
-        onAdd={addNewChat}
-        onOpenHistory={() => setHistoryOpen(true)}
-        onRemove={s.removeSession}
-        onRename={(id, label) => s.renameSession(id, label)}
-        onSelect={(id) => s.setActiveSessionId(id)}
-      />
+        <ChatSessionTabs
+          activeSessionId={s.activeSessionId}
+          sessions={s.sessions}
+          titleFor={(sess) => briefTitle(sess, s.registry)}
+          onAdd={addNewChat}
+          onOpenHistory={() => setHistoryOpen(true)}
+          onRemove={s.removeSession}
+          onRename={(id, label) => s.renameSession(id, label)}
+          onSelect={(id) => s.setActiveSessionId(id)}
+        />
+      </div>
       <ChatHistoryModal
         activeSessionId={s.activeSessionId}
         onClose={() => setHistoryOpen(false)}

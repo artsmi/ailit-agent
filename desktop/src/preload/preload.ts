@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  AppendSessionDiagnosticResult,
   BrokerRequestResult,
   DesktopApi,
   DesktopTraceRowEvent,
@@ -74,6 +75,13 @@ const api: DesktopApi = {
   },
   async saveTextFile(params: { readonly suggestedName: string; readonly content: string }): Promise<SaveFileResult> {
     return (await ipcRenderer.invoke("ailit:saveTextFile", params)) as SaveFileResult;
+  },
+  async appendSessionDiagnostic(params: {
+    readonly runtimeDir: string;
+    readonly chatId: string;
+    readonly lines: readonly string[];
+  }): Promise<AppendSessionDiagnosticResult> {
+    return (await ipcRenderer.invoke("ailit:appendSessionDiagnostic", params)) as AppendSessionDiagnosticResult;
   },
   async pagGraphSlice(params: {
     readonly namespace: string;

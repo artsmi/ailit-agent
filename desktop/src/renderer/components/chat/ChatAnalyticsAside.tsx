@@ -1,6 +1,6 @@
 import React from "react";
 
-import { joinPosixPath, traceJsonlRelativePath } from "@shared/tracePaths";
+import { desktopDiagnosticLogRelativePath, joinPosixPath, traceJsonlRelativePath } from "@shared/tracePaths";
 import type { ProjectRegistryEntry } from "@shared/ipc";
 import { CandyMaterialIcon } from "../../shell/CandyMaterialIcon";
 
@@ -23,6 +23,10 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
   const traceFile: string | null =
     p.runtimeDir && p.chatId
       ? joinPosixPath(p.runtimeDir, traceJsonlRelativePath(p.chatId))
+      : null;
+  const deskLog: string | null =
+    p.runtimeDir && p.chatId
+      ? joinPosixPath(p.runtimeDir, desktopDiagnosticLogRelativePath(p.chatId))
       : null;
   const supSock: string | null = p.runtimeDir ? joinPosixPath(p.runtimeDir, "supervisor.sock") : null;
   return (
@@ -60,7 +64,7 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
         <div className="candyChatAsideSection">
           <h3 className="candyChatAsideH3">Диагностика (файлы сессии)</h3>
           <p className="candyChatAsideDesc">
-            По этим путям можно разобрать, что происходило в текущем чате: durable trace, сокет supervisor.
+            По этим путям — durable trace, журнал десктоп-UI (порядок/проекция событий), сокет supervisor.
           </p>
           {p.runtimeDir ? (
             <ul className="candyChatAsidePathList">
@@ -72,6 +76,12 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
                 <li>
                   <span className="candyChatAsidePathKey">trace (JSONL)</span>
                   <code className="candyChatAsidePathVal">{traceFile}</code>
+                </li>
+              ) : null}
+              {deskLog ? (
+                <li>
+                  <span className="candyChatAsidePathKey">desktop (диагностика чата)</span>
+                  <code className="candyChatAsidePathVal">{deskLog}</code>
                 </li>
               ) : null}
               {supSock ? (

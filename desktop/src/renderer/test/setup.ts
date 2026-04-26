@@ -20,6 +20,7 @@ const api: DesktopApi = {
       activeProjectIds: []
     }),
   saveTextFile: () => Promise.resolve({ ok: false, error: "no headless" }),
+  appendSessionDiagnostic: () => Promise.resolve({ ok: true, filePath: "/tmp/ailit-desk-diag.log" }),
   pagGraphSlice: () => Promise.resolve({ ok: false, kind: "ailit_pag_graph_slice_v1", error: "not in test" })
 };
 

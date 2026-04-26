@@ -143,6 +143,10 @@ export type DurableTraceReadResult =
   | { readonly ok: true; readonly rows: readonly Record<string, unknown>[] }
   | { readonly ok: false; readonly error: string };
 
+export type AppendSessionDiagnosticResult =
+  | { readonly ok: true; readonly filePath: string }
+  | { readonly ok: false; readonly error: string };
+
 export type DesktopApi = {
   readonly ping: () => Promise<string>;
   readonly supervisorStatus: () => Promise<RuntimeSupervisorStatusResponse>;
@@ -161,6 +165,12 @@ export type DesktopApi = {
   readonly onTraceChannel: (handler: (evt: TraceChannelEvent) => void) => () => void;
   readonly projectRegistryList: (params: { readonly startPath?: string }) => Promise<ProjectRegistryResult>;
   readonly saveTextFile: (params: { readonly suggestedName: string; readonly content: string }) => Promise<SaveFileResult>;
+  /** Записать строки в `session/desk-diagnostic-<chat>.log` под runtime_dir (для аналитики/диагностики). */
+  readonly appendSessionDiagnostic: (params: {
+    readonly runtimeDir: string;
+    readonly chatId: string;
+    readonly lines: readonly string[];
+  }) => Promise<AppendSessionDiagnosticResult>;
   readonly pagGraphSlice: (params: {
     readonly namespace: string;
     readonly dbPath?: string;
