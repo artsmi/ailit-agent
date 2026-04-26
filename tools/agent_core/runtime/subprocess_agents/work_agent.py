@@ -49,7 +49,6 @@ from ailit.tool_system_hints import (
     inject_tool_hints_before_first_user,
     memory_kb_first_enabled,
 )
-from ailit.perm_mode_chat import perm_mode_enabled_from_env
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +64,39 @@ class WorkAgentConfig:
 class _Workspace:
     namespace: str
     project_root: Path
+
+
+def _work_agent_perm_mode_enabled() -> bool:
+    """Включение perm-5 для AgentWork (по умолчанию выключено).
+
+    В interactive chat perm-5 управляет run_shell/kb; в desktop worker
+    нет UI для ASK: в explore вне allowlist run_shell даст
+    ``waiting_approval`` при включённом perm-5. Включать только
+    ``AILIT_WORK_AGENT_PERM=1`` для отладки.
+    """
+    raw = os.environ.get("AILIT_WORK_AGENT_PERM", "0").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def _session_end_user_message(
+    *,
+    state: SessionState,
+    reason: str | None,
+) -> str:
+    """Человекочитаемый текст, если сессия завершилась не FINISHED."""
+    r = (reason or "").strip()
+    if state is SessionState.WAITING_APPROVAL and r == "approval_pending":
+        return (
+            "Выполнение остановилось: нужно подтверждение (ASK) вызова "
+            "инструмента, а в фоновом воркере нет UI. "
+            "Perm-5 для worker по умолчанию выключен; иначе пользуйтесь "
+            "`ailit chat`."
+        )
+    if state is SessionState.ERROR and r:
+        return f"Ошибка сессии: {r}"
+    if r:
+        return f"Сессия завершена ({state.value}): {r}"
+    return f"Сессия завершена: {state.value}"
 
 
 class _ProviderAssembler:
@@ -224,6 +256,7 @@ class _WorkChatSession:
         perm = PermissionEngine(
             write_default=PermissionDecision.ALLOW,
             shell_default=PermissionDecision.ALLOW,
+            network_default=PermissionDecision.ALLOW,
         )
         runner = SessionRunner(provider_obj, reg, permission_engine=perm)
         assistant_mid = f"asst-{uuid.uuid4()}"
@@ -243,7 +276,7 @@ class _WorkChatSession:
             max_turns=10_000,
             temperature=0.3,
             use_stream=True,
-            perm_mode_enabled=perm_mode_enabled_from_env(),
+            perm_mode_enabled=_work_agent_perm_mode_enabled(),
             perm_tool_mode="explore",
             perm_classifier_bypass=True,
             perm_history_max=8,
@@ -279,9 +312,9 @@ class _WorkChatSession:
             event_type="assistant.final",
             payload={
                 "message_id": assistant_mid,
-                "text": (
-                    f"runtime state={out.state.value} "
-                    f"reason={out.reason!r}"
+                "text": _session_end_user_message(
+                    state=out.state,
+                    reason=out.reason,
                 ),
             },
         )

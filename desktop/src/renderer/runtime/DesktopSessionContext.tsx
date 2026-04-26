@@ -391,15 +391,18 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         setLastError(r.error);
         return;
       }
-      const payloadStr: string = r.response.payload ? JSON.stringify(r.response.payload) : "";
-      const asstId: string = r.response.message_id;
-      const line: ChatLine = {
-        id: chatLineId("assistant", asstId),
-        from: "assistant",
-        text: r.response.ok ? `ack: ${payloadStr}` : `error: ${JSON.stringify(r.response.error)}`,
-        atIso: r.response.created_at
-      };
-      pushChatIfNew(setChatLines, seenChatIds, line);
+      if (!r.response.ok) {
+        const asstIdErr: string = r.response.message_id;
+        const errLine: ChatLine = {
+          id: chatLineId("system", asstIdErr),
+          from: "system",
+          text: `Broker: ${JSON.stringify(r.response.error)}`,
+          atIso: r.response.created_at
+        };
+        pushChatIfNew(setChatLines, seenChatIds, errLine);
+        return;
+      }
+      // Успех: не дублируем JSON ack в чате — ответ идёт из trace (assistant.delta / final).
     },
     [brokerEndpoint, pickWorkspace]
   );
