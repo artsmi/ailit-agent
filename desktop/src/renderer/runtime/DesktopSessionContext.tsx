@@ -171,6 +171,12 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const openReasoningLineIdRef: React.MutableRefObject<string | null> = React.useRef(null);
   /** Индекс сегмента s0, s1, … внутри trace assistant message_id. */
   const nextReasoningSegRef: React.MutableRefObject<number> = React.useRef(0);
+  /**
+   * Накопление дельт стрима (reasoning / assistant). Вне state: merge в setChatLines
+   * смотрел бы на устаревший found.text; при bulk-replay (connect/resubscribe) дельты
+   * накладывались на уже полный текст и давали «Давайтевайте».
+   */
+  const streamTextAccRef: React.MutableRefObject<Map<string, string>> = React.useRef(new Map());
   const [agentTurnInProgress, setAgentTurnInProgress] = React.useState(false);
 
   const setUiAndSave: (next: PersistedUiStateV1 | ((prev: PersistedUiStateV1) => PersistedUiStateV1)) => void = React.useCallback(
@@ -340,6 +346,12 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
 
   const projectChatFromTrace: (rows: readonly Record<string, unknown>[]) => void = React.useCallback(
     (rows) => {
+      const isBulkReplay: boolean = rows.length > 1;
+      if (isBulkReplay) {
+        streamTextAccRef.current = new Map();
+        openReasoningLineIdRef.current = null;
+        nextReasoningSegRef.current = 0;
+      }
       const closeReasoningSegment: () => void = (): void => {
         if (openReasoningLineIdRef.current !== null) {
           openReasoningLineIdRef.current = null;
@@ -369,6 +381,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         if (n.kind === "user_prompt") {
           openReasoningLineIdRef.current = null;
           nextReasoningSegRef.current = 0;
+          streamTextAccRef.current.clear();
           pushLine({
             id: chatLineId("user", n.messageId),
             from: "user",
@@ -378,10 +391,12 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         } else if (n.kind === "assistant_delta") {
           closeReasoningSegment();
           const id: string = chatLineId("assistant", n.messageId);
+          const acc: Map<string, string> = streamTextAccRef.current;
+          const prevText: string = acc.get(id) ?? "";
+          const nextText: string = mergeStreamText(prevText, n.humanLine);
+          acc.set(id, nextText);
           setChatLines((cur) => {
             const found: ChatLine | undefined = cur.find((x) => x.id === id);
-            const prevText: string = found ? found.text : "";
-            const nextText: string = mergeStreamText(prevText, n.humanLine);
             const next: ChatLine = {
               id,
               from: "assistant",
@@ -404,10 +419,12 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           } else {
             lineId = openReasoningLineIdRef.current;
           }
+          const acc: Map<string, string> = streamTextAccRef.current;
+          const prevText: string = acc.get(lineId) ?? "";
+          const nextText: string = mergeStreamText(prevText, n.humanLine);
+          acc.set(lineId, nextText);
           setChatLines((cur) => {
             const found: ChatLine | undefined = cur.find((x) => x.id === lineId);
-            const prevText: string = found ? found.text : "";
-            const nextText: string = mergeStreamText(prevText, n.humanLine);
             const next: ChatLine = {
               id: lineId,
               from: "assistant",
@@ -425,8 +442,10 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         } else if (n.kind === "assistant_final") {
           closeReasoningSegment();
           setAgentTurnInProgress(false);
+          const asstId: string = chatLineId("assistant", n.messageId);
+          streamTextAccRef.current.set(asstId, n.humanLine);
           upsert({
-            id: chatLineId("assistant", n.messageId),
+            id: asstId,
             from: "assistant",
             text: n.humanLine,
             atIso: n.createdAt || new Date().toISOString()
@@ -639,6 +658,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     traceLineOrderRef.current = 0;
     openReasoningLineIdRef.current = null;
     nextReasoningSegRef.current = 0;
+    streamTextAccRef.current = new Map();
     setAgentTurnInProgress(false);
     setRawTraceRows([]);
     setChatLines([]);
