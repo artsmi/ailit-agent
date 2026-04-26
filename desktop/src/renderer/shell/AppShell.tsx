@@ -12,17 +12,13 @@ type CandyNavItem = {
   readonly icon: string;
 };
 
-const PRIMARY_NAV: readonly CandyNavItem[] = [
+const NAV_ITEMS: readonly CandyNavItem[] = [
   { to: "/chat", label: "Чат", icon: "forum" },
   { to: "/agents", label: "Агенты", icon: "smart_toy" },
   { to: "/projects", label: "Проекты", icon: "folder_open" },
   { to: "/team", label: "Команда", icon: "groups" },
   { to: "/memory", label: "Память", icon: "hub" },
-  { to: "/reports", label: "Отчёты", icon: "bar_chart" }
-];
-
-/** Нижняя зона, как в референсе: «Параметры» = runtime, отдельно от основного списка. */
-const FOOTER_NAV: readonly CandyNavItem[] = [
+  { to: "/reports", label: "Отчёты", icon: "bar_chart" },
   { to: "/runtime", label: "Параметры", icon: "settings" },
   { to: "/help", label: "Справка", icon: "help_outline" }
 ];
@@ -40,36 +36,23 @@ export function AppShell(): React.JSX.Element {
       <aside className="candySideNav" aria-label="Боковая панель">
         <div className="candySideNavBrand" aria-label="Ailit">
           <h1 className="candyBrandTitle">Ailit</h1>
-          <p className="candyBrandTagline">Интеллектуальные агенты</p>
         </div>
         <button className="candySideNavCta" type="button" onClick={() => setOpenNew(true)}>
           <CandyMaterialIcon name="add" filled />
           <span>Новый диалог</span>
         </button>
         <nav className="candySideNavMain" aria-label="Навигация">
-          {PRIMARY_NAV.map((item) => (
+          {NAV_ITEMS.map((item) => (
             <NavLink key={item.to} to={item.to} className={({ isActive }) => navClassName(isActive)}>
               {({ isActive }) => (
                 <>
                   <CandyMaterialIcon name={item.icon} filled={isActive} />
-                  <span>{item.label}</span>
+                  <span className="candyNavLinkLabel">{item.label}</span>
                 </>
               )}
             </NavLink>
           ))}
         </nav>
-        <div className="candySideNavFooter">
-          {FOOTER_NAV.map((item) => (
-            <NavLink key={item.to} to={item.to} className={({ isActive }) => navClassName(isActive)}>
-              {({ isActive }) => (
-                <>
-                  <CandyMaterialIcon name={item.icon} filled={isActive} />
-                  <span>{item.label}</span>
-                </>
-              )}
-            </NavLink>
-          ))}
-        </div>
       </aside>
       <main className="main">
         <header className="topbar">
