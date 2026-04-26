@@ -2,6 +2,7 @@ export type NormalizedKind =
   | "user_prompt"
   | "assistant_response"
   | "assistant_delta"
+  | "assistant_thinking_delta"
   | "assistant_final"
   | "tool_event"
   | "usage"
@@ -108,6 +109,19 @@ export class RuntimeTraceNormalizer {
             createdAt,
             humanLine: txt,
             technicalLine: "assistant.delta",
+            raw: redactedRaw,
+            redacted: true
+          };
+        }
+        if (tp.eventName === "assistant.thinking") {
+          return {
+            kind: "assistant_thinking_delta",
+            messageId: innerMid,
+            chatId,
+            namespace,
+            createdAt,
+            humanLine: txt,
+            technicalLine: "assistant.thinking",
             raw: redactedRaw,
             redacted: true
           };

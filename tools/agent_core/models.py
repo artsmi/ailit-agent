@@ -130,9 +130,10 @@ class NormalizedChatResponse:
 
 @dataclass(frozen=True, slots=True)
 class StreamTextDelta:
-    """Фрагмент текста в потоке."""
+    """Дельта текста: ответ или reasoning (мысли)."""
 
     text: str
+    channel: str = "content"
 
 
 @dataclass(frozen=True, slots=True)

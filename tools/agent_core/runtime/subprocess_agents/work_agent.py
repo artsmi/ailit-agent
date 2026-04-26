@@ -263,7 +263,7 @@ class _WorkChatSession:
 
         def sink(ev: SessionEvent) -> None:
             p: MutableMapping[str, Any] = dict(ev.payload)
-            if ev.type == "assistant.delta":
+            if ev.type in ("assistant.delta", "assistant.thinking"):
                 p["message_id"] = assistant_mid
             if ev.type in ("tool.call_started", "tool.call_finished"):
                 p.setdefault("message_id", assistant_mid)

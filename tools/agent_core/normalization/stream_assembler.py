@@ -9,7 +9,6 @@ from typing import Any
 from agent_core.models import (
     FinishReason,
     NormalizedChatResponse,
-    NormalizedUsage,
     StreamDone,
     StreamEvent,
     StreamTextDelta,
@@ -43,7 +42,7 @@ def iter_stream_events_from_sse_lines(
         if line.startswith("data: "):
             data = line.removeprefix("data: ").strip()
         elif line.startswith("data:"):
-            data = line[len("data:") :].strip()
+            data = line.split("data:", 1)[1].strip()
         else:
             continue
         if data == "[DONE]":
@@ -89,14 +88,25 @@ def iter_stream_events_from_sse_lines(
             continue
         if isinstance(delta.get("content"), str) and delta["content"]:
             text_buffer.append(delta["content"])
-            yield StreamTextDelta(text=delta["content"])
+            yield StreamTextDelta(text=delta["content"], channel="content")
+        rc = delta.get("reasoning_content")
+        if not (isinstance(rc, str) and rc):
+            alt = delta.get("reasoning")
+            if isinstance(alt, str) and alt:
+                rc = alt
+        if isinstance(rc, str) and rc:
+            # Reasoning — отдельные дельты, не в merge content.
+            yield StreamTextDelta(text=rc, channel="reasoning")
         tcd = delta.get("tool_calls")
         if isinstance(tcd, list):
             for part in tcd:
                 if not isinstance(part, dict):
                     continue
                 index = int(part.get("index", 0))
-                slot = tool_acc.setdefault(index, {"id": None, "name": None, "args": ""})
+                slot = tool_acc.setdefault(
+                    index,
+                    {"id": None, "name": None, "args": ""},
+                )
                 if isinstance(part.get("id"), str):
                     slot["id"] = part["id"]
                 func = part.get("function")
@@ -138,8 +148,11 @@ def _build_synthetic_payload(
     model: str | None,
     response_id: str | None,
 ) -> dict[str, Any]:
-    """Собрать объект, совместимый с normalize_chat_completion."""
-    message: dict[str, Any] = {"role": "assistant", "content": "".join(text_buffer)}
+    """Собрать payload для normalize_chat_completion."""
+    message: dict[str, Any] = {
+        "role": "assistant",
+        "content": "".join(text_buffer),
+    }
     if tool_acc:
         tcs: list[dict[str, Any]] = []
         for idx in sorted(tool_acc):
@@ -171,11 +184,15 @@ def _build_synthetic_payload(
     return payload
 
 
-def finish_reason_from_stream(normalized: NormalizedChatResponse) -> FinishReason:
-    """Вернуть finish reason из уже нормализованного ответа."""
+def finish_reason_from_stream(
+    normalized: NormalizedChatResponse,
+) -> FinishReason:
+    """Finish reason из нормализованного ответа."""
     return normalized.finish_reason
 
 
-def tool_calls_from_stream(normalized: NormalizedChatResponse) -> tuple[ToolCallNormalized, ...]:
-    """Вернуть tool calls из нормализованного ответа."""
+def tool_calls_from_stream(
+    normalized: NormalizedChatResponse,
+) -> tuple[ToolCallNormalized, ...]:
+    """Tool calls из нормализованного ответа."""
     return normalized.tool_calls

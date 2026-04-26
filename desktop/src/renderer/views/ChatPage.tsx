@@ -1,12 +1,13 @@
 import React, { useLayoutEffect } from "react";
 
 import { ChatAnalyticsAside } from "../components/chat/ChatAnalyticsAside";
+import { ChatHistoryModal } from "../components/chat/ChatHistoryModal";
 import { CandyChatConsoleBlock } from "../components/chat/CandyChatConsoleBlock";
 import { CandyMarkdownBody } from "../components/chat/CandyMarkdownBody";
 import { ChatSessionTabs } from "../components/chat/ChatSessionTabs";
 import { useChatLayout } from "../shell/ChatLayoutContext";
 import { useDesktopSession, type ChatLine } from "../runtime/DesktopSessionContext";
-import type { ChatSessionRecordV1 } from "../state/persistedUi";
+import type { ChatSessionRecordV1, ChatToolDisplayV1 } from "../state/persistedUi";
 import { CandyMaterialIcon } from "../shell/CandyMaterialIcon";
 
 function briefTitle(s: ChatSessionRecordV1, reg: ReturnType<typeof useDesktopSession>["registry"]): string {
@@ -55,21 +56,49 @@ export function ChatPage(): React.JSX.Element {
   const { openNewDialog } = useChatLayout();
   const [draft, setDraft] = React.useState("");
   const [aside, setAside] = React.useState(false);
+  const [historyOpen, setHistoryOpen] = React.useState(false);
   const chatScrollRef: React.RefObject<HTMLDivElement | null> = React.useRef<HTMLDivElement | null>(null);
+  const chatEndRef: React.RefObject<HTMLDivElement | null> = React.useRef<HTMLDivElement | null>(null);
 
   const active: ChatSessionRecordV1 | undefined = s.sessions.find((x) => x.id === s.activeSessionId);
   const subFile: string =
     s.registry.find((e) => s.selectedProjectIds.includes(e.projectId))?.title ?? "—";
 
-  const groups = React.useMemo(() => groupMessagesForLayout(s.chatLines), [s.chatLines]);
+  const visibleChatLines: readonly ChatLine[] = React.useMemo((): readonly ChatLine[] => {
+    const ordered: ChatLine[] = [...s.chatLines].sort((a, b) => a.order - b.order);
+    if (s.toolDisplay === "hidden") {
+      return ordered.filter(
+        (m) => m.lineKind !== "console" || m.consoleChannel === undefined || m.consoleChannel !== "tool"
+      );
+    }
+    return ordered;
+  }, [s.chatLines, s.toolDisplay]);
+
+  const groups = React.useMemo(() => groupMessagesForLayout(visibleChatLines), [visibleChatLines]);
 
   useLayoutEffect(() => {
-    const el: HTMLDivElement | null = chatScrollRef.current;
-    if (!el) {
+    const scroller: HTMLDivElement | null = chatScrollRef.current;
+    const end: HTMLDivElement | null = chatEndRef.current;
+    if (!scroller) {
       return;
     }
-    el.scrollTop = el.scrollHeight;
-  }, [s.chatLines, groups.length, aside, s.activeSessionId]);
+    const scroll: () => void = (): void => {
+      if (end) {
+        end.scrollIntoView({ block: "end", behavior: "auto" });
+      } else {
+        scroller.scrollTop = scroller.scrollHeight;
+      }
+    };
+    scroll();
+    const id0: number = requestAnimationFrame((): void => {
+      requestAnimationFrame((): void => {
+        scroll();
+      });
+    });
+    return () => {
+      cancelAnimationFrame(id0);
+    };
+  }, [visibleChatLines, groups.length, aside, s.activeSessionId, s.lastError]);
 
   const addNewChat: () => void = React.useCallback(() => {
     if (s.registry.length === 0) {
@@ -94,6 +123,19 @@ export function ChatPage(): React.JSX.Element {
           <span className="candyChatHeaderSub">{subFile}</span>
         </div>
         <div className="candyChatHeaderRight">
+          <label className="candyChatHeaderToolMode">
+            <span className="candyChatHeaderToolModeLabel">tool</span>
+            <select
+              className="candyChatHeaderToolModeSelect"
+              value={s.toolDisplay}
+              title="Отображение вызовов tool.* в чате"
+              onChange={(e) => s.setToolDisplay(e.target.value as ChatToolDisplayV1)}
+            >
+              <option value="normal">как в логе</option>
+              <option value="compact">мелко</option>
+              <option value="hidden">скрыть</option>
+            </select>
+          </label>
           <button className="candyChatHeaderBtn" type="button" onClick={() => setAside((v) => !v)} title="Аналитика">
             <CandyMaterialIcon name="analytics" />
             <span className="candyChatHeaderBtnText">Аналитика</span>
@@ -122,8 +164,18 @@ export function ChatPage(): React.JSX.Element {
         sessions={s.sessions}
         titleFor={(sess) => briefTitle(sess, s.registry)}
         onAdd={addNewChat}
+        onOpenHistory={() => setHistoryOpen(true)}
+        onRemove={s.removeSession}
         onRename={(id, label) => s.renameSession(id, label)}
         onSelect={(id) => s.setActiveSessionId(id)}
+      />
+      <ChatHistoryModal
+        activeSessionId={s.activeSessionId}
+        onClose={() => setHistoryOpen(false)}
+        onSelect={(id) => s.setActiveSessionId(id)}
+        open={historyOpen}
+        sessions={s.sessions}
+        titleFor={(sess) => briefTitle(sess, s.registry)}
       />
 
       <div className="candyChatSplit">
@@ -153,12 +205,21 @@ export function ChatPage(): React.JSX.Element {
                   <div className="candyChatGroupBody">
                     {g.items.map((m) => {
                       if (m.lineKind === "console") {
+                        const compact: boolean = s.toolDisplay === "compact" && m.consoleChannel === "tool";
                         return (
                           <CandyChatConsoleBlock
                             key={m.id}
                             shell={m.consoleShell ?? "sh"}
                             text={m.text}
+                            variant={compact ? "compact" : "normal"}
                           />
+                        );
+                      }
+                      if (m.lineKind === "reasoning") {
+                        return (
+                          <div className="candyChatReasoning" key={m.id}>
+                            <CandyMarkdownBody text={m.text} />
+                          </div>
                         );
                       }
                       return (
@@ -173,6 +234,7 @@ export function ChatPage(): React.JSX.Element {
                   </div>
                 </div>
               ))}
+              <div aria-hidden="true" className="candyChatScrollEnd" ref={chatEndRef} />
             </div>
           </div>
           <div className="candyChatInputWrap">
@@ -221,9 +283,11 @@ export function ChatPage(): React.JSX.Element {
         </div>
         {aside ? (
           <ChatAnalyticsAside
+            chatId={s.chatId}
             connectionLabel={connectionLabel(s.connection)}
             onClose={() => setAside(false)}
             registry={s.registry}
+            runtimeDir={s.runtimeDir}
             selectedProjectIds={s.selectedProjectIds}
           />
         ) : null}

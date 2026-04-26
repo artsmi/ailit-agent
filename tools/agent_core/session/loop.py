@@ -781,10 +781,15 @@ class SessionRunner:
                     )
                     raise RuntimeError("cancelled")
                 if isinstance(ev, StreamTextDelta):
-                    text_parts.append(ev.text)
+                    if ev.channel == "content":
+                        text_parts.append(ev.text)
+                    if ev.channel == "reasoning":
+                        ev_name = "assistant.thinking"
+                    else:
+                        ev_name = "assistant.delta"
                     self._emit(
                         events,
-                        "assistant.delta",
+                        ev_name,
                         {"text": ev.text},
                         diag_sink,
                         event_sink,

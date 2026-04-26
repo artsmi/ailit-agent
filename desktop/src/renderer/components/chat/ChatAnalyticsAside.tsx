@@ -1,5 +1,6 @@
 import React from "react";
 
+import { joinPosixPath, traceJsonlRelativePath } from "@shared/tracePaths";
 import type { ProjectRegistryEntry } from "@shared/ipc";
 import { CandyMaterialIcon } from "../../shell/CandyMaterialIcon";
 
@@ -8,6 +9,10 @@ type ChatAnalyticsAsideProps = {
   readonly registry: readonly ProjectRegistryEntry[];
   readonly selectedProjectIds: readonly string[];
   readonly connectionLabel: string;
+  /** Каталог runtime (supervisor / trace). */
+  readonly runtimeDir: string | null;
+  /** Идентификатор чата (файл trace-*.jsonl). */
+  readonly chatId: string;
 };
 
 /**
@@ -15,6 +20,11 @@ type ChatAnalyticsAsideProps = {
  */
 export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Element {
   const primary: ProjectRegistryEntry | undefined = p.registry.find((e) => p.selectedProjectIds.includes(e.projectId));
+  const traceFile: string | null =
+    p.runtimeDir && p.chatId
+      ? joinPosixPath(p.runtimeDir, traceJsonlRelativePath(p.chatId))
+      : null;
+  const supSock: string | null = p.runtimeDir ? joinPosixPath(p.runtimeDir, "supervisor.sock") : null;
   return (
     <aside className="candyChatAside" aria-label="Аналитика контекста">
       <div className="candyChatAsideHead">
@@ -46,6 +56,34 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
             <span className="candyChatAsidePillLabel">Подключение</span>
             <span className="candyChatAsidePillVal">{p.connectionLabel}</span>
           </div>
+        </div>
+        <div className="candyChatAsideSection">
+          <h3 className="candyChatAsideH3">Диагностика (файлы сессии)</h3>
+          <p className="candyChatAsideDesc">
+            По этим путям можно разобрать, что происходило в текущем чате: durable trace, сокет supervisor.
+          </p>
+          {p.runtimeDir ? (
+            <ul className="candyChatAsidePathList">
+              <li>
+                <span className="candyChatAsidePathKey">runtime_dir</span>
+                <code className="candyChatAsidePathVal">{p.runtimeDir}</code>
+              </li>
+              {traceFile ? (
+                <li>
+                  <span className="candyChatAsidePathKey">trace (JSONL)</span>
+                  <code className="candyChatAsidePathVal">{traceFile}</code>
+                </li>
+              ) : null}
+              {supSock ? (
+                <li>
+                  <span className="candyChatAsidePathKey">supervisor.sock</span>
+                  <code className="candyChatAsidePathVal">{supSock}</code>
+                </li>
+              ) : null}
+            </ul>
+          ) : (
+            <p className="candyChatAsideDesc">runtime_dir ещё не известен — дождитесь подключения supervisor.</p>
+          )}
         </div>
       </div>
     </aside>

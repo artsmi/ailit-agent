@@ -9,8 +9,12 @@ type ChatSessionTabsProps = {
   readonly titleFor: (s: ChatSessionRecordV1) => string;
   readonly onSelect: (sessionId: string) => void;
   readonly onRename: (sessionId: string, label: string) => void;
+  readonly onRemove: (sessionId: string) => void;
   readonly onAdd: () => void;
+  readonly onOpenHistory: () => void;
 };
+
+type MenuState = { readonly x: number; readonly y: number; readonly sessionId: string } | null;
 
 /**
  * Вкладки сессий — pill, как в candy minimalist (скролл по горизонтали с overflow hidden у родителя).
@@ -18,7 +22,28 @@ type ChatSessionTabsProps = {
 export function ChatSessionTabs(p: ChatSessionTabsProps): React.JSX.Element {
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState("");
+  const [menu, setMenu] = React.useState<MenuState>(null);
   const skipBlurRename: React.MutableRefObject<boolean> = React.useRef(false);
+
+  React.useEffect((): (() => void) | void => {
+    if (menu === null) {
+      return;
+    }
+    let onDoc: (() => void) | null = null;
+    const t: number = window.setTimeout((): void => {
+      onDoc = (): void => {
+        setMenu(null);
+      };
+      globalThis.document.addEventListener("click", onDoc);
+    }, 0);
+    return () => {
+      window.clearTimeout(t);
+      if (onDoc) {
+        globalThis.document.removeEventListener("click", onDoc);
+      }
+    };
+  }, [menu]);
+
   return (
     <div className="candyChatTabs" role="tablist" aria-label="Сессии чата">
       <div className="candyChatTabsTrack">
@@ -71,6 +96,10 @@ export function ChatSessionTabs(p: ChatSessionTabsProps): React.JSX.Element {
                     setEditingId(sess.id);
                     setDraft(title);
                   }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenu({ x: e.clientX, y: e.clientY, sessionId: sess.id });
+                  }}
                 >
                   <span className="candyChatTabLabel">{title}</span>
                 </button>
@@ -78,10 +107,57 @@ export function ChatSessionTabs(p: ChatSessionTabsProps): React.JSX.Element {
             </div>
           );
         })}
+        <button
+          className="candyChatTabAdd candyChatTabHistory"
+          type="button"
+          aria-label="История чатов"
+          onClick={p.onOpenHistory}
+          title="История чатов"
+        >
+          <CandyMaterialIcon name="history" />
+        </button>
         <button className="candyChatTabAdd" type="button" aria-label="Новый чат" onClick={p.onAdd} title="Новый чат">
           <CandyMaterialIcon name="add" />
         </button>
       </div>
+      {menu ? (
+        <ul
+          className="candyChatCtxMenu"
+          style={{ left: menu.x, top: menu.y }}
+          onClick={(e) => {
+            e.stopPropagation();
+          }}
+        >
+          <li>
+            <button
+              className="candyChatCtxItem"
+              type="button"
+              onClick={() => {
+                const s: ChatSessionRecordV1 | undefined = p.sessions.find((x) => x.id === menu.sessionId);
+                if (s) {
+                  setEditingId(s.id);
+                  setDraft(p.titleFor(s));
+                }
+                setMenu(null);
+              }}
+            >
+              Переименовать
+            </button>
+          </li>
+          <li>
+            <button
+              className="candyChatCtxItem"
+              type="button"
+              onClick={() => {
+                p.onRemove(menu.sessionId);
+                setMenu(null);
+              }}
+            >
+              Удалить чат
+            </button>
+          </li>
+        </ul>
+      ) : null}
     </div>
   );
 }

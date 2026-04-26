@@ -19,11 +19,15 @@ export type LastAgentPairV1 = {
   readonly b: string;
 };
 
+/** Как показывать tool.* (batch, exposure, …) в чате; shell/bash обычно оставляем видимыми. */
+export type ChatToolDisplayV1 = "normal" | "compact" | "hidden";
+
 export type PersistedUiStateV1 = {
   readonly version: 1;
   readonly sessions: readonly ChatSessionRecordV1[];
   readonly activeSessionId: string;
   readonly lastAgentPair: LastAgentPairV1 | null;
+  readonly toolDisplay: ChatToolDisplayV1;
 };
 
 function newId(): string {
@@ -44,7 +48,8 @@ function defaultState(): PersistedUiStateV1 {
       }
     ],
     activeSessionId: sid,
-    lastAgentPair: null
+    lastAgentPair: null,
+    toolDisplay: "normal"
   };
 }
 
@@ -62,7 +67,11 @@ export function loadPersistedUi(): PersistedUiStateV1 {
     if (p.version !== 1 || !Array.isArray(p.sessions) || p.sessions.length === 0 || !p.activeSessionId) {
       return defaultState();
     }
-    return p as PersistedUiStateV1;
+    const toolDisplay: ChatToolDisplayV1 =
+      p.toolDisplay === "compact" || p.toolDisplay === "hidden" || p.toolDisplay === "normal"
+        ? p.toolDisplay
+        : "normal";
+    return { ...p, toolDisplay } as PersistedUiStateV1;
   } catch {
     return defaultState();
   }

@@ -8,6 +8,7 @@ import {
   newChatSession,
   type LastAgentPairV1,
   type ChatSessionRecordV1,
+  type ChatToolDisplayV1,
   savePersistedUi,
   type PersistedUiStateV1
 } from "../state/persistedUi";
@@ -18,6 +19,7 @@ import {
   type AgentDialogueMessage
 } from "./agentDialogueProjection";
 import { dedupKeyForRow, RuntimeTraceNormalizer, type NormalizedTraceProjection } from "./traceNormalize";
+import { mergeStreamText } from "./streamTextMerge";
 import { newMessageId } from "./uuid";
 
 const GOAL: string = "g-desktop";
@@ -29,9 +31,13 @@ export type ChatLine = {
   readonly from: "user" | "assistant" | "system";
   readonly text: string;
   readonly atIso: string;
+  /** Порядок появления в trace (стабильная сортировка в UI). */
+  readonly order: number;
   /** Сообщение-консоль (tool/shell) — рендер как в minimalist candy ref. */
-  readonly lineKind?: "message" | "console";
+  readonly lineKind?: "message" | "console" | "reasoning";
   readonly consoleShell?: string;
+  /** Для console: shell/bash vs служебные tool.* */
+  readonly consoleChannel?: "shell" | "tool";
 };
 
 export type DesktopSessionValue = {
@@ -45,6 +51,9 @@ export type DesktopSessionValue = {
   readonly toggleProject: (projectId: string) => void;
   readonly createNewChatSession: (projectIds: readonly string[], label: string) => void;
   readonly renameSession: (sessionId: string, label: string) => void;
+  readonly removeSession: (sessionId: string) => void;
+  readonly toolDisplay: ChatToolDisplayV1;
+  readonly setToolDisplay: (mode: ChatToolDisplayV1) => void;
   readonly lastAgentPair: LastAgentPairV1 | null;
   readonly setLastAgentPair: (pair: LastAgentPairV1 | null) => void;
   readonly connection: ConnState;
@@ -111,31 +120,6 @@ function extractBroker(
 
 const normalizer: RuntimeTraceNormalizer = new RuntimeTraceNormalizer();
 
-function pushChatIfNew(
-  setChat: React.Dispatch<React.SetStateAction<ChatLine[]>>,
-  seen: React.MutableRefObject<Set<string>>,
-  line: ChatLine
-): void {
-  if (seen.current.has(line.id)) {
-    return;
-  }
-  seen.current.add(line.id);
-  setChat((c) => [...c, line]);
-}
-
-function upsertChatLine(
-  setChat: React.Dispatch<React.SetStateAction<ChatLine[]>>,
-  seen: React.MutableRefObject<Set<string>>,
-  line: ChatLine
-): void {
-  if (!seen.current.has(line.id)) {
-    seen.current.add(line.id);
-    setChat((c) => [...c, line]);
-    return;
-  }
-  setChat((c) => c.map((x) => (x.id === line.id ? line : x)));
-}
-
 function chatLineId(kind: "user" | "assistant" | "system", messageId: string): string {
   return `${kind}:${messageId}`;
 }
@@ -175,6 +159,11 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const registryWasEmpty: React.MutableRefObject<boolean> = React.useRef(true);
   const subChatIdRef: React.MutableRefObject<string | null> = React.useRef(null);
   const activeChatIdRef: React.MutableRefObject<string> = React.useRef("");
+  const traceLineOrderRef: React.MutableRefObject<number> = React.useRef(0);
+  const takeLineOrder: () => number = React.useCallback((): number => {
+    traceLineOrderRef.current += 1;
+    return traceLineOrderRef.current;
+  }, []);
 
   const setUiAndSave: (next: PersistedUiStateV1 | ((prev: PersistedUiStateV1) => PersistedUiStateV1)) => void = React.useCallback(
     (next) => {
@@ -288,6 +277,35 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     [setUiAndSave]
   );
 
+  const removeSession: (sessionId: string) => void = React.useCallback(
+    (sessionId) => {
+      setUiAndSave((p) => {
+        if (p.sessions.length <= 1) {
+          const one: ChatSessionRecordV1 = p.sessions[0]!;
+          const rep: ChatSessionRecordV1 = newChatSession(
+            one.projectIds.length > 0 ? [...one.projectIds] : [],
+            "Session 1"
+          );
+          return { ...p, sessions: [rep], activeSessionId: rep.id };
+        }
+        const nextSess: ChatSessionRecordV1[] = p.sessions.filter((s) => s.id !== sessionId);
+        if (nextSess.length === p.sessions.length) {
+          return p;
+        }
+        const nextActive: string = p.activeSessionId === sessionId ? nextSess[0]!.id : p.activeSessionId;
+        return { ...p, sessions: nextSess, activeSessionId: nextActive };
+      });
+    },
+    [setUiAndSave]
+  );
+
+  const setToolDisplay: (m: ChatToolDisplayV1) => void = React.useCallback(
+    (m) => {
+      setUiAndSave((p) => ({ ...p, toolDisplay: m }));
+    },
+    [setUiAndSave]
+  );
+
   const mergeRows: (rows: readonly Record<string, unknown>[]) => void = React.useCallback((rows) => {
     setRawTraceRows((prev) => {
       const next: Record<string, unknown>[] = [...prev];
@@ -314,61 +332,104 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
 
   const projectChatFromTrace: (rows: readonly Record<string, unknown>[]) => void = React.useCallback(
     (rows) => {
+      const pushLine: (line: Omit<ChatLine, "order">) => void = (line): void => {
+        if (seenChatIds.current.has(line.id)) {
+          return;
+        }
+        seenChatIds.current.add(line.id);
+        const full: ChatLine = { ...line, order: takeLineOrder() };
+        setChatLines((c) => [...c, full]);
+      };
+      const upsert: (line: Omit<ChatLine, "order">) => void = (line): void => {
+        if (!seenChatIds.current.has(line.id)) {
+          seenChatIds.current.add(line.id);
+          setChatLines((c) => [...c, { ...line, order: takeLineOrder() }]);
+          return;
+        }
+        setChatLines((c) =>
+          c.map((x) => (x.id === line.id ? { ...line, order: x.order, atIso: line.atIso } : x))
+        );
+      };
       for (const row of rows) {
         const n: NormalizedTraceProjection = normalizer.normalizeLine(row);
         if (n.kind === "user_prompt") {
-          pushChatIfNew(setChatLines, seenChatIds, {
+          pushLine({
             id: chatLineId("user", n.messageId),
             from: "user",
             text: n.humanLine,
             atIso: n.createdAt || new Date().toISOString()
           });
         } else if (n.kind === "assistant_delta") {
-          const id = chatLineId("assistant", n.messageId);
+          const id: string = chatLineId("assistant", n.messageId);
           setChatLines((cur) => {
-            const found = cur.find((x) => x.id === id);
-            const prevText = found ? found.text : "";
+            const found: ChatLine | undefined = cur.find((x) => x.id === id);
+            const prevText: string = found ? found.text : "";
+            const nextText: string = mergeStreamText(prevText, n.humanLine);
             const next: ChatLine = {
               id,
               from: "assistant",
-              text: prevText + n.humanLine,
-              atIso: n.createdAt || new Date().toISOString()
+              text: nextText,
+              atIso: n.createdAt || new Date().toISOString(),
+              order: found ? found.order : takeLineOrder()
             };
-            if (!seenChatIds.current.has(id)) {
+            if (!found) {
+              seenChatIds.current.add(id);
+              return [...cur, next];
+            }
+            return cur.map((x) => (x.id === id ? next : x));
+          });
+        } else if (n.kind === "assistant_thinking_delta") {
+          const id: string = `assistant-think:${n.messageId}`;
+          setChatLines((cur) => {
+            const found: ChatLine | undefined = cur.find((x) => x.id === id);
+            const prevText: string = found ? found.text : "";
+            const nextText: string = mergeStreamText(prevText, n.humanLine);
+            const next: ChatLine = {
+              id,
+              from: "assistant",
+              text: nextText,
+              atIso: n.createdAt || new Date().toISOString(),
+              lineKind: "reasoning",
+              order: found ? found.order : takeLineOrder()
+            };
+            if (!found) {
               seenChatIds.current.add(id);
               return [...cur, next];
             }
             return cur.map((x) => (x.id === id ? next : x));
           });
         } else if (n.kind === "assistant_final") {
-          upsertChatLine(setChatLines, seenChatIds, {
+          upsert({
             id: chatLineId("assistant", n.messageId),
             from: "assistant",
             text: n.humanLine,
             atIso: n.createdAt || new Date().toISOString()
           });
         } else if (n.kind === "error_row") {
-          pushChatIfNew(setChatLines, seenChatIds, {
+          pushLine({
             id: chatLineId("system", n.messageId),
             from: "system",
             text: n.humanLine,
             atIso: n.createdAt || new Date().toISOString()
           });
         } else if (n.kind === "tool_event") {
-          const shell: string = /bash|tool\.(bash|sh)|^bash\./i.test(n.humanLine) ? "bash" : "sh";
+          const isShell: boolean = /bash|tool\.(bash|sh)|^bash\./i.test(n.humanLine);
           const body: string = [n.humanLine, n.technicalLine].filter((x) => x.length > 0).join("\n");
-          pushChatIfNew(setChatLines, seenChatIds, {
-            id: `console:${n.messageId}`,
+          const ch: "shell" | "tool" = isShell ? "shell" : "tool";
+          const sh: string = isShell ? "bash" : "sh";
+          pushLine({
+            id: `console:${n.messageId}:${n.humanLine}`,
             from: "assistant",
             text: body,
             atIso: n.createdAt || new Date().toISOString(),
             lineKind: "console",
-            consoleShell: shell
+            consoleShell: sh,
+            consoleChannel: ch
           });
         }
       }
     },
-    []
+    [takeLineOrder]
   );
 
   const normalizedRows: NormalizedTraceProjection[] = React.useMemo(
@@ -546,6 +607,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     }
     seenRowKeys.current = new Set();
     seenChatIds.current = new Set();
+    traceLineOrderRef.current = 0;
     setRawTraceRows([]);
     setChatLines([]);
     setBrokerEndpoint(null);
@@ -585,12 +647,20 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         prompt: t,
         workspace: { projectIds: ws0.pids, projectRoots: [...ws0.roots] }
       });
-      pushChatIfNew(setChatLines, seenChatIds, {
-        id: chatLineId("user", built.messageId),
-        from: "user",
-        text: t,
-        atIso: new Date().toISOString()
-      });
+      const userId: string = chatLineId("user", built.messageId);
+      if (!seenChatIds.current.has(userId)) {
+        seenChatIds.current.add(userId);
+        setChatLines((c) => [
+          ...c,
+          {
+            id: userId,
+            from: "user",
+            text: t,
+            atIso: new Date().toISOString(),
+            order: takeLineOrder()
+          }
+        ]);
+      }
       const r: { readonly ok: true; readonly response: RuntimeResponseEnvelope } | { readonly ok: false; readonly error: string } =
         await window.ailitDesktop.brokerRequest({ endpoint: ep, request: built.envelope });
       if (!r.ok) {
@@ -599,16 +669,23 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       }
       if (!r.response.ok) {
         const asstIdErr: string = r.response.message_id;
-        const errLine: ChatLine = {
-          id: chatLineId("system", asstIdErr),
-          from: "system",
-          text: `Broker: ${JSON.stringify(r.response.error)}`,
-          atIso: r.response.created_at
-        };
-        pushChatIfNew(setChatLines, seenChatIds, errLine);
+        const errId: string = chatLineId("system", asstIdErr);
+        if (!seenChatIds.current.has(errId)) {
+          seenChatIds.current.add(errId);
+          setChatLines((c) => [
+            ...c,
+            {
+              id: errId,
+              from: "system",
+              text: `Broker: ${JSON.stringify(r.response.error)}`,
+              atIso: r.response.created_at,
+              order: takeLineOrder()
+            }
+          ]);
+        }
       }
     },
-    [activeSession.chatId, brokerEndpoint, pickWorkspace]
+    [activeSession.chatId, brokerEndpoint, pickWorkspace, takeLineOrder]
   );
 
   React.useEffect(() => {
@@ -657,6 +734,9 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     toggleProject,
     createNewChatSession,
     renameSession,
+    removeSession,
+    toolDisplay: ui.toolDisplay,
+    setToolDisplay,
     lastAgentPair: ui.lastAgentPair,
     setLastAgentPair,
     connection,
