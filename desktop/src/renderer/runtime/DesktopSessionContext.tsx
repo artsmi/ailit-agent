@@ -26,7 +26,6 @@ import {
   shortToolLine
 } from "../components/chat/shellEventFormat";
 import { dedupKeyForRow, RuntimeTraceNormalizer, type NormalizedTraceProjection } from "./traceNormalize";
-import { mergeStreamText } from "./streamTextMerge";
 import { newMessageId } from "./uuid";
 
 const GOAL: string = "g-desktop";
@@ -93,6 +92,23 @@ function asDict(v: unknown): Record<string, unknown> | null {
     return v as Record<string, unknown>;
   }
   return null;
+}
+
+function nfc(s: string): string {
+  return s.normalize("NFC");
+}
+
+/** Склейка строки чата: рантайм эмитит `incremental` дельты; `snapshot` — на редких путях. */
+function nextStreamLineText(
+  mode: NormalizedTraceProjection["textMode"],
+  prev: string,
+  humanLine: string
+): string {
+  const m: "incremental" | "snapshot" = mode === "snapshot" ? "snapshot" : "incremental";
+  if (m === "snapshot") {
+    return nfc(humanLine);
+  }
+  return nfc(prev) + nfc(humanLine);
 }
 
 function getRuntimeDirFromStatus(st: unknown): string | null {
@@ -404,7 +420,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           const id: string = chatLineId("assistant", n.messageId);
           const acc: Map<string, string> = streamTextAccRef.current;
           const prevText: string = acc.get(id) ?? "";
-          const nextText: string = mergeStreamText(prevText, n.humanLine);
+          const nextText: string = nextStreamLineText(n.textMode, prevText, n.humanLine);
           acc.set(id, nextText);
           setChatLines((cur) => {
             const found: ChatLine | undefined = cur.find((x) => x.id === id);
@@ -432,7 +448,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           }
           const acc: Map<string, string> = streamTextAccRef.current;
           const prevText: string = acc.get(lineId) ?? "";
-          const nextText: string = mergeStreamText(prevText, n.humanLine);
+          const nextText: string = nextStreamLineText(n.textMode, prevText, n.humanLine);
           acc.set(lineId, nextText);
           setChatLines((cur) => {
             const found: ChatLine | undefined = cur.find((x) => x.id === lineId);
@@ -454,7 +470,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           closeReasoningSegment();
           setAgentTurnInProgress(false);
           const asstId: string = chatLineId("assistant", n.messageId);
-          streamTextAccRef.current.set(asstId, n.humanLine);
+          streamTextAccRef.current.set(asstId, nfc(n.humanLine));
           upsert({
             id: asstId,
             from: "assistant",

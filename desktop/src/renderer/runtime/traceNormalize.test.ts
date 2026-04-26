@@ -61,6 +61,35 @@ describe("dedupKeyForRow", () => {
   });
 });
 
+describe("text_mode in topic.publish", () => {
+  it("reads text_mode incremental for assistant.thinking", () => {
+    const n: RuntimeTraceNormalizer = new RuntimeTraceNormalizer();
+    const row: Record<string, unknown> = {
+      contract_version: "ailit_agent_runtime_v1",
+      type: "topic.publish",
+      message_id: "env-1",
+      chat_id: "c1",
+      namespace: "ns",
+      from_agent: "a",
+      to_agent: null,
+      created_at: "2026-01-01T00:00:00Z",
+      payload: {
+        type: "topic.publish",
+        topic: "chat",
+        event_name: "assistant.thinking",
+        payload: {
+          message_id: "asst-1",
+          text: "x",
+          text_mode: "incremental"
+        }
+      }
+    };
+    const out: ReturnType<RuntimeTraceNormalizer["normalizeLine"]> = n.normalizeLine(row);
+    expect(out.kind).toBe("assistant_thinking_delta");
+    expect(out.textMode).toBe("incremental");
+  });
+});
+
 describe("G9.9.2 degradation: unknown events do not throw", () => {
   it("maps unknown type to kind unknown with human line", () => {
     const n: RuntimeTraceNormalizer = new RuntimeTraceNormalizer();

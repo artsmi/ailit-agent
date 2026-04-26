@@ -10,6 +10,8 @@ export type NormalizedKind =
   | "error_row"
   | "unknown";
 
+export type TextModeTrace = "incremental" | "snapshot";
+
 export type NormalizedTraceProjection = {
   readonly kind: NormalizedKind;
   readonly messageId: string;
@@ -20,6 +22,8 @@ export type NormalizedTraceProjection = {
   readonly technicalLine: string;
   readonly raw: Record<string, unknown>;
   readonly redacted: boolean;
+  /** Режим `text` из `topic.publish` (agent_core 2026): дельта или снимок. */
+  readonly textMode?: TextModeTrace;
 };
 
 const SENSITIVE_KEYS: ReadonlySet<string> = new Set([
@@ -69,6 +73,14 @@ function asDict(v: unknown): Record<string, unknown> | null {
   return null;
 }
 
+function readTextMode(inner: Record<string, unknown>): TextModeTrace | undefined {
+  const t: unknown = inner["text_mode"];
+  if (t === "incremental" || t === "snapshot") {
+    return t;
+  }
+  return undefined;
+}
+
 function normalizeTopicPublish(row: Record<string, unknown>): { readonly eventName: string; readonly payload: Record<string, unknown> } | null {
   const pl = asDict(row["payload"]);
   if (!pl || pl["type"] !== "topic.publish") {
@@ -110,7 +122,8 @@ export class RuntimeTraceNormalizer {
             humanLine: txt,
             technicalLine: "assistant.delta",
             raw: redactedRaw,
-            redacted: true
+            redacted: true,
+            textMode: readTextMode(tp.payload)
           };
         }
         if (tp.eventName === "assistant.thinking") {
@@ -123,7 +136,8 @@ export class RuntimeTraceNormalizer {
             humanLine: txt,
             technicalLine: "assistant.thinking",
             raw: redactedRaw,
-            redacted: true
+            redacted: true,
+            textMode: readTextMode(tp.payload)
           };
         }
         if (tp.eventName === "assistant.final") {

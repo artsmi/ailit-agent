@@ -23,6 +23,9 @@ from agent_core.models import (
     ToolChoice,
     ToolDefinition,
 )
+from agent_core.normalization.stream_to_incremental import (
+    stream_incremental_for_provider,
+)
 from agent_core.providers.protocol import ChatProvider
 from agent_core.session.budget import BudgetGovernance
 from agent_core.session.compaction import compact_messages
@@ -768,7 +771,8 @@ class SessionRunner:
             stream=settings.use_stream,
         )
         if settings.use_stream:
-            text_parts: list[str] = []
+            inc = stream_incremental_for_provider(self._provider)
+            inc.reset()
             stream_events = self._provider.stream(req)
             for ev in stream_events:
                 if cancel is not None and cancel.is_set():
@@ -781,19 +785,23 @@ class SessionRunner:
                     )
                     raise RuntimeError("cancelled")
                 if isinstance(ev, StreamTextDelta):
-                    if ev.channel == "content":
-                        text_parts.append(ev.text)
                     if ev.channel == "reasoning":
                         ev_name = "assistant.thinking"
                     else:
                         ev_name = "assistant.delta"
-                    self._emit(
-                        events,
-                        ev_name,
-                        {"text": ev.text},
-                        diag_sink,
-                        event_sink,
-                    )
+                    em = inc.consume(ev.channel, ev.text)
+                    if em is not None:
+                        pl: dict[str, Any] = {
+                            "text": em.text,
+                            "text_mode": em.text_mode,
+                        }
+                        self._emit(
+                            events,
+                            ev_name,
+                            pl,
+                            diag_sink,
+                            event_sink,
+                        )
                 if isinstance(ev, StreamDone):
                     return ev.response
             msg = "stream ended without StreamDone"

@@ -13,7 +13,8 @@
 | Сборка desktop | OK (в репозитории) | `cd desktop && npm run typecheck && npm run lint && npm run build` |
 | Упаковка Linux | По среде | `npm run package:linux` в `desktop/` (нужен Node) |
 | Python: тесты G9.9 | OK | `tests/test_g9_9_e2e_desktop_workflow.py`, `tests/test_g9_9_degradation.py` + существующие runtime/PAG/CLI |
-| Python: стиль | OK | `flake8` по затронутым файлам |
+| Python: полный suite | OK | 311 passed, 3 skipped |
+| Python: стиль | OK (pre-existing only) | `flake8` — 172 issues, все legacy (E501/E741/F401/F821), не от G9.9 |
 | Install | По среде | `./scripts/install` / `dev`; idempotency — по [`plan/deploy-project-strategy.md`](../plan/deploy-project-strategy.md) |
 | `ailit desktop` без AppImage | OK (автотест) | Диагностика exit 2, подсказка `--dev` |
 | `ailit project add` ошибки | OK | Некорректный path → exit 2 |
@@ -26,3 +27,7 @@
 ## Перенос открытых пунктов
 
 Пункты, которые **нельзя** закрыть в headless CI (полный прогон Electron, интерактив), не расширяют scope Workflow 9: фиксируются здесь и переносятся в следующий план **только** после согласования (см. project-workflow.mdc).
+
+## Миграция trace (стрим `text_mode: incremental`)
+
+Релизы с **нормализацией дельт в `agent_core`** + desktop `+=` **не** читают старые JSONL без `text_mode`. Перед обновлением вручную очистить кэш/реестр, например: `rm -rf ~/.ailit` (согласовано: прошлые артефакты не мигрируем).

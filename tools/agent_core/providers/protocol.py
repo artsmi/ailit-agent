@@ -1,4 +1,8 @@
-"""Протокол провайдера: единая точка для session loop без vendor-логики."""
+"""Протокол провайдера: единая точка для session loop без vendor-логики.
+
+Опциональный метод на реализации: `build_stream_incremental()` — см.
+`agent_core.normalization.stream_to_incremental` (Kimi и др.).
+"""
 
 from __future__ import annotations
 
