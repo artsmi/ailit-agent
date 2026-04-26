@@ -28,3 +28,4 @@ venv/
 desktop/node_modules/
 desktop/.vite/
 desktop/dist/
+desktop/dist-app/
