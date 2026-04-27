@@ -1088,7 +1088,7 @@ class SessionRunner:
         """Добавить TOOL: pager → char budget (батч) → сообщения."""
         written: list[str] = []
         for tr in results:
-            if tr.tool_name == "write_file" and tr.error is None:
+            if tr.tool_name in ("write_file", "apply_patch") and tr.error is None:
                 ext = tr.extras or {}
                 rp = ext.get("relative_path")
                 if isinstance(rp, str) and rp.strip():

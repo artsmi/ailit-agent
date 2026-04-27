@@ -59,8 +59,9 @@ def last_batch_had_successful_write_file(
     invocations: tuple[ToolInvocation, ...] | list[ToolInvocation],
     results: tuple[ToolRunResult, ...] | list[ToolRunResult],
 ) -> bool:
-    """Проверить наличие успешного write_file в паре invocations/results."""
+    """Проверить успешный write_file или apply_patch в паре invocations/results."""
+    _names = frozenset({"write_file", "apply_patch"})
     for inv, res in zip(invocations, results, strict=True):
-        if inv.tool_name == "write_file" and res.error is None:
+        if inv.tool_name in _names and res.error is None:
             return True
     return False

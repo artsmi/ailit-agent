@@ -79,7 +79,7 @@ def apply_tool_output_prune(
 
     Возвращает агрегат для события ``tool.output_prune.applied``.
     """
-    protected = protected_tools or frozenset({"write_file"})
+    protected = protected_tools or frozenset({"write_file", "apply_patch"})
     if not cfg.enabled or not _should_trigger(messages, cfg):
         return {
             "pruned_tools_count": 0,

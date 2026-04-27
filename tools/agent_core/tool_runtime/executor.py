@@ -57,6 +57,42 @@ def _write_file_extras_before_run(
     }
 
 
+def _apply_patch_extras_before_run(
+    args: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Перед apply_patch: relative_path и kind для телеметрии."""
+    from agent_core.tool_runtime.multi_root_paths import (
+        resolve_absolute_file_under_work_roots,
+    )
+
+    fp = str(args.get("filePath", "")).strip()
+    old_s = str(args.get("oldString", ""))
+    if not fp:
+        return None
+    try:
+        path, rel_norm = resolve_absolute_file_under_work_roots(fp)
+    except (OSError, TypeError, ValueError):
+        return None
+    if rel_norm in ("", ".", ".."):
+        return None
+    if old_s == "":
+        existed = path.is_file()
+        return {
+            "relative_path": rel_norm,
+            "file_change_kind": "updated" if existed else "created",
+        }
+    try:
+        existed = path.is_file()
+    except OSError:
+        return None
+    if not existed:
+        return None
+    return {
+        "relative_path": rel_norm,
+        "file_change_kind": "updated",
+    }
+
+
 @dataclass(frozen=True, slots=True)
 class ToolInvocation:
     """Один вызов инструмента от модели."""
@@ -159,6 +195,8 @@ class ToolExecutor:
         extras: dict[str, Any] | None = None
         if inv.tool_name == "write_file" and isinstance(args, dict):
             extras = _write_file_extras_before_run(args)
+        elif inv.tool_name == "apply_patch" and isinstance(args, dict):
+            extras = _apply_patch_extras_before_run(args)
         try:
             set_current_cancel(cancel)
             out = handler(args)

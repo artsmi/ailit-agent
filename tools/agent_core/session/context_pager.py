@@ -110,7 +110,7 @@ def tool_to_source_key(tool_name: str) -> str:
         return "shell"
     if tool_name in ("echo",):
         return "echo"
-    if tool_name in ("write_file",):
+    if tool_name in ("write_file", "apply_patch"):
         return "file_write"
     return tool_name
 
@@ -129,6 +129,9 @@ def locator_from_invocation(
     path = args.get("path")
     if isinstance(path, str) and path.strip():
         return f"{tool_name}:{path.strip()}"
+    fp = args.get("filePath")
+    if isinstance(fp, str) and fp.strip():
+        return f"{tool_name}:{fp.strip()}"
     cmd = args.get("command")
     if isinstance(cmd, str) and cmd.strip():
         c = cmd.strip().replace("\n", " ")

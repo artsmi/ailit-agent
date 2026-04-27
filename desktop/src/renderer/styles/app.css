@@ -2025,6 +2025,125 @@ button {
   text-overflow: ellipsis;
 }
 
+/* perm-5 modal (Candy) */
+.permModeModalOverlay {
+  position: fixed;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgb(46 26 40 / 0.45);
+  backdrop-filter: blur(4px);
+  inset: 0;
+}
+
+.permModeModalCard {
+  max-width: 24rem;
+  max-height: 90vh;
+  padding: 1.25rem 1.25rem 1rem 1.25rem;
+  overflow: auto;
+  color: #2e1a28;
+  background: #fef7ff;
+  border: 1px solid #dcc8e0;
+  border-radius: 1.5rem;
+  box-shadow: 0 20px 50px rgb(46 26 40 / 0.2);
+}
+
+.permModeModalTitle {
+  margin: 0 0 0.35rem 0;
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.2;
+  color: #2e1a28;
+}
+
+.permModeModalDesc {
+  margin: 0 0 0.9rem 0;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: #604868;
+}
+
+.permModeGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.permModeOption {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0.55rem 0.6rem;
+  text-align: left;
+  color: #2e1a28;
+  background: #f8eef8;
+  border: 1px solid #e8d4ec;
+  border-radius: 1rem;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, transform 0.08s;
+}
+
+.permModeOption:hover {
+  background: #fff0f6;
+  border-color: #e040a0;
+}
+
+.permModeOptionLabel {
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #7c52aa;
+}
+
+.permModeOptionHint {
+  margin-top: 0.15rem;
+  font-size: 0.58rem;
+  line-height: 1.3;
+  color: #604868;
+}
+
+.permModeRemember {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin: 0.75rem 0 0.25rem 0;
+  font-size: 0.62rem;
+  color: #604868;
+  cursor: pointer;
+}
+
+.permModeActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.5rem;
+}
+
+.permModeCancel {
+  padding: 0.35rem 0.7rem;
+  font-size: 0.65rem;
+  color: #604868;
+  background: transparent;
+  border: 1px solid #dcc8e0;
+  border-radius: 9999px;
+  cursor: pointer;
+}
+
+.permModeCancel:hover {
+  color: #2e1a28;
+  background: #f2e8f2;
+}
+
+.candyPermBadge {
+  font-size: 0.5rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #7c52aa;
+}
+
 /* @xyflow canvas */
 .react-flow__attribution {
   display: none;

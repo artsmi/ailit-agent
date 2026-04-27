@@ -20,9 +20,10 @@ LIST_DIR_MAX_ENTRIES: Final[int] = 500
 
 
 def work_root() -> Path:
-    """Корень рабочей области (репозиторий / проект)."""
-    raw = os.environ.get("AILIT_WORK_ROOT", os.getcwd())
-    return Path(raw).resolve()
+    """Корень рабочей области (первый из ``AILIT_WORK_ROOTS`` или ``AILIT_WORK_ROOT``)."""
+    from agent_core.tool_runtime.multi_root_paths import primary_work_root
+
+    return primary_work_root()
 
 
 def normalize_relative(rel: str) -> str:

@@ -12,7 +12,7 @@ import {
   savePersistedUi,
   type PersistedUiStateV1
 } from "../state/persistedUi";
-import { buildUserPromptAction } from "./envelopeFactory";
+import { buildPermModeChoiceRequest, buildUserPromptAction } from "./envelopeFactory";
 import {
   buildAgentDialogueMessages,
   deriveAgentLinkKeysFromTrace,
@@ -84,6 +84,11 @@ export type DesktopSessionValue = {
   /** Модель/рантайм обрабатывают ход (до assistant.final / стопа). */
   readonly agentTurnInProgress: boolean;
   readonly requestStopAgent: () => Promise<void>;
+  /** Текущий perm-режим после ``session.perm_mode.settled`` (сокращение для поля ввода). */
+  readonly permModeLabel: string | null;
+  /** Открыть модалку: gate_id с ``session.perm_mode.need_user_choice``. */
+  readonly permModeGateId: string | null;
+  readonly submitPermModeChoice: (mode: string, rememberProject: boolean) => Promise<void>;
 };
 
 const Ctx = React.createContext<DesktopSessionValue | null>(null);
@@ -215,6 +220,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   /** Склейка bash.* по call_id: без сырого JSON, один блок в ленте. */
   const bashTextByCallRef: React.MutableRefObject<Map<string, string>> = React.useRef(new Map());
   const [agentTurnInProgress, setAgentTurnInProgress] = React.useState(false);
+  const [permModeLabel, setPermModeLabel] = React.useState<string | null>(null);
+  const [permModeGateId, setPermModeGateId] = React.useState<string | null>(null);
 
   const setUiAndSave: (next: PersistedUiStateV1 | ((prev: PersistedUiStateV1) => PersistedUiStateV1)) => void = React.useCallback(
     (next) => {
@@ -809,6 +816,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     setAgentTurnInProgress(false);
     setRawTraceRows([]);
     setChatLines([]);
+    setPermModeLabel(null);
+    setPermModeGateId(null);
     setBrokerEndpoint(null);
     void connectToBroker();
   }, [
@@ -892,6 +901,69 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       }
     },
     [activeSession.chatId, brokerEndpoint, pickWorkspace]
+  );
+
+  React.useEffect(() => {
+    for (let i: number = rawTraceRows.length - 1; i >= 0; i -= 1) {
+      const r: Record<string, unknown> = rawTraceRows[i]!;
+      if (r["type"] !== "topic.publish") {
+        continue;
+      }
+      const pl: Record<string, unknown> | null = asDict(r["payload"]);
+      if (!pl || pl["type"] !== "topic.publish") {
+        continue;
+      }
+      const en: unknown = pl["event_name"];
+      const inner: Record<string, unknown> | null = asDict(pl["payload"]);
+      if (typeof en !== "string" || !inner) {
+        continue;
+      }
+      if (en === "session.perm_mode.settled") {
+        const pm: unknown = inner["perm_mode"];
+        setPermModeLabel(typeof pm === "string" ? pm : "—");
+        setPermModeGateId(null);
+        return;
+      }
+      if (en === "session.perm_mode.need_user_choice") {
+        const g: unknown = inner["gate_id"];
+        if (typeof g === "string" && g.length > 0) {
+          setPermModeGateId(g);
+        }
+        return;
+      }
+    }
+  }, [rawTraceRows]);
+
+  const submitPermModeChoice: (mode: string, rememberProject: boolean) => Promise<void> = React.useCallback(
+    async (mode, rememberProject) => {
+      const ep: string | null = brokerEndpoint;
+      const gid: string | null = permModeGateId;
+      if (!ep || !gid) {
+        return;
+      }
+      const chatId0: string = activeSession.chatId;
+      const ws0: { namespace: string; projectRoot: string; pids: string[]; roots: readonly string[] } | null =
+        pickWorkspace();
+      if (!ws0) {
+        return;
+      }
+      const built: ReturnType<typeof buildPermModeChoiceRequest> = buildPermModeChoiceRequest({
+        chatId: chatId0,
+        brokerId: `broker-${chatId0}`,
+        namespace: ws0.namespace,
+        goalId: GOAL,
+        traceId: newMessageId(),
+        gateId: gid,
+        mode,
+        rememberProject
+      });
+      const r: { readonly ok: true; readonly response: RuntimeResponseEnvelope } | { readonly ok: false; readonly error: string } =
+        await window.ailitDesktop.brokerRequest({ endpoint: ep, request: built.envelope });
+      if (r.ok && r.response.ok) {
+        setPermModeGateId(null);
+      }
+    },
+    [activeSession.chatId, brokerEndpoint, permModeGateId, pickWorkspace]
   );
 
   const requestStopAgent: () => Promise<void> = React.useCallback(async () => {
@@ -982,7 +1054,10 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     sendUserPrompt,
     resubscribeTrace,
     agentTurnInProgress,
-    requestStopAgent
+    requestStopAgent,
+    permModeLabel,
+    permModeGateId,
+    submitPermModeChoice
   };
 
   return <Ctx.Provider value={v}>{children}</Ctx.Provider>;

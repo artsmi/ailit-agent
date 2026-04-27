@@ -35,7 +35,10 @@ def _write_file_changes_from_events(
     for row in events:
         if row.get("event_type") != "tool.call_finished":
             continue
-        if row.get("tool") != "write_file" or row.get("ok") is not True:
+        if row.get("tool") not in (
+            "write_file",
+            "apply_patch",
+        ) or row.get("ok") is not True:
             continue
         rp = row.get("relative_path")
         k = row.get("file_change_kind")

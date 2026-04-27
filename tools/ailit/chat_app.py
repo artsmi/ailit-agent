@@ -1305,7 +1305,7 @@ def _execute_llm_turn(
                     fk = payload.get("file_change_kind")
                     if (
                         ok is True
-                        and t == "write_file"
+                        and t in ("write_file", "apply_patch")
                         and isinstance(rp, str)
                         and fk in ("created", "updated")
                     ):
@@ -1325,7 +1325,7 @@ def _execute_llm_turn(
                     )
                 if (
                     isinstance(t, str)
-                    and t == "write_file"
+                    and t in ("write_file", "apply_patch")
                     and ok is True
                     and isinstance(payload.get("relative_path"), str)
                     and payload.get("file_change_kind") in ("created", "updated")

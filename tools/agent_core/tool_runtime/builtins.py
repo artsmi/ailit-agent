@@ -16,6 +16,10 @@ from agent_core.tool_runtime.python_read_symbol import (
 from agent_core.tool_runtime.read_file_envelope import (
     format_read_file_with_meta,
 )
+from agent_core.tool_runtime.multi_root_paths import (
+    atomic_replace_text_file,
+    resolve_absolute_file_under_work_roots,
+)
 from agent_core.tool_runtime.workdir_paths import (
     GLOB_MAX_FILES_DEFAULT,
     LIST_DIR_MAX_ENTRIES,
@@ -126,6 +130,65 @@ def builtin_write_file(arguments: Mapping[str, Any]) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
     return f"wrote:{rel}"
+
+
+def _normalize_patch_text(s: str) -> str:
+    return s.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def builtin_apply_patch(arguments: Mapping[str, Any]) -> str:
+    """Патч файла по абсолютному пути под одним из корней (AILIT_WORK_ROOTS)."""
+    fp = str(arguments.get("filePath", "")).strip()
+    old_s = str(arguments.get("oldString", ""))
+    new_s = str(arguments.get("newString", ""))
+    raw_ra = arguments.get("replaceAll", False)
+    replace_all = bool(raw_ra) if raw_ra is not None else False
+
+    path, rel_posix = resolve_absolute_file_under_work_roots(fp)
+    if path.exists() and path.is_dir():
+        msg = f"apply_patch: '{fp}' is a directory"
+        raise IsADirectoryError(msg)
+
+    if old_s == "":
+        if old_s == new_s:
+            msg = "apply_patch: oldString and newString both empty"
+            raise ValueError(msg)
+        existed = path.is_file()
+        atomic_replace_text_file(path, new_s)
+        kind = "updated" if existed else "created"
+        return f"patched:{kind}:{rel_posix}"
+
+    if old_s == new_s:
+        msg = "apply_patch: oldString and newString must differ"
+        raise ValueError(msg)
+
+    if not path.is_file():
+        msg = f"apply_patch: file not found: {fp}"
+        raise FileNotFoundError(msg)
+
+    raw = path.read_text(encoding="utf-8", errors="replace")
+    content_n = _normalize_patch_text(raw)
+    old_n = _normalize_patch_text(old_s)
+    new_n = _normalize_patch_text(new_s)
+    if old_n not in content_n:
+        msg = (
+            "apply_patch: oldString not found in file "
+            "(read-before-write / stale content)"
+        )
+        raise ValueError(msg)
+    if not replace_all:
+        n_matches = content_n.count(old_n)
+        if n_matches > 1:
+            msg = (
+                "apply_patch: oldString matches multiple times; "
+                "narrow the anchor or set replaceAll"
+            )
+            raise ValueError(msg)
+        out_n = content_n.replace(old_n, new_n, 1)
+    else:
+        out_n = content_n.replace(old_n, new_n)
+    atomic_replace_text_file(path, out_n)
+    return f"patched:updated:{rel_posix}"
 
 
 def builtin_list_dir(arguments: Mapping[str, Any]) -> str:
@@ -285,6 +348,7 @@ BUILTIN_HANDLERS: dict[str, BuiltinHandler] = {
     "read_file": builtin_read_file,
     "read_symbol": builtin_read_symbol,
     "write_file": builtin_write_file,
+    "apply_patch": builtin_apply_patch,
     "echo": builtin_echo,
 }
 
@@ -473,6 +537,50 @@ def builtin_tool_specs() -> dict[str, ToolSpec]:
                     },
                 },
                 "required": ["path", "content"],
+                "additionalProperties": False,
+            },
+            side_effect=SideEffectClass.WRITE,
+            requires_approval=False,
+        ),
+        "apply_patch": ToolSpec(
+            name="apply_patch",
+            description=(
+                "Create or edit a UTF-8 text file using an absolute path under "
+                "one of the configured work roots (AILIT_WORK_ROOT or "
+                "AILIT_WORK_ROOTS). "
+                "Empty oldString creates or overwrites the whole file with "
+                "newString. "
+                "Otherwise oldString must occur exactly once unless "
+                "replaceAll is true (read-before-write: disk must match "
+                "oldString)."
+            ),
+            parameters_schema={
+                "type": "object",
+                "properties": {
+                    "filePath": {
+                        "type": "string",
+                        "description": (
+                            "Absolute file path under a work root "
+                            "(JSON list in AILIT_WORK_ROOTS for multi-repo)."
+                        ),
+                    },
+                    "oldString": {
+                        "type": "string",
+                        "description": (
+                            "Text to find; empty means create/overwrite full "
+                            "file with newString only."
+                        ),
+                    },
+                    "newString": {
+                        "type": "string",
+                        "description": "Replacement text (or full file if oldString empty).",
+                    },
+                    "replaceAll": {
+                        "type": "boolean",
+                        "description": "Replace every occurrence of oldString (default false).",
+                    },
+                },
+                "required": ["filePath", "oldString", "newString"],
                 "additionalProperties": False,
             },
             side_effect=SideEffectClass.WRITE,

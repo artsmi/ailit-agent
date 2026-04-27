@@ -171,7 +171,7 @@ def tool_names_for_perm_mode(mode: str) -> frozenset[str] | None:
     if m == PermToolMode.READ.value:
         return READ_TOOL_NAMES
     if m == PermToolMode.READ_PLAN.value:
-        return READ_TOOL_NAMES | frozenset({"write_file"})
+        return READ_TOOL_NAMES | frozenset({"write_file", "apply_patch"})
     if m == PermToolMode.EXPLORE.value:
         return READ_TOOL_NAMES | frozenset({"run_shell", "run_shell_session"})
     return None

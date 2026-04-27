@@ -10,6 +10,7 @@ import { useChatLayout } from "../shell/ChatLayoutContext";
 import { useDesktopSession, type ChatLine } from "../runtime/DesktopSessionContext";
 import type { ChatSessionRecordV1, ChatToolDisplayV1 } from "../state/persistedUi";
 import { CandyMaterialIcon } from "../shell/CandyMaterialIcon";
+import { PermModeModal } from "../components/chat/PermModeModal";
 
 /** Считаем «у низа», если до низа осталось не больше (px) — погрешность sub-pixel/scroll. */
 const NEAR_BOTTOM_PX: number = 32;
@@ -361,12 +362,26 @@ export function ChatPage(): React.JSX.Element {
                 <div className="candyChatInputModel">
                   <CandyMaterialIcon name="memory" />
                   <span>ailit</span>
+                  {s.permModeLabel ? (
+                    <span className="candyPermBadge" title="Режим perm-5 (agent_core)">
+                      perm:{s.permModeLabel}
+                    </span>
+                  ) : null}
                 </div>
                 <span className="candyChatInputHint">Shift+Enter — новая строка</span>
               </div>
             </div>
           </div>
         </div>
+        <PermModeModal
+          open={s.permModeGateId !== null}
+          onSelect={(mode, remember) => {
+            void s.submitPermModeChoice(mode, remember);
+          }}
+          onDismiss={() => {
+            void s.submitPermModeChoice("explore", false);
+          }}
+        />
         {aside ? (
           <ChatAnalyticsAside
             chatId={s.chatId}

@@ -11,6 +11,9 @@ from agent_core.session.perm_tool_mode import (
     normalize_perm_tool_mode,
     read_plan_write_file_allowed,
 )
+from agent_core.tool_runtime.multi_root_paths import (
+    resolve_absolute_file_under_work_roots,
+)
 from agent_core.tool_runtime.executor import ToolInvocation
 from agent_core.tool_runtime.permission import (
     PermissionDecision,
@@ -66,11 +69,15 @@ class ModePermissionPolicy:
                 return PermissionDecision.ALLOW
             return PermissionDecision.ASK
 
-        if spec.name == "write_file":
+        if spec.name in ("write_file", "apply_patch"):
             if m in (PermToolMode.READ.value, PermToolMode.EXPLORE.value):
                 return PermissionDecision.DENY
             if m == PermToolMode.READ_PLAN.value:
-                rel = _write_path_from_inv(inv)
+                rel = (
+                    _write_path_from_inv(inv)
+                    if spec.name == "write_file"
+                    else _apply_patch_relative_path_from_inv(inv)
+                )
                 if rel and read_plan_write_file_allowed(rel):
                     return PermissionDecision.ALLOW
                 return PermissionDecision.ASK
@@ -108,6 +115,25 @@ def _write_path_from_inv(inv: ToolInvocation | None) -> str:
     if not isinstance(raw, dict):
         return ""
     return str(raw.get("path") or "").strip()
+
+
+def _apply_patch_relative_path_from_inv(inv: ToolInvocation | None) -> str:
+    if inv is None:
+        return ""
+    try:
+        raw: dict[str, Any] = json.loads(inv.arguments_json or "{}")
+    except json.JSONDecodeError:
+        return ""
+    if not isinstance(raw, dict):
+        return ""
+    fp = str(raw.get("filePath") or "").strip()
+    if not fp:
+        return ""
+    try:
+        _, rel = resolve_absolute_file_under_work_roots(fp)
+    except (OSError, TypeError, ValueError):
+        return ""
+    return rel
 
 
 def build_mode_permission_policy(

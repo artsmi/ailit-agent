@@ -11,9 +11,10 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, MutableMapping
 
@@ -22,7 +23,14 @@ from agent_core.providers.factory import ProviderFactory, ProviderKind
 from agent_core.providers.mock_provider import MockProvider
 from agent_core.providers.protocol import ChatProvider
 from agent_core.session.event_contract import SessionEvent
-from agent_core.session.loop import SessionRunner, SessionSettings
+from agent_core.session.loop import SessionOutcome, SessionRunner, SessionSettings
+from agent_core.session.perm_tool_mode import normalize_perm_tool_mode
+from agent_core.session.perm_turn import (
+    PermModeTurnCoordinator,
+    build_mode_kb_namespace,
+    memory_namespace_from_cfg,
+)
+from agent_core.session.repo_context import detect_repo_context
 from agent_core.session.state import SessionState
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
@@ -64,17 +72,12 @@ class WorkAgentConfig:
 class _Workspace:
     namespace: str
     project_root: Path
+    project_roots: tuple[Path, ...] = field(default_factory=tuple)
 
 
 def _work_agent_perm_mode_enabled() -> bool:
-    """Включение perm-5 для AgentWork (по умолчанию выключено).
-
-    В interactive chat perm-5 управляет run_shell/kb; в desktop worker
-    нет UI для ASK: в explore вне allowlist run_shell даст
-    ``waiting_approval`` при включённом perm-5. Включать только
-    ``AILIT_WORK_AGENT_PERM=1`` для отладки.
-    """
-    raw = os.environ.get("AILIT_WORK_AGENT_PERM", "0").strip().lower()
+    """Включение perm-5 + классификатор (Desktop: UI; выкл. через env)."""
+    raw = os.environ.get("AILIT_WORK_AGENT_PERM", "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
 
 
@@ -97,6 +100,16 @@ def _session_end_user_message(
     if r:
         return f"Сессия завершена ({state.value}): {r}"
     return f"Сессия завершена: {state.value}"
+
+
+def _waiting_approval_call_id(events: tuple[dict[str, Any], ...]) -> str | None:
+    """``call_id`` из последнего ``session.waiting_approval``."""
+    for ev in reversed(events):
+        if ev.get("event_type") == "session.waiting_approval":
+            cid = ev.get("call_id")
+            if isinstance(cid, str) and cid:
+                return cid
+    return None
 
 
 class _ProviderAssembler:
@@ -137,14 +150,22 @@ class _ProviderAssembler:
 class _RegistryAssembler:
     """Собрать tool registry для AgentWork."""
 
-    def build(self, *, project_root: Path) -> ToolRegistry:
-        root = project_root.resolve()
-        os.environ["AILIT_WORK_ROOT"] = str(root)
+    def build(
+        self,
+        *,
+        project_root: Path,
+        project_roots: tuple[Path, ...] | None = None,
+    ) -> ToolRegistry:
+        roots = project_roots if project_roots else (project_root.resolve(),)
+        os.environ["AILIT_WORK_ROOTS"] = json.dumps(
+            [str(p.resolve()) for p in roots],
+        )
+        os.environ["AILIT_WORK_ROOT"] = str(roots[0].resolve())
         reg = default_builtin_registry().merge(bash_tool_registry())
 
         try:
             cfg = AgentRunProviderConfigBuilder().build(
-                root,
+                project_root.resolve(),
                 use_dev_repo_yaml=True,
             )
         except Exception:
@@ -229,6 +250,8 @@ class _WorkChatSession:
         text: str,
         workspace: _Workspace,
         emitter: _RuntimeEventEmitter,
+        identity: RuntimeIdentity,
+        worker: "AgentWorkWorker",
     ) -> Mapping[str, Any]:
         self._messages.append(ChatMessage(role=MessageRole.USER, content=text))
         self._user_turns += 1
@@ -249,17 +272,124 @@ class _WorkChatSession:
                 ),
             )
 
+        pr_roots = (
+            workspace.project_roots
+            if workspace.project_roots
+            else (workspace.project_root.resolve(),)
+        )
         provider_obj, model_eff = _ProviderAssembler().build(
             project_root=workspace.project_root,
         )
-        reg = _RegistryAssembler().build(project_root=workspace.project_root)
-        perm = PermissionEngine(
+        reg = _RegistryAssembler().build(
+            project_root=workspace.project_root,
+            project_roots=pr_roots,
+        )
+        perm_base = PermissionEngine(
             write_default=PermissionDecision.ALLOW,
             shell_default=PermissionDecision.ALLOW,
             network_default=PermissionDecision.ALLOW,
         )
-        runner = SessionRunner(provider_obj, reg, permission_engine=perm)
+        runner = SessionRunner(provider_obj, reg, permission_engine=perm_base)
         assistant_mid = f"asst-{uuid.uuid4()}"
+        pm_en = _work_agent_perm_mode_enabled()
+        perm_tool_mode = "explore"
+        perm_bypass = bool(
+            os.environ.get("AILIT_MULTI_AGENT", "").strip().lower()
+            in ("1", "true", "yes", "on"),
+        )
+        forced = os.environ.get("AILIT_PERM_TOOL_MODE", "").strip() or None
+        if pm_en and not perm_bypass:
+            try:
+                rc = detect_repo_context(workspace.project_root.resolve())
+                repo_pl = rc.to_event_payload()
+            except OSError:
+                repo_pl = None
+            try:
+                _cfg0 = AgentRunProviderConfigBuilder().build(
+                    workspace.project_root.resolve(),
+                    use_dev_repo_yaml=True,
+                )
+            except Exception:
+                _cfg0 = {}
+            mns = (
+                memory_namespace_from_cfg(_cfg0)
+                if isinstance(_cfg0, dict)
+                else "default"
+            )
+            kb_ns = build_mode_kb_namespace(
+                memory_namespace=mns,
+                project_root=workspace.project_root,
+            )
+            coord = PermModeTurnCoordinator(
+                kb_namespace=kb_ns,
+                history_max=8,
+                repo_payload=repo_pl,
+            )
+            res = coord.resolve_turn(
+                provider=provider_obj,
+                model=model_eff,
+                temperature=0.3,
+                user_intent=text,
+                classifier_bypass=perm_bypass,
+                forced_mode=forced,
+                diag_sink=None,
+            )
+            user_resolved_perm = False
+            if res.not_sure:
+                gate_id = uuid.uuid4().hex
+                with worker._state_lock:  # type: ignore[attr-defined]
+                    worker._perm_user_intent = text  # type: ignore[attr-defined]
+                    worker._perm_coord = coord  # type: ignore[attr-defined]
+                    worker._perm_chosen_mode = None  # type: ignore[attr-defined]
+                    worker._perm_event = threading.Event()  # type: ignore[attr-defined]
+                    worker._perm_gate_id = gate_id  # type: ignore[attr-defined]
+                emitter.publish(
+                    event_type="session.perm_mode.need_user_choice",
+                    payload={
+                        "chat_id": identity.chat_id,
+                        "gate_id": gate_id,
+                    },
+                )
+                ev = worker._perm_event  # type: ignore[attr-defined]
+                ev.wait(timeout=600.0)  # type: ignore[union-attr]
+                with worker._state_lock:  # type: ignore[attr-defined]
+                    chosen = worker._perm_chosen_mode  # type: ignore[attr-defined]
+                    worker._clear_perm_wait()  # type: ignore[attr-defined]
+                if not chosen:
+                    return {"ok": False, "error": "perm_mode_choice_timeout"}
+                perm_tool_mode = str(chosen)
+                user_resolved_perm = True
+            else:
+                perm_tool_mode = res.final_mode
+            clsf = res.classification
+            emitter.publish(
+                event_type="session.perm_mode.settled",
+                payload={
+                    "chat_id": identity.chat_id,
+                    "perm_mode": perm_tool_mode,
+                    "not_sure": False,
+                    "confidence": (
+                        clsf.confidence
+                        if clsf and not user_resolved_perm
+                        else None
+                    ),
+                    "reason": (
+                        clsf.reason
+                        if clsf and not user_resolved_perm
+                        else None
+                    ),
+                },
+            )
+        else:
+            perm_tool_mode = normalize_perm_tool_mode(
+                os.environ.get("AILIT_PERM_TOOL_MODE", "explore").strip()
+                or "explore",
+            )
+            if pm_en and perm_bypass:
+                perm_tool_mode = normalize_perm_tool_mode(
+                    os.environ.get("AILIT_PERM_TOOL_MODE", "edit").strip()
+                    or "edit",
+                )
 
         def sink(ev: SessionEvent) -> None:
             p: MutableMapping[str, Any] = dict(ev.payload)
@@ -276,19 +406,36 @@ class _WorkChatSession:
             max_turns=10_000,
             temperature=0.3,
             use_stream=True,
-            perm_mode_enabled=_work_agent_perm_mode_enabled(),
-            perm_tool_mode="explore",
-            perm_classifier_bypass=True,
+            perm_mode_enabled=pm_en,
+            perm_tool_mode=perm_tool_mode,
+            perm_classifier_bypass=perm_bypass,
             perm_history_max=8,
         )
-        out = runner.run(
-            list(self._messages),
-            ApprovalSession(),
-            settings,
-            diag_sink=None,
-            event_sink=sink,  # type: ignore[arg-type]
-        )
-        self._messages = list(out.messages)
+        out: SessionOutcome | None = None
+        while True:
+            out = runner.run(
+                list(self._messages),
+                worker._approval,  # type: ignore[attr-defined]
+                settings,
+                diag_sink=None,
+                event_sink=sink,  # type: ignore[arg-type]
+            )
+            self._messages = list(out.messages)
+            if out.state is SessionState.WAITING_APPROVAL:
+                call_id = _waiting_approval_call_id(out.events)
+                if not call_id:
+                    break
+                with worker._state_lock:  # type: ignore[attr-defined]
+                    worker._appr_event = threading.Event()  # type: ignore[attr-defined]
+                    worker._appr_call_id = call_id  # type: ignore[attr-defined]
+                ev_a = worker._appr_event  # type: ignore[attr-defined]
+                ev_a.wait(timeout=3600.0)  # type: ignore[union-attr]
+                with worker._state_lock:  # type: ignore[attr-defined]
+                    worker._appr_event = None  # type: ignore[attr-defined]
+                    worker._appr_call_id = ""  # type: ignore[attr-defined]
+                continue
+            break
+        assert out is not None
         if out.state is SessionState.FINISHED:
             last = self._messages[-1] if self._messages else None
             if last and last.role is MessageRole.ASSISTANT:
@@ -327,12 +474,108 @@ class AgentWorkWorker:
     def __init__(self, cfg: WorkAgentConfig) -> None:
         self._cfg = cfg
         self._session = _WorkChatSession()
-        import threading
-
         self._threading = threading
         self._emit_lock = threading.Lock()
+        self._state_lock = threading.Lock()
+        self._approval = ApprovalSession()
+        self._perm_user_intent: str = ""
+        self._perm_coord: PermModeTurnCoordinator | None = None
+        self._perm_chosen_mode: str | None = None
+        self._perm_event: threading.Event | None = None
+        self._perm_gate_id: str = ""
+        self._appr_event: threading.Event | None = None
+        self._appr_call_id: str = ""
+
+    def _clear_perm_wait(self) -> None:
+        self._perm_coord = None
+        self._perm_event = None
+        self._perm_gate_id = ""
+        self._perm_chosen_mode = None
+
+    def complete_perm_choice(
+        self,
+        gate_id: str,
+        mode: str,
+        *,
+        remember_project: bool = False,
+    ) -> bool:
+        """Снятие perm gate после выбора в UI (Desktop)."""
+        with self._state_lock:
+            if not gate_id or gate_id != self._perm_gate_id:
+                return False
+            coord = self._perm_coord
+            if coord is None or self._perm_event is None:
+                return False
+        fm = normalize_perm_tool_mode(mode)
+        coord.record_user_choice(
+            user_intent=self._perm_user_intent,
+            mode=fm,
+            remember_project=remember_project,
+            diag_sink=None,
+        )
+        with self._state_lock:
+            self._perm_chosen_mode = fm
+            if self._perm_event is not None:
+                self._perm_event.set()
+        return True
+
+    def complete_tool_approval(self, call_id: str, approved: bool) -> bool:
+        """ASK на инструмент: approve/reject + разблокировка SessionRunner."""
+        with self._state_lock:
+            if not call_id or call_id != self._appr_call_id:
+                return False
+            ev = self._appr_event
+        if approved:
+            self._approval.approve(call_id)
+        else:
+            self._approval.reject(call_id)
+        if ev is not None:
+            ev.set()
+        return True
 
     def handle(self, req: RuntimeRequestEnvelope) -> Mapping[str, Any]:
+        if req.type == "service.request":
+            action = str(req.payload.get("action", "") or "").strip()
+            if action == "work.perm_mode_choice":
+                ok = self.complete_perm_choice(
+                    str(req.payload.get("gate_id", "") or ""),
+                    str(req.payload.get("mode", "") or "explore"),
+                    remember_project=bool(
+                        req.payload.get("remember_project", False),
+                    ),
+                )
+                return make_response_envelope(
+                    request=req,
+                    ok=ok,
+                    payload={"accepted": ok},
+                    error=None
+                    if ok
+                    else {"code": "bad_gate", "message": "invalid gate_id"},
+                ).to_dict()
+            if action == "work.approval_resolve":
+                call_id = str(req.payload.get("call_id", "") or "")
+                approved = bool(req.payload.get("approved", False))
+                ok2 = self.complete_tool_approval(call_id, approved)
+                return make_response_envelope(
+                    request=req,
+                    ok=ok2,
+                    payload={"accepted": ok2},
+                    error=None
+                    if ok2
+                    else {
+                        "code": "bad_call",
+                        "message": call_id,
+                    },
+                ).to_dict()
+            return make_response_envelope(
+                request=req,
+                ok=False,
+                payload={},
+                error={
+                    "code": "unsupported",
+                    "message": action,
+                },
+            ).to_dict()
         if req.type == "action.start":
             action = str(req.payload.get("action", "") or "")
             if action != "work.handle_user_prompt":
@@ -347,19 +590,19 @@ class AgentWorkWorker:
                 ).to_dict()
             prompt = str(req.payload.get("prompt", "") or "").strip()
             ws = req.payload.get("workspace")
-            project_root = None
+            project_roots: list[Path] = []
             if isinstance(ws, dict):
-                # desktop: envelopeFactory — snake_case (project_roots, …).
                 roots = ws.get("project_roots")
                 if roots is None:
                     roots = ws.get("projectRoots")
-                is_list = isinstance(roots, list)
-                has_first = is_list and bool(roots)
-                is_str = has_first and isinstance(roots[0], str)
-                if is_str:
-                    project_root = Path(roots[0]).expanduser()
-            if not project_root:
-                project_root = Path.cwd().resolve()
+                if isinstance(roots, list):
+                    for r in roots:
+                        if isinstance(r, str) and r.strip():
+                            project_roots.append(Path(r).expanduser().resolve())
+            if not project_roots:
+                project_roots = [Path.cwd().resolve()]
+            project_root = project_roots[0]
+            proot_t = tuple(project_roots)
             identity = RuntimeIdentity(
                 runtime_id=req.runtime_id,
                 chat_id=req.chat_id,
@@ -385,8 +628,11 @@ class AgentWorkWorker:
                         workspace=_Workspace(
                             namespace=req.namespace,
                             project_root=project_root,
+                            project_roots=proot_t,
                         ),
                         emitter=emitter,
+                        identity=identity,
+                        worker=self,
                     )
                 except Exception as exc:  # noqa: BLE001
                     emitter.publish(
@@ -428,16 +674,6 @@ class AgentWorkWorker:
                     "accepted": True,
                 },
                 error=None,
-            ).to_dict()
-        if req.type == "service.request":
-            return make_response_envelope(
-                request=req,
-                ok=False,
-                payload={},
-                error={
-                    "code": "unsupported",
-                    "message": "services not implemented",
-                },
             ).to_dict()
         return make_response_envelope(
             request=req,

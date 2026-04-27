@@ -77,6 +77,7 @@ def test_read_exposes_no_write_tool_definitions() -> None:
     defs, meta = tool_definitions_for_perm_mode(reg, "read")
     names = {d.name for d in defs}
     assert "write_file" not in names
+    assert "apply_patch" not in names
     assert "run_shell" not in names
     assert "read_file" in names
     assert "read_symbol" in names
