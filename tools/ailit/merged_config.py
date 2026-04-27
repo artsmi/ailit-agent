@@ -73,6 +73,19 @@ def _default_ailit_config() -> dict[str, Any]:
         "agent": {
             "tool_exposure": "full",
         },
+        "agent_work": {
+            "enabled": True,
+            "active_profile": "default",
+            "profiles": {
+                "default": {
+                    "title": "AgentWork",
+                    "micro_plan": "always_compact",
+                    "verify_policy": "python_default",
+                    "max_repair_attempts": 1,
+                    "large_task_policy": "decompose_only",
+                },
+            },
+        },
         "tests": {},
     }
 

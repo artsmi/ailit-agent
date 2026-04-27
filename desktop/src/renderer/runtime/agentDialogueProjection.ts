@@ -45,6 +45,13 @@ function payloadObj(row: Record<string, unknown>): Record<string, unknown> {
   return {};
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
+
 function isSkippableUserOnly(row: Record<string, unknown>, typ: string): boolean {
   const from: string = strField(row, "from_agent");
   if (from.startsWith("User:") || from === "User:desktop") {
@@ -134,6 +141,32 @@ function fromRequestLikeRow(
 ): AgentDialogueMessage | null {
   const from: string = strField(row, "from_agent");
   const to: string = strField(row, "to_agent");
+  const pl: Record<string, unknown> = payloadObj(row);
+  if (typ === "topic.publish" && (!to || to === "null" || to === '""')) {
+    const topic: string = String(pl["event_name"] ?? "");
+    if (topic === "work.micro_plan.compact") {
+      return mk(row, manifest, projectIds, {
+        fromAgent: from,
+        toAgent: from,
+        humanText: "Work сформировал компактный план перед выполнением задачи.",
+        technical: "topic.publish work.micro_plan.compact",
+        sev: "info"
+      });
+    }
+    if (topic === "work.verify.finished") {
+      const inner: Record<string, unknown> | null = asRecord(pl["payload"]);
+      const ok: boolean = Boolean(inner?.["ok"]);
+      return mk(row, manifest, projectIds, {
+        fromAgent: from,
+        toAgent: from,
+        humanText: ok
+          ? "Work завершил runtime-проверку успешно."
+          : "Work завершил runtime-проверку с ошибкой или пропуском.",
+        technical: "topic.publish work.verify.finished",
+        sev: ok ? "info" : "warning"
+      });
+    }
+  }
   if (!to || to === "null" || to === '""') {
     return null;
   }
@@ -141,7 +174,6 @@ function fromRequestLikeRow(
   if (!toT.startsWith("Agent")) {
     return null;
   }
-  const pl: Record<string, unknown> = payloadObj(row);
   const service: string = String(pl["service"] ?? "");
   if (typ === "service.request" && service === "memory.query_context") {
     const path: string = String(pl["path"] ?? pl["hint_path"] ?? "");

@@ -6,6 +6,8 @@ export type NormalizedKind =
   | "assistant_final"
   | "turn_completed"
   | "turn_failed"
+  | "micro_plan"
+  | "verify_result"
   | "tool_event"
   | "usage"
   | "pag"
@@ -83,6 +85,51 @@ function readTextMode(inner: Record<string, unknown>): TextModeTrace | undefined
   return undefined;
 }
 
+function compactPlanLine(payload: Record<string, unknown>): string {
+  const summary: string = String(payload["summary"] ?? "План задачи");
+  const kind: string = String(payload["task_kind"] ?? "task");
+  const rawSteps: unknown = payload["steps"];
+  const steps: string[] = [];
+  if (Array.isArray(rawSteps)) {
+    for (const item of rawSteps.slice(0, 5)) {
+      const obj: Record<string, unknown> | null = asDict(item);
+      if (obj) {
+        const title: string = String(obj["title"] ?? "").trim();
+        if (title) {
+          steps.push(title);
+        }
+      }
+    }
+  }
+  const body: string = steps.map((s, idx) => `${idx + 1}. ${s}`).join("\n");
+  return body ? `**План (${kind})**\n${summary}\n\n${body}` : `**План (${kind})**\n${summary}`;
+}
+
+function verifyLine(payload: Record<string, unknown>): string {
+  const ok: boolean = Boolean(payload["ok"]);
+  const skipped: boolean = Boolean(payload["skipped"]);
+  const reason: string = String(payload["reason"] ?? "");
+  if (skipped) {
+    return `Проверка не выполнялась: ${reason || "нет команды"}`;
+  }
+  const rawCommands: unknown = payload["commands"];
+  const commands: string[] = [];
+  if (Array.isArray(rawCommands)) {
+    for (const item of rawCommands.slice(0, 4)) {
+      const obj: Record<string, unknown> | null = asDict(item);
+      if (obj) {
+        const command: string = String(obj["command"] ?? "").trim();
+        const exitCode: string = String(obj["exit_code"] ?? "");
+        if (command) {
+          commands.push(`$ ${command}${exitCode ? ` → ${exitCode}` : ""}`);
+        }
+      }
+    }
+  }
+  const title: string = ok ? "Проверка пройдена" : "Проверка не прошла";
+  return commands.length > 0 ? `${title}\n${commands.join("\n")}` : `${title}: ${reason}`;
+}
+
 function normalizeTopicPublish(row: Record<string, unknown>): { readonly eventName: string; readonly payload: Record<string, unknown> } | null {
   const pl = asDict(row["payload"]);
   if (!pl || pl["type"] !== "topic.publish") {
@@ -151,6 +198,32 @@ export class RuntimeTraceNormalizer {
             createdAt,
             humanLine: txt,
             technicalLine: "assistant.final",
+            raw: redactedRaw,
+            redacted: true
+          };
+        }
+        if (tp.eventName === "work.micro_plan.compact") {
+          return {
+            kind: "micro_plan",
+            messageId: innerMid,
+            chatId,
+            namespace,
+            createdAt,
+            humanLine: compactPlanLine(tp.payload),
+            technicalLine: "work.micro_plan.compact",
+            raw: redactedRaw,
+            redacted: true
+          };
+        }
+        if (tp.eventName === "work.verify.finished") {
+          return {
+            kind: "verify_result",
+            messageId: innerMid,
+            chatId,
+            namespace,
+            createdAt,
+            humanLine: verifyLine(tp.payload),
+            technicalLine: "work.verify.finished",
             raw: redactedRaw,
             redacted: true
           };

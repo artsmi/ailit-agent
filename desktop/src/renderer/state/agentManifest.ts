@@ -41,10 +41,10 @@ export const DEFAULT_AGENT_MANIFEST_V1: AgentManifestV1 = {
     {
       agentType: "AgentWork",
       displayName: "Work",
-      role: "Исполняет задачу пользователя",
+      role: "Исполняет задачу пользователя через compact plan и verify gate",
       icon: "terminal",
       color: "#e040a0",
-      capabilities: ["work.handle_user_prompt"]
+      capabilities: ["work.handle_user_prompt", "work.micro_plan.compact", "work.verify.finished"]
     },
     {
       agentType: "AgentMemory",

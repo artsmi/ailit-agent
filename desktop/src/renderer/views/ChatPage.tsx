@@ -293,6 +293,14 @@ export function ChatPage(): React.JSX.Element {
                           </div>
                         );
                       }
+                      if (m.lineKind === "plan") {
+                        return (
+                          <div className="candyChatMicroPlan" key={m.id}>
+                            <div className="candyChatMicroPlanLabel">План</div>
+                            <CandyMarkdownBody text={m.text} />
+                          </div>
+                        );
+                      }
                       return (
                         <div
                           className={m.from === "system" ? "candyChatSystemBlock" : "candyMsgBlock"}

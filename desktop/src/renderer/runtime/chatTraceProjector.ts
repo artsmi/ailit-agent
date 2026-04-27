@@ -15,7 +15,7 @@ export type ChatLine = {
   /** Порядок появления в trace (стабильная сортировка в UI). */
   readonly order: number;
   /** Сообщение-консоль (tool/shell) — рендер как в minimalist candy ref. */
-  readonly lineKind?: "message" | "console" | "reasoning";
+  readonly lineKind?: "message" | "console" | "reasoning" | "plan";
   readonly consoleShell?: string;
   /** Для console: shell/bash vs служебные tool.* */
   readonly consoleChannel?: "shell" | "tool";
@@ -274,6 +274,19 @@ export function projectChatTraceRows(
         order: orderFinal
       });
       asstPartByMsg.set(messageId, 0);
+    } else if (n.kind === "micro_plan" || n.kind === "verify_result") {
+      closeReasoningSegment();
+      if (n.kind === "micro_plan") {
+        agentTurnInProgress = true;
+      }
+      appendLine(lines, {
+        id: `${n.kind}:${n.messageId}:${String(order)}`,
+        from: "assistant",
+        text: n.humanLine,
+        atIso: n.createdAt || new Date(0).toISOString(),
+        lineKind: "plan",
+        order
+      });
     } else if (n.kind === "turn_completed") {
       agentTurnInProgress = false;
     } else if (n.kind === "turn_failed") {

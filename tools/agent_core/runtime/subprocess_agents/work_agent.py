@@ -23,7 +23,7 @@ from agent_core.providers.factory import ProviderFactory, ProviderKind
 from agent_core.providers.mock_provider import MockProvider
 from agent_core.providers.protocol import ChatProvider
 from agent_core.session.event_contract import SessionEvent
-from agent_core.session.loop import SessionOutcome, SessionRunner, SessionSettings
+from agent_core.session.loop import SessionRunner, SessionSettings
 from agent_core.session.perm_tool_mode import normalize_perm_tool_mode
 from agent_core.session.perm_turn import (
     PermModeTurnCoordinator,
@@ -31,7 +31,6 @@ from agent_core.session.perm_turn import (
     memory_namespace_from_cfg,
 )
 from agent_core.session.repo_context import detect_repo_context
-from agent_core.session.state import SessionState
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
     RuntimeRequestEnvelope,
@@ -50,6 +49,11 @@ from agent_core.tool_runtime.permission import (
 from agent_core.tool_runtime.registry import (
     ToolRegistry,
     default_builtin_registry,
+)
+from agent_core.runtime.subprocess_agents.work_orchestrator import (
+    AgentWorkProfile,
+    WorkTaskOrchestrator,
+    WorkTaskRequest,
 )
 
 from ailit.agent_provider_config import AgentRunProviderConfigBuilder
@@ -79,37 +83,6 @@ def _work_agent_perm_mode_enabled() -> bool:
     """Включение perm-5 + классификатор (Desktop: UI; выкл. через env)."""
     raw = os.environ.get("AILIT_WORK_AGENT_PERM", "1").strip().lower()
     return raw in ("1", "true", "yes", "on")
-
-
-def _session_end_user_message(
-    *,
-    state: SessionState,
-    reason: str | None,
-) -> str:
-    """Человекочитаемый текст, если сессия завершилась не FINISHED."""
-    r = (reason or "").strip()
-    if state is SessionState.WAITING_APPROVAL and r == "approval_pending":
-        return (
-            "Выполнение остановилось: нужно подтверждение (ASK) вызова "
-            "инструмента, а в фоновом воркере нет UI. "
-            "Perm-5 для worker по умолчанию выключен; иначе пользуйтесь "
-            "`ailit chat`."
-        )
-    if state is SessionState.ERROR and r:
-        return f"Ошибка сессии: {r}"
-    if r:
-        return f"Сессия завершена ({state.value}): {r}"
-    return f"Сессия завершена: {state.value}"
-
-
-def _waiting_approval_call_id(events: tuple[dict[str, Any], ...]) -> str | None:
-    """``call_id`` из последнего ``session.waiting_approval``."""
-    for ev in reversed(events):
-        if ev.get("event_type") == "session.waiting_approval":
-            cid = ev.get("call_id")
-            if isinstance(cid, str) and cid:
-                return cid
-    return None
 
 
 class _ProviderAssembler:
@@ -338,11 +311,11 @@ class _WorkChatSession:
             if res.not_sure:
                 gate_id = uuid.uuid4().hex
                 with worker._state_lock:  # type: ignore[attr-defined]
-                    worker._perm_user_intent = text  # type: ignore[attr-defined]
+                    worker._perm_user_intent = text
                     worker._perm_coord = coord  # type: ignore[attr-defined]
-                    worker._perm_chosen_mode = None  # type: ignore[attr-defined]
-                    worker._perm_event = threading.Event()  # type: ignore[attr-defined]
-                    worker._perm_gate_id = gate_id  # type: ignore[attr-defined]
+                    worker._perm_chosen_mode = None  # type: ignore[attr-defined]  # noqa: E501
+                    worker._perm_event = threading.Event()  # type: ignore[attr-defined]  # noqa: E501
+                    worker._perm_gate_id = gate_id
                 emitter.publish(
                     event_type="session.perm_mode.need_user_choice",
                     payload={
@@ -353,7 +326,7 @@ class _WorkChatSession:
                 ev = worker._perm_event  # type: ignore[attr-defined]
                 ev.wait(timeout=600.0)  # type: ignore[union-attr]
                 with worker._state_lock:  # type: ignore[attr-defined]
-                    chosen = worker._perm_chosen_mode  # type: ignore[attr-defined]
+                    chosen = worker._perm_chosen_mode  # type: ignore[attr-defined]  # noqa: E501
                     worker._clear_perm_wait()  # type: ignore[attr-defined]
                 if not chosen:
                     return {"ok": False, "error": "perm_mode_choice_timeout"}
@@ -411,61 +384,55 @@ class _WorkChatSession:
             perm_classifier_bypass=perm_bypass,
             perm_history_max=8,
         )
-        out: SessionOutcome | None = None
-        while True:
-            out = runner.run(
-                list(self._messages),
-                worker._approval,  # type: ignore[attr-defined]
-                settings,
-                diag_sink=None,
-                event_sink=sink,  # type: ignore[arg-type]
+
+        def wait_for_approval(call_id: str) -> None:
+            """Wait until Desktop resolves a tool approval request."""
+            with worker._state_lock:  # type: ignore[attr-defined]
+                worker._appr_event = threading.Event()  # type: ignore[attr-defined]  # noqa: E501
+                worker._appr_call_id = call_id  # type: ignore[attr-defined]
+            ev_a = worker._appr_event  # type: ignore[attr-defined]
+            ev_a.wait(timeout=3600.0)  # type: ignore[union-attr]
+            with worker._state_lock:  # type: ignore[attr-defined]
+                worker._appr_event = None  # type: ignore[attr-defined]
+                worker._appr_call_id = ""  # type: ignore[attr-defined]
+
+        try:
+            profile_cfg = AgentRunProviderConfigBuilder().build(
+                workspace.project_root.resolve(),
+                use_dev_repo_yaml=True,
             )
-            self._messages = list(out.messages)
-            if out.state is SessionState.WAITING_APPROVAL:
-                call_id = _waiting_approval_call_id(out.events)
-                if not call_id:
-                    break
-                with worker._state_lock:  # type: ignore[attr-defined]
-                    worker._appr_event = threading.Event()  # type: ignore[attr-defined]
-                    worker._appr_call_id = call_id  # type: ignore[attr-defined]
-                ev_a = worker._appr_event  # type: ignore[attr-defined]
-                ev_a.wait(timeout=3600.0)  # type: ignore[union-attr]
-                with worker._state_lock:  # type: ignore[attr-defined]
-                    worker._appr_event = None  # type: ignore[attr-defined]
-                    worker._appr_call_id = ""  # type: ignore[attr-defined]
-                continue
-            break
-        assert out is not None
-        if out.state is SessionState.FINISHED:
-            last = self._messages[-1] if self._messages else None
-            if last and last.role is MessageRole.ASSISTANT:
-                emitter.publish(
-                    event_type="assistant.final",
-                    payload={
-                        "message_id": assistant_mid,
-                        "text": last.content or "",
-                    },
-                )
-                return {"ok": True, "assistant_message_id": assistant_mid}
-            emitter.publish(
-                event_type="assistant.final",
-                payload={
-                    "message_id": assistant_mid,
-                    "text": "(нет ответа ассистента)",
-                },
-            )
-            return {"ok": False, "error": "no_assistant_message"}
+        except Exception:
+            profile_cfg = {}
+        profile = AgentWorkProfile.from_config(profile_cfg)
+        orchestrator = WorkTaskOrchestrator(
+            runner=runner,
+            approvals=worker._approval,  # type: ignore[attr-defined]
+            settings=settings,
+            base_messages=tuple(self._messages),
+            event_sink=sink,  # type: ignore[arg-type]
+            publisher=emitter,
+            wait_for_approval=wait_for_approval,
+        )
+        result = orchestrator.run(
+            WorkTaskRequest(
+                user_text=text,
+                workspace=workspace.project_root.resolve(),
+                chat_id=identity.chat_id,
+                assistant_message_id=assistant_mid,
+                profile=profile,
+            ),
+        )
+        self._messages = list(result.messages)
         emitter.publish(
             event_type="assistant.final",
             payload={
                 "message_id": assistant_mid,
-                "text": _session_end_user_message(
-                    state=out.state,
-                    reason=out.reason,
-                ),
+                "text": result.final_text,
             },
         )
-        return {"ok": False, "error": out.reason or out.state.value}
+        if result.ok:
+            return {"ok": True, "assistant_message_id": assistant_mid}
+        return {"ok": False, "error": result.error or "agent_work_failed"}
 
 
 class AgentWorkWorker:
@@ -599,13 +566,18 @@ class AgentWorkWorker:
                 if isinstance(roots, list):
                     for r in roots:
                         if isinstance(r, str) and r.strip():
-                            project_roots.append(Path(r).expanduser().resolve())
+                            resolved = Path(r).expanduser().resolve()
+                            project_roots.append(resolved)
             if not project_roots:
                 project_roots = [Path.cwd().resolve()]
             project_root = project_roots[0]
             proot_t = tuple(project_roots)
             with self._state_lock:
-                if self._user_prompt_thread is not None and self._user_prompt_thread.is_alive():
+                busy = (
+                    self._user_prompt_thread is not None
+                    and self._user_prompt_thread.is_alive()
+                )
+                if busy:
                     return make_response_envelope(
                         request=req,
                         ok=False,
@@ -613,7 +585,8 @@ class AgentWorkWorker:
                         error={
                             "code": "agent_busy",
                             "message": (
-                                "Another work.handle_user_prompt is still running "
+                                "Another work.handle_user_prompt is still "
+                                "running "
                                 "for this chat."
                             ),
                         },

@@ -1395,6 +1395,33 @@ button {
   word-break: break-word;
 }
 
+.candyChatMicroPlan {
+  max-width: 100%;
+  margin: 0.15rem 0 0.4rem 0;
+  padding: 0.55rem 0.7rem 0.6rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--candy-accent) 22%, #dbeafe 78%);
+  border-radius: 0.65rem 0.85rem 0.7rem 0.75rem;
+  background: color-mix(in srgb, var(--candy-accent) 7%, #f8fafc 93%);
+  color: color-mix(in srgb, var(--candy-accent) 42%, #334155 58%);
+}
+
+.candyChatMicroPlanLabel {
+  margin: 0 0 0.25rem 0;
+  font-size: calc(0.62rem - 2px);
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--candy-accent) 52%, #64748b 48%);
+}
+
+.candyChatMicroPlan .markdownBody {
+  line-height: 1.45;
+  font-size: calc(0.76rem - 2px);
+  color: color-mix(in srgb, var(--candy-accent) 36%, #334155 64%);
+  word-break: break-word;
+}
+
 .candyChatAgentStatus {
   position: relative;
   z-index: 0;
