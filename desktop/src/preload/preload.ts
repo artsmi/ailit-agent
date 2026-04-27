@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   AppendSessionDiagnosticResult,
+  AppendTraceRowResult,
   BrokerRequestResult,
   DesktopApi,
   DesktopTraceRowEvent,
@@ -44,6 +45,13 @@ const api: DesktopApi = {
   },
   async traceReadDurable(params: { readonly runtimeDir: string; readonly chatId: string }): Promise<DurableTraceReadResult> {
     return (await ipcRenderer.invoke("ailit:traceReadDurable", params)) as DurableTraceReadResult;
+  },
+  async appendTraceRow(params: {
+    readonly runtimeDir: string;
+    readonly chatId: string;
+    readonly row: Record<string, unknown>;
+  }): Promise<AppendTraceRowResult> {
+    return (await ipcRenderer.invoke("ailit:appendTraceRow", params)) as AppendTraceRowResult;
   },
   async traceSubscribe(params: { readonly chatId: string; readonly endpoint: string }): Promise<{ readonly ok: true } | { readonly ok: false; readonly error: string }> {
     return (await ipcRenderer.invoke("ailit:traceSubscribe", params)) as { readonly ok: true } | { readonly ok: false; readonly error: string };

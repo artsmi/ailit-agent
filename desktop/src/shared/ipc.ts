@@ -147,6 +147,10 @@ export type AppendSessionDiagnosticResult =
   | { readonly ok: true; readonly filePath: string }
   | { readonly ok: false; readonly error: string };
 
+export type AppendTraceRowResult =
+  | { readonly ok: true; readonly row: Record<string, unknown> }
+  | { readonly ok: false; readonly error: string };
+
 export type DesktopApi = {
   readonly ping: () => Promise<string>;
   readonly supervisorStatus: () => Promise<RuntimeSupervisorStatusResponse>;
@@ -159,6 +163,11 @@ export type DesktopApi = {
   readonly supervisorStopBroker: (params: { readonly chatId: string }) => Promise<RuntimeSupervisorStopBrokerResponse>;
   readonly brokerRequest: (params: { readonly endpoint: string; readonly request: RuntimeRequestEnvelope }) => Promise<BrokerRequestResult>;
   readonly traceReadDurable: (params: { readonly runtimeDir: string; readonly chatId: string }) => Promise<DurableTraceReadResult>;
+  readonly appendTraceRow: (params: {
+    readonly runtimeDir: string;
+    readonly chatId: string;
+    readonly row: Record<string, unknown>;
+  }) => Promise<AppendTraceRowResult>;
   readonly traceSubscribe: (params: { readonly chatId: string; readonly endpoint: string }) => Promise<{ readonly ok: true } | { readonly ok: false; readonly error: string }>;
   readonly traceUnsubscribe: (params: { readonly chatId: string }) => Promise<{ readonly ok: true }>;
   readonly onTraceRow: (handler: (evt: DesktopTraceRowEvent) => void) => () => void;

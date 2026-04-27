@@ -125,6 +125,38 @@ function extractBroker(
   return null;
 }
 
+function buildSessionCancelledTraceRow(params: {
+  readonly chatId: string;
+  readonly namespace: string;
+}): Record<string, unknown> {
+  const traceId: string = newMessageId();
+  const messageId: string = newMessageId();
+  return {
+    contract_version: "ailit_agent_runtime_v1",
+    runtime_id: "ailit-desktop",
+    chat_id: params.chatId,
+    broker_id: `broker-${params.chatId}`,
+    trace_id: traceId,
+    message_id: messageId,
+    parent_message_id: null,
+    goal_id: GOAL,
+    namespace: params.namespace,
+    from_agent: "User:desktop",
+    to_agent: `AgentWork:${params.chatId}`,
+    created_at: new Date().toISOString(),
+    type: "topic.publish",
+    payload: {
+      type: "topic.publish",
+      topic: "chat",
+      event_name: "session.cancelled",
+      payload: {
+        reason: "user_stop",
+        source: "desktop"
+      }
+    }
+  };
+}
+
 function validateSessions(
   reg: readonly ProjectRegistryEntry[],
   p: PersistedUiStateV1
@@ -712,6 +744,25 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
 
   const requestStopAgent: () => Promise<void> = React.useCallback(async () => {
     const cid: string = activeSession.chatId;
+    const rd: string | null = runtimeDir;
+    const ws0: { namespace: string; projectRoot: string; pids: string[]; roots: readonly string[] } | null =
+      pickWorkspace();
+    const stopRow: Record<string, unknown> = buildSessionCancelledTraceRow({
+      chatId: cid,
+      namespace: ws0?.namespace ?? ""
+    });
+    mergeRows([stopRow]);
+    if (rd) {
+      const appended: Awaited<ReturnType<typeof window.ailitDesktop.appendTraceRow>> =
+        await window.ailitDesktop.appendTraceRow({
+          runtimeDir: rd,
+          chatId: cid,
+          row: stopRow
+        });
+      if (!appended.ok) {
+        setLastError(appended.error);
+      }
+    }
     setBrokerEndpoint(null);
     try {
       await window.ailitDesktop.supervisorStopBroker({ chatId: cid });
@@ -724,7 +775,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     } catch (e) {
       setLastError(e instanceof Error ? e.message : String(e));
     }
-  }, [activeSession.chatId, connectToBroker]);
+  }, [activeSession.chatId, connectToBroker, mergeRows, pickWorkspace, runtimeDir]);
 
   React.useEffect(() => {
     const offRow: (() => void) | void = window.ailitDesktop.onTraceRow((evt) => {

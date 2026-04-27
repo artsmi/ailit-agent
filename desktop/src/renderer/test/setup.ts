@@ -8,6 +8,7 @@ const api: DesktopApi = {
   supervisorStopBroker: () => Promise.resolve({ ok: true, result: null }),
   brokerRequest: () => Promise.resolve({ ok: false, error: "n/a" }),
   traceReadDurable: () => Promise.resolve({ ok: true, rows: [] }),
+  appendTraceRow: (_params) => Promise.resolve({ ok: true, row: _params.row }),
   traceSubscribe: () => Promise.resolve({ ok: true }),
   traceUnsubscribe: () => Promise.resolve({ ok: true }),
   onTraceRow: () => () => {},

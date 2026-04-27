@@ -161,4 +161,16 @@ describe("projectChatTraceRows", () => {
     expect(out.toolApproval).toBeNull();
     expect(out.agentTurnInProgress).toBe(false);
   });
+
+  it("stops active turn after session.cancelled terminal event", () => {
+    const rows: Record<string, unknown>[] = [
+      userPrompt(1),
+      topic("model.request", { context_messages: 3 }, 2),
+      topic("assistant.delta", { text: "Пишу", text_mode: "incremental", message_id: "asst-1" }, 3),
+      topic("session.cancelled", { reason: "user_stop", source: "desktop" }, 4)
+    ];
+
+    const out = projectChatTraceRows(rows);
+    expect(out.agentTurnInProgress).toBe(false);
+  });
 });

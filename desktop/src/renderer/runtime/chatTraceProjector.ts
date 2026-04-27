@@ -176,7 +176,11 @@ export function projectChatTraceRows(
       if (shouldMarkTurnActive(ev.eventName)) {
         agentTurnInProgress = true;
       }
-      if (ev.eventName === "session.perm_mode.settled") {
+      if (ev.eventName === "session.cancelled") {
+        agentTurnInProgress = false;
+        toolApproval = null;
+        closeReasoningSegment();
+      } else if (ev.eventName === "session.perm_mode.settled") {
         const pm: unknown = ev.inner["perm_mode"];
         permModeLabel = typeof pm === "string" ? pm : "—";
         permModeGateId = null;

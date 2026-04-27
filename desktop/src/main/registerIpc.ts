@@ -17,6 +17,12 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return null;
 }
 
+function broadcastTraceRow(chatId: string, row: Record<string, unknown>): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send("ailit:traceRow", { chatId, row });
+  }
+}
+
 export function registerIpcHandlers(): void {
   ipcMain.handle("ailit:ping", async () => "pong");
 
@@ -128,6 +134,29 @@ export function registerIpcHandlers(): void {
     "ailit:traceReadDurable",
     async (_e: unknown, params: { readonly runtimeDir: string; readonly chatId: string }) => {
       return readDurableTraceRows(params);
+    }
+  );
+
+  ipcMain.handle(
+    "ailit:appendTraceRow",
+    async (_e: unknown, params: {
+      readonly runtimeDir: string;
+      readonly chatId: string;
+      readonly row: Record<string, unknown>;
+    }) => {
+      try {
+        const p: string = path.join(
+          params.runtimeDir,
+          "trace",
+          `trace-${safeChatIdForTraceFile(params.chatId)}.jsonl`
+        );
+        await fs.mkdir(path.dirname(p), { recursive: true });
+        await fs.appendFile(p, `${JSON.stringify(params.row)}\n`, "utf8");
+        broadcastTraceRow(params.chatId, params.row);
+        return { ok: true, row: params.row };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
     }
   );
 
