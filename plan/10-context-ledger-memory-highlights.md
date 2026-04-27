@@ -2,6 +2,8 @@
 
 **Идентификатор:** `context-ledger-memory-highlights-10` (файл `plan/10-context-ledger-memory-highlights.md`).
 
+**Статус:** закрыт в G10.8. Дальше не расширять без новой постановки/research.
+
 Документ задаёт следующую итерацию после `Workflow 9`: сделать контекст LLM наблюдаемым и управляемым, вернуть полноценный **Memory 3D graph** в `ailit desktop`, подключить `AgentMemory` как обязательного runtime actor для Desktop-чата и связать подсветку нод памяти с тем, что **реально попало в prompt**.
 
 Канон процесса: [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc).
