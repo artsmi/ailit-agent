@@ -64,6 +64,7 @@ export function ChatPage(): React.JSX.Element {
   const [draft, setDraft] = React.useState("");
   const [aside, setAside] = React.useState(false);
   const [historyOpen, setHistoryOpen] = React.useState(false);
+  const [contextOpen, setContextOpen] = React.useState(false);
   const chatScrollRef: React.RefObject<HTMLDivElement | null> = React.useRef<HTMLDivElement | null>(null);
   const stickToBottomRef: React.MutableRefObject<boolean> = React.useRef(true);
   const innerObsRef: React.RefObject<HTMLDivElement | null> = React.useRef<HTMLDivElement | null>(null);
@@ -252,7 +253,6 @@ export function ChatPage(): React.JSX.Element {
       <div className="candyChatSplit">
         <div className="candyChatMainCol">
           {s.lastError ? <div className="candyChatErrBanner">{s.lastError}</div> : null}
-          <ContextFillPanel state={s.contextFill} />
           <div className="candyChatScroll" ref={chatScrollRef}>
             <div className="candyChatScrollInner" ref={innerObsRef}>
               {groups.map((g, gi) => (
@@ -321,6 +321,11 @@ export function ChatPage(): React.JSX.Element {
           <div className="candyChatInputWrap">
             <div className="candyChatInputGlow" />
             <div className="candyChatInputBox">
+              {contextOpen ? (
+                <div className="candyChatInputContext">
+                  <ContextFillPanel state={s.contextFill} />
+                </div>
+              ) : null}
               <div className="candyChatInputRow">
                 <button className="candyChatInputAttach" type="button" tabIndex={-1} disabled title="Скоро">
                   <CandyMaterialIcon name="add" />
@@ -384,6 +389,18 @@ export function ChatPage(): React.JSX.Element {
                       perm:{s.permModeLabel}
                     </span>
                   ) : null}
+                  <button
+                    className="candyContextToggle"
+                    type="button"
+                    disabled={s.contextFill === null}
+                    title={contextOpen ? "Скрыть Context" : "Показать Context"}
+                    onClick={() => {
+                      setContextOpen((v) => !v);
+                    }}
+                  >
+                    <CandyMaterialIcon name={contextOpen ? "visibility_off" : "data_usage"} />
+                    <span>{contextOpen ? "Скрыть Context" : "Показать Context"}</span>
+                  </button>
                 </div>
                 <span className="candyChatInputHint">Shift+Enter — новая строка</span>
               </div>

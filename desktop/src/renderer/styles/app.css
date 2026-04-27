@@ -1019,6 +1019,13 @@ button {
   color: #be185d;
 }
 
+.candyChatInputContext .contextFillPanel {
+  width: 100%;
+  margin: 0 0 0.65rem 0;
+  box-sizing: border-box;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(252, 231, 243, 0.9));
+}
+
 .candyChatScroll {
   min-height: 0;
   flex: 1 1 0;
@@ -1882,6 +1889,39 @@ button {
   line-height: 0;
   font-size: 0.65rem;
   color: currentColor;
+}
+
+.candyContextToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  margin-left: 0.25rem;
+  padding: 0.16rem 0.42rem;
+  border: 1px solid color-mix(in srgb, var(--candy-accent) 24%, #fbcfe8 76%);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #fff, #fdf2f8);
+  color: #be185d;
+  font-size: 0.5rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 0 0.08rem 0.22rem rgba(224, 64, 160, 0.08);
+  transition: transform 0.12s ease, filter 0.12s ease, opacity 0.12s ease;
+}
+
+.candyContextToggle:hover:not(:disabled) {
+  filter: brightness(1.03);
+  transform: translateY(-1px);
+}
+
+.candyContextToggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.candyContextToggle .candyMaterialIcon {
+  font-size: 0.72rem;
 }
 
 .candyChatInputModel span:last-child {
