@@ -23,6 +23,10 @@ from ailit.global_ailit_layout import (
     user_project_dir,
     user_projects_root,
 )
+from agent_core.session.repo_context import (
+    detect_repo_context,
+    project_namespace_for_repo,
+)
 
 
 def _now_utc_iso_z() -> str:
@@ -54,7 +58,23 @@ def _stable_project_id(abs_path: Path) -> str:
 
 
 def _derive_namespace(abs_path: Path) -> str:
-    return _slugify(abs_path.name)
+    rc = detect_repo_context(abs_path)
+    return project_namespace_for_repo(
+        repo_uri=rc.repo_uri,
+        repo_path=rc.repo_path,
+    )
+
+
+def _repo_metadata(abs_path: Path) -> dict[str, Any]:
+    rc = detect_repo_context(abs_path)
+    return {
+        "repo_uri": rc.repo_uri,
+        "repo_path": rc.repo_path,
+        "branch": rc.branch,
+        "commit": rc.commit,
+        "default_branch": rc.default_branch,
+        "default_branch_source": rc.default_branch_source,
+    }
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +154,7 @@ class ProjectRegistryEditor:
         project_id = _stable_project_id(abs_path)
         namespace = _derive_namespace(abs_path)
         title = abs_path.name
+        repo_meta = _repo_metadata(abs_path)
         pdir = user_project_dir(project_id)
         per_project_file = pdir / "config.yaml"
 
@@ -144,6 +165,7 @@ class ProjectRegistryEditor:
                 "path": str(abs_path),
                 "namespace": str(namespace),
                 "title": str(title),
+                **repo_meta,
                 "added_at": str(
                     per_data.get("added_at") or _now_utc_iso_z()
                 ),
@@ -194,6 +216,21 @@ class ProjectRegistryEditor:
                 if not row.get("project_id") or not row.get("path"):
                     continue
                 row = dict(row)
+                path_raw = str(row.get("path") or "").strip()
+                if path_raw:
+                    abs_path = Path(path_raw).expanduser().resolve()
+                    if abs_path.is_dir():
+                        namespace = _derive_namespace(abs_path)
+                        repo_meta = _repo_metadata(abs_path)
+                        changed = row.get("namespace") != namespace
+                        row["namespace"] = namespace
+                        row.update(repo_meta)
+                        if changed:
+                            row["namespace_migrated_at"] = _now_utc_iso_z()
+                            row["namespace_migration"] = (
+                                "basename_namespace_replaced_by_canonical"
+                            )
+                            self._store.save_mapping(f, row)
                 pid = str(row.get("project_id", ""))
                 row["active"] = pid in set(active) or bool(row.get("active"))
                 entries.append(row)

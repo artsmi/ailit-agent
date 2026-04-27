@@ -9,16 +9,15 @@ from agent_core.runtime.memory_growth import (
 )
 from agent_core.session.repo_context import (
     detect_repo_context,
-    namespace_for_repo,
+    project_namespace_for_repo,
 )
 
 
 def _namespace(root: Path) -> str:
     ctx = detect_repo_context(root)
-    return namespace_for_repo(
+    return project_namespace_for_repo(
         repo_uri=ctx.repo_uri,
         repo_path=ctx.repo_path,
-        branch=ctx.branch,
     )
 
 
@@ -84,7 +83,35 @@ def test_query_driven_growth_indexes_selected_path(tmp_path: Path) -> None:
     assert result.partial is False
     assert result.selected_paths == ("target.py",)
     assert store.fetch_node(namespace=ns, node_id="B:target.py") is not None
+    assert store.fetch_node(namespace=ns, node_id=f"A:{ns}") is not None
     assert store.fetch_node(namespace=ns, node_id="B:other.py") is None
+    b_node = store.fetch_node(namespace=ns, node_id="B:target.py")
+    assert b_node is not None
+    assert "by_branch" in b_node.attrs
     c_nodes = store.list_nodes(namespace=ns, level="C")
     assert c_nodes
     assert all(node.path == "target.py" for node in c_nodes)
+
+
+def test_query_driven_growth_uses_request_namespace(tmp_path: Path) -> None:
+    (tmp_path / "target.py").write_text(
+        "def selected() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "pag.sqlite3"
+
+    result = QueryDrivenPagGrowth(db_path=db_path).grow(
+        project_root=tmp_path,
+        goal="target",
+        explicit_paths=("target.py",),
+        namespace="custom-ns",
+    )
+
+    store = SqlitePagStore(db_path)
+    assert result.namespace == "custom-ns"
+    assert store.fetch_node(namespace="custom-ns", node_id="A:custom-ns")
+    assert store.fetch_node(namespace="custom-ns", node_id="B:target.py")
+    assert (
+        store.fetch_node(namespace=_namespace(tmp_path), node_id="B:target.py")
+        is None
+    )

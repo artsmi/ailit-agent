@@ -108,6 +108,7 @@ class PagRuntimeAgentMemory:
         self,
         *,
         project_root: Path,
+        namespace: str | None = None,
         goal: str,
         query_kind: str,
     ) -> PagSliceResult:
@@ -145,7 +146,11 @@ class PagRuntimeAgentMemory:
             repo_path=rc.repo_path,
             branch=rc.branch,
         )
-        a_id = PagIndexer._a_node_id(rc)  # type: ignore[attr-defined]
+        if namespace is not None and str(namespace).strip():
+            ns = str(namespace).strip()
+            a_id = f"A:{ns}"
+        else:
+            a_id = PagIndexer._a_node_id(rc)  # type: ignore[attr-defined]
         a = self._store.fetch_node(namespace=ns, node_id=a_id)
         if a is None:
             return PagSliceResult(

@@ -11,7 +11,7 @@ from agent_core.memory.pag_indexer import PagIndexer
 from agent_core.memory.sqlite_pag import SqlitePagStore
 from agent_core.session.repo_context import (
     detect_repo_context,
-    namespace_for_repo,
+    project_namespace_for_repo,
 )
 
 _ENTRYPOINT_NAMES: tuple[str, ...] = (
@@ -156,14 +156,14 @@ class QueryDrivenPagGrowth:
         project_root: Path,
         goal: str,
         explicit_paths: Sequence[str] = (),
+        namespace: str | None = None,
     ) -> QueryDrivenGrowthResult:
         """Index only files selected for this memory query."""
         root = project_root.resolve()
         ctx = detect_repo_context(root)
-        namespace = namespace_for_repo(
+        ns = str(namespace or "").strip() or project_namespace_for_repo(
             repo_uri=ctx.repo_uri,
             repo_path=ctx.repo_path,
-            branch=ctx.branch,
         )
         selected = self._planner.select_paths(
             project_root=root,
@@ -172,22 +172,107 @@ class QueryDrivenPagGrowth:
         )
         if not selected:
             return QueryDrivenGrowthResult(
-                namespace=namespace,
+                namespace=ns,
                 selected_paths=(),
                 node_ids=(),
                 partial=True,
                 reason="no_query_relevant_files",
             )
+        self._ensure_project_node(namespace=ns, project_root=root)
         self._indexer.sync_changes(
-            namespace=namespace,
+            namespace=ns,
             project_root=root,
             changed_paths=selected,
         )
+        self._ensure_edges_and_branch_attrs(
+            namespace=ns,
+            project_root=root,
+            selected_paths=selected,
+        )
         node_ids = tuple(f"B:{rel}" for rel in selected)
         return QueryDrivenGrowthResult(
-            namespace=namespace,
+            namespace=ns,
             selected_paths=selected,
             node_ids=node_ids,
             partial=False,
             reason="query_driven_sync",
         )
+
+    def _ensure_project_node(
+        self,
+        *,
+        namespace: str,
+        project_root: Path,
+    ) -> None:
+        ctx = detect_repo_context(project_root)
+        attrs = {
+            "repo_uri": ctx.repo_uri,
+            "repo_path": ctx.repo_path,
+            "branch": ctx.branch,
+            "commit": ctx.commit,
+            "default_branch": ctx.default_branch,
+            "namespace": namespace,
+        }
+        self._store.upsert_node(
+            namespace=namespace,
+            node_id=f"A:{namespace}",
+            level="A",
+            kind="project",
+            path=".",
+            title=project_root.name,
+            summary="PAG project",
+            attrs=attrs,
+            fingerprint=str(ctx.commit or "not_git"),
+            staleness_state="fresh",
+            source_contract="ailit_pag_store_v1",
+        )
+
+    def _ensure_edges_and_branch_attrs(
+        self,
+        *,
+        namespace: str,
+        project_root: Path,
+        selected_paths: Sequence[str],
+    ) -> None:
+        ctx = detect_repo_context(project_root)
+        branch_key = ctx.branch or "__no_branch__"
+        for rel in selected_paths:
+            b_id = f"B:{rel}"
+            self._store.upsert_edge(
+                namespace=namespace,
+                edge_id=f"containment:contains:A:{namespace}->{b_id}",
+                edge_class="containment",
+                edge_type="contains",
+                from_node_id=f"A:{namespace}",
+                to_node_id=b_id,
+                confidence=1.0,
+                source_contract="ailit_pag_store_v1",
+            )
+            node = self._store.fetch_node(namespace=namespace, node_id=b_id)
+            if node is None:
+                continue
+            attrs = dict(node.attrs)
+            by_branch = attrs.get("by_branch")
+            if not isinstance(by_branch, dict):
+                by_branch = {}
+            by_branch[branch_key] = {
+                "commit": ctx.commit,
+                "file_hash": attrs.get("hash"),
+                "summary": node.summary,
+            }
+            attrs["by_branch"] = by_branch
+            attrs["last_seen_branch"] = ctx.branch
+            attrs["last_seen_commit"] = ctx.commit
+            self._store.upsert_node(
+                namespace=namespace,
+                node_id=node.node_id,
+                level=node.level,
+                kind=node.kind,
+                path=node.path,
+                title=node.title,
+                summary=node.summary,
+                attrs=attrs,
+                fingerprint=node.fingerprint,
+                staleness_state=node.staleness_state,
+                source_contract=node.source_contract,
+            )

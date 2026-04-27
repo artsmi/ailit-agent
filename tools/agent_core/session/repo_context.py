@@ -41,6 +41,19 @@ def namespace_for_repo(
     return base
 
 
+def project_namespace_for_repo(
+    *,
+    repo_uri: str | None,
+    repo_path: str,
+) -> str:
+    """Stable project namespace shared across branches.
+
+    Branch/commit are version metadata, not the storage namespace. This lets
+    AgentMemory reuse PAG/KB data when switching branches.
+    """
+    return _safe_ns_part(repo_uri or repo_path)
+
+
 @dataclass(frozen=True, slots=True)
 class RepoContext:
     """Stable identity and version information for a git worktree."""

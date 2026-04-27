@@ -113,6 +113,7 @@ class AgentMemoryWorker:
                 project_root=Path(project_root).expanduser().resolve(),
                 goal=goal,
                 explicit_paths=explicit_paths,
+                namespace=req.namespace or self._cfg.namespace,
             )
         except Exception as exc:  # noqa: BLE001
             self._append_journal(
@@ -166,6 +167,7 @@ class AgentMemoryWorker:
         self,
         *,
         project_root: str,
+        namespace: str,
         goal: str,
         query_kind: str,
         level: str,
@@ -185,6 +187,7 @@ class AgentMemoryWorker:
             mem = PagRuntimeAgentMemory(cfg)
             res = mem.build_slice_for_goal(
                 project_root=Path(project_root).expanduser().resolve(),
+                namespace=namespace,
                 goal=goal,
                 query_kind=query_kind,
             )
@@ -221,16 +224,17 @@ class AgentMemoryWorker:
     def _fallback_slice(
         self,
         *,
+        namespace: str,
         path: str,
         goal: str,
         query_kind: str,
         level: str,
     ) -> dict[str, Any]:
         """Return a structured degradation payload suitable for Desktop."""
-        node_ids = self._path_node_ids(path, namespace=self._cfg.namespace)
+        node_ids = self._path_node_ids(path, namespace=namespace)
         lines = [
             "PAG slice (AgentMemory -> AgentWork)",
-            f"namespace={self._cfg.namespace}",
+            f"namespace={namespace}",
             f"query_kind={query_kind}",
         ]
         if goal.strip():
@@ -304,12 +308,14 @@ class AgentMemoryWorker:
         )
         memory_slice = self._slice_from_pag(
             project_root=project_root,
+            namespace=req.namespace or self._cfg.namespace,
             goal=goal,
             query_kind=query_kind,
             level=level,
         )
         if memory_slice is None:
             memory_slice = self._fallback_slice(
+                namespace=req.namespace or self._cfg.namespace,
                 path=want_path,
                 goal=goal,
                 query_kind=query_kind,
@@ -317,6 +323,7 @@ class AgentMemoryWorker:
             )
         elif not str(memory_slice.get("injected_text") or "").strip():
             memory_slice = self._fallback_slice(
+                namespace=req.namespace or self._cfg.namespace,
                 path=want_path,
                 goal=goal,
                 query_kind=query_kind,

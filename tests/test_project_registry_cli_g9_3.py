@@ -36,6 +36,7 @@ def test_project_add_creates_global_config(
     assert pcfg.is_file()
     row = yaml.safe_load(pcfg.read_text(encoding="utf-8"))
     assert row["path"] == str(proj.resolve())
+    assert row["namespace"] != proj.name
     assert row["active"] is True
 
 
@@ -73,6 +74,31 @@ def test_project_add_separate_repos_separate_folders(
     assert main(["project", "add"]) == 0
     n = len([d for d in user_projects_root().iterdir() if d.is_dir()])
     assert n == 2
+
+
+def test_project_add_same_basename_gets_distinct_namespaces(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    a = tmp_path / "left" / "repo"
+    b = tmp_path / "right" / "repo"
+    a.mkdir(parents=True)
+    b.mkdir(parents=True)
+
+    assert main(["project", "add", str(a)]) == 0
+    assert main(["project", "add", str(b)]) == 0
+    assert main(["project", "list", "--json"]) == 0
+
+    rows = []
+    for pdir in user_projects_root().iterdir():
+        cfg = pdir / "config.yaml"
+        if cfg.is_file():
+            rows.append(yaml.safe_load(cfg.read_text(encoding="utf-8")))
+    namespaces = {str(row["namespace"]) for row in rows}
+    titles = [str(row["title"]) for row in rows]
+    assert titles.count("repo") == 2
+    assert len(namespaces) == 2
 
 
 def test_project_add_invalid_path_exit_2(
