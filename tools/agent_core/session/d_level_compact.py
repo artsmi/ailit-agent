@@ -9,10 +9,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
 
-from agent_core.memory.pag_indexer import PagIndexer
 from agent_core.memory.sqlite_pag import SqlitePagStore
 from agent_core.models import ChatMessage, MessageRole
 from agent_core.session.context_ledger import estimate_text_tokens
+
+
+def _default_pag_db_path() -> Path:
+    """Default PAG DB path without importing pag_indexer at import time."""
+    return Path("~/.ailit/pag/store.sqlite3").expanduser().resolve()
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,7 +78,7 @@ class DLevelCompactService:
         db_path = (
             Path(raw).expanduser().resolve()
             if raw
-            else PagIndexer.default_db_path()
+            else _default_pag_db_path()
         )
         return DLevelCompactService(SqlitePagStore(db_path))
 
