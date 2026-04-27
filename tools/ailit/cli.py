@@ -437,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
         prog="ailit",
         description="ailit-agent CLI",
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command", required=False)
     register_config_parser(sub)
     register_setup_parser(sub)
     register_models_parser(sub)

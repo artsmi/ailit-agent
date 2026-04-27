@@ -12,9 +12,9 @@
 |-------|-----------|------------|
 | Сборка desktop | OK (в репозитории) | `cd desktop && npm run typecheck && npm run lint && npm run build` |
 | Упаковка Linux | По среде | `npm run package:linux` в `desktop/` (нужен Node) |
-| Python: тесты G9.9 | OK | `tests/test_g9_9_e2e_desktop_workflow.py`, `tests/test_g9_9_degradation.py` + существующие runtime/PAG/CLI |
-| Python: полный suite | OK | 311 passed, 3 skipped |
-| Python: стиль | OK (pre-existing only) | `flake8` — 172 issues, все legacy (E501/E741/F401/F821), не от G9.9 |
+| Python: тесты G9.9 | OK | `tests/test_g9_9_e2e_desktop_workflow.py` (2 passed), `tests/test_g9_9_degradation.py` (4 passed) |
+| Python: полный suite | OK | 315 passed, 3 skipped (21.14s) |
+| Python: стиль | OK (pre-existing only) | `flake8` — 17826 legacy issues (E501/E741/F401/F821), не от G9.9 |
 | Install | По среде | `./scripts/install` / `dev`; idempotency — по [`plan/deploy-project-strategy.md`](../plan/deploy-project-strategy.md) |
 | `ailit desktop` без AppImage | OK (автотест) | Диагностика exit 2, подсказка `--dev` |
 | `ailit project add` ошибки | OK | Некорректный path → exit 2 |

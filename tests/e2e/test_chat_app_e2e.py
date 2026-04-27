@@ -46,6 +46,7 @@ def test_chat_app_smoke_and_enter_sends(tmp_path: Path) -> None:
 
 
 @pytest.mark.e2e
+@pytest.mark.manual_model_e2e
 def test_chat_app_deepseek_live_port_443(tmp_path: Path) -> None:
     """Live: run a chat turn with DeepSeek and check it responds."""
     if os.environ.get("AILIT_E2E_CHAT_DEEPSEEK", "") != "1":

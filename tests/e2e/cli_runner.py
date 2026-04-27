@@ -39,6 +39,14 @@ class AilitCliRunner:
             base.update(extra)
         return base
 
+    def _python(self) -> str:
+        """Путь к интерпретатору Python (предпочитаем .venv)."""
+        py = Path(sys.executable).resolve()
+        repo_py = (self._repo / ".venv" / "bin" / "python3").resolve()
+        if repo_py.exists():
+            return str(repo_py)
+        return str(py)
+
     def agent_run(
         self,
         *,
@@ -56,7 +64,7 @@ class AilitCliRunner:
     ) -> AilitCliResult:
         """Выполнить `python -m ailit.cli agent run …`."""
         cmd: list[str] = [
-            sys.executable,
+            self._python(),
             "-m",
             "ailit.cli",
             "agent",
@@ -96,6 +104,69 @@ class AilitCliRunner:
             stderr=proc.stderr or "",
         )
 
+    def spawn(
+        self,
+        *args: str,
+        project_root: Path,
+        extra_env: dict[str, str] | None = None,
+    ) -> subprocess.Popen[str]:
+        """Запустить `python -m ailit.cli <args>` в фоне (Popen).
+
+        Возвращает Popen-объект; вызывающий отвечает за proc.wait/kill.
+        stdout/stderr не захватываются (pipe=False), чтобы процесс
+        мог работать как долгоживущий сервер.
+        """
+        cmd: list[str] = [
+            self._python(),
+            "-m",
+            "ailit.cli",
+            *args,
+            "--project-root",
+            str(project_root.resolve()),
+        ]
+        env = self._env(extra=extra_env)
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(self._repo),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return proc
+
+    def supervisor_connect(
+        self,
+        *,
+        project_root: Path,
+        extra_env: dict[str, str] | None = None,
+    ) -> AilitCliResult:
+        """Выполнить `python -m ailit.cli supervisor connect`."""
+        cmd: list[str] = [
+            self._python(),
+            "-m",
+            "ailit.cli",
+            "supervisor",
+            "connect",
+            "--project-root",
+            str(project_root.resolve()),
+        ]
+        env = self._env(extra=extra_env)
+        proc = subprocess.run(
+            cmd,
+            cwd=str(self._repo),
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        return AilitCliResult(
+            returncode=int(proc.returncode),
+            stdout=proc.stdout or "",
+            stderr=proc.stderr or "",
+        )
+
     def pytest_on(
         self,
         tests_dir: Path,
@@ -104,12 +175,9 @@ class AilitCliRunner:
         extra_env: dict[str, str] | None = None,
     ) -> AilitCliResult:
         """Запустить pytest на каталоге тестов приложения."""
-        py = Path(sys.executable).resolve()
-        repo_py = (self._repo / ".venv" / "bin" / "python3").resolve()
-        if repo_py.exists():
-            py = repo_py
+        py = self._python()
         cmd = [
-            str(py),
+            py,
             "-m",
             "pytest",
             str(tests_dir.resolve()),

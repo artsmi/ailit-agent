@@ -36,9 +36,11 @@ include = ["agent_core*", "workflow_engine*", "ailit*", "project_layer*"]
 pythonpath = ["tools", "tests/e2e"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+addopts = "-m 'not integration and not manual_model_e2e'"
 markers = [
     "integration: сетевые live-тесты (ключ и явное согласие)",
     "e2e: CLI и сгенерированное приложение в .ailit (subprocess)",
+    "manual_model_e2e: e2e/live-тесты с реальной моделью, запускать только вручную",
 ]
 
 [tool.ruff]
