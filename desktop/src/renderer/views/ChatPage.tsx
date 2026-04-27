@@ -71,7 +71,13 @@ export function ChatPage(): React.JSX.Element {
     s.registry.find((e) => s.selectedProjectIds.includes(e.projectId))?.title ?? "—";
 
   const visibleChatLines: readonly ChatLine[] = React.useMemo((): readonly ChatLine[] => {
-    const ordered: ChatLine[] = [...s.chatLines].sort((a, b) => a.order - b.order);
+    const ordered: ChatLine[] = [...s.chatLines].sort((a, b) => {
+      const d: number = a.order - b.order;
+      if (d !== 0) {
+        return d;
+      }
+      return a.atIso.localeCompare(b.atIso);
+    });
     if (s.toolDisplay === "hidden") {
       return ordered.filter(
         (m) => m.lineKind !== "console" || m.consoleChannel === undefined || m.consoleChannel !== "tool"

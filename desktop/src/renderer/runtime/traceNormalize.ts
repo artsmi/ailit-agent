@@ -4,6 +4,8 @@ export type NormalizedKind =
   | "assistant_delta"
   | "assistant_thinking_delta"
   | "assistant_final"
+  | "turn_completed"
+  | "turn_failed"
   | "tool_event"
   | "usage"
   | "pag"
@@ -149,6 +151,39 @@ export class RuntimeTraceNormalizer {
             createdAt,
             humanLine: txt,
             technicalLine: "assistant.final",
+            raw: redactedRaw,
+            redacted: true
+          };
+        }
+        if (tp.eventName === "action.completed") {
+          return {
+            kind: "turn_completed",
+            messageId: innerMid,
+            chatId,
+            namespace,
+            createdAt,
+            humanLine: "action.completed",
+            technicalLine: "action.completed",
+            raw: redactedRaw,
+            redacted: true
+          };
+        }
+        if (tp.eventName === "action.failed") {
+          const errRaw: unknown = tp.payload["error"];
+          const errText: string =
+            typeof errRaw === "string"
+              ? errRaw
+              : errRaw != null
+                ? JSON.stringify(redactObject(errRaw, 0)).slice(0, 2000)
+                : "action.failed";
+          return {
+            kind: "turn_failed",
+            messageId: innerMid,
+            chatId,
+            namespace,
+            createdAt,
+            humanLine: errText,
+            technicalLine: "action.failed",
             raw: redactedRaw,
             redacted: true
           };

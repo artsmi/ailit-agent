@@ -89,7 +89,9 @@ const TOOL_FOR_CONSOLE_PREFERRED: readonly string[] = [
  */
 export function formatToolEventForConsole(eventName: string, inner: Readonly<Record<string, unknown>>): string {
   const tool: string = typeof inner["tool"] === "string" ? (inner["tool"] as string) : "";
-  const first: string = tool ? `${eventName} — ${tool}` : eventName;
+  const baseFirst: string = tool ? `${eventName} — ${tool}` : eventName;
+  const fail: boolean = eventName === "tool.call_finished" && inner["ok"] === false;
+  const first: string = fail ? `FAIL: ${baseFirst}` : baseFirst;
   const out: string[] = [];
   const used: Set<string> = new Set(TOOL_FOR_CONSOLE_SKIP);
   const clip: (s: string, m: number) => string = (s: string, m: number): string =>

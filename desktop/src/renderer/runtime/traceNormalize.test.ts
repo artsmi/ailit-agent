@@ -90,6 +90,61 @@ describe("text_mode in topic.publish", () => {
   });
 });
 
+describe("action.completed / action.failed topic.publish", () => {
+  it("maps action.completed to turn_completed", () => {
+    const n: RuntimeTraceNormalizer = new RuntimeTraceNormalizer();
+    const row: Record<string, unknown> = {
+      contract_version: "ailit_agent_runtime_v1",
+      type: "topic.publish",
+      message_id: "evt-ac",
+      chat_id: "c1",
+      namespace: "ns",
+      from_agent: "AgentWork:c1",
+      to_agent: null,
+      created_at: "2026-01-01T00:00:01Z",
+      payload: {
+        type: "topic.publish",
+        topic: "chat",
+        event_name: "action.completed",
+        payload: {
+          action: "work.handle_user_prompt",
+          action_id: "a1",
+          result: { ok: true }
+        }
+      }
+    };
+    const out = n.normalizeLine(row);
+    expect(out.kind).toBe("turn_completed");
+  });
+
+  it("maps action.failed to turn_failed with error text", () => {
+    const n: RuntimeTraceNormalizer = new RuntimeTraceNormalizer();
+    const row: Record<string, unknown> = {
+      contract_version: "ailit_agent_runtime_v1",
+      type: "topic.publish",
+      message_id: "evt-af",
+      chat_id: "c1",
+      namespace: "ns",
+      from_agent: "AgentWork:c1",
+      to_agent: null,
+      created_at: "2026-01-01T00:00:02Z",
+      payload: {
+        type: "topic.publish",
+        topic: "chat",
+        event_name: "action.failed",
+        payload: {
+          action: "work.handle_user_prompt",
+          action_id: "a1",
+          error: "boom"
+        }
+      }
+    };
+    const out = n.normalizeLine(row);
+    expect(out.kind).toBe("turn_failed");
+    expect(out.humanLine).toBe("boom");
+  });
+});
+
 describe("G9.9.2 degradation: unknown events do not throw", () => {
   it("maps unknown type to kind unknown with human line", () => {
     const n: RuntimeTraceNormalizer = new RuntimeTraceNormalizer();

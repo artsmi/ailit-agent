@@ -539,6 +539,20 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
             }
             return pruned.map((c) => (c.id === asstId ? merged : c));
           });
+        } else if (n.kind === "turn_completed") {
+          setAgentTurnInProgress(false);
+        } else if (n.kind === "turn_failed") {
+          setAgentTurnInProgress(false);
+          closeReasoningSegment();
+          pushLine(
+            {
+              id: chatLineId("system", `failed-${n.messageId}`),
+              from: "system",
+              text: n.humanLine,
+              atIso: n.createdAt || new Date().toISOString()
+            },
+            eventSeq
+          );
         } else if (n.kind === "error_row") {
           setAgentTurnInProgress(false);
           closeReasoningSegment();
@@ -613,11 +627,24 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           }
         }
       }
-      if (rd && diagnosticLines.length > 0) {
-        const chunk: number = 500;
-        for (let i: number = 0; i < diagnosticLines.length; i += chunk) {
-          const part: string[] = diagnosticLines.slice(i, i + chunk);
-          void window.ailitDesktop.appendSessionDiagnostic({ runtimeDir: rd, chatId: cid0, lines: part });
+      if (rd) {
+        if (isBulkReplay) {
+          const stamp: string = new Date().toISOString();
+          void window.ailitDesktop.appendSessionDiagnostic({
+            runtimeDir: rd,
+            chatId: cid0,
+            lines: [
+              `${stamp}\teventSeq=bulk_replay\tbulk_replay_invalidate\trows=${String(
+                rows.length
+              )}\tper_row_diagnostic_skipped=1\n`
+            ]
+          });
+        } else if (diagnosticLines.length > 0) {
+          const chunk: number = 500;
+          for (let i: number = 0; i < diagnosticLines.length; i += chunk) {
+            const part: string[] = diagnosticLines.slice(i, i + chunk);
+            void window.ailitDesktop.appendSessionDiagnostic({ runtimeDir: rd, chatId: cid0, lines: part });
+          }
         }
       }
     },
@@ -881,6 +908,17 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       }
       if (!r.response.ok) {
         setAgentTurnInProgress(false);
+        const err0: { readonly code: string; readonly message: string } | null = r.response.error;
+        if (err0?.code === "agent_busy") {
+          seenChatIds.current.delete(userId);
+          setChatLines((c) => c.filter((line) => line.id !== userId));
+          setLastError(
+            err0.message.length > 0
+              ? err0.message
+              : "Агент занят: дождитесь окончания текущего ответа."
+          );
+          return;
+        }
         const asstIdErr: string = r.response.message_id;
         const errId: string = chatLineId("system", asstIdErr);
         if (!seenChatIds.current.has(errId)) {

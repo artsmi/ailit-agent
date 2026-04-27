@@ -16,7 +16,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, MutableMapping
+from typing import Any, Mapping, MutableMapping, Optional
 
 from agent_core.models import ChatMessage, MessageRole
 from agent_core.providers.factory import ProviderFactory, ProviderKind
@@ -485,6 +485,7 @@ class AgentWorkWorker:
         self._perm_gate_id: str = ""
         self._appr_event: threading.Event | None = None
         self._appr_call_id: str = ""
+        self._user_prompt_thread: Optional[threading.Thread] = None
 
     def _clear_perm_wait(self) -> None:
         self._perm_coord = None
@@ -603,6 +604,20 @@ class AgentWorkWorker:
                 project_roots = [Path.cwd().resolve()]
             project_root = project_roots[0]
             proot_t = tuple(project_roots)
+            with self._state_lock:
+                if self._user_prompt_thread is not None and self._user_prompt_thread.is_alive():
+                    return make_response_envelope(
+                        request=req,
+                        ok=False,
+                        payload={},
+                        error={
+                            "code": "agent_busy",
+                            "message": (
+                                "Another work.handle_user_prompt is still running "
+                                "for this chat."
+                            ),
+                        },
+                    ).to_dict()
             identity = RuntimeIdentity(
                 runtime_id=req.runtime_id,
                 chat_id=req.chat_id,
@@ -664,6 +679,8 @@ class AgentWorkWorker:
                 )
 
             t = self._threading.Thread(target=_run, daemon=True)
+            with self._state_lock:
+                self._user_prompt_thread = t
             t.start()
             return make_response_envelope(
                 request=req,
