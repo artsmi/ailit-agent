@@ -1,0 +1,31 @@
+import os
+
+from openai import OpenAI
+
+api_key = os.environ["API_KEY"]
+url = "https://foundation-models.api.cloud.ru/v1"
+
+client = OpenAI(
+    api_key=api_key,
+    base_url=url
+)
+
+response = client.chat.completions.create(
+    model="Qwen/Qwen3-Coder-Next",
+    max_tokens=2500,
+    temperature=0.5,
+    presence_penalty=0,
+    top_p=0.95,
+    messages=[
+        {
+            "role": "user",
+            "content":"Как написать хороший код?"
+        }
+    ]
+)
+
+print(response.choices[0].message.content)
+
+
+# 844713fcaa0a861b0971d5f69fe80357 # api api_key
+# 13b6ea3f0e0021417bd568ca11d024f2 # secret
