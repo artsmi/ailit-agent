@@ -13,6 +13,7 @@ import type { ChatSessionRecordV1, ChatToolDisplayV1 } from "../state/persistedU
 import { CandyMaterialIcon } from "../shell/CandyMaterialIcon";
 import { PermModeModal } from "../components/chat/PermModeModal";
 import { ToolApprovalModal } from "../components/chat/ToolApprovalModal";
+import { MemoryJournalPanel } from "../components/chat/MemoryJournalPanel";
 import { MemoryGraph3DPage } from "./MemoryGraph3DPage";
 
 /** Считаем «у низа», если до низа осталось не больше (px) — погрешность sub-pixel/scroll. */
@@ -519,13 +520,7 @@ export function ChatPage(): React.JSX.Element {
                 {s.memoryPanelTab === "3d" ? (
                   <MemoryGraph3DPage noInitialAutoZoom />
                 ) : (
-                  <div className="candyMemoryJournalPlaceholder">
-                    <CandyMaterialIcon name="receipt_long" />
-                    <div>
-                      <div className="fontW800">Журнал AgentMemory</div>
-                      <div>Появится в G11.7 и будет фильтроваться по chat_id: {s.chatId}</div>
-                    </div>
-                  </div>
+                  <MemoryJournalPanel chatId={s.chatId} />
                 )}
               </div>
             </aside>

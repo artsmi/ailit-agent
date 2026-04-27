@@ -1,5 +1,6 @@
 import { BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from "electron";
 import { promises as fs } from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 
 import { brokerJsonRequest } from "./brokerSocket";
@@ -203,6 +204,50 @@ export function registerIpcHandlers(): void {
         edgeLimit: params.edgeLimit,
         edgeOffset: params.edgeOffset
       });
+    }
+  );
+
+  ipcMain.handle(
+    "ailit:memoryJournalRead",
+    async (
+      _e: unknown,
+      params: { readonly chatId: string; readonly limit?: number }
+    ) => {
+      const rawPath: string =
+        process.env["AILIT_MEMORY_JOURNAL_PATH"]?.trim() ||
+        path.join(os.homedir(), ".ailit", "runtime", "memory-journal.jsonl");
+      const filePath: string = path.resolve(rawPath);
+      const limit: number = Math.max(1, Math.min(Number(params.limit ?? 400), 2000));
+      try {
+        const txt: string = await fs.readFile(filePath, "utf8");
+        const rows: Record<string, unknown>[] = [];
+        for (const line of txt.split(/\r?\n/)) {
+          const raw: string = line.trim();
+          if (!raw) {
+            continue;
+          }
+          try {
+            const obj: unknown = JSON.parse(raw);
+            if (
+              obj &&
+              typeof obj === "object" &&
+              !Array.isArray(obj) &&
+              String((obj as Record<string, unknown>)["chat_id"] ?? "") === params.chatId
+            ) {
+              rows.push(obj as Record<string, unknown>);
+            }
+          } catch {
+            /* skip malformed journal lines in UI */
+          }
+        }
+        return { ok: true, path: filePath, rows: rows.slice(-limit) } as const;
+      } catch (e) {
+        const code = (e as { code?: string }).code;
+        if (code === "ENOENT") {
+          return { ok: true, path: filePath, rows: [] } as const;
+        }
+        return { ok: false, error: e instanceof Error ? e.message : String(e) } as const;
+      }
     }
   );
 

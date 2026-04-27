@@ -16,7 +16,7 @@
 | **Low-level agents runtime + broker supervisor (workflow 8)** | [**`plan/8-agents-runtime.md`**](plan/8-agents-runtime.md) — **закрыто:** реализованы этапы **G8.0–G8.8** (supervisor/broker/subprocess agents, `MemoryGrant` enforcement, `ailit chat` client/viewer + trace tab, `scripts/install` с `systemd --user`, e2e readiness/деградации). |
 | **Standalone UI `ailit desktop` (workflow 9)** | [**`plan/9-ailit-ui.md`**](plan/9-ailit-ui.md) — **закрыт (G9.9):** Linux-only Electron, `ailit project add`, runtime bridge, отчёты MD/JSON, PAG graph. Чеклист: [`docs/g9-9-release-checklist.md`](docs/g9-9-release-checklist.md). |
 | **Context Ledger + Memory 3D highlights (workflow 10)** | [**`plan/10-context-ledger-memory-highlights.md`**](plan/10-context-ledger-memory-highlights.md) — **закрыто (G10.8):** `AgentMemory` actor, Context Fill, D-level compact/restore и Memory 3D highlights по нодам, реально попавшим в prompt. |
-| **AgentMemory LLM + journal (workflow 11)** | [**`plan/11-agent-memory-llm-journal.md`**](plan/11-agent-memory-llm-journal.md) — **активно:** G11.6 добавляет draggable Desktop Memory split panel с tabs `3D` / `Журнал` и persisted split ratio. |
+| **AgentMemory LLM + journal (workflow 11)** | [**`plan/11-agent-memory-llm-journal.md`**](plan/11-agent-memory-llm-journal.md) — **активно:** G11.7 добавляет Desktop Journal tab для `~/.ailit/runtime/memory-journal.jsonl`, filtered by active `chat_id`. |
 
 ## Как работать по проекту
 

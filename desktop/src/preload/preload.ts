@@ -14,7 +14,8 @@ import type {
   RuntimeSupervisorStopBrokerResponse,
   PagGraphSliceResult,
   SaveFileResult,
-  TraceChannelEvent
+  TraceChannelEvent,
+  MemoryJournalReadResult
 } from "../shared/ipc";
 
 const api: DesktopApi = {
@@ -101,6 +102,12 @@ const api: DesktopApi = {
     readonly edgeOffset: number;
   }): Promise<PagGraphSliceResult> {
     return (await ipcRenderer.invoke("ailit:pagGraphSlice", params)) as PagGraphSliceResult;
+  },
+  async memoryJournalRead(params: {
+    readonly chatId: string;
+    readonly limit?: number;
+  }): Promise<MemoryJournalReadResult> {
+    return (await ipcRenderer.invoke("ailit:memoryJournalRead", params)) as MemoryJournalReadResult;
   }
 };
 

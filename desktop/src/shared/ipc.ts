@@ -151,6 +151,10 @@ export type AppendTraceRowResult =
   | { readonly ok: true; readonly row: Record<string, unknown> }
   | { readonly ok: false; readonly error: string };
 
+export type MemoryJournalReadResult =
+  | { readonly ok: true; readonly path: string; readonly rows: readonly Record<string, unknown>[] }
+  | { readonly ok: false; readonly error: string };
+
 export type DesktopApi = {
   readonly ping: () => Promise<string>;
   readonly supervisorStatus: () => Promise<RuntimeSupervisorStatusResponse>;
@@ -189,5 +193,9 @@ export type DesktopApi = {
     readonly edgeLimit: number;
     readonly edgeOffset: number;
   }) => Promise<PagGraphSliceResult>;
+  readonly memoryJournalRead: (params: {
+    readonly chatId: string;
+    readonly limit?: number;
+  }) => Promise<MemoryJournalReadResult>;
 };
 

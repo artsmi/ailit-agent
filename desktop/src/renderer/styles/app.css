@@ -988,7 +988,8 @@ button {
   flex: 1 1 auto;
 }
 
-.candyMemoryJournalPlaceholder {
+.candyMemoryJournalPlaceholder,
+.memoryJournalEmpty {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1001,9 +1002,88 @@ button {
   background: rgba(255, 255, 255, 0.6);
 }
 
-.candyMemoryJournalPlaceholder .candyMaterialIcon {
+.candyMemoryJournalPlaceholder .candyMaterialIcon,
+.memoryJournalEmpty .candyMaterialIcon {
   color: var(--candy-accent);
   font-size: 1.8rem;
+}
+
+.memoryJournalPanel {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.memoryJournalPanelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.memoryJournalPath {
+  margin-top: 0.1rem;
+  color: #94a3b8;
+  font-size: 0.62rem;
+  word-break: break-all;
+}
+
+.memoryJournalRows {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.memoryJournalRow {
+  padding: 0.65rem 0.75rem;
+  border: 1px solid rgba(251, 207, 232, 0.9);
+  border-radius: 0.9rem;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.memoryJournalRowPartial {
+  border-color: rgba(251, 113, 133, 0.42);
+}
+
+.memoryJournalRowTop,
+.memoryJournalMeta,
+.memoryJournalChips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.55rem;
+}
+
+.memoryJournalRowTop {
+  justify-content: space-between;
+  color: #be185d;
+  font-size: 0.65rem;
+  font-weight: 850;
+}
+
+.memoryJournalSummary {
+  margin-top: 0.3rem;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.memoryJournalMeta {
+  margin-top: 0.35rem;
+  color: #64748b;
+  font-size: 0.64rem;
+}
+
+.memoryJournalChips {
+  margin-top: 0.45rem;
 }
 
 .contextFillPanel {
