@@ -1133,16 +1133,81 @@ button {
   border-radius: 9999px;
   font-size: 0.86em;
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  color: #be185d;
-  background: #fef2f8;
+  color: #005580;
+  background: color-mix(in srgb, var(--candy-code) 72%, #fff 28%);
+  border: 1px solid color-mix(in srgb, var(--candy-code) 82%, #fff 18%);
+}
+
+.markdownCodeBlock {
+  max-width: 100%;
+  margin: 0.5rem 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--candy-code) 88%, #ffffff 12%);
+  border-radius: 0.75rem;
+  background: color-mix(in srgb, var(--candy-code) 38%, transparent);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+}
+
+.markdownCodeBlockHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2rem;
+  padding: 0.35rem 0.55rem 0.3rem 0.65rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--candy-code) 70%, #ffffff 30%);
+  background: rgba(255, 255, 255, 0.45);
+}
+
+.markdownCodeBlockTitle {
+  min-width: 0;
+  overflow: hidden;
+  color: #005580;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 0.58rem;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.candyCodeCopyBtn {
+  flex: 0 0 auto;
+  min-height: 1.35rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--candy-code) 82%, #ffffff 18%);
+  border-radius: 9999px;
+  color: #005580;
+  background: rgba(255, 255, 255, 0.58);
+  font: inherit;
+  font-size: 0.55rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  transition: transform 0.14s ease, background 0.14s ease, color 0.14s ease;
+}
+
+.candyCodeCopyBtn:hover,
+.candyCodeCopyBtn[data-copy-state="copied"] {
+  color: #00334d;
+  background: color-mix(in srgb, var(--candy-code) 72%, #ffffff 28%);
+  transform: scale(1.04);
+}
+
+.candyCodeCopyBtn[data-copy-state="error"] {
+  color: #9b1c1c;
+  background: #ffe8e8;
+  border-color: #ffd0d0;
 }
 
 .markdownBody pre {
-  margin: 0.5rem 0;
+  margin: 0;
   padding: 0.65rem 0.8rem;
-  border-radius: 0.4rem;
-  background: #fdf2f8;
-  border: 1px solid #fce7f3;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   font-size: 0.75rem;
   line-height: 1.5;
   overflow-x: auto;
@@ -1210,19 +1275,21 @@ button {
 }
 
 .candyChatConsole .candyChatConsoleInner {
-  border: 1px solid #ffe4f0;
+  border: 1px solid color-mix(in srgb, var(--candy-code) 88%, #ffffff 12%);
   border-radius: 1.5rem;
   overflow: hidden;
-  background: rgba(255, 241, 249, 0.45);
+  background: color-mix(in srgb, var(--candy-code) 34%, transparent);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
 }
 
 .candyChatConsoleHead {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid #fff1f3;
+  gap: 0.5rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--candy-code) 70%, #ffffff 30%);
   padding: 0.4rem 0.85rem;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.45);
   font-size: 0.55rem;
 }
 
@@ -1238,15 +1305,23 @@ button {
 }
 
 .candyChatConsoleHeadLabel {
-  color: var(--candy-accent);
+  color: #005580;
 }
 
 .candyChatConsoleHeadShell {
-  color: #e879a9;
+  color: #005580;
+}
+
+.candyChatConsoleHeadActions {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .candyChatConsoleBody {
   padding: 0.85rem 1rem 0.65rem 1rem;
+  background: rgba(255, 255, 255, 0.32);
   font-size: 0.72rem;
   font-style: normal;
   font-weight: 400;
@@ -1264,7 +1339,7 @@ button {
 
 .candyChatConsoleCmd {
   font-weight: 600;
-  color: #10b981; /* изумруд, как text-emerald-500 в ref */
+  color: #005580;
   margin-bottom: 0.1rem;
 }
 
@@ -1290,10 +1365,10 @@ button {
   letter-spacing: 0.02em;
   text-transform: uppercase;
   text-decoration: underline 2px;
-  text-decoration-color: rgba(224, 64, 160, 0.3);
+  text-decoration-color: color-mix(in srgb, var(--candy-code) 70%, #005580 30%);
   text-decoration-thickness: 1px;
   text-underline-offset: 0.1rem;
-  color: var(--candy-accent);
+  color: #005580;
   cursor: pointer;
 }
 
@@ -1322,7 +1397,7 @@ button {
   margin-top: 0.2rem;
   padding-top: 0.4rem;
   color: #64748b;
-  border-top: 1px solid rgba(252, 231, 241, 0.7);
+  border-top: 1px solid color-mix(in srgb, var(--candy-code) 70%, #ffffff 30%);
   font-size: 0.7rem;
   line-height: 1.35;
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
@@ -1339,8 +1414,8 @@ button {
   line-height: 1.2;
   font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   font-weight: 500;
-  border-top: 1px solid rgba(255, 228, 240, 0.75);
-  background: rgba(255, 255, 255, 0.3);
+  border-top: 1px solid color-mix(in srgb, var(--candy-code) 70%, #ffffff 30%);
+  background: color-mix(in srgb, var(--candy-code) 22%, transparent);
 }
 
 .candyChatConsoleStatusOk {

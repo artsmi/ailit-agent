@@ -1,6 +1,7 @@
 import React from "react";
 
 import { CandyMaterialIcon } from "../../shell/CandyMaterialIcon";
+import { CandyCodeCopyButton } from "./CandyCodeCopyButton";
 import { type ParsedConsoleBlock, parseConsoleBlockText } from "./consoleBlockModel";
 
 type CandyChatConsoleBlockProps = {
@@ -18,6 +19,7 @@ export function CandyChatConsoleBlock(p: CandyChatConsoleBlockProps): React.JSX.
   const text: string = p.text;
   const variant: "normal" | "compact" = p.variant ?? "normal";
   const parsed: ParsedConsoleBlock = React.useMemo((): ParsedConsoleBlock => parseConsoleBlockText(text), [text]);
+  const copyText: string = [parsed.titleLine, ...parsed.fullTextLines].join("\n").trimEnd();
   return (
     <div
       className={
@@ -28,7 +30,10 @@ export function CandyChatConsoleBlock(p: CandyChatConsoleBlockProps): React.JSX.
       <div className="candyChatConsoleInner">
         <div className="candyChatConsoleHead">
           <span className="candyChatConsoleHeadLabel">Console output</span>
-          <span className="candyChatConsoleHeadShell">{shell}</span>
+          <span className="candyChatConsoleHeadActions">
+            <span className="candyChatConsoleHeadShell">{shell}</span>
+            <CandyCodeCopyButton className="candyChatConsoleCopyBtn" text={copyText} />
+          </span>
         </div>
         <div className="candyChatConsoleBody">
           <div className="candyChatConsolePre">
