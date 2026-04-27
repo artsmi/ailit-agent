@@ -8,9 +8,11 @@ from agent_core.models import (
     NormalizedUsage,
 )
 from agent_core.session.context_ledger import (
+    ContextProjectRef,
     ContextSnapshotBuilder,
     ModelContextLimits,
     ModelLimitResolver,
+    memory_injected_v2_payload,
 )
 from agent_core.session.loop import SessionRunner, SessionSettings
 from agent_core.session.state import SessionState
@@ -167,3 +169,34 @@ def test_session_emits_context_snapshot_and_usage() -> None:
     assert usage["input_tokens"] == 10
     assert usage["cache_read_tokens"] == 2
     assert usage["confirmed_context_tokens"] == 18
+
+
+def test_memory_injected_v2_payload_keeps_flat_compatibility() -> None:
+    payload = memory_injected_v2_payload(
+        chat_id="chat-a",
+        turn_id="turn-1",
+        source_agent="AgentMemory:global",
+        project_refs=[
+            ContextProjectRef(
+                project_id="proj-a",
+                namespace="ns-a",
+                node_ids=("A:ns-a", "B:a.py"),
+                edge_ids=("edge-a",),
+            ),
+            ContextProjectRef(
+                project_id="proj-b",
+                namespace="ns-b",
+                node_ids=("A:ns-b",),
+                edge_ids=(),
+            ),
+        ],
+        estimated_tokens=42,
+        prompt_section="memory",
+        decision_summary="selected relevant nodes",
+        recommended_next_step="read B:a.py",
+    )
+
+    assert payload["schema"] == "context.memory_injected.v2"
+    assert payload["node_ids"] == ["A:ns-a", "B:a.py", "A:ns-b"]
+    assert payload["edge_ids"] == ["edge-a"]
+    assert payload["project_refs"][0]["namespace"] == "ns-a"

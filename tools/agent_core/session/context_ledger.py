@@ -243,3 +243,55 @@ def provider_usage_confirmed_payload(
         "confirmed_context_tokens": confirmed_context_tokens,
         "usage_state": "confirmed",
     }
+
+
+@dataclass(frozen=True, slots=True)
+class ContextProjectRef:
+    """Namespace-aware memory reference for Context Ledger v2."""
+
+    project_id: str
+    namespace: str
+    node_ids: tuple[str, ...] = ()
+    edge_ids: tuple[str, ...] = ()
+
+    def to_payload(self) -> dict[str, Any]:
+        """Return a JSON-ready project ref payload."""
+        return {
+            "project_id": self.project_id,
+            "namespace": self.namespace,
+            "node_ids": list(self.node_ids),
+            "edge_ids": list(self.edge_ids),
+        }
+
+
+def memory_injected_v2_payload(
+    *,
+    chat_id: str,
+    turn_id: str,
+    source_agent: str,
+    project_refs: Sequence[ContextProjectRef],
+    estimated_tokens: int,
+    prompt_section: str,
+    decision_summary: str,
+    recommended_next_step: str,
+) -> dict[str, Any]:
+    """Return a namespace-aware ``context.memory_injected.v2`` payload."""
+    node_ids: list[str] = []
+    edge_ids: list[str] = []
+    for ref in project_refs:
+        node_ids.extend(ref.node_ids)
+        edge_ids.extend(ref.edge_ids)
+    return {
+        "schema": "context.memory_injected.v2",
+        "chat_id": chat_id,
+        "turn_id": turn_id,
+        "source_agent": source_agent,
+        "usage_state": "estimated",
+        "project_refs": [ref.to_payload() for ref in project_refs],
+        "node_ids": node_ids,
+        "edge_ids": edge_ids,
+        "estimated_tokens": int(estimated_tokens),
+        "prompt_section": prompt_section,
+        "decision_summary": decision_summary,
+        "recommended_next_step": recommended_next_step,
+    }

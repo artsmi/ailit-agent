@@ -32,6 +32,29 @@ function strList(v: unknown): readonly string[] {
   return v.map((x) => str(x)).filter((x) => x.length > 0);
 }
 
+function refsFromV2(v: unknown): {
+  readonly nodeIds: readonly string[];
+  readonly edgeIds: readonly string[];
+  readonly namespaces: readonly string[];
+} {
+  if (!Array.isArray(v)) {
+    return { nodeIds: [], edgeIds: [], namespaces: [] };
+  }
+  const nodeIds: string[] = [];
+  const edgeIds: string[] = [];
+  const namespaces: string[] = [];
+  for (const raw of v) {
+    const ref: Record<string, unknown> = asDict(raw);
+    const ns: string = str(ref["namespace"]);
+    if (ns.length > 0) {
+      namespaces.push(ns);
+    }
+    nodeIds.push(...strList(ref["node_ids"]));
+    edgeIds.push(...strList(ref["edge_ids"]));
+  }
+  return { nodeIds, edgeIds, namespaces };
+}
+
 /** Нормализуем rel path к id узла PAG: `B:path/to.py`. */
 export function bNodeIdFromPath(rel: string): string {
   let s: string = rel.replace(/\\/g, "/").replace(/^\//, "");
@@ -50,16 +73,21 @@ export function highlightFromTraceRow(
     const eventName: string = str(p["event_name"]);
     const inner: Record<string, unknown> = asDict(p["payload"]);
     if (eventName === "context.memory_injected") {
-      const nodeIds = strList(inner["node_ids"]);
+      const refs = refsFromV2(inner["project_refs"]);
+      const nodeIds = refs.nodeIds.length > 0 ? refs.nodeIds : strList(inner["node_ids"]);
       if (!nodeIds.length) {
         return null;
       }
       return {
         kind: "pag.search.highlight",
-        namespace: str(row["namespace"] ?? defaultNamespace) || defaultNamespace,
+        namespace:
+          refs.namespaces[0] ??
+          (str(row["namespace"] ?? defaultNamespace) || defaultNamespace),
         nodeIds,
-        edgeIds: strList(inner["edge_ids"]),
-        reason: str(inner["reason"] ?? "context.memory_injected"),
+        edgeIds: refs.edgeIds.length > 0 ? refs.edgeIds : strList(inner["edge_ids"]),
+        reason: str(
+          inner["decision_summary"] ?? inner["reason"] ?? "context.memory_injected"
+        ),
         ttlMs: TTL_MS,
         intensity: "strong"
       };

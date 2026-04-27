@@ -35,6 +35,35 @@ describe("pagHighlightFromTrace", () => {
     expect(h.ttlMs).toBe(3000);
   });
 
+  it("maps context.memory_injected v2 project refs", () => {
+    const row: Record<string, unknown> = {
+      ...topic("context.memory_injected", {
+        schema: "context.memory_injected.v2",
+        project_refs: [
+          {
+            project_id: "proj-a",
+            namespace: "ns-a",
+            node_ids: ["A:ns-a", "B:a.py"],
+            edge_ids: ["edge-a"]
+          },
+          {
+            project_id: "proj-b",
+            namespace: "ns-b",
+            node_ids: ["A:ns-b"],
+            edge_ids: []
+          }
+        ],
+        decision_summary: "selected relevant nodes"
+      })
+    };
+
+    const h = highlightFromTraceRow(row, "fallback");
+    expect(h?.namespace).toBe("ns-a");
+    expect(h?.nodeIds).toEqual(["A:ns-a", "B:a.py", "A:ns-b"]);
+    expect(h?.edgeIds).toEqual(["edge-a"]);
+    expect(h?.reason).toBe("selected relevant nodes");
+  });
+
   it("maps compacted D node and linked nodes", () => {
     const row: Record<string, unknown> = topic("context.compacted", {
       schema: "context.compacted.v1",

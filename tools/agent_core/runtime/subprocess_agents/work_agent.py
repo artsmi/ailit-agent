@@ -32,6 +32,10 @@ from agent_core.session.perm_turn import (
     memory_namespace_from_cfg,
 )
 from agent_core.session.d_level_compact import DLevelCompactService
+from agent_core.session.context_ledger import (
+    ContextProjectRef,
+    memory_injected_v2_payload,
+)
 from agent_core.session.repo_context import (
     detect_repo_context,
     namespace_for_repo,
@@ -389,22 +393,88 @@ class _WorkChatSession:
         )
         emitter.publish(
             event_type="context.memory_injected",
-            payload={
-                "schema": "context.memory_injected.v1",
-                "chat_id": identity.chat_id,
-                "turn_id": parent_message_id,
-                "source_agent": f"AgentMemory:{identity.chat_id}",
-                "usage_state": "estimated",
-                "node_ids": list(memory_slice.get("node_ids") or []),
-                "edge_ids": list(memory_slice.get("edge_ids") or []),
-                "estimated_tokens": int(
-                    memory_slice.get("estimated_tokens") or 0,
-                ),
-                "prompt_section": "memory",
-                "reason": str(memory_slice.get("reason") or ""),
-            },
+            payload=self._memory_injected_payload(
+                identity=identity,
+                parent_message_id=parent_message_id,
+                memory_slice=memory_slice,
+                response_payload=pl,
+            ),
         )
         return msg
+
+    @staticmethod
+    def _memory_injected_payload(
+        *,
+        identity: RuntimeIdentity,
+        parent_message_id: str,
+        memory_slice: Mapping[str, Any],
+        response_payload: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        refs_raw = response_payload.get("project_refs")
+        project_refs: list[ContextProjectRef] = []
+        if isinstance(refs_raw, list):
+            for raw in refs_raw:
+                if not isinstance(raw, Mapping):
+                    continue
+                project_refs.append(
+                    ContextProjectRef(
+                        project_id=str(raw.get("project_id") or ""),
+                        namespace=str(
+                            raw.get("namespace") or identity.namespace,
+                        ),
+                        node_ids=tuple(
+                            str(x)
+                            for x in raw.get("node_ids", [])
+                            if str(x).strip()
+                        )
+                        if isinstance(raw.get("node_ids"), list)
+                        else (),
+                        edge_ids=tuple(
+                            str(x)
+                            for x in raw.get("edge_ids", [])
+                            if str(x).strip()
+                        )
+                        if isinstance(raw.get("edge_ids"), list)
+                        else (),
+                    ),
+                )
+        if not project_refs:
+            project_refs = [
+                ContextProjectRef(
+                    project_id="",
+                    namespace=identity.namespace,
+                    node_ids=tuple(
+                        str(x)
+                        for x in memory_slice.get("node_ids", [])
+                        if str(x).strip()
+                    )
+                    if isinstance(memory_slice.get("node_ids"), list)
+                    else (),
+                    edge_ids=tuple(
+                        str(x)
+                        for x in memory_slice.get("edge_ids", [])
+                        if str(x).strip()
+                    )
+                    if isinstance(memory_slice.get("edge_ids"), list)
+                    else (),
+                ),
+            ]
+        return memory_injected_v2_payload(
+            chat_id=identity.chat_id,
+            turn_id=parent_message_id,
+            source_agent="AgentMemory:global",
+            project_refs=project_refs,
+            estimated_tokens=int(memory_slice.get("estimated_tokens") or 0),
+            prompt_section="memory",
+            decision_summary=str(
+                response_payload.get("decision_summary")
+                or memory_slice.get("reason")
+                or "",
+            ),
+            recommended_next_step=str(
+                response_payload.get("recommended_next_step") or "",
+            ),
+        )
 
     def _restore_d_context(
         self,
