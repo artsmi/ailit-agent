@@ -9,6 +9,8 @@ from agent_core.models import ChatMessage, NormalizedUsage, ToolDefinition
 
 _DEFAULT_MODEL_CONTEXT_LIMIT = 200_000
 _DEFAULT_RESERVED_OUTPUT_TOKENS = 20_000
+_WARNING_PCT = 75.0
+_COMPACT_RECOMMENDED_PCT = 90.0
 
 
 def estimate_text_tokens(text: str) -> int:
@@ -40,6 +42,78 @@ def _estimate_tools_tokens(tools_defs: Sequence[ToolDefinition]) -> int:
 
 
 @dataclass(frozen=True, slots=True)
+class ModelContextLimits:
+    """Model context metadata used for effective window calculations."""
+
+    context_window: int
+    max_output_tokens: int
+
+
+class ModelLimitResolver:
+    """Resolve model context limits without provider-specific tokenizers."""
+
+    def __init__(
+        self,
+        overrides: Mapping[str, ModelContextLimits] | None = None,
+    ) -> None:
+        self._overrides = dict(overrides or {})
+
+    def resolve(self, model: str) -> ModelContextLimits:
+        """Return best-known context limits for a provider/model string."""
+        key = str(model or "").strip().lower()
+        if key in self._overrides:
+            return self._overrides[key]
+        if "moonshot-v1-8k" in key:
+            return ModelContextLimits(
+                context_window=8_192,
+                max_output_tokens=4_096,
+            )
+        if "moonshot-v1-32k" in key:
+            return ModelContextLimits(
+                context_window=32_768,
+                max_output_tokens=8_192,
+            )
+        if "moonshot-v1-128k" in key or "kimi" in key:
+            return ModelContextLimits(
+                context_window=128_000,
+                max_output_tokens=16_000,
+            )
+        if "deepseek" in key:
+            return ModelContextLimits(
+                context_window=64_000,
+                max_output_tokens=8_000,
+            )
+        return ModelContextLimits(
+            context_window=_DEFAULT_MODEL_CONTEXT_LIMIT,
+            max_output_tokens=_DEFAULT_RESERVED_OUTPUT_TOKENS,
+        )
+
+
+def _reserve_output_tokens(limits: ModelContextLimits) -> int:
+    reserve = min(
+        _DEFAULT_RESERVED_OUTPUT_TOKENS,
+        max(1, int(limits.max_output_tokens)),
+    )
+    return min(reserve, max(1, int(limits.context_window) - 1))
+
+
+def _warning_state(*, estimated: int, effective_limit: int) -> str:
+    if estimated >= effective_limit:
+        return "overflow_risk"
+    pct = (float(estimated) / float(max(1, effective_limit))) * 100.0
+    if pct >= _COMPACT_RECOMMENDED_PCT:
+        return "compact_recommended"
+    if pct >= _WARNING_PCT:
+        return "warning"
+    return "normal"
+
+
+def _usage_percent(*, estimated: int, effective_limit: int) -> float:
+    pct = (float(estimated) / float(max(1, effective_limit))) * 100.0
+    return round(min(999.0, pct), 2)
+
+
+@dataclass(frozen=True, slots=True)
 class ContextSnapshot:
     """Estimated prompt window state emitted before provider request."""
 
@@ -49,6 +123,8 @@ class ContextSnapshot:
     effective_context_limit: int
     reserved_output_tokens: int
     estimated_context_tokens: int
+    context_usage_percent: float
+    warning_state: str
     breakdown: Mapping[str, int]
     usage_state: str = "estimated"
 
@@ -62,6 +138,8 @@ class ContextSnapshot:
             "effective_context_limit": self.effective_context_limit,
             "reserved_output_tokens": self.reserved_output_tokens,
             "estimated_context_tokens": self.estimated_context_tokens,
+            "context_usage_percent": self.context_usage_percent,
+            "warning_state": self.warning_state,
             "usage_state": self.usage_state,
             "breakdown": dict(self.breakdown),
         }
@@ -69,6 +147,9 @@ class ContextSnapshot:
 
 class ContextSnapshotBuilder:
     """Build Context Ledger snapshots from prepared model inputs."""
+
+    def __init__(self, resolver: ModelLimitResolver | None = None) -> None:
+        self._resolver = resolver or ModelLimitResolver()
 
     def build(
         self,
@@ -105,8 +186,9 @@ class ContextSnapshotBuilder:
             + memory_d_tokens
             + tool_results_tokens
         )
-        model_limit = _DEFAULT_MODEL_CONTEXT_LIMIT
-        reserved = _DEFAULT_RESERVED_OUTPUT_TOKENS
+        limits = self._resolver.resolve(model)
+        model_limit = max(1, int(limits.context_window))
+        reserved = _reserve_output_tokens(limits)
         effective = max(1, model_limit - reserved)
         free = max(0, effective - estimated)
         return ContextSnapshot(
@@ -116,6 +198,14 @@ class ContextSnapshotBuilder:
             effective_context_limit=effective,
             reserved_output_tokens=reserved,
             estimated_context_tokens=estimated,
+            context_usage_percent=_usage_percent(
+                estimated=estimated,
+                effective_limit=effective,
+            ),
+            warning_state=_warning_state(
+                estimated=estimated,
+                effective_limit=effective,
+            ),
             breakdown={
                 "system": system_tokens,
                 "tools": tools_tokens,
@@ -134,6 +224,15 @@ def provider_usage_confirmed_payload(
     turn_id: str,
 ) -> dict[str, Any]:
     """Return a JSON-ready ``context.provider_usage_confirmed.v1`` payload."""
+    confirmed_context_tokens = 0
+    for value in (
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.cache_read_tokens,
+        usage.cache_write_tokens,
+    ):
+        if value is not None:
+            confirmed_context_tokens += int(value)
     return {
         "schema": "context.provider_usage_confirmed.v1",
         "turn_id": turn_id,
@@ -141,5 +240,6 @@ def provider_usage_confirmed_payload(
         "output_tokens": usage.output_tokens,
         "cache_read_tokens": usage.cache_read_tokens,
         "cache_write_tokens": usage.cache_write_tokens,
+        "confirmed_context_tokens": confirmed_context_tokens,
         "usage_state": "confirmed",
     }
