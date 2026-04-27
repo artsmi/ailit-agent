@@ -16,12 +16,13 @@
 | **Low-level agents runtime + broker supervisor (workflow 8)** | [**`plan/8-agents-runtime.md`**](plan/8-agents-runtime.md) — **закрыто:** реализованы этапы **G8.0–G8.8** (supervisor/broker/subprocess agents, `MemoryGrant` enforcement, `ailit chat` client/viewer + trace tab, `scripts/install` с `systemd --user`, e2e readiness/деградации). |
 | **Standalone UI `ailit desktop` (workflow 9)** | [**`plan/9-ailit-ui.md`**](plan/9-ailit-ui.md) — **закрыт (G9.9):** Linux-only Electron, `ailit project add`, runtime bridge, отчёты MD/JSON, PAG graph. Чеклист: [`docs/g9-9-release-checklist.md`](docs/g9-9-release-checklist.md). |
 | **Context Ledger + Memory 3D highlights (workflow 10)** | [**`plan/10-context-ledger-memory-highlights.md`**](plan/10-context-ledger-memory-highlights.md) — **закрыто (G10.8):** `AgentMemory` actor, Context Fill, D-level compact/restore и Memory 3D highlights по нодам, реально попавшим в prompt. |
+| **AgentMemory LLM + journal (workflow 11)** | [**`plan/11-agent-memory-llm-journal.md`**](plan/11-agent-memory-llm-journal.md) — **активная постановка:** global `AgentMemory` service с LLM-guided A→B→C exploration, query-driven PAG growth, journal и draggable Memory split (`3D` / `Журнал`). |
 
 ## Как работать по проекту
 
 1. **Workflow:** обязательный порядок задач и правило «конец workflow → research и постановка» — в [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc).
 2. **Стратегия и критерии этапов:** [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md) (актуально); bash/shell — [`plan/ailit-bash-strategy.md`](plan/ailit-bash-strategy.md); закрытая ветка — [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md).
-3. **Workflow 10 (`Context Ledger + Memory 3D highlights`)** закрыт по [`plan/10-context-ledger-memory-highlights.md`](plan/10-context-ledger-memory-highlights.md). Следующая крупная ветка — только после новой постановки/research по [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc). Токен-экономия и память: M3 закрыта; runtime M4 — [`plan/workflow-memory-4.md`](plan/workflow-memory-4.md). Сводка M3: [`docs/ailit-ai-memory-implementation.md`](docs/ailit-ai-memory-implementation.md).
+3. **Workflow 11 (`AgentMemory LLM + journal`)** — активная постановка в [`plan/11-agent-memory-llm-journal.md`](plan/11-agent-memory-llm-journal.md). Workflow 10 закрыт по [`plan/10-context-ledger-memory-highlights.md`](plan/10-context-ledger-memory-highlights.md). Токен-экономия и память: M3 закрыта; runtime M4 — [`plan/workflow-memory-4.md`](plan/workflow-memory-4.md). Сводка M3: [`docs/ailit-ai-memory-implementation.md`](docs/ailit-ai-memory-implementation.md).
 4. **Оглавление документации:** [`docs/INDEX.md`](docs/INDEX.md).
 
 ## Установка и быстрая проверка
