@@ -253,6 +253,8 @@ class AgentBroker:
                 self._cfg.chat_id,
                 "--broker-id",
                 self._broker_id,
+                "--broker-socket-path",
+                str(self._cfg.socket_path),
                 "--namespace",
                 self._cfg.namespace,
             ]

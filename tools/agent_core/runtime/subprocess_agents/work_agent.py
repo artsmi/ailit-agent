@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import socket
 import sys
 import threading
 import time
@@ -70,6 +71,7 @@ class WorkAgentConfig:
     chat_id: str
     broker_id: str
     namespace: str
+    broker_socket_path: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -203,6 +205,57 @@ class _RuntimeEventEmitter:
         sys.stdout.flush()
 
 
+class _BrokerServiceClient:
+    """Синхронный локальный клиент AgentWork -> Broker services."""
+
+    def __init__(self, socket_path: str) -> None:
+        self._socket_path = str(socket_path or "").strip()
+
+    @property
+    def available(self) -> bool:
+        return bool(self._socket_path)
+
+    def request(
+        self,
+        *,
+        identity: RuntimeIdentity,
+        parent_message_id: str,
+        to_agent: str,
+        payload: Mapping[str, Any],
+        timeout_s: float = 15.0,
+    ) -> Mapping[str, Any]:
+        """Send one service.request through the broker Unix socket."""
+        if not self._socket_path:
+            raise RuntimeError("broker_socket_path is not configured")
+        env = make_request_envelope(
+            identity=identity,
+            message_id=f"svc-{time.time_ns()}",
+            parent_message_id=parent_message_id,
+            from_agent=f"AgentWork:{identity.chat_id}",
+            to_agent=to_agent,
+            msg_type="service.request",
+            payload=payload,
+        )
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.settimeout(timeout_s)
+            sock.connect(self._socket_path)
+            sock.sendall(env.to_json_line().encode("utf-8") + b"\n")
+            data = sock.recv(2_000_000)
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
+        raw = data.decode("utf-8", errors="replace").strip()
+        if not raw:
+            raise RuntimeError("empty broker response")
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise RuntimeError("invalid broker response")
+        return parsed
+
+
 class _WorkChatSession:
     """Сессия AgentWork (хранит историю сообщений между prompt-ами)."""
 
@@ -216,6 +269,120 @@ class _WorkChatSession:
             ),
         ]
         self._user_turns: int = 0
+
+    @staticmethod
+    def _memory_slice_message(
+        memory_slice: Mapping[str, Any],
+    ) -> ChatMessage | None:
+        injected = str(memory_slice.get("injected_text") or "").strip()
+        if not injected:
+            return None
+        return ChatMessage(
+            role=MessageRole.SYSTEM,
+            name="agent_memory_slice",
+            content=(
+                "AgentMemory context slice. Treat this as selected project "
+                "memory for the current user turn only.\n\n"
+                f"{injected}"
+            ),
+        )
+
+    @staticmethod
+    def _strip_transient_memory(
+        messages: list[ChatMessage],
+    ) -> list[ChatMessage]:
+        return [m for m in messages if m.name != "agent_memory_slice"]
+
+    def _request_memory_slice(
+        self,
+        *,
+        text: str,
+        workspace: _Workspace,
+        emitter: _RuntimeEventEmitter,
+        identity: RuntimeIdentity,
+        parent_message_id: str,
+        worker: "AgentWorkWorker",
+    ) -> ChatMessage | None:
+        """Запросить prompt-ready slice у AgentMemory через broker."""
+        client = _BrokerServiceClient(  # noqa: SLF001
+            worker._cfg.broker_socket_path,
+        )
+        if not client.available:
+            emitter.publish(
+                event_type="memory.actor_unavailable",
+                payload={
+                    "reason": "broker_socket_path_missing",
+                    "fallback": "none",
+                },
+            )
+            return None
+        payload = {
+            "service": "memory.query_context",
+            "goal": text,
+            "query_kind": "task",
+            "level": "B",
+            "project_root": str(workspace.project_root.resolve()),
+        }
+        try:
+            resp = client.request(
+                identity=identity,
+                parent_message_id=parent_message_id,
+                to_agent=f"AgentMemory:{identity.chat_id}",
+                payload=payload,
+            )
+        except Exception as exc:  # noqa: BLE001
+            emitter.publish(
+                event_type="memory.actor_unavailable",
+                payload={
+                    "reason": "broker_request_failed",
+                    "error": str(exc),
+                    "fallback": "none",
+                },
+            )
+            return None
+        ok = bool(resp.get("ok", False))
+        pl = (
+            resp.get("payload")
+            if isinstance(resp.get("payload"), dict)
+            else {}
+        )
+        memory_slice = (
+            pl.get("memory_slice") if isinstance(pl, dict) else None
+        )
+        if not ok or not isinstance(memory_slice, dict):
+            emitter.publish(
+                event_type="memory.actor_unavailable",
+                payload={
+                    "reason": "memory_query_failed",
+                    "error": resp.get("error"),
+                    "fallback": "none",
+                },
+            )
+            return None
+        msg = self._memory_slice_message(memory_slice)
+        if msg is None:
+            emitter.publish(
+                event_type="memory.actor_slice_skipped",
+                payload={
+                    "reason": str(memory_slice.get("reason") or ""),
+                    "staleness": str(memory_slice.get("staleness") or ""),
+                },
+            )
+            return None
+        emitter.publish(
+            event_type="memory.actor_slice_used",
+            payload={
+                "level": str(memory_slice.get("level") or ""),
+                "node_ids": list(memory_slice.get("node_ids") or []),
+                "edge_ids": list(memory_slice.get("edge_ids") or []),
+                "estimated_tokens": int(
+                    memory_slice.get("estimated_tokens") or 0,
+                ),
+                "staleness": str(memory_slice.get("staleness") or ""),
+                "reason": str(memory_slice.get("reason") or ""),
+            },
+        )
+        return msg
 
     def run_user_prompt(
         self,
@@ -250,6 +417,15 @@ class _WorkChatSession:
             if workspace.project_roots
             else (workspace.project_root.resolve(),)
         )
+        assistant_mid = f"asst-{uuid.uuid4()}"
+        memory_slice_msg = self._request_memory_slice(
+            text=text,
+            workspace=workspace,
+            emitter=emitter,
+            identity=identity,
+            parent_message_id=assistant_mid,
+            worker=worker,
+        )
         provider_obj, model_eff = _ProviderAssembler().build(
             project_root=workspace.project_root,
         )
@@ -263,7 +439,6 @@ class _WorkChatSession:
             network_default=PermissionDecision.ALLOW,
         )
         runner = SessionRunner(provider_obj, reg, permission_engine=perm_base)
-        assistant_mid = f"asst-{uuid.uuid4()}"
         pm_en = _work_agent_perm_mode_enabled()
         perm_tool_mode = "explore"
         perm_bypass = bool(
@@ -383,6 +558,7 @@ class _WorkChatSession:
             perm_tool_mode=perm_tool_mode,
             perm_classifier_bypass=perm_bypass,
             perm_history_max=8,
+            pag_runtime_enabled=False,
         )
 
         def wait_for_approval(call_id: str) -> None:
@@ -404,11 +580,14 @@ class _WorkChatSession:
         except Exception:
             profile_cfg = {}
         profile = AgentWorkProfile.from_config(profile_cfg)
+        base_messages = list(self._messages)
+        if memory_slice_msg is not None:
+            base_messages.append(memory_slice_msg)
         orchestrator = WorkTaskOrchestrator(
             runner=runner,
             approvals=worker._approval,  # type: ignore[attr-defined]
             settings=settings,
-            base_messages=tuple(self._messages),
+            base_messages=tuple(base_messages),
             event_sink=sink,  # type: ignore[arg-type]
             publisher=emitter,
             wait_for_approval=wait_for_approval,
@@ -422,7 +601,7 @@ class _WorkChatSession:
                 profile=profile,
             ),
         )
-        self._messages = list(result.messages)
+        self._messages = self._strip_transient_memory(list(result.messages))
         emitter.publish(
             event_type="assistant.final",
             payload={
@@ -677,6 +856,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(prog="agent-work")
     p.add_argument("--chat-id", type=str, required=True)
     p.add_argument("--broker-id", type=str, required=True)
+    p.add_argument("--broker-socket-path", type=str, default="")
     p.add_argument("--namespace", type=str, required=True)
     return p.parse_args(argv)
 
@@ -687,6 +867,7 @@ def main(argv: list[str] | None = None) -> int:
         chat_id=str(args.chat_id),
         broker_id=str(args.broker_id),
         namespace=str(args.namespace),
+        broker_socket_path=str(args.broker_socket_path),
     )
     worker = AgentWorkWorker(cfg)
     for line in sys.stdin:

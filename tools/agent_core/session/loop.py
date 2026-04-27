@@ -176,6 +176,7 @@ class SessionSettings:
     perm_tool_mode: str = "explore"
     perm_classifier_bypass: bool = False
     perm_history_max: int = 8
+    pag_runtime_enabled: bool = True
 
 
 def _perm_engine_for_session(
@@ -1088,7 +1089,10 @@ class SessionRunner:
         """Добавить TOOL: pager → char budget (батч) → сообщения."""
         written: list[str] = []
         for tr in results:
-            if tr.tool_name in ("write_file", "apply_patch") and tr.error is None:
+            if (
+                tr.tool_name in ("write_file", "apply_patch")
+                and tr.error is None
+            ):
                 ext = tr.extras or {}
                 rp = ext.get("relative_path")
                 if isinstance(rp, str) and rp.strip():
@@ -2767,9 +2771,15 @@ class SessionRunner:
                                 )
 
             # G7.4: PAG-first context slice before the model request.
-            if messages and messages[-1].role in (
-                MessageRole.USER,
-                MessageRole.SYSTEM,
+            # Desktop Workflow 10 uses AgentMemory as the mandatory actor and
+            # disables this in-process fallback through SessionSettings.
+            if (
+                settings.pag_runtime_enabled
+                and messages
+                and messages[-1].role in (
+                    MessageRole.USER,
+                    MessageRole.SYSTEM,
+                )
             ):
                 pag_namespace, _, _ = self._maybe_inject_pag_slice(
                     messages=messages,

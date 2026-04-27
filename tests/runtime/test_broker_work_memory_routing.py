@@ -102,6 +102,14 @@ def test_broker_routes_memory_service_and_work_action(tmp_path: Path) -> None:
         mem_resp = _send_once(sock_path, mem_req)
         assert mem_resp["ok"] is True
         assert "grants" in mem_resp["payload"]
+        mem_payload = mem_resp["payload"]
+        assert isinstance(mem_payload, dict)
+        mem_slice = mem_payload["memory_slice"]
+        assert isinstance(mem_slice, dict)
+        assert mem_slice["kind"] == "memory_slice"
+        assert mem_slice["level"] == "B"
+        assert "B:tools/ailit/cli.py" in mem_slice["node_ids"]
+        assert mem_slice["estimated_tokens"] > 0
 
         work_req = _mk_env(
             chat_id="chat-a",
@@ -115,8 +123,30 @@ def test_broker_routes_memory_service_and_work_action(tmp_path: Path) -> None:
         assert "action_id" in work_resp["payload"]
 
         assert trace_path.exists()
-        rows = trace_path.read_text(encoding="utf-8").splitlines()
-        assert rows
+        deadline2 = time.time() + 5.0
+        seen_memory_pair = False
+        while time.time() < deadline2 and not seen_memory_pair:
+            rows = trace_path.read_text(encoding="utf-8").splitlines()
+            decoded = [json.loads(r) for r in rows if r.strip()]
+            seen_memory_pair = any(
+                row.get("type") == "service.request"
+                and row.get("from_agent") == "AgentWork:chat-a"
+                and row.get("to_agent") == "AgentMemory:chat-a"
+                and row.get("payload", {}).get("service")
+                == "memory.query_context"
+                for row in decoded
+            ) and any(
+                row.get("type") == "service.request"
+                and row.get("from_agent") == "AgentMemory:chat-a"
+                and row.get("to_agent") == "AgentWork:chat-a"
+                and row.get("ok") is True
+                and isinstance(row.get("payload"), dict)
+                and isinstance(row["payload"].get("memory_slice"), dict)
+                for row in decoded
+            )
+            if not seen_memory_pair:
+                time.sleep(0.05)
+        assert seen_memory_pair
     finally:
         p.terminate()
         p.join(timeout=2.0)
