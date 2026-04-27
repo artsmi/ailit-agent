@@ -275,7 +275,7 @@ class AgentBroker:
                 "-m",
                 "agent_core.runtime.subprocess_agents.memory_agent",
                 "--chat-id",
-                self._cfg.chat_id,
+                "global",
                 "--broker-id",
                 self._broker_id,
                 "--namespace",

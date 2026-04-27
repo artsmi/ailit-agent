@@ -93,7 +93,7 @@ def test_broker_routes_memory_service_and_work_action(tmp_path: Path) -> None:
             chat_id="chat-a",
             broker_id=broker_id,
             msg_type="service.request",
-            to_agent="AgentMemory:chat-a",
+            to_agent="AgentMemory:global",
             payload={
                 "service": "memory.query_context",
                 "path": "tools/ailit/cli.py",
@@ -104,6 +104,9 @@ def test_broker_routes_memory_service_and_work_action(tmp_path: Path) -> None:
         assert "grants" in mem_resp["payload"]
         mem_payload = mem_resp["payload"]
         assert isinstance(mem_payload, dict)
+        assert mem_payload["partial"] is False
+        assert mem_payload["project_refs"]
+        assert mem_payload["recommended_next_step"]
         mem_slice = mem_payload["memory_slice"]
         assert isinstance(mem_slice, dict)
         assert mem_slice["kind"] == "memory_slice"
@@ -131,13 +134,13 @@ def test_broker_routes_memory_service_and_work_action(tmp_path: Path) -> None:
             seen_memory_pair = any(
                 row.get("type") == "service.request"
                 and row.get("from_agent") == "AgentWork:chat-a"
-                and row.get("to_agent") == "AgentMemory:chat-a"
+                and row.get("to_agent") == "AgentMemory:global"
                 and row.get("payload", {}).get("service")
                 == "memory.query_context"
                 for row in decoded
             ) and any(
                 row.get("type") == "service.request"
-                and row.get("from_agent") == "AgentMemory:chat-a"
+                and row.get("from_agent") == "AgentMemory:global"
                 and row.get("to_agent") == "AgentWork:chat-a"
                 and row.get("ok") is True
                 and isinstance(row.get("payload"), dict)

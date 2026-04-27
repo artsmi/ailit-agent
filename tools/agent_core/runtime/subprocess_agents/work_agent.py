@@ -332,7 +332,7 @@ class _WorkChatSession:
             resp = client.request(
                 identity=identity,
                 parent_message_id=parent_message_id,
-                to_agent=f"AgentMemory:{identity.chat_id}",
+                to_agent="AgentMemory:global",
                 payload=payload,
             )
         except Exception as exc:  # noqa: BLE001

@@ -14,6 +14,10 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from agent_core.runtime.memory_journal import (
+    MemoryJournalRow,
+    MemoryJournalStore,
+)
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
     MemoryGrant,
@@ -37,18 +41,20 @@ class AgentMemoryWorker:
 
     def __init__(self, cfg: MemoryAgentConfig) -> None:
         self._cfg = cfg
+        self._journal = MemoryJournalStore()
 
     def _issue_grant(
         self,
         path: str,
         *,
+        chat_id: str,
         start_line: int,
         end_line: int,
     ) -> MemoryGrant:
         return MemoryGrant(
             grant_id=str(uuid.uuid4()),
-            issued_by=f"AgentMemory:{self._cfg.chat_id}",
-            issued_to=f"AgentWork:{self._cfg.chat_id}",
+            issued_by="AgentMemory:global",
+            issued_to=f"AgentWork:{chat_id}",
             namespace=self._cfg.namespace,
             path=path,
             ranges=(
@@ -61,6 +67,33 @@ class AgentMemoryWorker:
             reason="query_context",
             expires_at="2099-01-01T00:00:00Z",
         )
+
+    def _append_journal(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        event_name: str,
+        summary: str,
+        request_id: str,
+        node_ids: list[str] | None = None,
+        edge_ids: list[str] | None = None,
+        payload: Mapping[str, Any] | None = None,
+    ) -> None:
+        try:
+            self._journal.append(
+                MemoryJournalRow(
+                    chat_id=req.chat_id,
+                    request_id=request_id,
+                    namespace=req.namespace or self._cfg.namespace,
+                    event_name=event_name,
+                    summary=summary,
+                    node_ids=tuple(node_ids or ()),
+                    edge_ids=tuple(edge_ids or ()),
+                    payload=dict(payload or {}),
+                ),
+            )
+        except Exception:
+            return
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:
@@ -180,6 +213,7 @@ class AgentMemoryWorker:
                 payload={},
                 error={"code": "unknown_service", "message": service},
             ).to_dict()
+        request_id = str(req.payload.get("request_id", "") or req.message_id)
         goal = str(req.payload.get("goal", "") or "")
         if not goal.strip():
             goal = str(req.payload.get("need", "") or "")
@@ -189,6 +223,23 @@ class AgentMemoryWorker:
         want_path = str(req.payload.get("path", "") or "")
         if not want_path:
             want_path = str(req.payload.get("hint_path", "") or "")
+        workspace_projects = req.payload.get("workspace_projects")
+        self._append_journal(
+            req=req,
+            event_name="memory.request.received",
+            summary="memory query received",
+            request_id=request_id,
+            payload={
+                "goal_len": len(goal),
+                "query_kind": query_kind,
+                "level": level,
+                "workspace_projects_count": (
+                    len(workspace_projects)
+                    if isinstance(workspace_projects, list)
+                    else 0
+                ),
+            },
+        )
         memory_slice = self._slice_from_pag(
             project_root=project_root,
             goal=goal,
@@ -215,7 +266,12 @@ class AgentMemoryWorker:
                 want_path = str(targets[0] or "")
         grants = []
         if want_path:
-            grant = self._issue_grant(want_path, start_line=1, end_line=200)
+            grant = self._issue_grant(
+                want_path,
+                chat_id=req.chat_id,
+                start_line=1,
+                end_line=200,
+            )
             grants.append(grant.to_dict())
         if not want_path and not memory_slice.get("injected_text"):
             return make_response_envelope(
@@ -227,12 +283,45 @@ class AgentMemoryWorker:
                     "message": "no PAG slice or path hint available",
                 },
             ).to_dict()
+        node_ids = list(memory_slice.get("node_ids") or [])
+        edge_ids = list(memory_slice.get("edge_ids") or [])
+        project_refs = [
+            {
+                "project_id": "",
+                "namespace": req.namespace or self._cfg.namespace,
+                "node_ids": node_ids,
+                "edge_ids": edge_ids,
+            },
+        ]
+        decision_summary = str(memory_slice.get("reason") or "memory slice")
+        recommended_next_step = (
+            "read selected context"
+            if node_ids
+            else "provide more specific memory goal"
+        )
+        self._append_journal(
+            req=req,
+            event_name="memory.slice.returned",
+            summary=decision_summary,
+            request_id=request_id,
+            node_ids=node_ids,
+            edge_ids=edge_ids,
+            payload={
+                "partial": False,
+                "recommended_next_step": recommended_next_step,
+                "estimated_tokens": memory_slice.get("estimated_tokens"),
+            },
+        )
         return make_response_envelope(
             request=req,
             ok=True,
             payload={
                 "memory_slice": memory_slice,
                 "grants": grants,
+                "project_refs": project_refs,
+                "partial": False,
+                "recommended_next_step": recommended_next_step,
+                "decision_summary": decision_summary,
             },
             error=None,
         ).to_dict()
