@@ -286,8 +286,13 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const [permModeLabel, setPermModeLabel] = React.useState<string | null>(null);
   const [permModeGateId, setPermModeGateId] = React.useState<string | null>(null);
   const [toolApproval, setToolApproval] = React.useState<ToolApprovalPending | null>(null);
+  const toolApprovalRef: React.MutableRefObject<ToolApprovalPending | null> = React.useRef<ToolApprovalPending | null>(null);
   /** После успешного ``work.approval_resolve`` до появления ``tool.call_finished`` в trace. */
   const suppressedToolApprovalCallIdRef: React.MutableRefObject<string | null> = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    toolApprovalRef.current = toolApproval;
+  }, [toolApproval]);
 
   const setUiAndSave: (next: PersistedUiStateV1 | ((prev: PersistedUiStateV1) => PersistedUiStateV1)) => void = React.useCallback(
     (next) => {
@@ -1054,17 +1059,31 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
 
   const submitToolApproval: (approved: boolean) => Promise<void> = React.useCallback(
     async (approved) => {
+      const req: ToolApprovalPending | null = toolApprovalRef.current;
+      if (!req) {
+        return;
+      }
+      const finishUi: (reason: string | null) => void = (reason) => {
+        suppressedToolApprovalCallIdRef.current = req.callId;
+        setToolApproval(null);
+        setLastError(reason);
+      };
       const ep: string | null = brokerEndpoint;
-      const req: ToolApprovalPending | null = toolApproval;
-      if (!ep || !req) {
+      const ws0: { namespace: string; projectRoot: string; pids: string[]; roots: readonly string[] } | null =
+        pickWorkspace();
+      if (!ep) {
+        finishUi(
+          "Нет подключения к брокеру — ответ на ASK не отправлен. Модалка скрыта; переподключите broker при необходимости."
+        );
+        return;
+      }
+      if (!ws0) {
+        finishUi(
+          "Нет привязки сессии к проекту в registry — ответ на ASK не отправлен. Модалка скрыта; выберите проект или обновите registry."
+        );
         return;
       }
       const chatId0: string = activeSession.chatId;
-      const ws0: { namespace: string; projectRoot: string; pids: string[]; roots: readonly string[] } | null =
-        pickWorkspace();
-      if (!ws0) {
-        return;
-      }
       const built: ReturnType<typeof buildToolApprovalResolveRequest> = buildToolApprovalResolveRequest({
         chatId: chatId0,
         brokerId: `broker-${chatId0}`,
@@ -1077,18 +1096,17 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       const r: { readonly ok: true; readonly response: RuntimeResponseEnvelope } | { readonly ok: false; readonly error: string } =
         await window.ailitDesktop.brokerRequest({ endpoint: ep, request: built.envelope });
       if (!r.ok) {
-        setLastError(r.error);
+        finishUi(r.error);
         return;
       }
       if (!r.response.ok) {
         const msg: string = r.response.error?.message ?? "work.approval_resolve failed";
-        setLastError(msg);
+        finishUi(msg);
         return;
       }
-      suppressedToolApprovalCallIdRef.current = req.callId;
-      setToolApproval(null);
+      finishUi(null);
     },
-    [activeSession.chatId, brokerEndpoint, pickWorkspace, toolApproval]
+    [activeSession.chatId, brokerEndpoint, pickWorkspace]
   );
 
   const submitPermModeChoice: (mode: string, rememberProject: boolean) => Promise<void> = React.useCallback(
