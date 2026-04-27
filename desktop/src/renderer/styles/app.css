@@ -1254,7 +1254,7 @@ button {
 
 .candyChatConsoleCmd {
   font-weight: 600;
-  color: #0f172a;
+  color: #10b981; /* изумруд, как text-emerald-500 в ref */
   margin-bottom: 0.1rem;
 }
 
