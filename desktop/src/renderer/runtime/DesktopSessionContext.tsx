@@ -12,7 +12,11 @@ import {
   savePersistedUi,
   type PersistedUiStateV1
 } from "../state/persistedUi";
-import { buildPermModeChoiceRequest, buildUserPromptAction } from "./envelopeFactory";
+import {
+  buildPermModeChoiceRequest,
+  buildToolApprovalResolveRequest,
+  buildUserPromptAction
+} from "./envelopeFactory";
 import {
   buildAgentDialogueMessages,
   deriveAgentLinkKeysFromTrace,
@@ -89,6 +93,9 @@ export type DesktopSessionValue = {
   /** Открыть модалку: gate_id с ``session.perm_mode.need_user_choice``. */
   readonly permModeGateId: string | null;
   readonly submitPermModeChoice: (mode: string, rememberProject: boolean) => Promise<void>;
+  /** ASK: ``session.waiting_approval`` — показать модалку и вызвать ``work.approval_resolve``. */
+  readonly toolApproval: { readonly callId: string; readonly tool: string } | null;
+  readonly submitToolApproval: (approved: boolean) => Promise<void>;
 };
 
 const Ctx = React.createContext<DesktopSessionValue | null>(null);
@@ -102,6 +109,62 @@ function asDict(v: unknown): Record<string, unknown> | null {
 
 function nfc(s: string): string {
   return s.normalize("NFC");
+}
+
+type ToolApprovalPending = {
+  readonly callId: string;
+  readonly tool: string;
+};
+
+/**
+ * Событие `topic.publish` / chat: event_name + внутренний payload.
+ */
+function readChatTopicEvent(row: Record<string, unknown>): { eventName: string; inner: Record<string, unknown> } | null {
+  if (row["type"] !== "topic.publish") {
+    return null;
+  }
+  const pl: Record<string, unknown> | null = asDict(row["payload"]);
+  if (!pl || pl["type"] !== "topic.publish") {
+    return null;
+  }
+  const en: unknown = pl["event_name"];
+  const inner: Record<string, unknown> | null = asDict(pl["payload"]);
+  if (typeof en !== "string" || !inner) {
+    return null;
+  }
+  return { eventName: en, inner };
+}
+
+/**
+ * Последний ``session.waiting_approval`` без завершившегося ``tool.call_finished`` с тем же call_id.
+ */
+function findPendingToolApproval(rows: readonly Record<string, unknown>[]): ToolApprovalPending | null {
+  let lastIdx: number = -1;
+  let last: ToolApprovalPending | null = null;
+  for (let i: number = 0; i < rows.length; i += 1) {
+    const ev = readChatTopicEvent(rows[i]!);
+    if (ev && ev.eventName === "session.waiting_approval") {
+      const cid: unknown = ev.inner["call_id"];
+      const tool: unknown = ev.inner["tool"];
+      if (typeof cid === "string" && cid.length > 0) {
+        lastIdx = i;
+        last = { callId: cid, tool: typeof tool === "string" && tool.length > 0 ? tool : "tool" };
+      }
+    }
+  }
+  if (last === null) {
+    return null;
+  }
+  for (let j: number = lastIdx + 1; j < rows.length; j += 1) {
+    const ev2 = readChatTopicEvent(rows[j]!);
+    if (ev2 && ev2.eventName === "tool.call_finished") {
+      const c: unknown = ev2.inner["call_id"];
+      if (c === last.callId) {
+        return null;
+      }
+    }
+  }
+  return last;
 }
 
 /** Склейка строки чата: рантайм эмитит `incremental` дельты; `snapshot` — на редких путях. */
@@ -222,6 +285,9 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const [agentTurnInProgress, setAgentTurnInProgress] = React.useState(false);
   const [permModeLabel, setPermModeLabel] = React.useState<string | null>(null);
   const [permModeGateId, setPermModeGateId] = React.useState<string | null>(null);
+  const [toolApproval, setToolApproval] = React.useState<ToolApprovalPending | null>(null);
+  /** После успешного ``work.approval_resolve`` до появления ``tool.call_finished`` в trace. */
+  const suppressedToolApprovalCallIdRef: React.MutableRefObject<string | null> = React.useRef<string | null>(null);
 
   const setUiAndSave: (next: PersistedUiStateV1 | ((prev: PersistedUiStateV1) => PersistedUiStateV1)) => void = React.useCallback(
     (next) => {
@@ -845,6 +911,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     setChatLines([]);
     setPermModeLabel(null);
     setPermModeGateId(null);
+    setToolApproval(null);
+    suppressedToolApprovalCallIdRef.current = null;
     setBrokerEndpoint(null);
     void connectToBroker();
   }, [
@@ -972,6 +1040,57 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     }
   }, [rawTraceRows]);
 
+  React.useEffect(() => {
+    const p: ToolApprovalPending | null = findPendingToolApproval(rawTraceRows);
+    if (p && suppressedToolApprovalCallIdRef.current === p.callId) {
+      setToolApproval(null);
+      return;
+    }
+    if (!p) {
+      suppressedToolApprovalCallIdRef.current = null;
+    }
+    setToolApproval(p);
+  }, [rawTraceRows]);
+
+  const submitToolApproval: (approved: boolean) => Promise<void> = React.useCallback(
+    async (approved) => {
+      const ep: string | null = brokerEndpoint;
+      const req: ToolApprovalPending | null = toolApproval;
+      if (!ep || !req) {
+        return;
+      }
+      const chatId0: string = activeSession.chatId;
+      const ws0: { namespace: string; projectRoot: string; pids: string[]; roots: readonly string[] } | null =
+        pickWorkspace();
+      if (!ws0) {
+        return;
+      }
+      const built: ReturnType<typeof buildToolApprovalResolveRequest> = buildToolApprovalResolveRequest({
+        chatId: chatId0,
+        brokerId: `broker-${chatId0}`,
+        namespace: ws0.namespace,
+        goalId: GOAL,
+        traceId: newMessageId(),
+        callId: req.callId,
+        approved
+      });
+      const r: { readonly ok: true; readonly response: RuntimeResponseEnvelope } | { readonly ok: false; readonly error: string } =
+        await window.ailitDesktop.brokerRequest({ endpoint: ep, request: built.envelope });
+      if (!r.ok) {
+        setLastError(r.error);
+        return;
+      }
+      if (!r.response.ok) {
+        const msg: string = r.response.error?.message ?? "work.approval_resolve failed";
+        setLastError(msg);
+        return;
+      }
+      suppressedToolApprovalCallIdRef.current = req.callId;
+      setToolApproval(null);
+    },
+    [activeSession.chatId, brokerEndpoint, pickWorkspace, toolApproval]
+  );
+
   const submitPermModeChoice: (mode: string, rememberProject: boolean) => Promise<void> = React.useCallback(
     async (mode, rememberProject) => {
       const ep: string | null = brokerEndpoint;
@@ -1095,7 +1214,9 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     requestStopAgent,
     permModeLabel,
     permModeGateId,
-    submitPermModeChoice
+    submitPermModeChoice,
+    toolApproval,
+    submitToolApproval
   };
 
   return <Ctx.Provider value={v}>{children}</Ctx.Provider>;

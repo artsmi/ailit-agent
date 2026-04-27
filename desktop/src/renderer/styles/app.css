@@ -2025,6 +2025,11 @@ button {
   text-overflow: ellipsis;
 }
 
+/* Поверх perm-модалки, если когда-то пересекутся */
+.toolApprovalModalOverlayZ {
+  z-index: 2100;
+}
+
 /* perm-5 modal (Candy) */
 .permModeModalOverlay {
   position: fixed;
@@ -2134,6 +2139,87 @@ button {
 .permModeCancel:hover {
   color: #2e1a28;
   background: #f2e8f2;
+}
+
+/* ASK: подтверждение run_shell / инструмента (тот же Candy-карточка) */
+.toolApprovalInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  margin-bottom: 0.85rem;
+}
+
+.toolApprovalInfoLabel {
+  font-size: 0.55rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #7c52aa;
+}
+
+.toolApprovalInfoTool {
+  display: block;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #2e1a28;
+  background: #f8eef8;
+  border: 1px solid #e8d4ec;
+  border-radius: 0.75rem;
+}
+
+.toolApprovalInfoCall {
+  display: block;
+  overflow: hidden;
+  font-size: 0.55rem;
+  line-height: 1.2;
+  color: #7c5a8c;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolApprovalActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.toolApprovalBtnOk {
+  flex: 1 1 8rem;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #fffbff;
+  cursor: pointer;
+  background: linear-gradient(135deg, #d9469f 0%, #a855c4 100%);
+  border: none;
+  border-radius: 0.9rem;
+  box-shadow: 0 2px 10px rgb(192 50 150 / 0.35);
+}
+
+.toolApprovalBtnOk:hover {
+  filter: brightness(1.06);
+}
+
+.toolApprovalBtnReject {
+  flex: 1 1 8rem;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #4a1e3a;
+  cursor: pointer;
+  background: #fce8f0;
+  border: 1px solid #e8a8c4;
+  border-radius: 0.9rem;
+}
+
+.toolApprovalBtnReject:hover {
+  background: #ffe0ec;
+  border-color: #e040a0;
 }
 
 .candyPermBadge {

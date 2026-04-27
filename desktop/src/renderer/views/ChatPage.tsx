@@ -11,6 +11,7 @@ import { useDesktopSession, type ChatLine } from "../runtime/DesktopSessionConte
 import type { ChatSessionRecordV1, ChatToolDisplayV1 } from "../state/persistedUi";
 import { CandyMaterialIcon } from "../shell/CandyMaterialIcon";
 import { PermModeModal } from "../components/chat/PermModeModal";
+import { ToolApprovalModal } from "../components/chat/ToolApprovalModal";
 
 /** Считаем «у низа», если до низа осталось не больше (px) — погрешность sub-pixel/scroll. */
 const NEAR_BOTTOM_PX: number = 32;
@@ -386,6 +387,17 @@ export function ChatPage(): React.JSX.Element {
           }}
           onDismiss={() => {
             void s.submitPermModeChoice("explore", false);
+          }}
+        />
+        <ToolApprovalModal
+          open={s.toolApproval !== null}
+          tool={s.toolApproval?.tool ?? ""}
+          callId={s.toolApproval?.callId ?? ""}
+          onResolve={(approved) => {
+            void s.submitToolApproval(approved);
+          }}
+          onDismiss={() => {
+            void s.submitToolApproval(false);
           }}
         />
         {aside ? (
