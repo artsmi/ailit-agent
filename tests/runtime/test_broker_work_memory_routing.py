@@ -143,6 +143,18 @@ def test_broker_routes_memory_service_and_work_action(tmp_path: Path) -> None:
                 and isinstance(row.get("payload"), dict)
                 and isinstance(row["payload"].get("memory_slice"), dict)
                 for row in decoded
+            ) and any(
+                row.get("type") == "topic.publish"
+                and row.get("from_agent") == "AgentWork:chat-a"
+                and row.get("payload", {}).get("event_name")
+                == "context.memory_injected"
+                and isinstance(
+                    row.get("payload", {}).get("payload"),
+                    dict,
+                )
+                and row["payload"]["payload"].get("usage_state")
+                == "estimated"
+                for row in decoded
             )
             if not seen_memory_pair:
                 time.sleep(0.05)

@@ -42,6 +42,10 @@ from agent_core.session.context_pager import (
     stable_page_id,
     tool_to_source_key,
 )
+from agent_core.session.context_ledger import (
+    ContextSnapshotBuilder,
+    provider_usage_confirmed_payload,
+)
 from agent_core.session.post_compact_restore import RecentFileReadStore
 from agent_core.session.repo_context import (
     detect_repo_context,
@@ -375,6 +379,7 @@ class SessionRunner:
         self._base_registry = registry
         self._context_page_store = ContextPageStore()
         self._recent_reads = RecentFileReadStore()
+        self._context_snapshot_builder = ContextSnapshotBuilder()
         self._pag_namespace: str = ""
         perm = permission_engine or PermissionEngine()
         self._perm = perm
@@ -751,6 +756,20 @@ class SessionRunner:
         cancel: Event | None,
     ) -> NormalizedChatResponse:
         """Вызов провайдера: stream или complete; эмит событий диагностики."""
+        turn_id = str(request_meta.get("turn_id") or "turn-unknown")
+        snapshot = self._context_snapshot_builder.build(
+            context=context,
+            model=settings.model,
+            turn_id=turn_id,
+            tools_defs=tools_defs,
+        )
+        self._emit(
+            events,
+            "context.snapshot",
+            snapshot.to_payload(),
+            diag_sink,
+            event_sink,
+        )
         self._emit(
             events,
             "model.request",
@@ -864,6 +883,7 @@ class SessionRunner:
                 diag_sink=diag_sink,
                 event_sink=event_sink,
                 request_meta={
+                    "turn_id": "cap_finalize",
                     "tool_choice_mode": "none_finalize",
                     "policy_reason": "session_turn_cap",
                 },
@@ -897,6 +917,16 @@ class SessionRunner:
             )
 
         bud.record_usage(resp.usage)
+        self._emit(
+            events,
+            "context.provider_usage_confirmed",
+            provider_usage_confirmed_payload(
+                usage=resp.usage,
+                turn_id="cap_finalize",
+            ),
+            diag_sink,
+            event_sink,
+        )
         fin = resp.finish_reason.value
         resp_tool_names = [tc.tool_name for tc in resp.tool_calls]
         self._emit(
@@ -2844,6 +2874,7 @@ class SessionRunner:
             )
             try:
                 meta = {
+                    "turn_id": f"turn-{turn}",
                     "tool_choice_mode": decision.tool_choice_mode_effective,
                     "policy_reason": decision.policy_reason,
                 }
@@ -2881,6 +2912,16 @@ class SessionRunner:
                 )
 
             bud.record_usage(resp.usage)
+            self._emit(
+                events,
+                "context.provider_usage_confirmed",
+                provider_usage_confirmed_payload(
+                    usage=resp.usage,
+                    turn_id=f"turn-{turn}",
+                ),
+                diag_sink,
+                event_sink,
+            )
             resp_tool_names = [tc.tool_name for tc in resp.tool_calls]
             fin = resp.finish_reason.value
             self._emit(

@@ -382,6 +382,23 @@ class _WorkChatSession:
                 "reason": str(memory_slice.get("reason") or ""),
             },
         )
+        emitter.publish(
+            event_type="context.memory_injected",
+            payload={
+                "schema": "context.memory_injected.v1",
+                "chat_id": identity.chat_id,
+                "turn_id": parent_message_id,
+                "source_agent": f"AgentMemory:{identity.chat_id}",
+                "usage_state": "estimated",
+                "node_ids": list(memory_slice.get("node_ids") or []),
+                "edge_ids": list(memory_slice.get("edge_ids") or []),
+                "estimated_tokens": int(
+                    memory_slice.get("estimated_tokens") or 0,
+                ),
+                "prompt_section": "memory",
+                "reason": str(memory_slice.get("reason") or ""),
+            },
+        )
         return msg
 
     def run_user_prompt(
@@ -541,6 +558,8 @@ class _WorkChatSession:
 
         def sink(ev: SessionEvent) -> None:
             p: MutableMapping[str, Any] = dict(ev.payload)
+            if ev.type.startswith("context."):
+                p.setdefault("chat_id", identity.chat_id)
             if ev.type in ("assistant.delta", "assistant.thinking"):
                 p["message_id"] = assistant_mid
             if ev.type in ("tool.call_started", "tool.call_finished"):
