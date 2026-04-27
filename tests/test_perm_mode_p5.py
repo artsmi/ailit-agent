@@ -60,7 +60,7 @@ def test_explore_shell_allowlist() -> None:
     assert explore_shell_command_allowed("pip install x") is False
 
 
-def test_explore_shell_pip_is_ask_not_allow() -> None:
+def test_explore_shell_allows_run_shell_by_default() -> None:
     reg = default_builtin_registry().merge(bash_tool_registry())
     spec = reg.specs["run_shell"]
     pol = ModePermissionPolicy("explore")
@@ -69,7 +69,7 @@ def test_explore_shell_pip_is_ask_not_allow() -> None:
         "run_shell",
         json.dumps({"command": "pip install foo"}),
     )
-    assert pol.evaluate(spec, inv) is PermissionDecision.ASK
+    assert pol.evaluate(spec, inv) is PermissionDecision.ALLOW
 
 
 def test_read_exposes_no_write_tool_definitions() -> None:

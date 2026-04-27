@@ -111,4 +111,20 @@ describe("projectChatTraceRows", () => {
     expect(out.toolApproval).toBeNull();
     expect(out.agentTurnInProgress).toBe(true);
   });
+
+  it("keeps user prompt when request and response share message_id", () => {
+    const req = userPrompt(1);
+    const res: Record<string, unknown> = {
+      ...req,
+      from_agent: "AgentWork:c1",
+      to_agent: "User:desktop",
+      ok: true,
+      payload: { action: "work.handle_user_prompt", action_id: "a1" }
+    };
+
+    const out = projectChatTraceRows([req, res]);
+    expect(out.chatLines.map((line) => [line.id, line.from, line.text])).toEqual([
+      ["user:user-1", "user", "проверь тесты"]
+    ]);
+  });
 });

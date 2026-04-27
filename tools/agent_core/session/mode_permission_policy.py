@@ -7,7 +7,6 @@ from typing import Any
 
 from agent_core.session.perm_tool_mode import (
     PermToolMode,
-    explore_shell_command_allowed,
     normalize_perm_tool_mode,
     read_plan_write_file_allowed,
 )
@@ -64,10 +63,7 @@ class ModePermissionPolicy:
         if spec.name in ("run_shell", "run_shell_session"):
             if m != PermToolMode.EXPLORE.value:
                 return PermissionDecision.DENY
-            cmd = _shell_command_from_inv(inv)
-            if explore_shell_command_allowed(cmd):
-                return PermissionDecision.ALLOW
-            return PermissionDecision.ASK
+            return PermissionDecision.ALLOW
 
         if spec.name in ("write_file", "apply_patch"):
             if m in (PermToolMode.READ.value, PermToolMode.EXPLORE.value):

@@ -57,7 +57,23 @@ describe("RuntimeTraceNormalizer", () => {
 
 describe("dedupKeyForRow", () => {
   it("uses message_id when present", () => {
-    expect(dedupKeyForRow({ message_id: "a" })).toBe("id:a");
+    expect(dedupKeyForRow({ message_id: "a" })).toBe("id:a:request:::");
+  });
+
+  it("keeps request and response with same message_id distinct", () => {
+    const req: Record<string, unknown> = {
+      message_id: "a",
+      type: "action.start",
+      from_agent: "User:desktop",
+      to_agent: "AgentWork:c1"
+    };
+    const res: Record<string, unknown> = {
+      ...req,
+      from_agent: "AgentWork:c1",
+      to_agent: "User:desktop",
+      ok: true
+    };
+    expect(dedupKeyForRow(req)).not.toBe(dedupKeyForRow(res));
   });
 });
 

@@ -242,13 +242,13 @@ export class RuntimeTraceNormalizer {
         redacted: true
       };
     }
-    if (strField(row, "type") === "action.start") {
+    if (typ === "action.start" || typ === "service.request") {
       const pl = row["payload"] && typeof row["payload"] === "object" && !Array.isArray(row["payload"])
         ? (row["payload"] as Record<string, unknown>)
         : {};
       const action: string = String(pl["action"] ?? "");
       const prompt: string = String(pl["prompt"] ?? pl["text"] ?? "");
-      if (fromAgent.includes("User") || fromAgent === "User:desktop") {
+      if (action === "work.handle_user_prompt" && (fromAgent.includes("User") || fromAgent === "User:desktop")) {
         return {
           kind: "user_prompt",
           messageId,
@@ -321,7 +321,12 @@ export class RuntimeTraceNormalizer {
 export function dedupKeyForRow(row: Record<string, unknown>): string {
   const mid: string = strField(row, "message_id");
   if (mid) {
-    return `id:${mid}`;
+    const typ: string = strField(row, "type");
+    const fromAgent: string = strField(row, "from_agent");
+    const toAgent: string = strField(row, "to_agent");
+    const ok: unknown = row["ok"];
+    const direction: string = typeof ok === "boolean" ? `response:${String(ok)}` : "request";
+    return `id:${mid}:${direction}:${typ}:${fromAgent}:${toAgent}`;
   }
   try {
     return `hash:${JSON.stringify(row).slice(0, 2000)}`;
