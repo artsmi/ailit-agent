@@ -8,7 +8,9 @@ import {
   newChatSession,
   type LastAgentPairV1,
   type ChatSessionRecordV1,
+  type MemoryPanelTabV1,
   type ChatToolDisplayV1,
+  normalizeMemorySplitRatio,
   savePersistedUi,
   type PersistedUiStateV1
 } from "../state/persistedUi";
@@ -83,6 +85,12 @@ export type DesktopSessionValue = {
   readonly toolApproval: { readonly callId: string; readonly tool: string } | null;
   readonly submitToolApproval: (approved: boolean) => Promise<void>;
   readonly contextFill: ContextFillState | null;
+  readonly memoryPanelOpen: boolean;
+  readonly memoryPanelTab: MemoryPanelTabV1;
+  readonly memorySplitRatio: number;
+  readonly setMemoryPanelOpen: (open: boolean) => void;
+  readonly setMemoryPanelTab: (tab: MemoryPanelTabV1) => void;
+  readonly setMemorySplitRatio: (ratio: number) => void;
 };
 
 const Ctx = React.createContext<DesktopSessionValue | null>(null);
@@ -369,6 +377,30 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const setToolDisplay: (m: ChatToolDisplayV1) => void = React.useCallback(
     (m) => {
       setUiAndSave((p) => ({ ...p, toolDisplay: m }));
+    },
+    [setUiAndSave]
+  );
+
+  const setMemoryPanelOpen: (open: boolean) => void = React.useCallback(
+    (open) => {
+      setUiAndSave((p) => ({ ...p, memoryPanelOpen: open }));
+    },
+    [setUiAndSave]
+  );
+
+  const setMemoryPanelTab: (tab: MemoryPanelTabV1) => void = React.useCallback(
+    (tab) => {
+      setUiAndSave((p) => ({ ...p, memoryPanelTab: tab }));
+    },
+    [setUiAndSave]
+  );
+
+  const setMemorySplitRatio: (ratio: number) => void = React.useCallback(
+    (ratio) => {
+      setUiAndSave((p) => ({
+        ...p,
+        memorySplitRatio: normalizeMemorySplitRatio(ratio)
+      }));
     },
     [setUiAndSave]
   );
@@ -855,7 +887,13 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     submitPermModeChoice,
     toolApproval,
     submitToolApproval,
-    contextFill
+    contextFill,
+    memoryPanelOpen: ui.memoryPanelOpen,
+    memoryPanelTab: ui.memoryPanelTab,
+    memorySplitRatio: ui.memorySplitRatio,
+    setMemoryPanelOpen,
+    setMemoryPanelTab,
+    setMemorySplitRatio
   };
 
   return <Ctx.Provider value={v}>{children}</Ctx.Provider>;

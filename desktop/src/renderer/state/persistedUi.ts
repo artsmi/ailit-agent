@@ -21,6 +21,7 @@ export type LastAgentPairV1 = {
 
 /** Как показывать tool.* (batch, exposure, …) в чате; shell/bash обычно оставляем видимыми. */
 export type ChatToolDisplayV1 = "normal" | "compact" | "hidden";
+export type MemoryPanelTabV1 = "3d" | "journal";
 
 export type PersistedUiStateV1 = {
   readonly version: 1;
@@ -28,7 +29,15 @@ export type PersistedUiStateV1 = {
   readonly activeSessionId: string;
   readonly lastAgentPair: LastAgentPairV1 | null;
   readonly toolDisplay: ChatToolDisplayV1;
+  readonly memoryPanelOpen: boolean;
+  readonly memoryPanelTab: MemoryPanelTabV1;
+  readonly memorySplitRatio: number;
 };
+
+export function normalizeMemorySplitRatio(raw: unknown): number {
+  const n: number = typeof raw === "number" && Number.isFinite(raw) ? raw : 0.5;
+  return Math.max(0.28, Math.min(0.72, n));
+}
 
 function newId(): string {
   return `s-${globalThis.crypto?.randomUUID?.() ?? String(Date.now())}`;
@@ -49,7 +58,10 @@ function defaultState(): PersistedUiStateV1 {
     ],
     activeSessionId: sid,
     lastAgentPair: null,
-    toolDisplay: "normal"
+    toolDisplay: "normal",
+    memoryPanelOpen: false,
+    memoryPanelTab: "3d",
+    memorySplitRatio: 0.5
   };
 }
 
@@ -71,7 +83,14 @@ export function loadPersistedUi(): PersistedUiStateV1 {
       p.toolDisplay === "compact" || p.toolDisplay === "hidden" || p.toolDisplay === "normal"
         ? p.toolDisplay
         : "normal";
-    return { ...p, toolDisplay } as PersistedUiStateV1;
+    const memoryPanelTab: MemoryPanelTabV1 = p.memoryPanelTab === "journal" ? "journal" : "3d";
+    return {
+      ...p,
+      toolDisplay,
+      memoryPanelOpen: Boolean(p.memoryPanelOpen),
+      memoryPanelTab,
+      memorySplitRatio: normalizeMemorySplitRatio(p.memorySplitRatio)
+    } as PersistedUiStateV1;
   } catch {
     return defaultState();
   }

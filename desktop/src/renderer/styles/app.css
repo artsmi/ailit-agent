@@ -695,6 +695,12 @@ button {
   background: #fdf2f8;
 }
 
+.candyChatHeaderBtnActive {
+  color: #be185d;
+  background: linear-gradient(135deg, #fff, #fdf2f8);
+  box-shadow: 0 0 0 1px rgba(224, 64, 160, 0.18) inset;
+}
+
 .candyChatHeaderBtn .candyMaterialIcon,
 .candyChatHeaderIconBtn .candyMaterialIcon {
   color: currentColor;
@@ -903,6 +909,10 @@ button {
   overflow: hidden;
 }
 
+.candyChatSplitMemoryOpen {
+  gap: 0;
+}
+
 .candyChatMainCol {
   display: flex;
   min-width: 0;
@@ -910,6 +920,90 @@ button {
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
+}
+
+.candyMemorySplitter {
+  width: 0.55rem;
+  flex: 0 0 0.55rem;
+  border: 0;
+  border-left: 1px solid rgba(251, 207, 232, 0.9);
+  border-right: 1px solid rgba(251, 207, 232, 0.9);
+  background: linear-gradient(180deg, rgba(253, 242, 248, 0.35), rgba(224, 64, 160, 0.1));
+  cursor: col-resize;
+}
+
+.candyMemorySplitter:hover {
+  background: linear-gradient(180deg, rgba(253, 242, 248, 0.7), rgba(224, 64, 160, 0.18));
+}
+
+.candyMemoryPanel {
+  display: flex;
+  min-width: 18rem;
+  max-width: 72%;
+  flex: 1 1 50%;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid rgba(251, 207, 232, 0.9);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.candyMemoryPanelHead {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border-bottom: 1px solid rgba(251, 207, 232, 0.9);
+  background: linear-gradient(135deg, #fff, #fdf2f8);
+}
+
+.candyMemoryPanelTitle,
+.candyMemoryPanelTabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.candyMemoryPanelTitle {
+  color: #be185d;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.candyMemoryPanelTitle .candyMaterialIcon {
+  color: var(--candy-accent);
+}
+
+.candyMemoryPanelBody {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  padding: 0.75rem;
+}
+
+.candyMemoryPanelBody > * {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.candyMemoryJournalPlaceholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-height: 14rem;
+  color: #64748b;
+  border: 1px dashed rgba(224, 64, 160, 0.25);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.candyMemoryJournalPlaceholder .candyMaterialIcon {
+  color: var(--candy-accent);
+  font-size: 1.8rem;
 }
 
 .contextFillPanel {

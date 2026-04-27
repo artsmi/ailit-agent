@@ -13,6 +13,7 @@ import type { ChatSessionRecordV1, ChatToolDisplayV1 } from "../state/persistedU
 import { CandyMaterialIcon } from "../shell/CandyMaterialIcon";
 import { PermModeModal } from "../components/chat/PermModeModal";
 import { ToolApprovalModal } from "../components/chat/ToolApprovalModal";
+import { MemoryGraph3DPage } from "./MemoryGraph3DPage";
 
 /** Считаем «у низа», если до низа осталось не больше (px) — погрешность sub-pixel/scroll. */
 const NEAR_BOTTOM_PX: number = 32;
@@ -66,6 +67,7 @@ export function ChatPage(): React.JSX.Element {
   const [historyOpen, setHistoryOpen] = React.useState(false);
   const [contextOpen, setContextOpen] = React.useState(false);
   const chatScrollRef: React.RefObject<HTMLDivElement | null> = React.useRef<HTMLDivElement | null>(null);
+  const splitRef: React.RefObject<HTMLDivElement | null> = React.useRef<HTMLDivElement | null>(null);
   const stickToBottomRef: React.MutableRefObject<boolean> = React.useRef(true);
   const innerObsRef: React.RefObject<HTMLDivElement | null> = React.useRef<HTMLDivElement | null>(null);
 
@@ -90,6 +92,8 @@ export function ChatPage(): React.JSX.Element {
   }, [s.chatLines, s.toolDisplay]);
 
   const groups = React.useMemo(() => groupMessagesForLayout(visibleChatLines), [visibleChatLines]);
+  const chatPercent: number = s.memoryPanelOpen ? Math.round(s.memorySplitRatio * 1000) / 10 : 100;
+  const memoryPercent: number = Math.round((100 - chatPercent) * 10) / 10;
 
   const recomputeStickFromScroller: () => void = React.useCallback((): void => {
     const scroller: HTMLDivElement | null = chatScrollRef.current;
@@ -184,6 +188,47 @@ export function ChatPage(): React.JSX.Element {
     s.createNewChatSession(s.selectedProjectIds, `Диалог ${n}`);
   }, [openNewDialog, s]);
 
+  const openAnalytics: () => void = React.useCallback((): void => {
+    s.setMemoryPanelOpen(false);
+    setAside((v) => !v);
+  }, [s]);
+
+  const toggleMemoryPanel: () => void = React.useCallback((): void => {
+    const next: boolean = !s.memoryPanelOpen;
+    if (next) {
+      setAside(false);
+    }
+    s.setMemoryPanelOpen(next);
+  }, [s]);
+
+  const startSplitDrag: (e: React.PointerEvent<HTMLButtonElement>) => void = React.useCallback(
+    (e) => {
+      const host: HTMLDivElement | null = splitRef.current;
+      if (!host) {
+        return;
+      }
+      e.preventDefault();
+      const rect: DOMRect = host.getBoundingClientRect();
+      const pointerId: number = e.pointerId;
+      const target = e.currentTarget;
+      target.setPointerCapture(pointerId);
+      const onMove = (ev: PointerEvent): void => {
+        const ratio: number = (ev.clientX - rect.left) / Math.max(1, rect.width);
+        s.setMemorySplitRatio(ratio);
+      };
+      const onDone = (): void => {
+        target.releasePointerCapture(pointerId);
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onDone);
+        window.removeEventListener("pointercancel", onDone);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onDone);
+      window.addEventListener("pointercancel", onDone);
+    },
+    [s]
+  );
+
   return (
     <div className="candyChatRoot" data-candy-chat="1">
       <div className="candyChatTopChrome">
@@ -207,9 +252,18 @@ export function ChatPage(): React.JSX.Element {
                 <option value="hidden">скрыть</option>
               </select>
             </label>
-            <button className="candyChatHeaderBtn" type="button" onClick={() => setAside((v) => !v)} title="Аналитика">
+            <button className="candyChatHeaderBtn" type="button" onClick={openAnalytics} title="Аналитика">
               <CandyMaterialIcon name="analytics" />
               <span className="candyChatHeaderBtnText">Аналитика</span>
+            </button>
+            <button
+              className={s.memoryPanelOpen ? "candyChatHeaderBtn candyChatHeaderBtnActive" : "candyChatHeaderBtn"}
+              type="button"
+              onClick={toggleMemoryPanel}
+              title={s.memoryPanelOpen ? "Скрыть Memory" : "Показать Memory"}
+            >
+              <CandyMaterialIcon name="hub" />
+              <span className="candyChatHeaderBtnText">Memory</span>
             </button>
             <button
               className="candyChatHeaderIconBtn"
@@ -250,8 +304,11 @@ export function ChatPage(): React.JSX.Element {
         titleFor={(sess) => briefTitle(sess, s.registry)}
       />
 
-      <div className="candyChatSplit">
-        <div className="candyChatMainCol">
+      <div
+        className={s.memoryPanelOpen ? "candyChatSplit candyChatSplitMemoryOpen" : "candyChatSplit"}
+        ref={splitRef}
+      >
+        <div className="candyChatMainCol" style={{ flexBasis: s.memoryPanelOpen ? `${chatPercent}%` : undefined }}>
           {s.lastError ? <div className="candyChatErrBanner">{s.lastError}</div> : null}
           <div className="candyChatScroll" ref={chatScrollRef}>
             <div className="candyChatScrollInner" ref={innerObsRef}>
@@ -427,7 +484,53 @@ export function ChatPage(): React.JSX.Element {
             void s.submitToolApproval(false);
           }}
         />
-        {aside ? (
+        {s.memoryPanelOpen ? (
+          <>
+            <button
+              aria-label="Изменить ширину Memory"
+              className="candyMemorySplitter"
+              onPointerDown={startSplitDrag}
+              type="button"
+            />
+            <aside className="candyMemoryPanel" style={{ flexBasis: `${memoryPercent}%` }}>
+              <div className="candyMemoryPanelHead">
+                <div className="candyMemoryPanelTitle">
+                  <CandyMaterialIcon name="hub" />
+                  <span>Memory</span>
+                </div>
+                <div className="candyMemoryPanelTabs" role="tablist">
+                  <button
+                    className={s.memoryPanelTab === "3d" ? "pill memToggleOn" : "pill"}
+                    type="button"
+                    onClick={() => s.setMemoryPanelTab("3d")}
+                  >
+                    3D
+                  </button>
+                  <button
+                    className={s.memoryPanelTab === "journal" ? "pill memToggleOn" : "pill"}
+                    type="button"
+                    onClick={() => s.setMemoryPanelTab("journal")}
+                  >
+                    Журнал
+                  </button>
+                </div>
+              </div>
+              <div className="candyMemoryPanelBody">
+                {s.memoryPanelTab === "3d" ? (
+                  <MemoryGraph3DPage noInitialAutoZoom />
+                ) : (
+                  <div className="candyMemoryJournalPlaceholder">
+                    <CandyMaterialIcon name="receipt_long" />
+                    <div>
+                      <div className="fontW800">Журнал AgentMemory</div>
+                      <div>Появится в G11.7 и будет фильтроваться по chat_id: {s.chatId}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </aside>
+          </>
+        ) : aside ? (
           <ChatAnalyticsAside
             chatId={s.chatId}
             connectionLabel={connectionLabel(s.connection)}
