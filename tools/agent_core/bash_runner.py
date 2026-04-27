@@ -53,6 +53,17 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
         proc.kill()
 
 
+def _pipe_capture_to_str(data: str | bytes | None) -> str:
+    """Собрать кусок stdout/stderr без ``str(bytes)`` (лишний repr b'…')."""
+    if data is None:
+        return ""
+    if isinstance(data, str):
+        return data
+    if isinstance(data, (bytes, bytearray)):
+        return bytes(data).decode("utf-8", errors="replace")
+    return str(data)
+
+
 def run_bash_command(
     command: str,
     *,
@@ -116,19 +127,19 @@ def run_bash_command(
             out, err = proc.communicate(
                 timeout=min(step, max(0.0, deadline - now)),
             )
-            out_parts.append(out or "")
-            err_parts.append(err or "")
+            out_parts.append(_pipe_capture_to_str(out))
+            err_parts.append(_pipe_capture_to_str(err))
             break
         except subprocess.TimeoutExpired as exc:
             if exc.stdout:
-                out_parts.append(str(exc.stdout))
+                out_parts.append(_pipe_capture_to_str(exc.stdout))
             if exc.stderr:
-                err_parts.append(str(exc.stderr))
+                err_parts.append(_pipe_capture_to_str(exc.stderr))
             continue
     if timed_out or cancelled:
         out, err = proc.communicate()
-        out_parts.append(out or "")
-        err_parts.append(err or "")
+        out_parts.append(_pipe_capture_to_str(out))
+        err_parts.append(_pipe_capture_to_str(err))
     rc = proc.returncode
     exit_code: int | None = int(rc) if rc is not None else None
     if timed_out or cancelled:
