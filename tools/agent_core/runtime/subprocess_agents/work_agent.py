@@ -31,7 +31,11 @@ from agent_core.session.perm_turn import (
     build_mode_kb_namespace,
     memory_namespace_from_cfg,
 )
-from agent_core.session.repo_context import detect_repo_context
+from agent_core.session.d_level_compact import DLevelCompactService
+from agent_core.session.repo_context import (
+    detect_repo_context,
+    namespace_for_repo,
+)
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
     RuntimeRequestEnvelope,
@@ -269,6 +273,7 @@ class _WorkChatSession:
             ),
         ]
         self._user_turns: int = 0
+        self._restored_d_node_ids: set[str] = set()
 
     @staticmethod
     def _memory_slice_message(
@@ -401,6 +406,43 @@ class _WorkChatSession:
         )
         return msg
 
+    def _restore_d_context(
+        self,
+        *,
+        workspace: _Workspace,
+        emitter: _RuntimeEventEmitter,
+    ) -> ChatMessage | None:
+        """Restore latest D-level compact summary for reopened chats."""
+        try:
+            rc = detect_repo_context(workspace.project_root.resolve())
+            namespace = namespace_for_repo(
+                repo_uri=rc.repo_uri,
+                repo_path=rc.repo_path,
+                branch=rc.branch,
+            )
+            restored = DLevelCompactService.default().restore_latest(
+                namespace=namespace,
+            )
+        except Exception as exc:  # noqa: BLE001
+            emitter.publish(
+                event_type="context.restore_failed",
+                payload={
+                    "schema": "context.restore_failed.v1",
+                    "reason": f"{type(exc).__name__}:{exc}",
+                },
+            )
+            return None
+        if restored is None:
+            return None
+        if restored.d_node_id in self._restored_d_node_ids:
+            return None
+        self._restored_d_node_ids.add(restored.d_node_id)
+        emitter.publish(
+            event_type="context.restored",
+            payload=restored.to_event_payload(),
+        )
+        return restored.message
+
     def run_user_prompt(
         self,
         *,
@@ -435,6 +477,10 @@ class _WorkChatSession:
             else (workspace.project_root.resolve(),)
         )
         assistant_mid = f"asst-{uuid.uuid4()}"
+        restored_d_msg = self._restore_d_context(
+            workspace=workspace,
+            emitter=emitter,
+        )
         memory_slice_msg = self._request_memory_slice(
             text=text,
             workspace=workspace,
@@ -601,6 +647,8 @@ class _WorkChatSession:
             profile_cfg = {}
         profile = AgentWorkProfile.from_config(profile_cfg)
         base_messages = list(self._messages)
+        if restored_d_msg is not None:
+            base_messages.append(restored_d_msg)
         if memory_slice_msg is not None:
             base_messages.append(memory_slice_msg)
         orchestrator = WorkTaskOrchestrator(

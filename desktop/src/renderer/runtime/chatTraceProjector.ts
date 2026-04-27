@@ -273,6 +273,17 @@ export function projectChatTraceRows(
         contextFill = contextSnapshotFromInner(ev.inner) ?? contextFill;
       } else if (ev.eventName === "context.provider_usage_confirmed") {
         contextFill = applyConfirmedUsage(contextFill, ev.inner);
+      } else if (ev.eventName === "context.restored") {
+        const dNode: string = str(ev.inner["d_node_id"]);
+        appendLine(lines, {
+          id: chatLineId("system", `context-restored-${row["message_id"] ?? order}`),
+          from: "system",
+          text: dNode
+            ? `Контекст восстановлен из D-summary: ${dNode}`
+            : "Контекст восстановлен из D-summary.",
+          atIso: str(row["created_at"]) || new Date(0).toISOString(),
+          order
+        });
       }
       if (shouldMarkTurnActive(ev.eventName)) {
         agentTurnInProgress = true;

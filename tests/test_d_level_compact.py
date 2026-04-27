@@ -13,9 +13,15 @@ from agent_core.models import (
 )
 from agent_core.session.d_level_compact import DLevelCompactService
 from agent_core.session.loop import SessionRunner, SessionSettings
+from agent_core.session.repo_context import (
+    detect_repo_context,
+    namespace_for_repo,
+)
 from agent_core.session.state import SessionState
 from agent_core.tool_runtime.approval import ApprovalSession
 from agent_core.tool_runtime.registry import default_builtin_registry
+from agent_core.runtime.subprocess_agents.work_agent import _WorkChatSession
+from agent_core.runtime.subprocess_agents.work_agent import _Workspace
 
 
 class _CapturingProvider:
@@ -121,3 +127,48 @@ def test_session_compaction_creates_d_node_and_context_event(
         e for e in out.events if e.get("event_type") == "context.snapshot"
     )
     assert snapshot["breakdown"]["memory_d"] > 0
+
+
+class _Emitter:
+    def __init__(self) -> None:
+        self.events: list[dict[str, object]] = []
+
+    def publish(self, *, event_type: str, payload: object) -> None:
+        self.events.append({"event_type": event_type, "payload": payload})
+
+
+def test_work_session_restores_latest_d_summary_on_open(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    db_path = tmp_path / "pag.sqlite3"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db_path))
+    rc = detect_repo_context(tmp_path)
+    namespace = namespace_for_repo(
+        repo_uri=rc.repo_uri,
+        repo_path=rc.repo_path,
+        branch=rc.branch,
+    )
+    service = DLevelCompactService(SqlitePagStore(db_path))
+    compacted = service.compact(
+        namespace=namespace,
+        removed_messages=[ChatMessage(role=MessageRole.USER, content="old")],
+        kept_messages=[],
+        linked_node_ids=(f"A:{namespace}",),
+        trigger="auto",
+    )
+    emitter = _Emitter()
+    session = _WorkChatSession()
+
+    msg = session._restore_d_context(  # noqa: SLF001
+        workspace=_Workspace(namespace=namespace, project_root=tmp_path),
+        emitter=emitter,  # type: ignore[arg-type]
+    )
+
+    assert msg is not None
+    assert msg.name == "agent_memory_d"
+    assert compacted.d_node_id in msg.content
+    assert emitter.events[0]["event_type"] == "context.restored"
+    payload = emitter.events[0]["payload"]
+    assert isinstance(payload, dict)
+    assert payload["d_node_id"] == compacted.d_node_id

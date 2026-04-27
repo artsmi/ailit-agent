@@ -42,6 +42,25 @@ class DLevelCompactResult:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class DLevelRestoreResult:
+    """Restored D-level compact artifact for chat reopen."""
+
+    d_node_id: str
+    summary: str
+    linked_node_ids: tuple[str, ...]
+    message: ChatMessage
+
+    def to_event_payload(self) -> dict[str, Any]:
+        """Return a JSON-ready ``context.restored.v1`` payload."""
+        return {
+            "schema": "context.restored.v1",
+            "trigger": "open_chat_restore",
+            "d_node_id": self.d_node_id,
+            "linked_node_ids": list(self.linked_node_ids),
+        }
+
+
 class DLevelCompactService:
     """Create compact summaries as PAG D-level memory nodes."""
 
@@ -130,6 +149,50 @@ class DLevelCompactService:
             post_tokens_estimated=post_tokens,
             freed_tokens_estimated=freed,
             linked_node_ids=links,
+            message=message,
+        )
+
+    def restore_latest(
+        self,
+        *,
+        namespace: str,
+    ) -> DLevelRestoreResult | None:
+        """Restore the newest valid D-level compact summary for a namespace."""
+        ns = str(namespace or "").strip()
+        if not ns:
+            return None
+        nodes = self._store.list_nodes(
+            namespace=ns,
+            level="D",
+            limit=1,
+            include_stale=False,
+        )
+        if not nodes:
+            return None
+        node = nodes[0]
+        if node.kind != "compact_summary":
+            return None
+        linked_raw = node.attrs.get("linked_node_ids")
+        linked: tuple[str, ...]
+        if isinstance(linked_raw, list):
+            linked = tuple(str(x) for x in linked_raw if str(x).strip())
+        else:
+            linked = ()
+        if not linked:
+            linked = (f"A:{ns}",)
+        message = ChatMessage(
+            role=MessageRole.SYSTEM,
+            name="agent_memory_d",
+            content=self._render_prompt_message(
+                d_node_id=node.node_id,
+                summary=node.summary,
+                linked_node_ids=linked,
+            ),
+        )
+        return DLevelRestoreResult(
+            d_node_id=node.node_id,
+            summary=node.summary,
+            linked_node_ids=linked,
             message=message,
         )
 

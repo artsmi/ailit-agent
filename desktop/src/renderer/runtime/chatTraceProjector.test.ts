@@ -225,4 +225,25 @@ describe("projectChatTraceRows", () => {
     expect(out.contextFill?.breakdown["memory_abc"]).toBe(4000);
     expect(out.contextFill?.contextUsagePercent).toBe(6.39);
   });
+
+  it("adds a system line when context is restored from D memory", () => {
+    const rows: Record<string, unknown>[] = [
+      topic(
+        "context.restored",
+        {
+          schema: "context.restored.v1",
+          trigger: "open_chat_restore",
+          d_node_id: "D:compact-summary:abc",
+          linked_node_ids: ["A:ns"]
+        },
+        1,
+        "restore-1"
+      )
+    ];
+
+    const out = projectChatTraceRows(rows);
+    expect(out.chatLines).toHaveLength(1);
+    expect(out.chatLines[0]?.from).toBe("system");
+    expect(out.chatLines[0]?.text).toContain("D:compact-summary:abc");
+  });
 });
