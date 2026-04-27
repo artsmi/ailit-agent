@@ -46,6 +46,7 @@ from agent_core.session.context_ledger import (
     ContextSnapshotBuilder,
     provider_usage_confirmed_payload,
 )
+from agent_core.session.d_level_compact import DLevelCompactService
 from agent_core.session.post_compact_restore import RecentFileReadStore
 from agent_core.session.repo_context import (
     detect_repo_context,
@@ -181,6 +182,7 @@ class SessionSettings:
     perm_classifier_bypass: bool = False
     perm_history_max: int = 8
     pag_runtime_enabled: bool = True
+    compact_to_memory_enabled: bool = False
 
 
 def _perm_engine_for_session(
@@ -380,6 +382,7 @@ class SessionRunner:
         self._context_page_store = ContextPageStore()
         self._recent_reads = RecentFileReadStore()
         self._context_snapshot_builder = ContextSnapshotBuilder()
+        self._d_level_compact = DLevelCompactService.default()
         self._pag_namespace: str = ""
         perm = permission_engine or PermissionEngine()
         self._perm = perm
@@ -697,6 +700,20 @@ class SessionRunner:
                     event_sink,
                 )
 
+    def _namespace_for_d_level_compact(self) -> str:
+        ns = str(self._pag_namespace or "").strip()
+        if ns:
+            return ns
+        try:
+            rc = detect_repo_context(Path(work_root()))
+        except Exception:  # noqa: BLE001
+            return "default"
+        return namespace_for_repo(
+            repo_uri=rc.repo_uri,
+            repo_path=rc.repo_path,
+            branch=rc.branch,
+        )
+
     def _prepare_context(
         self,
         messages: list[ChatMessage],
@@ -710,6 +727,39 @@ class SessionRunner:
             tail_max=settings.compaction_tail_messages,
             max_tool_chars=settings.compaction_max_tool_chars,
         )
+        if (
+            settings.compact_to_memory_enabled
+            and len(messages) > settings.compaction_tail_messages
+        ):
+            removed = messages[: -settings.compaction_tail_messages]
+            ns = self._namespace_for_d_level_compact()
+            try:
+                res = self._d_level_compact.compact(
+                    namespace=ns,
+                    removed_messages=removed,
+                    kept_messages=compacted,
+                    linked_node_ids=(f"A:{ns}",),
+                    trigger="auto",
+                )
+                compacted = [res.message, *compacted]
+                self._emit(
+                    events,
+                    "context.compacted",
+                    res.to_event_payload(trigger="auto"),
+                    diag_sink,
+                    event_sink,
+                )
+            except Exception as exc:  # noqa: BLE001
+                self._emit(
+                    events,
+                    "context.compact_failed",
+                    {
+                        "schema": "context.compact_failed.v1",
+                        "reason": f"{type(exc).__name__}:{exc}",
+                    },
+                    diag_sink,
+                    event_sink,
+                )
         if (
             settings.post_compact_restore_enabled
             and len(messages) > settings.compaction_tail_messages

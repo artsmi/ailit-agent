@@ -578,6 +578,7 @@ class _WorkChatSession:
             perm_classifier_bypass=perm_bypass,
             perm_history_max=8,
             pag_runtime_enabled=False,
+            compact_to_memory_enabled=True,
         )
 
         def wait_for_approval(call_id: str) -> None:
