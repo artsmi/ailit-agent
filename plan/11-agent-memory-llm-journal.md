@@ -2,7 +2,7 @@
 
 **Идентификатор:** `agent-memory-llm-journal-11` (файл `plan/11-agent-memory-llm-journal.md`).
 
-**Статус:** активная постановка после закрытого Workflow 10.
+**Статус:** закрыт в G11.9. Дальше не расширять без новой постановки/research.
 
 Документ задаёт следующую итерацию после `Workflow 10`: превратить `AgentMemory` из минимального slice/grant worker в **global runtime service** с собственным LLM-контекстом, query-driven exploration по уровням **A -> B -> C**, отдельным structured journal и split-view UI в `ailit desktop`, где пользователь видит либо 3D Memory, либо журнал работы памяти для активного чата.
 

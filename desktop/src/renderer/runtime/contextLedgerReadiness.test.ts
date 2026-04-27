@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { ensureHighlightNodes, mergeMemoryGraph } from "./memoryGraphState";
 import { projectChatTraceRows } from "./chatTraceProjector";
+import { projectMemoryJournalRows } from "./memoryJournalProjection";
 import { highlightFromTraceRow } from "./pagHighlightFromTrace";
 
 function topic(
@@ -107,5 +109,67 @@ describe("Workflow 10 readiness projections", () => {
 
     const restored = highlightFromTraceRow(rows[3]!, "ns");
     expect(restored?.nodeIds).toEqual(["D:compact-summary:abc", "A:ns", "B:tools/app.py"]);
+  });
+});
+
+describe("Workflow 11 readiness projections", () => {
+  it("connects journal rows, namespace-aware highlights, and graph growth", () => {
+    const rows: Record<string, unknown>[] = [
+      topic(
+        "context.memory_injected",
+        {
+          schema: "context.memory_injected.v2",
+          usage_state: "estimated",
+          project_refs: [
+            {
+              project_id: "proj-a",
+              namespace: "ns-a",
+              node_ids: ["A:ns-a", "B:tools/app.py"],
+              edge_ids: ["edge-a"]
+            },
+            {
+              project_id: "proj-b",
+              namespace: "ns-b",
+              node_ids: ["A:ns-b"],
+              edge_ids: []
+            }
+          ],
+          estimated_tokens: 120,
+          prompt_section: "memory",
+          decision_summary: "selected multi-project memory"
+        },
+        1
+      )
+    ];
+    const injected = highlightFromTraceRow(rows[0]!, "fallback");
+    expect(injected?.namespace).toBe("ns-a");
+    expect(injected?.nodeIds).toEqual(["A:ns-a", "B:tools/app.py", "A:ns-b"]);
+
+    const graph = ensureHighlightNodes(
+      mergeMemoryGraph({ nodes: [], links: [] }, { nodes: [], links: [] }),
+      injected?.nodeIds ?? [],
+      injected?.namespace ?? "ns-a"
+    );
+    expect(graph.nodes.map((node) => node.id)).toContain("A:ns-b");
+
+    const journal = projectMemoryJournalRows(
+      [
+        {
+          schema: "ailit_memory_journal_v1",
+          created_at: "2026-04-27T00:00:00Z",
+          chat_id: "chat-g10",
+          request_id: "req-1",
+          namespace: "ns-a",
+          event_name: "memory.explore.C.finished",
+          summary: "selected ranges",
+          node_ids: ["C:tools/app.py:1-20"],
+          edge_ids: [],
+          payload: { next_action: "return slice", partial: false }
+        }
+      ],
+      "chat-g10"
+    );
+    expect(journal[0]?.eventName).toBe("memory.explore.C.finished");
+    expect(journal[0]?.nodeIds).toEqual(["C:tools/app.py:1-20"]);
   });
 });
