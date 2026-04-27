@@ -10,7 +10,12 @@ from agent_core.runtime.subprocess_agents.memory_agent import (
 )
 
 
-def _request(*, chat_id: str, path: str) -> object:
+def _request(
+    *,
+    chat_id: str,
+    path: str,
+    project_root: Path | None = None,
+) -> object:
     identity = RuntimeIdentity(
         runtime_id="rt",
         chat_id=chat_id,
@@ -31,6 +36,9 @@ def _request(*, chat_id: str, path: str) -> object:
             "request_id": f"req-{chat_id}",
             "path": path,
             "goal": "inspect path",
+            "project_root": (
+                str(project_root) if project_root is not None else ""
+            ),
             "workspace_projects": [{"project_id": "p1", "namespace": "ns"}],
         },
     )
@@ -73,3 +81,40 @@ def test_agent_memory_global_contract_writes_per_chat_journal(
         "memory.request.received",
         "memory.slice.returned",
     ]
+
+
+def test_agent_memory_query_updates_pag_without_full_repo(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    journal_path = tmp_path / "memory-journal.jsonl"
+    db_path = tmp_path / "pag.sqlite3"
+    monkeypatch.setenv("AILIT_MEMORY_JOURNAL_PATH", str(journal_path))
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db_path))
+    (tmp_path / "target.py").write_text(
+        "def selected() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "other.py").write_text(
+        "def skipped() -> int:\n    return 2\n",
+        encoding="utf-8",
+    )
+    worker = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="global",
+            broker_id="broker-shared",
+            namespace="ns",
+        ),
+    )
+
+    out = worker.handle(
+        _request(
+            chat_id="chat-a",
+            path="target.py",
+            project_root=tmp_path,
+        ),
+    )
+
+    assert out["ok"] is True
+    rows = list(MemoryJournalStore(journal_path).filter_rows(chat_id="chat-a"))
+    assert any(r.event_name == "memory.index.node_updated" for r in rows)

@@ -1,0 +1,193 @@
+"""Query-driven PAG growth for AgentMemory."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Sequence
+
+from agent_core.memory.pag_indexer import PagIndexer
+from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_core.session.repo_context import (
+    detect_repo_context,
+    namespace_for_repo,
+)
+
+_ENTRYPOINT_NAMES: tuple[str, ...] = (
+    "README.md",
+    "pyproject.toml",
+    "package.json",
+    "tools/ailit/cli.py",
+    "main.py",
+    "app.py",
+)
+_IGNORE_DIRS: frozenset[str] = frozenset(
+    {
+        ".git",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".venv",
+        "__pycache__",
+        "build",
+        "dist",
+        "node_modules",
+        "venv",
+    },
+)
+
+
+@dataclass(frozen=True, slots=True)
+class QueryDrivenGrowthResult:
+    """Result of one query-driven PAG growth attempt."""
+
+    namespace: str
+    selected_paths: tuple[str, ...]
+    node_ids: tuple[str, ...]
+    partial: bool
+    reason: str
+
+
+class MemoryExplorationPlanner:
+    """Select minimal files for query-driven PAG indexing."""
+
+    def __init__(
+        self,
+        *,
+        max_walk_files: int = 2000,
+        max_selected: int = 8,
+    ) -> None:
+        self._max_walk_files = max(1, int(max_walk_files))
+        self._max_selected = max(1, int(max_selected))
+
+    def select_paths(
+        self,
+        *,
+        project_root: Path,
+        goal: str,
+        explicit_paths: Sequence[str] = (),
+    ) -> tuple[str, ...]:
+        """Return minimal relpaths relevant to the current query."""
+        root = project_root.resolve()
+        selected: list[str] = []
+        for raw in explicit_paths:
+            rel = self._norm_rel(raw)
+            if rel and self._is_file(root, rel):
+                selected.append(rel)
+        if selected:
+            return tuple(dict.fromkeys(selected[: self._max_selected]))
+
+        terms = self._terms(goal)
+        if terms:
+            for rel in self._walk_files(root):
+                path_l = rel.lower()
+                name_l = Path(rel).name.lower()
+                if any(t in path_l or t in name_l for t in terms):
+                    selected.append(rel)
+                    if len(selected) >= self._max_selected:
+                        break
+        if selected:
+            return tuple(dict.fromkeys(selected))
+
+        for rel in _ENTRYPOINT_NAMES:
+            if self._is_file(root, rel):
+                selected.append(rel)
+                if len(selected) >= min(3, self._max_selected):
+                    break
+        return tuple(dict.fromkeys(selected))
+
+    @staticmethod
+    def _norm_rel(raw: str) -> str:
+        return str(raw or "").replace("\\", "/").strip().lstrip("./")
+
+    @staticmethod
+    def _is_file(root: Path, rel: str) -> bool:
+        try:
+            p = (root / rel).resolve()
+            p.relative_to(root)
+        except ValueError:
+            return False
+        return p.is_file()
+
+    @staticmethod
+    def _terms(goal: str) -> tuple[str, ...]:
+        out: list[str] = []
+        for raw in str(goal or "").replace("\\", "/").split():
+            token = raw.strip(".,:;()[]{}'\"`").lower()
+            if len(token) >= 3:
+                out.append(token)
+        return tuple(dict.fromkeys(out))
+
+    def _walk_files(self, root: Path) -> tuple[str, ...]:
+        out: list[str] = []
+        seen = 0
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in _IGNORE_DIRS]
+            rel_dir = Path(dirpath).resolve().relative_to(root).as_posix()
+            if rel_dir == ".":
+                rel_dir = ""
+            for filename in filenames:
+                if filename.startswith(".") and filename != ".gitignore":
+                    continue
+                rel = f"{rel_dir}/{filename}" if rel_dir else filename
+                out.append(rel)
+                seen += 1
+                if seen >= self._max_walk_files:
+                    return tuple(out)
+        return tuple(out)
+
+
+class QueryDrivenPagGrowth:
+    """Grow PAG by indexing only query-selected files."""
+
+    def __init__(
+        self,
+        *,
+        db_path: Path | None = None,
+        planner: MemoryExplorationPlanner | None = None,
+    ) -> None:
+        self._store = SqlitePagStore(db_path or PagIndexer.default_db_path())
+        self._indexer = PagIndexer(self._store)
+        self._planner = planner or MemoryExplorationPlanner()
+
+    def grow(
+        self,
+        *,
+        project_root: Path,
+        goal: str,
+        explicit_paths: Sequence[str] = (),
+    ) -> QueryDrivenGrowthResult:
+        """Index only files selected for this memory query."""
+        root = project_root.resolve()
+        ctx = detect_repo_context(root)
+        namespace = namespace_for_repo(
+            repo_uri=ctx.repo_uri,
+            repo_path=ctx.repo_path,
+            branch=ctx.branch,
+        )
+        selected = self._planner.select_paths(
+            project_root=root,
+            goal=goal,
+            explicit_paths=explicit_paths,
+        )
+        if not selected:
+            return QueryDrivenGrowthResult(
+                namespace=namespace,
+                selected_paths=(),
+                node_ids=(),
+                partial=True,
+                reason="no_query_relevant_files",
+            )
+        self._indexer.sync_changes(
+            namespace=namespace,
+            project_root=root,
+            changed_paths=selected,
+        )
+        node_ids = tuple(f"B:{rel}" for rel in selected)
+        return QueryDrivenGrowthResult(
+            namespace=namespace,
+            selected_paths=selected,
+            node_ids=node_ids,
+            partial=False,
+            reason="query_driven_sync",
+        )

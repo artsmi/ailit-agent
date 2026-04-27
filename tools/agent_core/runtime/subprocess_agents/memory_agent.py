@@ -18,6 +18,7 @@ from agent_core.runtime.memory_journal import (
     MemoryJournalRow,
     MemoryJournalStore,
 )
+from agent_core.runtime.memory_growth import QueryDrivenPagGrowth
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
     MemoryGrant,
@@ -42,6 +43,7 @@ class AgentMemoryWorker:
     def __init__(self, cfg: MemoryAgentConfig) -> None:
         self._cfg = cfg
         self._journal = MemoryJournalStore()
+        self._growth = QueryDrivenPagGrowth()
 
     def _issue_grant(
         self,
@@ -94,6 +96,58 @@ class AgentMemoryWorker:
             )
         except Exception:
             return
+
+    def _grow_pag_for_query(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        project_root: str,
+        goal: str,
+        explicit_paths: list[str],
+    ) -> None:
+        if not project_root.strip():
+            return
+        try:
+            res = self._growth.grow(
+                project_root=Path(project_root).expanduser().resolve(),
+                goal=goal,
+                explicit_paths=explicit_paths,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._append_journal(
+                req=req,
+                event_name="memory.index.partial",
+                summary="query-driven PAG growth failed",
+                request_id=request_id,
+                payload={"error": f"{type(exc).__name__}:{exc}"},
+            )
+            return
+        if res.partial:
+            self._append_journal(
+                req=req,
+                event_name="memory.index.partial",
+                summary=res.reason,
+                request_id=request_id,
+                payload={
+                    "namespace": res.namespace,
+                    "selected_paths": list(res.selected_paths),
+                },
+            )
+            return
+        for node_id in res.node_ids:
+            self._append_journal(
+                req=req,
+                event_name="memory.index.node_updated",
+                summary="query-driven PAG node updated",
+                request_id=request_id,
+                node_ids=[node_id],
+                payload={
+                    "namespace": res.namespace,
+                    "selected_paths": list(res.selected_paths),
+                    "reason": res.reason,
+                },
+            )
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:
@@ -239,6 +293,14 @@ class AgentMemoryWorker:
                     else 0
                 ),
             },
+        )
+        explicit_paths = [want_path] if want_path else []
+        self._grow_pag_for_query(
+            req=req,
+            request_id=request_id,
+            project_root=project_root,
+            goal=goal,
+            explicit_paths=explicit_paths,
         )
         memory_slice = self._slice_from_pag(
             project_root=project_root,
