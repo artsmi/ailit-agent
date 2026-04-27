@@ -130,24 +130,21 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     if (!el) {
       return;
     }
+    const applySize = (): void => {
+      const w: number = Math.max(1, Math.floor(el.clientWidth));
+      const h: number = Math.max(
+        GRAPH_VIEWPORT_MIN_H,
+        Math.floor(el.clientHeight) || 560
+      );
+      setViewSize({ w, h });
+    };
     const ro: ResizeObserver = new ResizeObserver((entries) => {
-      for (const e of entries) {
-        const w: number = Math.max(1, Math.floor(e.contentRect.width));
-        const h: number = Math.max(
-          GRAPH_VIEWPORT_MIN_H,
-          Math.floor(e.contentRect.height) || 560
-        );
-        setViewSize({ w, h });
+      if (entries.length > 0) {
+        applySize();
       }
     });
     ro.observe(el);
-    const r: DOMRect = el.getBoundingClientRect();
-    if (r.width) {
-      setViewSize({
-        w: Math.max(1, Math.floor(r.width)),
-        h: Math.max(GRAPH_VIEWPORT_MIN_H, Math.floor(r.height) || 560)
-      });
-    }
+    applySize();
     return () => ro.disconnect();
   }, []);
 
@@ -253,7 +250,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
   }
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12, minWidth: 0, flex: 1, minHeight: 0 }}>
+    <div className="mem3dRoot">
       <section className="card" style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
         <div className="mem3dHeader cardHeader">3D</div>
         <div className="cardBody" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
