@@ -117,6 +117,22 @@ function shouldMarkTurnActive(eventName: string): boolean {
   );
 }
 
+function readApprovalResolve(row: Record<string, unknown>): { readonly callId: string; readonly ok: boolean | null } | null {
+  if (row["type"] !== "service.request") {
+    return null;
+  }
+  const payload: Record<string, unknown> | null = asDict(row["payload"]);
+  if (!payload || payload["action"] !== "work.approval_resolve") {
+    return null;
+  }
+  const callId: unknown = payload["call_id"];
+  if (typeof callId !== "string" || callId.length === 0) {
+    return null;
+  }
+  const ok: unknown = row["ok"];
+  return { callId, ok: typeof ok === "boolean" ? ok : null };
+}
+
 export function projectChatTraceRows(
   rows: readonly Record<string, unknown>[],
   opts: { readonly suppressedToolApprovalCallId?: string | null } = {}
@@ -147,6 +163,14 @@ export function projectChatTraceRows(
     const order: number = index + 1;
     const n: NormalizedTraceProjection = normalizer.normalizeLine(row);
     normalizedRows.push(n);
+    const approvalResolve: { readonly callId: string; readonly ok: boolean | null } | null =
+      readApprovalResolve(row);
+    if (approvalResolve && toolApproval?.callId === approvalResolve.callId) {
+      toolApproval = null;
+      if (approvalResolve.ok === false) {
+        agentTurnInProgress = false;
+      }
+    }
     const ev: ChatTopicEvent | null = readChatTopicEvent(row);
     if (ev) {
       if (shouldMarkTurnActive(ev.eventName)) {

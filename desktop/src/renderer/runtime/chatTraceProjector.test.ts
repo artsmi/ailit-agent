@@ -127,4 +127,38 @@ describe("projectChatTraceRows", () => {
       ["user:user-1", "user", "проверь тесты"]
     ]);
   });
+
+  it("clears stale approval when broker reports bad_call for approval_resolve", () => {
+    const rows: Record<string, unknown>[] = [
+      userPrompt(1),
+      topic(
+        "tool.call_started",
+        { tool: "run_shell", call_id: "stale-call", arguments_json: "{\"command\":\"pytest\"}", message_id: "asst-1" },
+        2
+      ),
+      topic("session.waiting_approval", { call_id: "stale-call", tool: "run_shell" }, 3),
+      {
+        contract_version: "ailit_agent_runtime_v1",
+        runtime_id: "ailit-desktop",
+        chat_id: "c1",
+        broker_id: "b1",
+        trace_id: "t-resolve",
+        message_id: "resolve-1",
+        parent_message_id: null,
+        goal_id: "g-desktop",
+        namespace: "ns",
+        from_agent: "AgentWork:c1",
+        to_agent: "User:desktop",
+        created_at: "2026-04-27T05:00:04Z",
+        type: "service.request",
+        ok: false,
+        payload: { action: "work.approval_resolve", call_id: "stale-call", approved: false },
+        error: { code: "bad_call", message: "stale-call" }
+      }
+    ];
+
+    const out = projectChatTraceRows(rows);
+    expect(out.toolApproval).toBeNull();
+    expect(out.agentTurnInProgress).toBe(false);
+  });
 });
