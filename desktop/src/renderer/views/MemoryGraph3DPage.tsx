@@ -1,11 +1,13 @@
 import React from "react";
 import ForceGraph3D, { type ForceGraphMethods } from "react-force-graph-3d";
+import { highlightFromTraceRow, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
+import { useDesktopSession } from "../runtime/DesktopSessionContext";
 import { mockWorkspace } from "../state/mockData";
 
 type GraphNode = {
   id: string;
   label: string;
-  level: "A" | "B" | "C";
+  level: "A" | "B" | "C" | "D";
   x?: number;
   y?: number;
   z?: number;
@@ -24,6 +26,7 @@ type HighlightState = {
   readonly kind: "pag.search.highlight";
   readonly nodeIds: readonly string[];
   readonly edgeIds: readonly string[];
+  readonly reason: string;
   readonly ttlMs: number;
   readonly startedAtMs: number;
 };
@@ -49,14 +52,46 @@ function intensity01(h: HighlightState, atMs: number): number {
   return 1 - t;
 }
 
-function levelColor(level: "A" | "B" | "C"): string {
+function asStr(x: unknown): string {
+  return typeof x === "string" ? x : x == null ? "" : String(x);
+}
+
+function levelColor(level: "A" | "B" | "C" | "D"): string {
   if (level === "A") {
     return "#e040a0";
   }
   if (level === "B") {
     return "#7c52aa";
   }
+  if (level === "D") {
+    return "#0ea5e9";
+  }
   return "rgba(20, 20, 30, 0.55)";
+}
+
+function nodeFromPag(n: Record<string, unknown>): GraphNode | null {
+  const id: string = asStr(n["node_id"]);
+  if (!id) {
+    return null;
+  }
+  const rawLevel: string = asStr(n["level"]);
+  const level: GraphNode["level"] =
+    rawLevel === "A" || rawLevel === "B" || rawLevel === "C" || rawLevel === "D" ? rawLevel : "B";
+  return {
+    id,
+    label: asStr(n["title"] ?? n["path"] ?? n["node_id"]) || id,
+    level
+  };
+}
+
+function linkFromPag(e: Record<string, unknown>): GraphLink | null {
+  const id: string = asStr(e["edge_id"]);
+  const source: string = asStr(e["from_node_id"]);
+  const target: string = asStr(e["to_node_id"]);
+  if (!id || !source || !target) {
+    return null;
+  }
+  return { id, source, target };
 }
 
 function coordinateOrZero(value: number | undefined): number {
@@ -73,12 +108,21 @@ type Mem3dProps = {
 
 export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Element {
   const { noInitialAutoZoom = true } = p;
+  const s: ReturnType<typeof useDesktopSession> = useDesktopSession();
   const ref = React.useRef<ForceGraphMethods | undefined>(undefined);
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const [viewSize, setViewSize] = React.useState<{ w: number; h: number }>({ w: 800, h: 560 });
   const highlightRef = React.useRef<HighlightState | null>(null);
   const highlightFrameRef = React.useRef<number | null>(null);
   const initialFitDoneRef = React.useRef<boolean>(false);
+  const [nodes, setNodes] = React.useState<GraphNode[]>([]);
+  const [links, setLinks] = React.useState<GraphLink[]>([]);
+  const [err, setErr] = React.useState<string | null>(null);
+
+  const ns0: string | null =
+    s.selectedProjectIds.length > 0
+      ? s.registry.find((proj) => proj.projectId === s.selectedProjectIds[0])?.namespace ?? null
+      : s.registry[0]?.namespace ?? null;
 
   React.useLayoutEffect(() => {
     const el: HTMLDivElement | null = hostRef.current;
@@ -100,11 +144,74 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     return () => ro.disconnect();
   }, []);
 
+  React.useEffect(() => {
+    if (!ns0 || !window.ailitDesktop.pagGraphSlice) {
+      setErr(ns0 ? "pagGraphSlice недоступен." : null);
+      setNodes([]);
+      setLinks([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const r: Awaited<ReturnType<NonNullable<typeof window.ailitDesktop.pagGraphSlice>>> =
+        await window.ailitDesktop.pagGraphSlice({
+          namespace: ns0,
+          level: null,
+          nodeLimit: 1000,
+          nodeOffset: 0,
+          edgeLimit: 1000,
+          edgeOffset: 0
+        });
+      if (cancelled) {
+        return;
+      }
+      if (!r.ok) {
+        setErr(r.error);
+        setNodes([]);
+        setLinks([]);
+        return;
+      }
+      setErr(null);
+      setNodes(r.nodes.map(nodeFromPag).filter((x): x is GraphNode => x !== null));
+      setLinks(r.edges.map(linkFromPag).filter((x): x is GraphLink => x !== null));
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ns0]);
+
+  React.useEffect(() => {
+    const last: Record<string, unknown> | undefined = s.rawTraceRows[s.rawTraceRows.length - 1];
+    if (!last) {
+      return;
+    }
+    const ev: PagSearchHighlightV1 | null = highlightFromTraceRow(last, ns0 ?? "default");
+    if (!ev) {
+      return;
+    }
+    highlightRef.current = {
+      ...ev,
+      startedAtMs: nowMs()
+    };
+    runHighlightRefreshLoop();
+  }, [ns0, s.rawTraceRows]);
+
   const data: ForceGraphData = React.useMemo(() => {
-    const nodes: GraphNode[] = mockWorkspace.pag.nodes.map((n) => ({ id: n.id, label: n.label, level: n.level }));
-    const links: GraphLink[] = mockWorkspace.pag.edges.map((e) => ({ id: e.id, source: e.from, target: e.to }));
-    return { nodes, links };
-  }, []);
+    if (nodes.length > 0 || links.length > 0) {
+      return { nodes, links };
+    }
+    const mockNodes: GraphNode[] = mockWorkspace.pag.nodes.map((n) => ({
+      id: n.id,
+      label: n.label,
+      level: n.level
+    }));
+    const mockLinks: GraphLink[] = mockWorkspace.pag.edges.map((e) => ({
+      id: e.id,
+      source: e.from,
+      target: e.to
+    }));
+    return { nodes: mockNodes, links: mockLinks };
+  }, [nodes, links]);
 
   React.useEffect(() => {
     return () => {
@@ -127,6 +234,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       kind: "pag.search.highlight",
       nodeIds: ["B:tools/ailit/cli.py", "B:tools/agent_core/runtime/broker.py"],
       edgeIds: ["e1", "e2"],
+      reason: "mock",
       ttlMs: 3000,
       startedAtMs: nowMs()
     };
@@ -214,6 +322,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       <section className="card" style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
         <div className="mem3dHeader cardHeader">3D</div>
         <div className="cardBody" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          {err ? <div className="errLine" style={{ marginBottom: 8 }}>{err}</div> : null}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
             <button className="primaryButton smBtn" type="button" onClick={triggerMockSearchHighlight}>
               Highlight
@@ -247,7 +356,10 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
               enableNavigationControls
               nodeLabel={(n: unknown) => {
                 const node = n as GraphNode;
-                return `${node.label}\n${node.id}`;
+                const h: HighlightState | null = highlightRef.current;
+                return h !== null && h.nodeIds.includes(node.id)
+                  ? `${node.label}\n${node.id}\n${h.reason}`
+                  : `${node.label}\n${node.id}`;
               }}
               nodeVal={(n: unknown) => {
                 const node = n as GraphNode;
@@ -338,6 +450,9 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
             </span>
             <span className="pill smPill" style={{ background: "rgba(20, 20, 30, 0.06)" }}>
               <span className="fontW800">C</span>
+            </span>
+            <span className="pill smPill" style={{ background: "rgba(14, 165, 233, 0.10)" }}>
+              <span className="fontW800">D</span>
             </span>
           </div>
         </div>

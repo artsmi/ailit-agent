@@ -1,5 +1,5 @@
 /**
- * `ailit_desktop_pag_highlight_v1` — только UI, из trace (G9.8.2).
+ * `ailit_desktop_pag_highlight_v1` — UI highlight from Context Ledger trace.
  */
 
 export type PagSearchHighlightV1 = {
@@ -21,6 +21,17 @@ function str(x: unknown): string {
   return x == null ? "" : String(x);
 }
 
+function asDict(v: unknown): Record<string, unknown> {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
+
+function strList(v: unknown): readonly string[] {
+  if (!Array.isArray(v)) {
+    return [];
+  }
+  return v.map((x) => str(x)).filter((x) => x.length > 0);
+}
+
 /** Нормализуем rel path к id узла PAG: `B:path/to.py`. */
 export function bNodeIdFromPath(rel: string): string {
   let s: string = rel.replace(/\\/g, "/").replace(/^\//, "");
@@ -28,56 +39,47 @@ export function bNodeIdFromPath(rel: string): string {
   return `B:${s}`;
 }
 
-/**
- * Подсветка по событиям memory query / grant в trace. Edge ids не стабильны в runtime — пусто.
- */
 export function highlightFromTraceRow(
   row: Record<string, unknown>,
   defaultNamespace: string
 ): PagSearchHighlightV1 | null {
   const typ: string = str(row["type"]);
-  const to: string = str(row["to_agent"]);
   const pl: unknown = row["payload"];
-  const p: Record<string, unknown> =
-    pl && typeof pl === "object" && !Array.isArray(pl) ? (pl as Record<string, unknown>) : {};
-  const service: string = str(p["service"] ?? "");
-  if (typ === "service.request" && to.startsWith("AgentMemory") && service === "memory.query_context") {
-    const path0: string = str(p["path"] ?? p["hint_path"] ?? "");
-    if (!path0) {
-      return null;
-    }
-    return {
-      kind: "pag.search.highlight",
-      namespace: str(row["namespace"] ?? defaultNamespace) || defaultNamespace,
-      nodeIds: [bNodeIdFromPath(path0)],
-      edgeIds: [],
-      reason: "AgentMemory search (request)",
-      ttlMs: TTL_MS,
-      intensity: "strong"
-    };
-  }
-  if (row["ok"] === true && p["grants"] && Array.isArray(p["grants"])) {
-    const ids: string[] = [];
-    for (const g of p["grants"] as readonly unknown[]) {
-      if (g && typeof g === "object" && g !== null) {
-        const pth: string = str((g as { path?: string }).path ?? "");
-        if (pth) {
-          ids.push(bNodeIdFromPath(pth));
-        }
+  const p: Record<string, unknown> = asDict(pl);
+  if (typ === "topic.publish") {
+    const eventName: string = str(p["event_name"]);
+    const inner: Record<string, unknown> = asDict(p["payload"]);
+    if (eventName === "context.memory_injected") {
+      const nodeIds = strList(inner["node_ids"]);
+      if (!nodeIds.length) {
+        return null;
       }
+      return {
+        kind: "pag.search.highlight",
+        namespace: str(row["namespace"] ?? defaultNamespace) || defaultNamespace,
+        nodeIds,
+        edgeIds: strList(inner["edge_ids"]),
+        reason: str(inner["reason"] ?? "context.memory_injected"),
+        ttlMs: TTL_MS,
+        intensity: "strong"
+      };
     }
-    if (!ids.length) {
-      return null;
+    if (eventName === "context.compacted" || eventName === "context.restored") {
+      const dNode = str(inner["d_node_id"]);
+      const nodeIds = [dNode, ...strList(inner["linked_node_ids"])].filter((x) => x.length > 0);
+      if (!nodeIds.length) {
+        return null;
+      }
+      return {
+        kind: "pag.search.highlight",
+        namespace: str(row["namespace"] ?? defaultNamespace) || defaultNamespace,
+        nodeIds,
+        edgeIds: [],
+        reason: eventName,
+        ttlMs: TTL_MS,
+        intensity: "strong"
+      };
     }
-    return {
-      kind: "pag.search.highlight",
-      namespace: str(row["namespace"] ?? defaultNamespace) || defaultNamespace,
-      nodeIds: ids,
-      edgeIds: [],
-      reason: "AgentMemory (grant)",
-      ttlMs: TTL_MS,
-      intensity: "normal"
-    };
   }
   return null;
 }
