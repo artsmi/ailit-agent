@@ -23,33 +23,18 @@ import {
   type AgentDialogueMessage
 } from "./agentDialogueProjection";
 import {
-  buildBashLineDelta,
-  callIdForBashEvent,
-  extractToolEventInner,
-  formatToolEventForConsole,
-  isBashEventName
-} from "../components/chat/shellEventFormat";
-import { formatTraceProjectionDiagnosticLine } from "./desktopSessionDiagnosticLog";
-import { dedupKeyForRow, RuntimeTraceNormalizer, type NormalizedTraceProjection } from "./traceNormalize";
+  chatLineId,
+  projectChatTraceRows,
+  type ChatLine,
+  type ToolApprovalPending
+} from "./chatTraceProjector";
+import { dedupKeyForRow, type NormalizedTraceProjection } from "./traceNormalize";
 import { newMessageId } from "./uuid";
 
 const GOAL: string = "g-desktop";
 
 type ConnState = "idle" | "connecting" | "ready" | "error";
-
-export type ChatLine = {
-  readonly id: string;
-  readonly from: "user" | "assistant" | "system";
-  readonly text: string;
-  readonly atIso: string;
-  /** Порядок появления в trace (стабильная сортировка в UI). */
-  readonly order: number;
-  /** Сообщение-консоль (tool/shell) — рендер как в minimalist candy ref. */
-  readonly lineKind?: "message" | "console" | "reasoning";
-  readonly consoleShell?: string;
-  /** Для console: shell/bash vs служебные tool.* */
-  readonly consoleChannel?: "shell" | "tool";
-};
+export type { ChatLine } from "./chatTraceProjector";
 
 export type DesktopSessionValue = {
   readonly chatId: string;
@@ -107,79 +92,6 @@ function asDict(v: unknown): Record<string, unknown> | null {
   return null;
 }
 
-function nfc(s: string): string {
-  return s.normalize("NFC");
-}
-
-type ToolApprovalPending = {
-  readonly callId: string;
-  readonly tool: string;
-};
-
-/**
- * Событие `topic.publish` / chat: event_name + внутренний payload.
- */
-function readChatTopicEvent(row: Record<string, unknown>): { eventName: string; inner: Record<string, unknown> } | null {
-  if (row["type"] !== "topic.publish") {
-    return null;
-  }
-  const pl: Record<string, unknown> | null = asDict(row["payload"]);
-  if (!pl || pl["type"] !== "topic.publish") {
-    return null;
-  }
-  const en: unknown = pl["event_name"];
-  const inner: Record<string, unknown> | null = asDict(pl["payload"]);
-  if (typeof en !== "string" || !inner) {
-    return null;
-  }
-  return { eventName: en, inner };
-}
-
-/**
- * Последний ``session.waiting_approval`` без завершившегося ``tool.call_finished`` с тем же call_id.
- */
-function findPendingToolApproval(rows: readonly Record<string, unknown>[]): ToolApprovalPending | null {
-  let lastIdx: number = -1;
-  let last: ToolApprovalPending | null = null;
-  for (let i: number = 0; i < rows.length; i += 1) {
-    const ev = readChatTopicEvent(rows[i]!);
-    if (ev && ev.eventName === "session.waiting_approval") {
-      const cid: unknown = ev.inner["call_id"];
-      const tool: unknown = ev.inner["tool"];
-      if (typeof cid === "string" && cid.length > 0) {
-        lastIdx = i;
-        last = { callId: cid, tool: typeof tool === "string" && tool.length > 0 ? tool : "tool" };
-      }
-    }
-  }
-  if (last === null) {
-    return null;
-  }
-  for (let j: number = lastIdx + 1; j < rows.length; j += 1) {
-    const ev2 = readChatTopicEvent(rows[j]!);
-    if (ev2 && ev2.eventName === "tool.call_finished") {
-      const c: unknown = ev2.inner["call_id"];
-      if (c === last.callId) {
-        return null;
-      }
-    }
-  }
-  return last;
-}
-
-/** Склейка строки чата: рантайм эмитит `incremental` дельты; `snapshot` — на редких путях. */
-function nextStreamLineText(
-  mode: NormalizedTraceProjection["textMode"],
-  prev: string,
-  humanLine: string
-): string {
-  const m: "incremental" | "snapshot" = mode === "snapshot" ? "snapshot" : "incremental";
-  if (m === "snapshot") {
-    return nfc(humanLine);
-  }
-  return nfc(prev) + nfc(humanLine);
-}
-
 function getRuntimeDirFromStatus(st: unknown): string | null {
   const o: Record<string, unknown> | null = asDict(st);
   if (!o) {
@@ -213,20 +125,6 @@ function extractBroker(
   return null;
 }
 
-const normalizer: RuntimeTraceNormalizer = new RuntimeTraceNormalizer();
-
-function chatLineId(kind: "user" | "assistant" | "system", messageId: string): string {
-  return `${kind}:${messageId}`;
-}
-
-/** ID строки тела ассистента: до первого `run_shell` с текстом — `assistant:…`, далее `asst-frag:…` (хронология vs bash). */
-function assistantStreamLineId(assistantMessageId: string, part: number): string {
-  if (part <= 0) {
-    return chatLineId("assistant", assistantMessageId);
-  }
-  return `asst-frag:${assistantMessageId}:p${String(part)}`;
-}
-
 function validateSessions(
   reg: readonly ProjectRegistryEntry[],
   p: PersistedUiStateV1
@@ -255,44 +153,14 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const [lastError, setLastError] = React.useState<string | null>(null);
   const [registry, setRegistry] = React.useState<readonly ProjectRegistryEntry[]>([]);
   const [rawTraceRows, setRawTraceRows] = React.useState<Record<string, unknown>[]>([]);
-  const [chatLines, setChatLines] = React.useState<ChatLine[]>([]);
+  const [optimisticChatLines, setOptimisticChatLines] = React.useState<ChatLine[]>([]);
   const [reconnectAttempt, setReconnectAttempt] = React.useState(0);
   const seenRowKeys: React.MutableRefObject<Set<string>> = React.useRef<Set<string>>(new Set());
-  const projectedRowKeysRef: React.MutableRefObject<Set<string>> = React.useRef<Set<string>>(new Set());
-  const seenChatIds: React.MutableRefObject<Set<string>> = React.useRef<Set<string>>(new Set());
-  /** Сегменты тела `message_id` (после run_shell, если в предыдущем сегменте уже был текст). */
-  const asstPartByMsgRef: React.MutableRefObject<Map<string, number>> = React.useRef<Map<string, number>>(new Map());
   const registryWasEmpty: React.MutableRefObject<boolean> = React.useRef(true);
   const subChatIdRef: React.MutableRefObject<string | null> = React.useRef(null);
   const activeChatIdRef: React.MutableRefObject<string> = React.useRef("");
-  /**
-   * Монотонный «слот» = порядок строки trace (JSONL), в том числе дельт одного turn.
-   * `order` у ChatLine = slot первого появления id, обновления сохраняют order.
-   */
-  const traceEventSeqRef: React.MutableRefObject<number> = React.useRef(0);
-  /** Текущая сегментированная «мысль» (тот же user-turn может иметь: мысль → tool → мысль). */
-  const openReasoningLineIdRef: React.MutableRefObject<string | null> = React.useRef(null);
-  /** Индекс сегмента s0, s1, … внутри trace assistant message_id. */
-  const nextReasoningSegRef: React.MutableRefObject<number> = React.useRef(0);
-  /**
-   * Накопление дельт стрима (reasoning / assistant). Вне state: merge в setChatLines
-   * смотрел бы на устаревший found.text; при bulk-replay (connect/resubscribe) дельты
-   * накладывались на уже полный текст и давали «Давайтевайте».
-   */
-  const streamTextAccRef: React.MutableRefObject<Map<string, string>> = React.useRef(new Map());
-  /** Склейка bash.* по call_id: без сырого JSON, один блок в ленте. */
-  const bashTextByCallRef: React.MutableRefObject<Map<string, string>> = React.useRef(new Map());
-  const [agentTurnInProgress, setAgentTurnInProgress] = React.useState(false);
-  const [permModeLabel, setPermModeLabel] = React.useState<string | null>(null);
-  const [permModeGateId, setPermModeGateId] = React.useState<string | null>(null);
-  const [toolApproval, setToolApproval] = React.useState<ToolApprovalPending | null>(null);
+  const [suppressedToolApprovalCallId, setSuppressedToolApprovalCallId] = React.useState<string | null>(null);
   const toolApprovalRef: React.MutableRefObject<ToolApprovalPending | null> = React.useRef<ToolApprovalPending | null>(null);
-  /** После успешного ``work.approval_resolve`` до появления ``tool.call_finished`` в trace. */
-  const suppressedToolApprovalCallIdRef: React.MutableRefObject<string | null> = React.useRef<string | null>(null);
-
-  React.useEffect(() => {
-    toolApprovalRef.current = toolApproval;
-  }, [toolApproval]);
 
   const setUiAndSave: (next: PersistedUiStateV1 | ((prev: PersistedUiStateV1) => PersistedUiStateV1)) => void = React.useCallback(
     (next) => {
@@ -310,6 +178,41 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   }, [ui.sessions, ui.activeSessionId]);
 
   activeChatIdRef.current = activeSession.chatId;
+
+  const traceProjection = React.useMemo(
+    () => projectChatTraceRows(rawTraceRows, { suppressedToolApprovalCallId }),
+    [rawTraceRows, suppressedToolApprovalCallId]
+  );
+  const normalizedRows: readonly NormalizedTraceProjection[] = traceProjection.normalizedRows;
+  const chatLines: readonly ChatLine[] = React.useMemo((): readonly ChatLine[] => {
+    const projectedIds: Set<string> = new Set(traceProjection.chatLines.map((line) => line.id));
+    return [
+      ...traceProjection.chatLines,
+      ...optimisticChatLines.filter((line) => !projectedIds.has(line.id))
+    ].sort((a, b) => {
+      const d: number = a.order - b.order;
+      if (d !== 0) {
+        return d;
+      }
+      return a.atIso.localeCompare(b.atIso);
+    });
+  }, [optimisticChatLines, traceProjection.chatLines]);
+  const agentTurnInProgress: boolean = traceProjection.agentTurnInProgress || optimisticChatLines.length > 0;
+  const permModeLabel: string | null = traceProjection.permModeLabel;
+  const permModeGateId: string | null = traceProjection.permModeGateId;
+  const toolApproval: ToolApprovalPending | null = traceProjection.toolApproval;
+
+  React.useEffect(() => {
+    toolApprovalRef.current = toolApproval;
+    if (!toolApproval) {
+      setSuppressedToolApprovalCallId(null);
+    }
+  }, [toolApproval]);
+
+  React.useEffect(() => {
+    const projectedIds: Set<string> = new Set(traceProjection.chatLines.map((line) => line.id));
+    setOptimisticChatLines((cur) => cur.filter((line) => !projectedIds.has(line.id)));
+  }, [traceProjection.chatLines]);
 
   const setActiveSessionId: (id: string) => void = React.useCallback(
     (id) => {
@@ -459,274 +362,6 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     });
   }, []);
 
-  const projectChatFromTrace: (rows: readonly Record<string, unknown>[]) => void = React.useCallback(
-    (rows) => {
-      const isBulkReplay: boolean = rows.length > 1;
-      if (isBulkReplay) {
-        streamTextAccRef.current = new Map();
-        bashTextByCallRef.current = new Map();
-        openReasoningLineIdRef.current = null;
-        nextReasoningSegRef.current = 0;
-        traceEventSeqRef.current = 0;
-        projectedRowKeysRef.current = new Set();
-        asstPartByMsgRef.current = new Map();
-        seenChatIds.current = new Set();
-        setChatLines([]);
-      }
-      const closeReasoningSegment: () => void = (): void => {
-        if (openReasoningLineIdRef.current !== null) {
-          openReasoningLineIdRef.current = null;
-          nextReasoningSegRef.current += 1;
-        }
-      };
-      const pushLine: (line: Omit<ChatLine, "order">, slotOrder: number) => void = (line, slotOrder): void => {
-        if (seenChatIds.current.has(line.id)) {
-          return;
-        }
-        seenChatIds.current.add(line.id);
-        const full: ChatLine = { ...line, order: slotOrder };
-        setChatLines((c) => [...c, full]);
-      };
-      const rd: string | null = runtimeDir;
-      const cid0: string = activeChatIdRef.current;
-      const diagnosticLines: string[] = [];
-      for (const row of rows) {
-        const dkey: string = dedupKeyForRow(row);
-        if (projectedRowKeysRef.current.has(dkey)) {
-          continue;
-        }
-        projectedRowKeysRef.current.add(dkey);
-        traceEventSeqRef.current += 1;
-        const eventSeq: number = traceEventSeqRef.current;
-        const n: NormalizedTraceProjection = normalizer.normalizeLine(row);
-        diagnosticLines.push(formatTraceProjectionDiagnosticLine(eventSeq, n));
-        if (n.kind === "user_prompt") {
-          openReasoningLineIdRef.current = null;
-          nextReasoningSegRef.current = 0;
-          streamTextAccRef.current.clear();
-          bashTextByCallRef.current = new Map();
-          asstPartByMsgRef.current.clear();
-          pushLine(
-            {
-              id: chatLineId("user", n.messageId),
-              from: "user",
-              text: n.humanLine,
-              atIso: n.createdAt || new Date().toISOString()
-            },
-            eventSeq
-          );
-        } else if (n.kind === "assistant_delta") {
-          closeReasoningSegment();
-          const p: number = asstPartByMsgRef.current.get(n.messageId) ?? 0;
-          const id: string = assistantStreamLineId(n.messageId, p);
-          const acc: Map<string, string> = streamTextAccRef.current;
-          const prevText: string = acc.get(id) ?? "";
-          const nextText: string = nextStreamLineText(n.textMode, prevText, n.humanLine);
-          acc.set(id, nextText);
-          setChatLines((cur) => {
-            const found: ChatLine | undefined = cur.find((x) => x.id === id);
-            const next: ChatLine = {
-              id,
-              from: "assistant",
-              text: nextText,
-              atIso: n.createdAt || new Date().toISOString(),
-              order: found ? found.order : eventSeq
-            };
-            if (!found) {
-              seenChatIds.current.add(id);
-              return [...cur, next];
-            }
-            return cur.map((x) => (x.id === id ? next : x));
-          });
-        } else if (n.kind === "assistant_thinking_delta") {
-          const mid: string = n.messageId;
-          let lineId: string;
-          if (openReasoningLineIdRef.current === null) {
-            lineId = `assistant-think:${mid}:s${nextReasoningSegRef.current}`;
-            openReasoningLineIdRef.current = lineId;
-          } else {
-            lineId = openReasoningLineIdRef.current;
-          }
-          const acc: Map<string, string> = streamTextAccRef.current;
-          const prevText: string = acc.get(lineId) ?? "";
-          const nextText: string = nextStreamLineText(n.textMode, prevText, n.humanLine);
-          acc.set(lineId, nextText);
-          setChatLines((cur) => {
-            const found: ChatLine | undefined = cur.find((x) => x.id === lineId);
-            const next: ChatLine = {
-              id: lineId,
-              from: "assistant",
-              text: nextText,
-              atIso: n.createdAt || new Date().toISOString(),
-              lineKind: "reasoning",
-              order: found ? found.order : eventSeq
-            };
-            if (!found) {
-              seenChatIds.current.add(lineId);
-              return [...cur, next];
-            }
-            return cur.map((x) => (x.id === lineId ? next : x));
-          });
-        } else if (n.kind === "assistant_final") {
-          closeReasoningSegment();
-          setAgentTurnInProgress(false);
-          const m: string = n.messageId;
-          const asstId: string = chatLineId("assistant", m);
-          const tFull: string = nfc(n.humanLine);
-          const atIso: string = n.createdAt || new Date().toISOString();
-          for (const k of [...streamTextAccRef.current.keys()]) {
-            if (k === asstId || k.startsWith(`asst-frag:${m}:`)) {
-              streamTextAccRef.current.delete(k);
-            }
-          }
-          streamTextAccRef.current.set(asstId, tFull);
-          asstPartByMsgRef.current.set(m, 0);
-          setChatLines((cur) => {
-            const removed: ChatLine[] = cur.filter(
-              (c) => c.id === asstId || c.id.startsWith(`asst-frag:${m}:`)
-            );
-            const orderFinal: number =
-              removed.length > 0 ? Math.min(...removed.map((c) => c.order)) : eventSeq;
-            for (const c of removed) {
-              if (c.id.startsWith("asst-frag:")) {
-                seenChatIds.current.delete(c.id);
-              }
-            }
-            const pruned: ChatLine[] = cur.filter(
-              (c) => c.id !== asstId && !c.id.startsWith(`asst-frag:${m}:`)
-            );
-            const merged: ChatLine = {
-              id: asstId,
-              from: "assistant",
-              text: tFull,
-              atIso,
-              order: orderFinal
-            };
-            if (!pruned.some((c) => c.id === asstId)) {
-              if (!seenChatIds.current.has(asstId)) {
-                seenChatIds.current.add(asstId);
-              }
-              return [...pruned, merged];
-            }
-            return pruned.map((c) => (c.id === asstId ? merged : c));
-          });
-        } else if (n.kind === "turn_completed") {
-          setAgentTurnInProgress(false);
-        } else if (n.kind === "turn_failed") {
-          setAgentTurnInProgress(false);
-          closeReasoningSegment();
-          pushLine(
-            {
-              id: chatLineId("system", `failed-${n.messageId}`),
-              from: "system",
-              text: n.humanLine,
-              atIso: n.createdAt || new Date().toISOString()
-            },
-            eventSeq
-          );
-        } else if (n.kind === "error_row") {
-          setAgentTurnInProgress(false);
-          closeReasoningSegment();
-          pushLine(
-            {
-              id: chatLineId("system", n.messageId),
-              from: "system",
-              text: n.humanLine,
-              atIso: n.createdAt || new Date().toISOString()
-            },
-            eventSeq
-          );
-        } else if (n.kind === "tool_event") {
-          closeReasoningSegment();
-          const evName: string = n.humanLine.trim();
-          const inner: Record<string, unknown> = extractToolEventInner(n.raw);
-          if (evName === "tool.call_started" && String(inner["tool"] ?? "") === "run_shell") {
-            const am: string = String(inner["message_id"] ?? "");
-            if (am.length > 0) {
-              const p0: number = asstPartByMsgRef.current.get(am) ?? 0;
-              const sk0: string = assistantStreamLineId(am, p0);
-              if ((streamTextAccRef.current.get(sk0) ?? "").length > 0) {
-                asstPartByMsgRef.current.set(am, p0 + 1);
-              }
-            }
-          }
-          const isShellChannel: boolean = /bash|tool\.(bash|sh)|^bash\./i.test(evName);
-          if (isShellChannel && isBashEventName(evName)) {
-            const callId: string = callIdForBashEvent(inner, n.messageId);
-            const lineId: string = `console:bash:call:${callId}`;
-            const prev: string = bashTextByCallRef.current.get(callId) ?? "";
-            const { next, didChange }: { next: string; didChange: boolean } = buildBashLineDelta(evName, inner, prev);
-            bashTextByCallRef.current.set(callId, next);
-            const atIso2: string = n.createdAt || new Date().toISOString();
-            if (next.length > 0 && (didChange || !seenChatIds.current.has(lineId))) {
-              if (!seenChatIds.current.has(lineId)) {
-                seenChatIds.current.add(lineId);
-                setChatLines((c) => [
-                  ...c,
-                  {
-                    id: lineId,
-                    from: "assistant",
-                    text: next,
-                    atIso: atIso2,
-                    lineKind: "console",
-                    consoleShell: "bash",
-                    consoleChannel: "shell",
-                    order: eventSeq
-                  }
-                ]);
-              } else {
-                setChatLines((c) => c.map((x) => (x.id === lineId ? { ...x, text: next, atIso: atIso2 } : x)));
-              }
-            }
-          } else {
-            const body: string = formatToolEventForConsole(evName, inner) || evName;
-            const isShell: boolean = isShellChannel;
-            const ch: "shell" | "tool" = isShell ? "shell" : "tool";
-            const sh: string = isShell && /bash/i.test(evName) ? "bash" : isShell ? "sh" : "sh";
-            pushLine(
-              {
-                id: `console:${n.messageId}:${evName}`,
-                from: "assistant",
-                text: body,
-                atIso: n.createdAt || new Date().toISOString(),
-                lineKind: "console",
-                consoleShell: sh,
-                consoleChannel: ch
-              },
-              eventSeq
-            );
-          }
-        }
-      }
-      if (rd) {
-        if (isBulkReplay) {
-          const stamp: string = new Date().toISOString();
-          void window.ailitDesktop.appendSessionDiagnostic({
-            runtimeDir: rd,
-            chatId: cid0,
-            lines: [
-              `${stamp}\teventSeq=bulk_replay\tbulk_replay_invalidate\trows=${String(
-                rows.length
-              )}\tper_row_diagnostic_skipped=1\n`
-            ]
-          });
-        } else if (diagnosticLines.length > 0) {
-          const chunk: number = 500;
-          for (let i: number = 0; i < diagnosticLines.length; i += chunk) {
-            const part: string[] = diagnosticLines.slice(i, i + chunk);
-            void window.ailitDesktop.appendSessionDiagnostic({ runtimeDir: rd, chatId: cid0, lines: part });
-          }
-        }
-      }
-    },
-    [runtimeDir]
-  );
-
-  const normalizedRows: NormalizedTraceProjection[] = React.useMemo(
-    () => rawTraceRows.map((r) => normalizer.normalizeLine(r)),
-    [rawTraceRows]
-  );
-
   const selectedProjectIds: readonly string[] = activeSession.projectIds;
 
   const agentDialogueMessages: readonly AgentDialogueMessage[] = React.useMemo(
@@ -797,7 +432,6 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     });
     if (dur.ok) {
       mergeRows(dur.rows);
-      projectChatFromTrace(dur.rows);
     }
     const sub: { readonly ok: true } | { readonly ok: false; readonly error: string } = await window.ailitDesktop.traceSubscribe({
       chatId: cid,
@@ -809,7 +443,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     } else {
       setConnection("ready");
     }
-  }, [brokerEndpoint, mergeRows, projectChatFromTrace, runtimeDir]);
+  }, [brokerEndpoint, mergeRows, runtimeDir]);
 
   const connectToBroker: () => Promise<void> = React.useCallback(async () => {
     const cid: string = activeSession.chatId;
@@ -867,7 +501,6 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     });
     if (dur1.ok) {
       mergeRows(dur1.rows);
-      projectChatFromTrace(dur1.rows);
     }
     const sub1: { readonly ok: true } | { readonly ok: false; readonly error: string } = await window.ailitDesktop.traceSubscribe({
       chatId: cid,
@@ -880,7 +513,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     }
     subChatIdRef.current = cid;
     setConnection("ready");
-  }, [activeSession.chatId, activeSession.id, mergeRows, pickWorkspace, projectChatFromTrace, refreshStatus]);
+  }, [activeSession.chatId, activeSession.id, mergeRows, pickWorkspace, refreshStatus]);
 
   React.useEffect(() => {
     void refreshStatus();
@@ -903,21 +536,9 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       return;
     }
     seenRowKeys.current = new Set();
-    seenChatIds.current = new Set();
-    projectedRowKeysRef.current = new Set();
-    asstPartByMsgRef.current = new Map();
-    traceEventSeqRef.current = 0;
-    openReasoningLineIdRef.current = null;
-    nextReasoningSegRef.current = 0;
-    streamTextAccRef.current = new Map();
-    bashTextByCallRef.current = new Map();
-    setAgentTurnInProgress(false);
     setRawTraceRows([]);
-    setChatLines([]);
-    setPermModeLabel(null);
-    setPermModeGateId(null);
-    setToolApproval(null);
-    suppressedToolApprovalCallIdRef.current = null;
+    setOptimisticChatLines([]);
+    setSuppressedToolApprovalCallId(null);
     setBrokerEndpoint(null);
     void connectToBroker();
   }, [
@@ -946,7 +567,6 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         setLastError("No workspace projects selected.");
         return;
       }
-      setAgentTurnInProgress(true);
       const built: ReturnType<typeof buildUserPromptAction> = buildUserPromptAction({
         chatId: chatId0,
         brokerId: `broker-${chatId0}`,
@@ -957,34 +577,28 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         workspace: { projectIds: ws0.pids, projectRoots: [...ws0.roots] }
       });
       const userId: string = chatLineId("user", built.messageId);
-      if (!seenChatIds.current.has(userId)) {
-        seenChatIds.current.add(userId);
-        traceEventSeqRef.current += 1;
-        const userOrder: number = traceEventSeqRef.current;
-        setChatLines((c) => [
-          ...c,
-          {
-            id: userId,
-            from: "user",
-            text: t,
-            atIso: new Date().toISOString(),
-            order: userOrder
-          }
-        ]);
-      }
+      const userOrder: number = rawTraceRows.length + optimisticChatLines.length + 1;
+      setOptimisticChatLines((cur) => [
+        ...cur.filter((line) => line.id !== userId),
+        {
+          id: userId,
+          from: "user",
+          text: t,
+          atIso: new Date().toISOString(),
+          order: userOrder
+        }
+      ]);
       const r: { readonly ok: true; readonly response: RuntimeResponseEnvelope } | { readonly ok: false; readonly error: string } =
         await window.ailitDesktop.brokerRequest({ endpoint: ep, request: built.envelope });
       if (!r.ok) {
-        setAgentTurnInProgress(false);
+        setOptimisticChatLines((cur) => cur.filter((line) => line.id !== userId));
         setLastError(r.error);
         return;
       }
       if (!r.response.ok) {
-        setAgentTurnInProgress(false);
         const err0: { readonly code: string; readonly message: string } | null = r.response.error;
         if (err0?.code === "agent_busy") {
-          seenChatIds.current.delete(userId);
-          setChatLines((c) => c.filter((line) => line.id !== userId));
+          setOptimisticChatLines((cur) => cur.filter((line) => line.id !== userId));
           setLastError(
             err0.message.length > 0
               ? err0.message
@@ -994,68 +608,20 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         }
         const asstIdErr: string = r.response.message_id;
         const errId: string = chatLineId("system", asstIdErr);
-        if (!seenChatIds.current.has(errId)) {
-          seenChatIds.current.add(errId);
-          traceEventSeqRef.current += 1;
-          const errOrder: number = traceEventSeqRef.current;
-          setChatLines((c) => [
-            ...c,
-            {
-              id: errId,
-              from: "system",
-              text: `Broker: ${JSON.stringify(r.response.error)}`,
-              atIso: r.response.created_at,
-              order: errOrder
-            }
-          ]);
-        }
+        setOptimisticChatLines((cur) => [
+          ...cur.filter((line) => line.id !== userId && line.id !== errId),
+          {
+            id: errId,
+            from: "system",
+            text: `Broker: ${JSON.stringify(r.response.error)}`,
+            atIso: r.response.created_at,
+            order: userOrder + 1
+          }
+        ]);
       }
     },
-    [activeSession.chatId, brokerEndpoint, pickWorkspace]
+    [activeSession.chatId, brokerEndpoint, optimisticChatLines.length, pickWorkspace, rawTraceRows.length]
   );
-
-  React.useEffect(() => {
-    for (let i: number = rawTraceRows.length - 1; i >= 0; i -= 1) {
-      const r: Record<string, unknown> = rawTraceRows[i]!;
-      if (r["type"] !== "topic.publish") {
-        continue;
-      }
-      const pl: Record<string, unknown> | null = asDict(r["payload"]);
-      if (!pl || pl["type"] !== "topic.publish") {
-        continue;
-      }
-      const en: unknown = pl["event_name"];
-      const inner: Record<string, unknown> | null = asDict(pl["payload"]);
-      if (typeof en !== "string" || !inner) {
-        continue;
-      }
-      if (en === "session.perm_mode.settled") {
-        const pm: unknown = inner["perm_mode"];
-        setPermModeLabel(typeof pm === "string" ? pm : "—");
-        setPermModeGateId(null);
-        return;
-      }
-      if (en === "session.perm_mode.need_user_choice") {
-        const g: unknown = inner["gate_id"];
-        if (typeof g === "string" && g.length > 0) {
-          setPermModeGateId(g);
-        }
-        return;
-      }
-    }
-  }, [rawTraceRows]);
-
-  React.useEffect(() => {
-    const p: ToolApprovalPending | null = findPendingToolApproval(rawTraceRows);
-    if (p && suppressedToolApprovalCallIdRef.current === p.callId) {
-      setToolApproval(null);
-      return;
-    }
-    if (!p) {
-      suppressedToolApprovalCallIdRef.current = null;
-    }
-    setToolApproval(p);
-  }, [rawTraceRows]);
 
   const submitToolApproval: (approved: boolean) => Promise<void> = React.useCallback(
     async (approved) => {
@@ -1064,8 +630,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         return;
       }
       const finishUi: (reason: string | null) => void = (reason) => {
-        suppressedToolApprovalCallIdRef.current = req.callId;
-        setToolApproval(null);
+        setSuppressedToolApprovalCallId(req.callId);
         setLastError(reason);
       };
       const ep: string | null = brokerEndpoint;
@@ -1134,16 +699,18 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       });
       const r: { readonly ok: true; readonly response: RuntimeResponseEnvelope } | { readonly ok: false; readonly error: string } =
         await window.ailitDesktop.brokerRequest({ endpoint: ep, request: built.envelope });
-      if (r.ok && r.response.ok) {
-        setPermModeGateId(null);
+      if (!r.ok) {
+        setLastError(r.error);
+        return;
+      }
+      if (!r.response.ok) {
+        setLastError(r.response.error?.message ?? "perm mode choice failed");
       }
     },
     [activeSession.chatId, brokerEndpoint, permModeGateId, pickWorkspace]
   );
 
   const requestStopAgent: () => Promise<void> = React.useCallback(async () => {
-    setAgentTurnInProgress(false);
-    openReasoningLineIdRef.current = null;
     const cid: string = activeSession.chatId;
     setBrokerEndpoint(null);
     try {
@@ -1165,7 +732,6 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         return;
       }
       mergeRows([evt.row]);
-      projectChatFromTrace([evt.row]);
     });
     const offCh: (() => void) | void = window.ailitDesktop.onTraceChannel((ch) => {
       if (ch.chatId !== activeChatIdRef.current) {
@@ -1194,7 +760,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         offCh();
       }
     };
-  }, [mergeRows, projectChatFromTrace, resubscribeTrace]);
+  }, [mergeRows, resubscribeTrace]);
 
   const v: DesktopSessionValue = {
     chatId: activeSession.chatId,
