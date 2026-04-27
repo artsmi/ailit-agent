@@ -6,6 +6,7 @@ import { ChatHistoryModal } from "../components/chat/ChatHistoryModal";
 import { CandyChatConsoleBlock } from "../components/chat/CandyChatConsoleBlock";
 import { CandyMarkdownBody } from "../components/chat/CandyMarkdownBody";
 import { ChatSessionTabs } from "../components/chat/ChatSessionTabs";
+import { ContextFillPanel } from "../components/chat/ContextFillPanel";
 import { useChatLayout } from "../shell/ChatLayoutContext";
 import { useDesktopSession, type ChatLine } from "../runtime/DesktopSessionContext";
 import type { ChatSessionRecordV1, ChatToolDisplayV1 } from "../state/persistedUi";
@@ -251,6 +252,7 @@ export function ChatPage(): React.JSX.Element {
       <div className="candyChatSplit">
         <div className="candyChatMainCol">
           {s.lastError ? <div className="candyChatErrBanner">{s.lastError}</div> : null}
+          <ContextFillPanel state={s.contextFill} />
           <div className="candyChatScroll" ref={chatScrollRef}>
             <div className="candyChatScrollInner" ref={innerObsRef}>
               {groups.map((g, gi) => (

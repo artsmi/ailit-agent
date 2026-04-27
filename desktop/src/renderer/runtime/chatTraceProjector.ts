@@ -26,12 +26,27 @@ export type ToolApprovalPending = {
   readonly tool: string;
 };
 
+export type ContextFillState = {
+  readonly turnId: string;
+  readonly model: string;
+  readonly usageState: "estimated" | "confirmed";
+  readonly estimatedContextTokens: number;
+  readonly confirmedContextTokens: number | null;
+  readonly effectiveContextLimit: number;
+  readonly modelContextLimit: number;
+  readonly reservedOutputTokens: number;
+  readonly contextUsagePercent: number;
+  readonly warningState: "normal" | "warning" | "compact_recommended" | "overflow_risk";
+  readonly breakdown: Readonly<Record<string, number>>;
+};
+
 export type ChatTraceProjection = {
   readonly chatLines: readonly ChatLine[];
   readonly agentTurnInProgress: boolean;
   readonly permModeLabel: string | null;
   readonly permModeGateId: string | null;
   readonly toolApproval: ToolApprovalPending | null;
+  readonly contextFill: ContextFillState | null;
   readonly normalizedRows: readonly NormalizedTraceProjection[];
 };
 
@@ -133,6 +148,86 @@ function readApprovalResolve(row: Record<string, unknown>): { readonly callId: s
   return { callId, ok: typeof ok === "boolean" ? ok : null };
 }
 
+function num(v: unknown): number | null {
+  return typeof v === "number" && Number.isFinite(v) ? v : null;
+}
+
+function str(v: unknown): string {
+  return typeof v === "string" ? v : "";
+}
+
+function warningState(v: unknown): ContextFillState["warningState"] {
+  const s: string = str(v);
+  if (s === "warning" || s === "compact_recommended" || s === "overflow_risk") {
+    return s;
+  }
+  return "normal";
+}
+
+function numericBreakdown(v: unknown): Readonly<Record<string, number>> {
+  const d: Record<string, unknown> | null = asDict(v);
+  const out: Record<string, number> = {};
+  if (!d) {
+    return out;
+  }
+  for (const [k, raw] of Object.entries(d)) {
+    const n: number | null = num(raw);
+    if (n !== null) {
+      out[k] = n;
+    }
+  }
+  return out;
+}
+
+function contextSnapshotFromInner(inner: Record<string, unknown>): ContextFillState | null {
+  if (inner["schema"] !== "context.snapshot.v1") {
+    return null;
+  }
+  const turnId: string = str(inner["turn_id"]);
+  const model: string = str(inner["model"]);
+  const estimated: number | null = num(inner["estimated_context_tokens"]);
+  const effective: number | null = num(inner["effective_context_limit"]);
+  const modelLimit: number | null = num(inner["model_context_limit"]);
+  const reserved: number | null = num(inner["reserved_output_tokens"]);
+  const pct: number | null = num(inner["context_usage_percent"]);
+  if (!turnId || estimated === null || effective === null || modelLimit === null || reserved === null) {
+    return null;
+  }
+  return {
+    turnId,
+    model,
+    usageState: "estimated",
+    estimatedContextTokens: estimated,
+    confirmedContextTokens: null,
+    effectiveContextLimit: effective,
+    modelContextLimit: modelLimit,
+    reservedOutputTokens: reserved,
+    contextUsagePercent: pct ?? 0,
+    warningState: warningState(inner["warning_state"]),
+    breakdown: numericBreakdown(inner["breakdown"])
+  };
+}
+
+function applyConfirmedUsage(
+  cur: ContextFillState | null,
+  inner: Record<string, unknown>
+): ContextFillState | null {
+  if (inner["schema"] !== "context.provider_usage_confirmed.v1" || cur === null) {
+    return cur;
+  }
+  const confirmed: number | null = num(inner["confirmed_context_tokens"]);
+  const nextPct: number =
+    confirmed === null
+      ? cur.contextUsagePercent
+      : Math.round((confirmed / Math.max(1, cur.effectiveContextLimit)) * 10000) / 100;
+  return {
+    ...cur,
+    usageState: "confirmed",
+    confirmedContextTokens: confirmed,
+    contextUsagePercent: nextPct
+  };
+}
+
 export function projectChatTraceRows(
   rows: readonly Record<string, unknown>[],
   opts: { readonly suppressedToolApprovalCallId?: string | null } = {}
@@ -150,6 +245,7 @@ export function projectChatTraceRows(
   let permModeLabel: string | null = null;
   let permModeGateId: string | null = null;
   let toolApproval: ToolApprovalPending | null = null;
+  let contextFill: ContextFillState | null = null;
 
   const closeReasoningSegment: () => void = (): void => {
     if (openReasoningLineId !== null) {
@@ -173,6 +269,11 @@ export function projectChatTraceRows(
     }
     const ev: ChatTopicEvent | null = readChatTopicEvent(row);
     if (ev) {
+      if (ev.eventName === "context.snapshot") {
+        contextFill = contextSnapshotFromInner(ev.inner) ?? contextFill;
+      } else if (ev.eventName === "context.provider_usage_confirmed") {
+        contextFill = applyConfirmedUsage(contextFill, ev.inner);
+      }
       if (shouldMarkTurnActive(ev.eventName)) {
         agentTurnInProgress = true;
       }
@@ -389,6 +490,7 @@ export function projectChatTraceRows(
     permModeLabel,
     permModeGateId,
     toolApproval,
+    contextFill,
     normalizedRows
   };
 }

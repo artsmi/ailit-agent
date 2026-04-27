@@ -912,6 +912,113 @@ button {
   overflow: hidden;
 }
 
+.contextFillPanel {
+  width: min(54rem, calc(100% - 2rem));
+  margin: 0.75rem auto 0 auto;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid rgba(224, 64, 160, 0.18);
+  border-radius: 1.1rem;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.92), rgba(253, 242, 248, 0.86));
+  box-shadow: 0 10px 30px rgba(224, 64, 160, 0.08);
+}
+
+.contextFillTop,
+.contextFillMeta,
+.contextFillBreakdown,
+.contextFillTitle {
+  display: flex;
+  align-items: center;
+}
+
+.contextFillTop {
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.contextFillTitle {
+  gap: 0.35rem;
+  color: #334155;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.contextFillTitle .candyMaterialIcon {
+  color: var(--candy-accent);
+  font-size: 1.05rem;
+}
+
+.contextFillMode {
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  background: #fce7f3;
+  color: #be185d;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.contextFillPct {
+  color: #0f172a;
+  font-size: 0.95rem;
+  font-weight: 900;
+}
+
+.contextFillBar {
+  height: 0.42rem;
+  margin-top: 0.55rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #f1f5f9;
+}
+
+.contextFillBarInner {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #22c55e, #e040a0);
+  transition: width 160ms ease;
+}
+
+.contextFillPanel-warning .contextFillBarInner {
+  background: linear-gradient(90deg, #f59e0b, #e040a0);
+}
+
+.contextFillPanel-compact_recommended .contextFillBarInner,
+.contextFillPanel-overflow_risk .contextFillBarInner {
+  background: linear-gradient(90deg, #fb7185, #be123c);
+}
+
+.contextFillMeta {
+  justify-content: space-between;
+  gap: 0.55rem;
+  margin-top: 0.45rem;
+  color: #64748b;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.contextFillBreakdown {
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+}
+
+.contextFillChip {
+  padding: 0.18rem 0.42rem;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: #475569;
+  font-size: 0.65rem;
+  font-weight: 750;
+}
+
+.contextFillChip-memory_abc,
+.contextFillChip-memory_d {
+  border-color: rgba(224, 64, 160, 0.28);
+  color: #be185d;
+}
+
 .candyChatScroll {
   min-height: 0;
   flex: 1 1 0;

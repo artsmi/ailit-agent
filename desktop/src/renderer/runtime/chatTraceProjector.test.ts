@@ -173,4 +173,56 @@ describe("projectChatTraceRows", () => {
     const out = projectChatTraceRows(rows);
     expect(out.agentTurnInProgress).toBe(false);
   });
+
+  it("projects context fill estimated snapshot and confirmed usage", () => {
+    const rows: Record<string, unknown>[] = [
+      userPrompt(1),
+      topic(
+        "context.snapshot",
+        {
+          schema: "context.snapshot.v1",
+          turn_id: "turn-0",
+          model: "mock",
+          model_context_limit: 200000,
+          effective_context_limit: 180000,
+          reserved_output_tokens: 20000,
+          estimated_context_tokens: 90000,
+          context_usage_percent: 50,
+          warning_state: "normal",
+          usage_state: "estimated",
+          breakdown: {
+            system: 1000,
+            tools: 2000,
+            messages: 3000,
+            memory_abc: 4000,
+            memory_d: 0,
+            tool_results: 5000,
+            free: 165000
+          }
+        },
+        2
+      ),
+      topic(
+        "context.provider_usage_confirmed",
+        {
+          schema: "context.provider_usage_confirmed.v1",
+          turn_id: "turn-0",
+          input_tokens: 10000,
+          output_tokens: 500,
+          cache_read_tokens: 1000,
+          cache_write_tokens: 0,
+          confirmed_context_tokens: 11500,
+          usage_state: "confirmed"
+        },
+        3
+      )
+    ];
+
+    const out = projectChatTraceRows(rows);
+    expect(out.contextFill?.usageState).toBe("confirmed");
+    expect(out.contextFill?.estimatedContextTokens).toBe(90000);
+    expect(out.contextFill?.confirmedContextTokens).toBe(11500);
+    expect(out.contextFill?.breakdown["memory_abc"]).toBe(4000);
+    expect(out.contextFill?.contextUsagePercent).toBe(6.39);
+  });
 });

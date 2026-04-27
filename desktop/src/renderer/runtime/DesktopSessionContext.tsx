@@ -26,6 +26,7 @@ import {
   chatLineId,
   projectChatTraceRows,
   type ChatLine,
+  type ContextFillState,
   type ToolApprovalPending
 } from "./chatTraceProjector";
 import { dedupKeyForRow, type NormalizedTraceProjection } from "./traceNormalize";
@@ -81,6 +82,7 @@ export type DesktopSessionValue = {
   /** ASK: ``session.waiting_approval`` — показать модалку и вызвать ``work.approval_resolve``. */
   readonly toolApproval: { readonly callId: string; readonly tool: string } | null;
   readonly submitToolApproval: (approved: boolean) => Promise<void>;
+  readonly contextFill: ContextFillState | null;
 };
 
 const Ctx = React.createContext<DesktopSessionValue | null>(null);
@@ -233,6 +235,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const permModeLabel: string | null = traceProjection.permModeLabel;
   const permModeGateId: string | null = traceProjection.permModeGateId;
   const toolApproval: ToolApprovalPending | null = traceProjection.toolApproval;
+  const contextFill: ContextFillState | null = traceProjection.contextFill;
 
   React.useEffect(() => {
     toolApprovalRef.current = toolApproval;
@@ -851,7 +854,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     permModeGateId,
     submitPermModeChoice,
     toolApproval,
-    submitToolApproval
+    submitToolApproval,
+    contextFill
   };
 
   return <Ctx.Provider value={v}>{children}</Ctx.Provider>;
