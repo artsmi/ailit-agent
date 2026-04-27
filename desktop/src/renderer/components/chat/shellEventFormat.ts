@@ -63,6 +63,86 @@ export function shortToolLine(eventName: string, inner: Readonly<Record<string, 
   return eventName;
 }
 
+const TOOL_FOR_CONSOLE_SKIP: ReadonlySet<string> = new Set([
+  "call_id",
+  "message_id",
+  "type",
+  "messageId",
+  "tool",
+  "ok"
+]);
+
+const TOOL_FOR_CONSOLE_PREFERRED: readonly string[] = [
+  "name",
+  "relative_path",
+  "file_change_kind",
+  "text",
+  "message",
+  "detail",
+  "path",
+  "error",
+  "reason"
+];
+
+/**
+ * Многострочный текст для консольного блока tool.* (тот же парсер, что и для shell).
+ */
+export function formatToolEventForConsole(eventName: string, inner: Readonly<Record<string, unknown>>): string {
+  const tool: string = typeof inner["tool"] === "string" ? (inner["tool"] as string) : "";
+  const first: string = tool ? `${eventName} — ${tool}` : eventName;
+  const out: string[] = [];
+  const used: Set<string> = new Set(TOOL_FOR_CONSOLE_SKIP);
+  const clip: (s: string, m: number) => string = (s: string, m: number): string =>
+    s.length > m ? `${s.slice(0, m)}…` : s;
+  const addLine: (k: string, v: string | number | boolean) => void = (k: string, v: string | number | boolean): void => {
+    if (k === "name" && typeof v === "string" && v === tool) {
+      used.add("name");
+      return;
+    }
+    const t: string = String(v);
+    if (k === "error" || t.includes("\n")) {
+      out.push(clip(t, 4000));
+    } else {
+      out.push(clip(t, 2000));
+    }
+    used.add(k);
+  };
+  for (const k of TOOL_FOR_CONSOLE_PREFERRED) {
+    const v: unknown = inner[k];
+    if (v == null) {
+      continue;
+    }
+    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+      addLine(k, v);
+    }
+  }
+  for (const k of Object.keys(inner).sort()) {
+    if (used.has(k)) {
+      continue;
+    }
+    const v: unknown = inner[k];
+    if (v == null) {
+      continue;
+    }
+    if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+      if (k === "ok" && (v === true || v === "true")) {
+        continue;
+      }
+      addLine(k, v);
+    }
+  }
+  if (inner["ok"] === false) {
+    const haveErr: boolean = typeof inner["error"] === "string" && (inner["error"] as string).length > 0;
+    if (!haveErr) {
+      out.push("Сбой выполнения");
+    }
+  }
+  if (out.length === 0) {
+    return first;
+  }
+  return [first, ...out].join("\n");
+}
+
 export function buildBashLineDelta(
   eventName: string,
   inner: Readonly<Record<string, unknown>>,
@@ -70,10 +150,14 @@ export function buildBashLineDelta(
 ): { readonly next: string; readonly didChange: boolean } {
   if (eventName === "bash.execution") {
     const rawCmd: string = String(inner["command"] ?? "").trim() || "…";
-    if (accBefore.includes(`▸ ${rawCmd}`) || /^▸\s/m.test(accBefore)) {
+    const firstLine: string = (accBefore.split(/\r?\n/)[0] ?? "").replace(/^\s*▸\s+/, "");
+    if (firstLine.trim() === rawCmd.trim() && accBefore.length > 0) {
       return { next: accBefore, didChange: false };
     }
-    return { next: `▸ ${rawCmd}\n\n${accBefore}`, didChange: true };
+    if (accBefore.length === 0) {
+      return { next: `${rawCmd}\n\n`, didChange: true };
+    }
+    return { next: `${rawCmd}\n\n${accBefore}`, didChange: true };
   }
   if (eventName === "bash.output_delta") {
     const chunk: string = inner["chunk"] == null ? "" : normalizeBashOutputChunk(String(inner["chunk"]));

@@ -22,8 +22,8 @@ import {
   buildBashLineDelta,
   callIdForBashEvent,
   extractToolEventInner,
-  isBashEventName,
-  shortToolLine
+  formatToolEventForConsole,
+  isBashEventName
 } from "../components/chat/shellEventFormat";
 import { formatTraceProjectionDiagnosticLine } from "./desktopSessionDiagnosticLog";
 import { dedupKeyForRow, RuntimeTraceNormalizer, type NormalizedTraceProjection } from "./traceNormalize";
@@ -587,7 +587,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
               }
             }
           } else {
-            const body: string = shortToolLine(evName, inner) || evName;
+            const body: string = formatToolEventForConsole(evName, inner) || evName;
             const isShell: boolean = isShellChannel;
             const ch: "shell" | "tool" = isShell ? "shell" : "tool";
             const sh: string = isShell && /bash/i.test(evName) ? "bash" : isShell ? "sh" : "sh";

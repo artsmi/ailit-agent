@@ -1,8 +1,7 @@
 import React from "react";
 
 import { CandyMaterialIcon } from "../../shell/CandyMaterialIcon";
-
-const PREVIEW_LINES: number = 5;
+import { type ParsedConsoleBlock, parseConsoleBlockText } from "./consoleBlockModel";
 
 type CandyChatConsoleBlockProps = {
   readonly shell: string;
@@ -18,10 +17,7 @@ export function CandyChatConsoleBlock(p: CandyChatConsoleBlockProps): React.JSX.
   const shell: string = p.shell;
   const text: string = p.text;
   const variant: "normal" | "compact" = p.variant ?? "normal";
-  const lines: readonly string[] = text.split(/\r?\n/);
-  const preview: readonly string[] = lines.slice(0, PREVIEW_LINES);
-  const rest: readonly string[] = lines.slice(PREVIEW_LINES);
-  const hasMore: boolean = rest.length > 0;
+  const parsed: ParsedConsoleBlock = React.useMemo((): ParsedConsoleBlock => parseConsoleBlockText(text), [text]);
   return (
     <div
       className={
@@ -36,30 +32,63 @@ export function CandyChatConsoleBlock(p: CandyChatConsoleBlockProps): React.JSX.
         </div>
         <div className="candyChatConsoleBody">
           <div className="candyChatConsolePre">
-            {preview.map((line, i) => (
-              <div className="candyChatConsoleLine" key={`p-${i}`}>
-                {line}
-              </div>
-            ))}
+            <div className="candyChatConsoleLine candyChatConsoleCmd">{parsed.titleLine}</div>
+            {parsed.contentLines.length === 0
+              ? null
+              : parsed.hasExpandable
+                ? (parsed.previewOutLines as string[]).map((line, i) => {
+                    return (
+                    <div
+                      className="candyChatConsoleLine candyChatConsoleOutLine"
+                      key={`p-${i}-${String(line).slice(0, 32)}`}
+                    >
+                      {line}
+                    </div>
+                    );
+                  })
+                : (parsed.contentLines as string[]).map((line, i) => {
+                    return (
+                    <div
+                      className="candyChatConsoleLine candyChatConsoleOutLine"
+                      key={`a-${i}-${String(line).slice(0, 32)}`}
+                    >
+                      {line}
+                    </div>
+                    );
+                  })}
           </div>
-          {hasMore ? (
+          {parsed.hasExpandable ? (
             <details className="candyChatConsoleDetails">
               <summary className="candyChatConsoleMore">
-                <span>Показать полностью</span>
+                <span className="candyChatConsoleMoreText">Показать полностью</span>
                 <span className="candyChatConsoleMoreIconWrap" aria-hidden="true">
                   <CandyMaterialIcon filled name="expand_more" />
                 </span>
               </summary>
               <div className="candyChatConsoleRest">
-                {rest.map((line, i) => (
-                  <div className="candyChatConsoleLine" key={`r-${i}`}>
+                {(parsed.fullTextLines as string[]).map((line, i) => {
+                  return (
+                  <div
+                    className="candyChatConsoleLine candyChatConsoleOutLine"
+                    key={`e-${i}-${String(line).slice(0, 32)}`}
+                  >
                     {line}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </details>
           ) : null}
         </div>
+        {typeof parsed.statusDetail === "string" && (parsed.status === "ok" || parsed.status === "error") ? (
+          <div
+            className={
+              parsed.status === "ok" ? "candyChatConsoleStatusRow candyChatConsoleStatusOk" : "candyChatConsoleStatusRow candyChatConsoleStatusErr"
+            }
+          >
+            {parsed.statusDetail}
+          </div>
+        ) : null}
       </div>
     </div>
   );
