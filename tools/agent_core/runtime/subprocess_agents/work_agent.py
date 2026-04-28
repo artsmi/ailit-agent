@@ -571,7 +571,66 @@ class _WorkChatSession:
             shell_default=PermissionDecision.ALLOW,
             network_default=PermissionDecision.ALLOW,
         )
-        runner = SessionRunner(provider_obj, reg, permission_engine=perm_base)
+
+        def _file_changed_notifier(info: dict[str, Any]) -> None:
+            """G12.7: уведомить AgentMemory о записанных путях (semantic C remap)."""
+            root = workspace.project_root.resolve()
+            paths = info.get("written_paths") or ()
+            if not paths:
+                return
+            sock = str(worker._cfg.broker_socket_path or "").strip()
+            if not sock:
+                return
+            ns0 = str(info.get("namespace") or "").strip() or identity.namespace
+            ns = ns0
+            if not ns:
+                try:
+                    rc = detect_repo_context(root)
+                    ns = namespace_for_repo(
+                        repo_uri=rc.repo_uri,
+                        repo_path=rc.repo_path,
+                        branch=rc.branch,
+                    )
+                except OSError:
+                    ns = "default"
+            client = _BrokerServiceClient(
+                worker._cfg.broker_socket_path,
+            )
+            changes: list[dict[str, Any]] = [
+                {
+                    "path": str(p),
+                    "operation": "modified",
+                    "changed_ranges": [{"new_lines": [0, 0]}],
+                }
+                for p in paths
+            ]
+            payload: dict[str, Any] = {
+                "service": "memory.file_changed",
+                "request_id": f"fc-{time.time_ns()}",
+                "schema": "memory.file_changed.v1",
+                "chat_id": identity.chat_id,
+                "turn_id": assistant_mid,
+                "namespace": ns,
+                "project_root": str(root),
+                "changes": changes,
+                "source": "AgentWork",
+            }
+            try:
+                client.request(
+                    identity=identity,
+                    parent_message_id=assistant_mid,
+                    to_agent="AgentMemory:global",
+                    payload=payload,
+                )
+            except Exception:  # noqa: BLE001
+                return
+
+        runner = SessionRunner(
+            provider_obj,
+            reg,
+            permission_engine=perm_base,
+            file_changed_notifier=_file_changed_notifier,
+        )
         pm_en = _work_agent_perm_mode_enabled()
         perm_tool_mode = "explore"
         perm_bypass = bool(

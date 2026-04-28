@@ -506,6 +506,35 @@ class SqlitePagStore:
             rows = con.execute(sql, tuple(params)).fetchall()
         return [self._row_to_node(r) for r in rows]
 
+    def list_nodes_for_path(
+        self,
+        *,
+        namespace: str,
+        path: str,
+        level: str | None = None,
+        limit: int = 500,
+    ) -> list[PagNode]:
+        """Все ноды с данным относительным path (для C remap, G12.7)."""
+        ns = str(namespace).strip()
+        p = str(path or "").strip().replace("\\", "/").lstrip("./")
+        if not ns or not p:
+            return []
+        lim = max(1, min(int(limit), 10_000))
+        where: list[str] = ["namespace = ?", "path = ?"]
+        params: list[object] = [ns, p]
+        if level is not None:
+            where.append("level = ?")
+            params.append(str(level))
+        where_sql = " AND ".join(where)
+        sql = (
+            f"SELECT * FROM pag_nodes WHERE {where_sql} "
+            "ORDER BY updated_at DESC LIMIT ?"
+        )
+        params.append(lim)
+        with self._connect() as con:
+            rows = con.execute(sql, tuple(params)).fetchall()
+        return [self._row_to_node(r) for r in rows]
+
     def list_edges_touching(
         self,
         *,

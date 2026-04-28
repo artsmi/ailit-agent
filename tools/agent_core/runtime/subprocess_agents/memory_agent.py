@@ -8,9 +8,9 @@ it returns both legacy ``MemoryGrant`` objects and a prompt-ready
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
 import uuid
+from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
@@ -24,6 +24,7 @@ from agent_core.runtime.memory_journal import (
     MemoryJournalStore,
 )
 from agent_core.memory.pag_runtime import PagRuntimeConfig
+from agent_core.memory.sqlite_pag import SqlitePagStore
 from agent_core.runtime.memory_growth import QueryDrivenPagGrowth
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
@@ -31,6 +32,10 @@ from agent_core.runtime.models import (
     MemoryGrantRange,
     RuntimeRequestEnvelope,
     make_response_envelope,
+)
+from agent_core.runtime.memory_c_remap import (
+    CRemapBatchResult,
+    SemanticCRemapService,
 )
 from agent_core.runtime.pag_graph_trace import emit_pag_graph_trace_row
 
@@ -270,6 +275,79 @@ class AgentMemoryWorker:
             "target_file_paths": list(res.target_file_paths),
         }
 
+    def _handle_file_changed(
+        self,
+        req: RuntimeRequestEnvelope,
+        *,
+        request_id: str,
+    ) -> Mapping[str, Any]:
+        """`memory.file_changed` — B fingerprint + semantic C remap (G12.7)."""
+        pl: Mapping[str, Any] = req.payload
+        project_root = str(pl.get("project_root", "") or "").strip()
+        if not project_root:
+            return make_response_envelope(
+                request=req,
+                ok=False,
+                payload={},
+                error={"code": "bad_request", "message": "project_root required"},
+            ).to_dict()
+        raw_ch: Any = pl.get("changes", [])
+        rels: list[str] = []
+        if isinstance(raw_ch, list):
+            for it in raw_ch:
+                if isinstance(it, dict):
+                    rp = str(it.get("path", "") or "").strip()
+                    if rp:
+                        rels.append(rp)
+        if not rels:
+            return make_response_envelope(
+                request=req,
+                ok=True,
+                payload={"remapped": []},
+            ).to_dict()
+        self._append_journal(
+            req=req,
+            event_name="memory.file_changed.received",
+            summary="file change batch for C remap",
+            request_id=request_id,
+            payload={"paths": list(rels)},
+        )
+        store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
+        svc = SemanticCRemapService(store)
+        ns = str(
+            pl.get("namespace", "") or req.namespace or self._cfg.namespace,
+        ).strip() or self._cfg.namespace
+        res: list[CRemapBatchResult] = svc.process_changes(
+            namespace=ns,
+            project_root=Path(project_root).expanduser().resolve(),
+            relative_paths=tuple(rels),
+            graph_trace_hook=self._graph_trace_hook(req),
+        )
+        out_pl = {
+            "remapped": [r.path for r in res],
+            "summary": [
+                {
+                    "path": r.path,
+                    "updated": r.updated,
+                    "needs_llm_remap": r.needs_llm_remap,
+                }
+                for r in res
+            ],
+        }
+        self._append_journal(
+            req=req,
+            event_name="memory.file_changed.finished",
+            summary="C remap pass completed",
+            request_id=request_id,
+            payload=out_pl,
+        )
+        return make_response_envelope(
+            request=req,
+            ok=True,
+            payload=out_pl,
+            error=None,
+        ).to_dict()
+
     def _fallback_slice(
         self,
         *,
@@ -313,6 +391,11 @@ class AgentMemoryWorker:
                 error={"code": "unsupported", "message": req.type},
             ).to_dict()
         service = str(req.payload.get("service", "") or "")
+        if service == "memory.file_changed":
+            rfc = str(req.payload.get("request_id", "") or "") or str(
+                req.message_id,
+            )
+            return self._handle_file_changed(req, request_id=rfc)
         if service and service != "memory.query_context":
             return make_response_envelope(
                 request=req,

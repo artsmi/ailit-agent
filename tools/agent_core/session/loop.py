@@ -375,6 +375,7 @@ class SessionRunner:
         registry: ToolRegistry,
         *,
         permission_engine: PermissionEngine | None = None,
+        file_changed_notifier: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         """Связать провайдер и реестр инструментов."""
         self._provider = provider
@@ -384,6 +385,9 @@ class SessionRunner:
         self._context_snapshot_builder = ContextSnapshotBuilder()
         self._d_level_compact = DLevelCompactService.default()
         self._pag_namespace: str = ""
+        self._file_changed_notifier: Callable[[dict[str, Any]], None] | None = (
+            file_changed_notifier
+        )
         perm = permission_engine or PermissionEngine()
         self._perm = perm
 
@@ -1178,13 +1182,21 @@ class SessionRunner:
                 if isinstance(rp, str) and rp.strip():
                     written.append(rp.strip())
         if written:
+            wr = tuple(sorted(set(written)))
             self._maybe_sync_pag_after_write_file(
                 namespace=self._pag_namespace,
-                written_paths=tuple(sorted(set(written))),
+                written_paths=wr,
                 events=events,
                 diag_sink=diag_sink,
                 event_sink=event_sink,
             )
+            if self._file_changed_notifier is not None:
+                self._file_changed_notifier(
+                    {
+                        "namespace": str(self._pag_namespace or "").strip(),
+                        "written_paths": wr,
+                    },
+                )
         pcfg = settings.context_pager
         rows: list[tuple[ToolInvocation, ToolRunResult, str]] = []
         for inv, tr in zip(invs, results, strict=True):
