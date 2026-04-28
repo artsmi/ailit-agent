@@ -261,13 +261,13 @@ AgentWork
   - `operation`: `create | modify | delete | rename`;
   - `old_path` для rename;
   - `tool_call_id` / `message_id`;
-  - `content_before_fingerprint` (если известен);
+  - `content_before_fingerprint` — строка или `null`, если runtime не знает прежний fingerprint;
   - `content_after_fingerprint`;
-  - `line_ranges_touched[]` (если tool/runtime знает);
-  - `symbol_hints[]` (если AgentWork/tool знает: function/class/config key/heading);
+  - `line_ranges_touched[]` — массив, пустой если tool/runtime не знает ranges;
+  - `symbol_hints[]` — массив, пустой если AgentWork/tool не знает function/class/config key/heading;
   - `change_summary` — результат-only summary без chain-of-thought;
-  - `requires_llm_review`: optional hint, не окончательное решение.
-- `created_artifacts[]` — если были build/cache/generated outputs; по умолчанию AgentMemory не анализирует content artifacts, только metadata.
+  - `requires_llm_review`: advisory boolean, не окончательное решение; отсутствующее значение трактуется как `false`.
+- `created_artifacts[]` — массив, пустой если build/cache/generated outputs не были обнаружены; по умолчанию AgentMemory не анализирует content artifacts, только metadata.
 
 Правила:
 
@@ -312,11 +312,276 @@ DesktopSessionContext
 
 Каждый этап должен завершаться отдельным коммитом с префиксом `g13/G13.n`. До коммита выполнять проверки из этапа. После успешного коммита — уведомление по `.cursor/rules/project-workflow.mdc`.
 
+### Обязательная трассировка описаний в этапы
+
+Все выводы аудита и все целевые описания ниже являются **нормативными требованиями**, а не справочным текстом. Исполнитель этапа обязан открыть этот подраздел перед кодом и выполнить все ID, перечисленные в строке своего этапа.
+
+Запрещённая трактовка: "можно реализовать частично", "оставить на потом", "сделать похожий helper", "добавить fallback без теста", "обойти контракт ради скорости". Если в этапе указан ID, этап считается незавершённым, пока требования этого ID не реализованы и не покрыты критериями/тестами этапа.
+
+#### ID выводов аудита
+
+| ID | Вывод аудита | Где описан | Обязательный этап |
+|----|--------------|------------|-------------------|
+| `A13.1` | PAG `rev`/delta есть, но callback optional и не является инвариантом | `Аудит текущего runtime / 1` | `G13.1`, `G13.7` |
+| `A13.2` | Эмит покрывает только часть writers PAG | `Аудит текущего runtime / 2` | `G13.1`, `G13.7` |
+| `A13.3` | LLM loop не является обязательным `memory.query_context` pipeline | `Аудит текущего runtime / 3` | `G13.2`, `G13.7` |
+| `A13.4` | C-node segmentation есть механически, но нет строгого LLM/identity/remap contract | `Аудит текущего runtime / 4` | `G13.3`, `G13.4`, `G13.7` |
+| `A13.5` | Desktop graph state не общий для 2D/3D | `Аудит текущего runtime / 5` | `G13.6`, `G13.7` |
+
+#### ID целевых описаний и контрактов
+
+| ID | Описание / контракт | Что обязано быть реализовано | Обязательный этап |
+|----|---------------------|------------------------------|-------------------|
+| `D13.1` | Runtime write contract | `PagGraphWriteService` как единственный traced runtime write layer; whitelist offline writers; no direct runtime `SqlitePagStore.upsert_*` | `G13.1`, `G13.7` |
+| `D13.2` | AgentMemory query contract | `memory.query_context` -> GraphPassport -> optimized LLM planner/extractor/remap -> `PagGraphWriteService` -> compact slice | `G13.2`, `G13.7` |
+| `D13.3` | AgentWork post-change feedback contract | `memory.change_feedback` после successful write/edit/tool; no direct PAG writes by AgentWork; mechanical/LLM decision matrix | `G13.3`, `G13.7` |
+| `D13.4` | Desktop graph contract | Единый session-level graph store для 2D/3D, lifecycle по session record, Refresh/full-load rules | `G13.6`, `G13.7` |
+| `D13.5` | Memory LLM optimization policy | no-LLM first, caps, JSON-only, thinking/reasoning off by default, bounded excerpts, provider flag tests | `G13.2`, `G13.3`, `G13.4`, `G13.7` |
+| `D13.6` | Canonical C-node identity/search contract | `stable_key`, `semantic_locator`, line hints only as hints, `±100/±200/±500`, thresholds/caps | `G13.4`, `G13.7` |
+| `D13.7` | Link claims / resolved edge contract | pending claims separate from graph edges, enum `relation_type`, resolved edge deltas only | `G13.5`, `G13.7` |
+| `D13.8` | Regression/documentation closure | Сквозные tests + `context/*`/README alignment, no closure without contract proof | `G13.7`, `G13.8` |
+
+#### Этапы и обязательные ID
+
+| Этап | Обязательные ID | Запрет на завершение этапа |
+|------|-----------------|----------------------------|
+| `G13.0` | `A13.1`–`A13.5`, `D13.1`–`D13.8` | Нельзя закрыть плановый этап без этой трассировки. |
+| `G13.1` | `A13.1`, `A13.2`, `D13.1` | Нельзя оставить runtime writer вне write service без whitelist/test. |
+| `G13.2` | `A13.3`, `D13.2`, `D13.5` | Нельзя добавить LLM pipeline без `MemoryLlmOptimizationPolicy`. |
+| `G13.3` | `A13.4`, `D13.3`, `D13.5`, `D13.6` | Нельзя считать feedback готовым, если AgentWork не отправляет `memory.change_feedback` после successful changes. |
+| `G13.4` | `A13.4`, `D13.5`, `D13.6` | Нельзя создавать C-ноды по line offsets; identity только через `stable_key`/`semantic_locator`. |
+| `G13.5` | `D13.1`, `D13.7` | Нельзя писать pending claim как real `pag_edge`. |
+| `G13.6` | `A13.5`, `D13.4` | Нельзя держать 2D/3D graph state внутри отдельных components. |
+| `G13.7` | `A13.1`–`A13.5`, `D13.1`–`D13.8` | Нельзя подменить сквозные tests чистыми mocks без SQLite/trace/parser path. |
+| `G13.8` | `D13.8` | Нельзя закрыть Workflow 13, пока README/context не отражают фактический контракт. |
+
+#### Dependencies между этапами
+
+Этапы не являются независимыми. Исполнитель обязан соблюдать порядок:
+
+1. `G13.1` перед `G13.2`/`G13.3`/`G13.5`: без `PagGraphWriteService` нельзя подключать новые writers.
+2. `G13.2` перед любыми новыми LLM-вызовами в `G13.3`/`G13.4`: без `MemoryLlmOptimizationPolicy` нельзя писать extractor/remap calls.
+3. `G13.3` перед полноценным post-edit memory growth: без `memory.change_feedback` AgentWork не считается связанным с памятью после изменений.
+4. `G13.4` перед `G13.5`: link claims должны ссылаться на canonical C identity (`stable_key`/`semantic_locator`), а не на line ranges.
+5. `G13.6` перед UI-facing проверками `G13.7`: regression tests desktop должны проверять общий store, а не старые component-local states.
+6. `G13.8` только после зелёных проверок `G13.7`.
+
+#### Implementation anchors
+
+Эти anchors не являются исчерпывающим списком файлов, но являются обязательными стартовыми точками. Создание новых параллельных модулей без интеграции в эти anchors не закрывает этап.
+
+| Этап | Обязательные anchors |
+|------|----------------------|
+| `G13.1` | `tools/agent_core/memory/sqlite_pag.py::SqlitePagStore`, `tools/agent_core/runtime/pag_graph_trace.py`, `tools/agent_core/runtime/subprocess_agents/memory_agent.py::AgentMemoryWorker._graph_trace_hook`, `tools/agent_core/memory/pag_indexer.py`, `tools/agent_core/memory/pag_runtime.py`, `tools/agent_core/session/d_level_compact.py` |
+| `G13.2` | `tools/agent_core/runtime/subprocess_agents/memory_agent.py::AgentMemoryWorker.handle`, `tools/agent_core/runtime/memory_llm.py::AgentMemoryLLMLoop`, `tools/agent_core/runtime/agent_memory_config.py`, `tools/agent_core/runtime/memory_growth.py` |
+| `G13.3` | `tools/agent_core/session/loop.py`, `tools/agent_core/runtime/subprocess_agents/work_agent.py`, `tools/agent_core/runtime/subprocess_agents/memory_agent.py`, `tools/agent_core/runtime/memory_c_remap.py`, `tools/agent_core/runtime/memory_c_segmentation.py` |
+| `G13.4` | `tools/agent_core/runtime/memory_c_segmentation.py`, `tools/agent_core/runtime/memory_c_remap.py`, `tools/agent_core/memory/sqlite_pag.py::PagNode`, `tools/agent_core/runtime/agent_memory_config.py` |
+| `G13.5` | `tools/agent_core/runtime/link_claim_resolver.py`, `tools/agent_core/runtime/memory_c_remap.py`, `tools/agent_core/memory/sqlite_pag.py::upsert_edge`, `tools/agent_core/runtime/pag_graph_trace.py` |
+| `G13.6` | `desktop/src/renderer/runtime/DesktopSessionContext.tsx`, `desktop/src/renderer/runtime/pagGraphTraceDeltas.ts`, `desktop/src/renderer/runtime/loadPagGraphMerged.ts`, `desktop/src/renderer/views/MemoryGraphPage.tsx`, `desktop/src/renderer/views/MemoryGraph3DPage.tsx`, `desktop/src/shared/ipc.ts` |
+| `G13.7` | all anchors from `G13.1`–`G13.6`, plus `tests/conftest.py`, `desktop/src/renderer/runtime/*.test.ts`, `tests/test_memory_pag_slice.py` |
+
+#### Anti-patterns: Do not implement this as
+
+Эти реализации считаются ошибочными, даже если локальный тест проходит:
+
+1. Новый helper для PAG writes, но старые `SqlitePagStore.upsert_node/upsert_edge` в runtime продолжают вызываться напрямую.
+2. Trace delta emit только внутри `AgentMemoryWorker`, без покрытия D compact, file-change, link resolver и других runtime writers.
+3. `memory.query_context` сначала делает эвристический `QueryDrivenPagGrowth.grow`, а LLM pipeline влияет только на journal.
+4. Fallback создаёт C-ноды, помеченные как semantic/validated.
+5. `AgentWork` пишет PAG напрямую или вызывает indexer вместо `memory.change_feedback`.
+6. C identity строится из строк (`start_line:end_line`) или byte offsets.
+7. LLM получает full file выше caps "для простоты".
+8. Thinking/reasoning включается по умолчанию для AgentMemory.
+9. Pending link claim пишется как real `pag_edge` до resolution.
+10. 2D и 3D хранят отдельные graph states и rev refs.
+11. Regression suite состоит только из pure mocks и не проходит через SQLite + trace + desktop parser.
+
+#### Exact schema snippets
+
+Минимальные JSON schemas ниже должны быть перенесены в `context/proto/runtime-event-contract.md` на `G13.1/G13.8` и использоваться в tests.
+
+`pag.node.upsert` (trace `topic.publish.payload.payload`):
+
+```json
+{
+  "kind": "pag.node.upsert",
+  "namespace": "string",
+  "rev": 1,
+  "node": {
+    "node_id": "string",
+    "level": "A|B|C|D",
+    "kind": "string",
+    "path": "string",
+    "title": "string",
+    "summary": "string",
+    "attrs": {},
+    "staleness_state": "fresh|stale|needs_llm_remap"
+  }
+}
+```
+
+`pag.edge.upsert`:
+
+```json
+{
+  "kind": "pag.edge.upsert",
+  "namespace": "string",
+  "rev": 2,
+  "edges": [
+    {
+      "edge_id": "string",
+      "edge_class": "containment|semantic|provenance",
+      "edge_type": "calls|imports|implements|configures|reads|writes|tests|documents|depends_on|summarizes|related_to",
+      "from_node_id": "string",
+      "to_node_id": "string"
+    }
+  ]
+}
+```
+
+`memory.change_feedback`:
+
+```json
+{
+  "service": "memory.change_feedback",
+  "chat_id": "string",
+  "request_id": "string",
+  "turn_id": "string",
+  "namespace": "string",
+  "project_root": "string",
+  "source": "AgentWork",
+  "change_batch_id": "string",
+  "user_intent_summary": "string",
+  "changed_files": [
+    {
+      "path": "string",
+      "operation": "create|modify|delete|rename",
+      "old_path": null,
+      "tool_call_id": "string",
+      "message_id": "string",
+      "content_before_fingerprint": null,
+      "content_after_fingerprint": "sha256:string",
+      "line_ranges_touched": [{"start": 1, "end": 10}],
+      "symbol_hints": ["string"],
+      "change_summary": "string",
+      "requires_llm_review": false
+    }
+  ],
+  "created_artifacts": []
+}
+```
+
+`SemanticCNodeCandidate`:
+
+```json
+{
+  "stable_key": "string",
+  "semantic_locator": {
+    "kind": "function|class|method|heading|config_key|xml_block|notebook_cell|text_chunk",
+    "name": "string",
+    "signature": "string",
+    "parent": "string|null",
+    "module_path": "string"
+  },
+  "line_hint": {"start": 1, "end": 20},
+  "content_fingerprint": "sha256:string",
+  "summary_fingerprint": "sha256:string",
+  "confidence": 0.95,
+  "source_boundary_decision": "source|excluded_artifact",
+  "b_node_id": "B:path",
+  "b_fingerprint": "string",
+  "aliases": [],
+  "extraction_contract_version": "g13.semantic_c.v1"
+}
+```
+
+`SemanticLinkClaim`:
+
+```json
+{
+  "from_stable_key": "string",
+  "from_node_id": "string|null",
+  "to_stable_key": "string",
+  "to_node_id": "string|null",
+  "relation_type": "calls|imports|implements|configures|reads|writes|tests|documents|depends_on|summarizes|related_to",
+  "confidence": 0.9,
+  "evidence_summary": "string",
+  "source_request_id": "string"
+}
+```
+
+#### Exact test names and static checks
+
+Имена можно дополнять, но нельзя заменить одним общим тестом без этих сценариев.
+
+| Этап | Tests / checks |
+|------|----------------|
+| `G13.1` | `tests/test_g13_pag_graph_write_service.py::test_runtime_write_emits_trace_delta`; `tests/test_g13_pag_graph_write_service.py::test_offline_writer_bumps_rev_without_trace`; `tests/test_g13_pag_graph_write_service.py::test_runtime_direct_upsert_is_guarded` |
+| `G13.2` | `tests/test_g13_agent_memory_llm_pipeline.py::test_query_context_creates_c_node_via_structured_llm`; `tests/test_g13_agent_memory_llm_pipeline.py::test_llm_requests_use_optimization_policy`; `tests/test_g13_agent_memory_llm_pipeline.py::test_disabled_llm_fallback_does_not_create_validated_c` |
+| `G13.3` | `tests/test_g13_agentwork_change_feedback.py::test_successful_write_sends_change_feedback`; `tests/test_g13_agentwork_change_feedback.py::test_failed_or_rejected_tool_sends_no_feedback`; `tests/test_g13_agentwork_change_feedback.py::test_mechanical_remap_does_not_call_provider` |
+| `G13.4` | `tests/test_g13_semantic_c_identity.py::test_line_hint_is_not_identity`; `tests/test_g13_semantic_c_identity.py::test_lookup_expands_100_200_500_then_llm`; `tests/test_g13_semantic_c_identity.py::test_full_b_above_cap_is_not_sent_to_llm` |
+| `G13.5` | `tests/test_g13_link_claims.py::test_pending_claim_not_graph_edge`; `tests/test_g13_link_claims.py::test_resolved_claim_emits_edge_delta`; `tests/test_g13_link_claims.py::test_relation_type_enum_enforced` |
+| `G13.6` | `desktop/src/renderer/runtime/pagGraphSessionStore.test.ts::keepsStateAcrossUnmount`; `desktop/src/renderer/runtime/pagGraphSessionStore.test.ts::appliesDeltaTo2dAnd3d`; `desktop/src/renderer/runtime/pagGraphSessionStore.test.ts::activeSessionChangeLoadsFullGraph` |
+| `G13.7` | `tests/test_g13_agent_memory_contract_integration.py::test_llm_to_c_edge_trace_desktop_parser_path`; plus all tests above |
+
+Static check for `G13.1` (document expected whitelist in the test):
+
+```bash
+rg "upsert_node\\(|upsert_edge\\(" tools/agent_core
+```
+
+Static check for `G13.6`:
+
+```bash
+rg "graphRevByNsRef|setGraph\\(|setNodes\\(|setEdges\\(" desktop/src/renderer/views
+```
+
+After `G13.6`, component-local graph source of truth in `MemoryGraphPage` / `MemoryGraph3DPage` is not allowed.
+
+#### Config source of truth
+
+Primary config for AgentMemory LLM policy:
+
+```text
+~/.ailit/agent-memory/config.yaml
+```
+
+Tests must isolate this via existing test isolation rules (`HOME`, `AILIT_CONFIG_DIR`, `AILIT_PAG_DB_PATH`, `AILIT_MEMORY_JOURNAL_PATH`). Environment overrides are allowed only for documented keys in `agent_memory_config.py`; undocumented env keys do not count as config implementation.
+
+#### Observability contract
+
+Every runtime path must leave compact evidence:
+
+| Path | Required journal events | Required trace deltas |
+|------|-------------------------|-----------------------|
+| `memory.query_context` creates C | `memory.request.received`, `memory.explore.*`, `memory.slice.returned` | `pag.node.upsert` for B/C/D, `pag.edge.upsert` for resolved edges |
+| `memory.change_feedback` mechanical remap | `memory.change.received`, `memory.change.file_decided`, `memory.change.mechanical_remap.finished` | `pag.node.upsert` for changed B/C |
+| `memory.change_feedback` LLM remap | `memory.change.received`, `memory.change.llm_remap.started`, `memory.change.llm_remap.finished` | `pag.node.upsert`, optional resolved `pag.edge.upsert` |
+| artifact skip | `memory.change.skipped` | none |
+| pending link unresolved | link-claim journal row with reason | none |
+| pending link resolved | resolver finished journal row | `pag.edge.upsert` |
+
+Payloads must be compact: node/edge ids, summaries, reasons, revs. Raw prompts, CoT, full source bodies and secrets are forbidden.
+
+#### Manual smoke per major stage
+
+Manual smoke does not replace tests, but must be reported in the final answer for the relevant stage when feasible:
+
+- `G13.1`: perform one runtime node write in a temp namespace; observe `graph_rev` increment and one compact trace delta.
+- `G13.2`: run mock memory query; observe C node creation and provider request with caps/thinking-off.
+- `G13.3`: perform a successful write/edit; observe `memory.change_feedback`, mechanical or LLM decision, and no feedback for failed tool.
+- `G13.4`: move a known function down by more than old range but within `±100`; observe C found by signature and `line_hint` updated.
+- `G13.5`: create unresolved link claim, then create target C; observe pending -> resolved edge delta.
+- `G13.6`: open Memory 3D, switch to journal/2D and back; graph state remains; delete session clears it.
+- `G13.7`: run integration path from fake provider to DB, trace, desktop parser.
+
 ---
 
 ## G13.0 — План recovery и статус README
 
 **Цель:** зафиксировать этот recovery workflow как активный, потому что Workflow 12 закрыт формально, но не закрепил сквозной runtime/LLM/Desktop contract.
+
+**Обязательные описания/выводы:** `A13.1`–`A13.5`, `D13.1`–`D13.8`.
 
 Задачи:
 
@@ -346,12 +611,14 @@ DesktopSessionContext
 
 **Цель:** сделать graph writes явным runtime contract, а не optional callback.
 
+**Обязательные описания/выводы:** `A13.1`, `A13.2`, `D13.1`.
+
 Задачи:
 
-1. Спроектировать `PagGraphWriteService` или эквивалентный wrapper над `SqlitePagStore`.
+1. Спроектировать **единственный** runtime write layer `PagGraphWriteService` над `SqlitePagStore`. Формулировка "эквивалентный wrapper" не допускается для реализации: в runtime-коде все записи PAG (`upsert_node`, `upsert_edge`, batch edge writes, D-node writes) обязаны проходить через этот сервис.
 2. Зафиксировать write modes:
    - `runtime_traced` — есть `RuntimeRequestEnvelope`, эмитим trace delta;
-   - `runtime_untraced` — runtime write без request запрещён или требует явного reason;
+   - `runtime_untraced` — **запрещён по умолчанию**; разрешён только для явно перечисленных internal maintenance paths в whitelist с тестом, что Desktop узнаёт изменения только через Refresh;
    - `offline_writer` — CLI/indexer, без trace, только `graph_rev`.
 3. Обновить `context/proto/runtime-event-contract.md`:
    - exact schema `pag.node.upsert`;
@@ -364,10 +631,12 @@ DesktopSessionContext
    - traced node upsert -> one trace row;
    - traced edge batch -> one trace row with `edges[]`;
    - offline indexer -> graph_rev bumps, no trace row, requires Refresh.
+   - static/grep-style test или unit guard: в runtime paths нет прямого `SqlitePagStore.upsert_node/upsert_edge` вне `PagGraphWriteService`; whitelist offline-путей перечислен явно.
 
 Критерии приёмки:
 
-- В коде нет новых runtime writes PAG вне write service без явного waiver/comment.
+- В runtime-коде нет прямых writes PAG вне `PagGraphWriteService`; исключения возможны только в whitelist `offline_writer`.
+- `runtime_untraced` не появляется как "временный" shortcut; если он нужен, путь добавлен в whitelist и покрыт тестом Refresh-only semantics.
 - `rev` монотонен per namespace.
 - События дельт содержат только compact payload, без raw source.
 
@@ -386,8 +655,11 @@ DesktopSessionContext
 
 **Цель:** `memory.query_context` должен использовать LLM-guided semantic graph builder, а не только эвристический shortlist + PAG runtime slice.
 
+**Обязательные описания/выводы:** `A13.3`, `D13.2`, `D13.5`.
+
 Задачи:
 
+0. Перед кодом открыть и применить подраздел **`Memory LLM optimization policy`** ниже. Любая реализация G13.2, которая добавляет LLM-вызов без этой policy (caps, no-LLM first, thinking off, JSON-only), считается неготовой.
 1. Ввести `AgentMemoryQueryPipeline`:
    - input: `goal`, `workspace_projects`, `budget`, `chat_id`, `request_id`;
    - output: `memory_slice`, `project_refs`, `decision_summary`, `recommended_next_step`, `created_node_ids`, `created_edge_ids`.
@@ -402,17 +674,104 @@ DesktopSessionContext
 3. Сделать fallback controlled:
    - если LLM disabled/unavailable, использовать эвристический path shortlist;
    - fallback должен писать `memory.partial` / `memory.fallback` journal row.
+   - fallback **не имеет права** создавать semantic C-ноды как LLM-validated; он может создавать только A/B, weak candidates, journal diagnostics и partial slice.
 4. Убрать ситуацию, где `memory.query_context` всегда сначала делает `QueryDrivenPagGrowth.grow`, а LLM loop не влияет на созданные ноды.
-5. Tests:
+5. Ввести `MemoryLlmOptimizationPolicy` (config + enforcement), чтобы все запросы AgentMemory к LLM были дешёвыми и bounded by design.
+6. Применить `MemoryLlmOptimizationPolicy` в каждой точке вызова provider:
+   - planner;
+   - extractor;
+   - remap;
+   - synth/summary, если такой вызов появится.
+7. Tests:
    - mock provider выбирает B -> pipeline читает файл -> создаёт C -> slice содержит C;
    - invalid JSON -> partial fallback без raw CoT;
    - LLM disabled -> old heuristic fallback, но с journal reason.
+   - LLM disabled fallback не создаёт validated C-ноды и возвращает `partial=true` / `memory.fallback`.
+   - planner/extractor/remap получают capped request и provider flags `thinking/reasoning=off|none|low`;
+   - mechanical/cache-hit path не вызывает provider.
+
+### Memory LLM optimization policy
+
+Все LLM-вызовы AgentMemory (`planner`, `extractor`, `remap`, `synth`) обязаны быть оптимизированы по токенам и latency. Дефолтная политика — **не вызывать LLM**, если безопасно сработала механика, и **не включать reasoning/thinking**, если он не нужен для качества результата.
+
+Обязательные требования:
+
+1. **No-LLM first:** сначала mechanical remap, fingerprint/locator match, cached B/C/D summaries; LLM вызывается только при ambiguity/new C/low confidence.
+2. **Thinking/reasoning off by default:** если provider/SDK поддерживает `thinking`, `reasoning`, `reasoning_effort` или аналог, для memory planner/extractor по умолчанию выставлять `off`, `none` или `low`. Включение допускается только отдельным config flag и только для ambiguous remap.
+3. **Result-only structured JSON:** все memory LLM calls используют JSON-only contract (`response_format=json_schema`, strict parser или эквивалент); запрещены markdown/prose/raw CoT.
+4. **Token caps per phase:**
+   - `planner.max_input_chars`;
+   - `planner.max_output_tokens`;
+   - `extractor.max_excerpt_chars`;
+   - `extractor.max_output_tokens`;
+   - `remap.max_candidates`;
+   - `max_memory_turns`;
+   - `max_reads_per_turn`.
+5. **Candidate pruning:** LLM получает не весь PAG/репозиторий, а compact `GraphPassport`: A + top relevant B/C/D summaries + bounded candidate list.
+6. **Bounded excerpts:** вместо full file передавать excerpt вокруг `semantic_locator` / окна `±100`, `±200`, `±500`; full B допускается только если файл text-like, source-owned и меньше configured cap.
+7. **Summary reuse:** если `content_fingerprint` не изменился, переиспользовать существующие B/C/D summaries; не пересуммаризировать неизменившиеся C.
+8. **Batching with caps:** группировать related C candidates в один extractor/remap call только до лимитов `max_candidates` / `max_excerpt_chars`, иначе дробить.
+9. **Low-cost deterministic settings:** отдельные memory-настройки модели: `temperature=0`, низкий `max_tokens`, опционально более дешёвая model tier, если качество extraction не падает.
+10. **Stop conditions:** при достижении `max_memory_turns`, token budget, read budget или низкой уверенности возвращать `partial=true` + `recommended_next_step`, а не продолжать расширять prompt.
+11. **Prompt compression:** system prompt короткий и стабильный; per-call payload compact JSON без повторения длинных инструкций, если они уже заданы в system prompt/config.
+12. **Decision/result cache:** idempotency по `request_id`, `change_batch_id`, `content_fingerprint`, `semantic_locator`; повторный запрос не вызывает LLM, если входные fingerprints не изменились.
+13. **Provider feature flags:** policy должна уметь прокинуть provider-specific параметры (`thinking.enabled=false`, `reasoning_effort=none|low`, `response_format=json_schema`) без привязки бизнес-логики к конкретному SDK.
+14. **Default confidence thresholds:** AgentMemory не должен сам придумывать пороги:
+   - `confidence >= 0.85` — mechanical match accepted;
+   - `0.50 <= confidence < 0.85` — ambiguous, LLM remap;
+   - `confidence < 0.50` — stale / `needs_llm_remap`;
+   - пороги можно вынести в config, но эти defaults обязательны.
+
+Минимальный config:
+
+```yaml
+memory:
+  llm:
+    enabled: true
+    model: ""
+    temperature: 0.0
+    max_memory_turns: 4
+    thinking:
+      enabled: false
+      allow_for_remap: false
+      effort: none
+    planner:
+      max_input_chars: 12000
+      max_output_tokens: 512
+      max_candidates: 24
+    extractor:
+      max_excerpt_chars: 24000
+      max_output_tokens: 1200
+      max_candidates: 12
+    remap:
+      max_excerpt_chars: 32000
+      max_output_tokens: 1200
+      max_candidates: 8
+    thresholds:
+      mechanical_accept: 0.85
+      ambiguous_min: 0.50
+    cache:
+      enabled: true
+      key_fields:
+        - request_id
+        - change_batch_id
+        - content_fingerprint
+        - semantic_locator
+```
+
+Критерий для реализации: tests/config должны доказывать, что AgentMemory LLM calls идут с capped tokens, result-only JSON, provider feature flags для отключения thinking/reasoning выставляются по умолчанию, а mechanical path не вызывает provider вообще.
+
+Инструкция для исполнителя этапа: **сначала** реализуется config/enforcement `MemoryLlmOptimizationPolicy`, **затем** подключаются planner/extractor/remap. Нельзя сначала добавить "рабочий" LLM pipeline и отложить token/thinking оптимизации на потом.
 
 Критерии приёмки:
 
 - При включённом memory LLM хотя бы один тест доказывает создание C-ноды по structured LLM result.
 - `memory_slice` не содержит raw repo dump.
 - Journal содержит compact actions/results.
+- `MemoryLlmOptimizationPolicy` применяется ко всем planner/extractor/remap calls.
+- Thinking/reasoning mode выключен по умолчанию для AgentMemory LLM calls, если provider это поддерживает.
+- Mechanical remap и cache-hit paths не вызывают LLM provider.
+- Все LLM inputs имеют явные caps по chars/tokens/candidates.
 
 Проверки:
 
@@ -428,6 +787,8 @@ DesktopSessionContext
 ## G13.3 — AgentWork post-change feedback loop
 
 **Цель:** после успешных изменений файлов `AgentWork` обязан отправлять `AgentMemory` структурированный feedback, на основе которого память обновляется: механически без LLM, либо через LLM extraction/remap, если механики недостаточно.
+
+**Обязательные описания/выводы:** `A13.4`, `D13.3`, `D13.5`, `D13.6`.
 
 ### Контракт события `memory.change_feedback`
 
@@ -453,6 +814,19 @@ DesktopSessionContext
 - `symbol_hints[]`;
 - `change_summary`;
 - `requires_llm_review`.
+
+### AgentWork integration anchors
+
+Feedback формируется не "где-нибудь", а в конкретных точках runtime:
+
+1. После successful `write_file` / edit tool result, когда изменения уже применены к рабочему дереву.
+2. После accepted tool approval and execution; rejected approval, dry-run, failed tool call и отменённая операция **не** создают feedback.
+3. После shell/tool операций, которые создали или изменили tracked source files, если runtime смог определить changed files.
+4. Батчить изменения одного turn и отправлять feedback:
+   - перед следующим `memory.query_context`;
+   - либо перед завершением turn, если memory query больше не будет.
+5. Feedback не создаётся на чтение файлов, grep/search, pure diagnostics и команды без file changes.
+6. Если tool изменил файл, но не вернул ranges/symbol hints, AgentWork всё равно отправляет path + fingerprints + короткий `change_summary`; AgentMemory сам решает mechanical/LLM path.
 
 Пример:
 
@@ -512,6 +886,7 @@ AgentMemory решает mode для каждого файла:
 4. Реализовать idempotency:
    - `change_batch_id` + `tool_call_id` не создают повторные journal rows / C nodes / edges;
    - повтор feedback возвращает previous decision summary.
+   - хранить idempotency record: `change_batch_id`, input fingerprints, per-file decisions, created/updated node ids, emitted graph_rev range, trace message ids / journal row ids.
 5. Реализовать `MemoryChangeUpdateService`:
    - принимает feedback;
    - применяет source boundary;
@@ -519,6 +894,7 @@ AgentMemory решает mode для каждого файла:
    - вызывает mechanical C remap или LLM extraction/remap;
    - пишет PAG через `PagGraphWriteService`;
    - запускает pending link resolver.
+   - при `llm_extract_new` / `llm_remap` вызывает provider только через `MemoryLlmOptimizationPolicy` из G13.2.
 6. Journal events:
    - `memory.change.received`;
    - `memory.change.file_decided`;
@@ -545,6 +921,7 @@ AgentMemory решает mode для каждого файла:
 - `AgentWork` не пишет PAG напрямую.
 - AgentMemory может обновить C **без LLM**, если mechanical remap безопасен.
 - AgentMemory использует LLM, если появились новые semantic blocks или старые C нельзя безопасно перенести.
+- Любой LLM fallback/remap в этом этапе использует caps/JSON-only/thinking-off из `Memory LLM optimization policy`.
 - Все successful graph updates проходят через `PagGraphWriteService` и видны Desktop через trace deltas.
 - Tests доказывают оба пути: `mechanical_remap` и `llm_remap`.
 
@@ -563,6 +940,8 @@ AgentMemory решает mode для каждого файла:
 
 **Цель:** закрепить LLM-создание C-ноды как строгий typed contract.
 
+**Обязательные описания/выводы:** `A13.4`, `D13.5`, `D13.6`.
+
 Задачи:
 
 1. Добавить DTO/schema `SemanticCNodeCandidate`:
@@ -580,27 +959,141 @@ AgentMemory решает mode для каждого файла:
    - `b_node_id`;
    - `b_fingerprint`;
    - `extraction_contract_version`.
-2. Добавить extractor prompt:
+   - `aliases[]` для старых stable keys при rename/remap.
+2. Зафиксировать `semantic_locator` как первичный способ поиска C-ноды внутри B. Для разных типов B он должен быть структурным, а не строковым offset:
+   - code: `kind`, `name`, `signature`, `parent`, `module_path`;
+   - markdown: `heading_path`, `heading_level`, normalized title;
+   - json/yaml/toml: `pointer` / key path;
+   - xml/launch/urdf: `element_path`, `tag`, key attributes;
+   - notebook: `cell_id` / `cell_index`, cell kind, heading/context fingerprint;
+   - fallback text chunk: `chunk_kind`, normalized anchor text, `chunk_fingerprint`.
+3. Запретить использовать `line_hint`, `start_line`, `end_line`, byte offsets как identity. Они являются только cache/hint для ускорения поиска.
+4. Зафиксировать генерацию `stable_key`:
+   - LLM предлагает `stable_key`;
+   - runtime валидирует, нормализует и делает dedupe;
+   - `stable_key` стабилен для semantic entity внутри B;
+   - при rename B сохранять связь через `aliases[]` / provenance, если `semantic_locator` совпал;
+   - при конфликте добавлять короткий suffix/hash, но старый key сохранять в aliases.
+5. Зафиксировать нормализацию `semantic_locator`:
+   - signature normalizer удаляет незначимые whitespace/comments;
+   - TypeScript/Python type annotations приводятся к canonical form, где это возможно;
+   - methods обязаны иметь parent chain;
+   - overloaded functions включают arity/types;
+   - anonymous/lambda blocks получают nearest named parent + anchor text/fingerprint.
+6. Зафиксировать hard caps для C lookup/remap:
+   - `full_b_max_chars = 32768`;
+   - `excerpt_max_chars = 24000`;
+   - `remap_max_excerpt_chars = 32000`;
+   - full B выше cap запрещён; только excerpts/candidate windows.
+7. Добавить extractor prompt:
    - result-only JSON;
    - no chain-of-thought;
    - no markdown;
    - bounded excerpts only;
    - `excluded_nodes[]` для artifact/cache paths.
-3. `MechanicalChunkCatalogBuilder` оставить как candidate catalog, но не как semantic authority.
-4. Реализовать validation:
+8. `MechanicalChunkCatalogBuilder` оставить как candidate catalog, но не как semantic authority.
+9. Реализовать validation:
    - C node path must be inside selected B;
    - `line_hint` must be within file bounds;
    - summary length caps.
-5. Tests:
+10. Tests:
    - Python file -> class/function C nodes;
    - Markdown heading -> C node;
    - XML/URDF/launch block -> C node;
    - artifact path -> `excluded_nodes[]`, no C node.
+   - extractor/remap prompt builder принимает только bounded excerpts и настройки из `MemoryLlmOptimizationPolicy`.
+
+### C-node lookup / remap algorithm
+
+Поиск C-ноды при `memory.query_context`, `memory.change_feedback` и `memory.file_changed` обязан идти от устойчивых структурных ключей к строковым подсказкам, а не наоборот:
+
+1. Найти B-ноду по `b_node_id` / path / namespace и проверить `b_fingerprint`.
+2. Внутри B искать C по точному `stable_key`.
+3. Если `stable_key` не найден или B был переиндексирован, искать по `semantic_locator`:
+   - code: `kind + name + signature + parent`;
+   - markdown: `heading_path`;
+   - config: `pointer`;
+   - xml/urdf/launch: `element_path + tag + key attributes`;
+   - notebook: `cell_id` или stable cell fingerprint.
+4. Если структурный locator нашёл candidate, проверить `content_fingerprint` / локальный fingerprint найденного body.
+5. Если fingerprint не совпал, использовать `line_hint` только как стартовую область:
+   - сначала старый `[start_line, end_line]`;
+   - затем окно `±100` строк;
+   - затем окно `±200` строк;
+   - затем окно `±500` строк;
+   - затем весь B только если B меньше `full_b_max_chars = 32768`.
+6. В каждом окне искать **структурную сигнатуру**, а не просто старые номера строк:
+   - `export function applyPagGraphTraceDelta(`;
+   - `class Foo`;
+   - `def handle(...):`;
+   - markdown heading text;
+   - config key path.
+7. Если найден один уверенный match (`confidence >= 0.85`) — обновить `line_hint`, fingerprints и `staleness_state=fresh` через `mechanical_remap`.
+8. Если matches несколько или `0.50 <= confidence < 0.85` — пометить C `needs_llm_remap` и вызвать LLM remap на bounded excerpt.
+9. Если `confidence < 0.50` или match не найден даже после расширения — C становится stale/needs_llm_remap; новая C создаётся только после LLM extractor или явного mechanical evidence.
+
+Связь с G13.2: когда алгоритм переходит в `needs_llm_remap`, executor обязан использовать `MemoryLlmOptimizationPolicy`: bounded excerpt, capped candidates, JSON-only output, thinking/reasoning disabled by default. Нельзя передавать весь B-файл "для удобства", если он превышает `full_b_max_chars`.
+
+### Реальный пример поиска C-ноды
+
+Файл B:
+
+```text
+B:desktop/src/renderer/runtime/pagGraphTraceDeltas.ts
+```
+
+Исходная C-нода для функции `applyPagGraphTraceDelta`:
+
+```json
+{
+  "node_id": "C:desktop/src/renderer/runtime/pagGraphTraceDeltas.ts#applyPagGraphTraceDelta",
+  "stable_key": "ts:function:applyPagGraphTraceDelta",
+  "semantic_locator": {
+    "kind": "function",
+    "name": "applyPagGraphTraceDelta",
+    "signature": "applyPagGraphTraceDelta(current: MemoryGraphData, delta: PagGraphTraceDelta, lastRevs: Readonly<Record<string, number>>, newRevsOut: Record<string, number>)",
+    "parent": null,
+    "module_path": "desktop/src/renderer/runtime/pagGraphTraceDeltas.ts"
+  },
+  "line_hint": { "start": 82, "end": 119 },
+  "content_fingerprint": "sha256:<old-body>",
+  "summary": "Applies PAG trace delta to MemoryGraphData and returns optional rev warning."
+}
+```
+
+Сейчас функция действительно находится в этом файле как:
+
+```82:87:desktop/src/renderer/runtime/pagGraphTraceDeltas.ts
+export function applyPagGraphTraceDelta(
+  current: MemoryGraphData,
+  delta: PagGraphTraceDelta,
+  lastRevs: Readonly<Record<string, number>>,
+  newRevsOut: Record<string, number>
+): { readonly data: MemoryGraphData; readonly revWarning: string | null } {
+```
+
+Если `AgentWork` изменил файл выше этой функции и она сместилась с `82-119` на `130-168`, поиск должен пройти так:
+
+1. B найден по path `desktop/src/renderer/runtime/pagGraphTraceDeltas.ts`.
+2. Старый `line_hint=82-119` проверяется первым, но там функции уже нет.
+3. AgentMemory расширяет окно до `±100`: `max(1, 82-100)..119+100`, то есть примерно `1..219`.
+4. В этом окне ищется не строка `82`, а сигнатура `export function applyPagGraphTraceDelta(` и typed параметры.
+5. Если найден ровно один match, C обновляется без LLM:
+   - новый `line_hint={start:130,end:168}`;
+   - новый `content_fingerprint`;
+   - `staleness_state=fresh`;
+   - emit `pag.node.upsert`.
+6. Если в окне две функции с похожими именами или signature изменилась так, что confidence низкий, C получает `needs_llm_remap`, и LLM extractor получает bounded excerpt around candidates, а не весь файл.
 
 Критерии приёмки:
 
 - Новая C-нода не создаётся без `stable_key` и `semantic_locator`.
 - `line_hint` не является identity.
+- Поиск существующей C-ноды сначала использует `stable_key` / `semantic_locator`; `line_hint` допускается только как стартовая область поиска.
+- Реализованы окна расширения `±100`, `±200`, `±500` строк с переходом в `needs_llm_remap`, если confidence низкий.
+- Реализованы default thresholds `0.85/0.50`; агент не выбирает пороги произвольно.
+- Full-B чтение запрещено выше `32768` chars; LLM получает только bounded excerpts.
+- Переход в LLM remap соблюдает `Memory LLM optimization policy`: bounded excerpt вместо full file, caps, JSON-only, thinking off by default.
 - Source boundary применяется до LLM и после LLM.
 
 Проверки:
@@ -618,6 +1111,8 @@ AgentMemory решает mode для каждого файла:
 
 **Цель:** связи между конкретными C-нодами фиксируются явно: pending relation не является graph edge до resolution.
 
+**Обязательные описания/выводы:** `D13.1`, `D13.7`.
+
 Задачи:
 
 1. Зафиксировать schema `SemanticLinkClaim`:
@@ -627,21 +1122,35 @@ AgentMemory решает mode для каждого файла:
    - `confidence`;
    - `evidence_summary`;
    - `source_request_id`.
-2. Pending claims хранить отдельно от `pag_edges`.
-3. Resolver:
+2. Зафиксировать MVP enum `relation_type`; произвольные строки запрещены:
+   - `calls`;
+   - `imports`;
+   - `implements`;
+   - `configures`;
+   - `reads`;
+   - `writes`;
+   - `tests`;
+   - `documents`;
+   - `depends_on`;
+   - `summarizes`;
+   - `related_to` — fallback для неизвестного, если claim нельзя reject.
+3. Pending claims хранить отдельно от `pag_edges`.
+4. Resolver:
    - single match -> real `pag_edges` + `pag.edge.upsert`;
    - ambiguous -> stays pending with reason;
    - missing node -> pending until future C node appears.
-4. Batch emit resolved edges.
-5. Tests:
+5. Batch emit resolved edges.
+6. Tests:
    - claim unresolved -> no graph edge;
    - later node appears -> resolver creates edge and trace delta;
    - duplicate claim idempotent.
+   - unknown `relation_type` rejected or normalized to `related_to` by explicit rule.
 
 Критерии приёмки:
 
 - Desktop видит только resolved edges.
 - Pending edge не попадает в `pag.edge.upsert`.
+- `relation_type` всегда из enum; UI/поиск не получают произвольные relation names.
 
 Проверки:
 
@@ -657,6 +1166,8 @@ AgentMemory решает mode для каждого файла:
 ## G13.6 — Desktop unified PAG graph session store
 
 **Цель:** убрать расхождение 2D/3D; graph state должен жить на уровне desktop session, а не внутри отдельных страниц.
+
+**Обязательные описания/выводы:** `A13.5`, `D13.4`.
 
 Задачи:
 
@@ -680,6 +1191,10 @@ AgentMemory решает mode для каждого файла:
    - full load при смене чата/проекта;
    - state сохраняется при переключении вкладок;
    - закрытие чата очищает state.
+   - точное правило: graph state key живёт, пока session record существует в persisted UI/session registry;
+   - unmount `MemoryGraphPage`, unmount `MemoryGraph3DPage`, переключение вкладки 2D/3D, сворачивание Memory panel и закрытие/открытие right split **не** очищают state;
+   - удаление chat/session tab очищает state этого `activeSessionId`;
+   - смена active chat/project делает full load для нового key, но не уничтожает state других ещё существующих sessions.
 6. Warning UI:
    - rev mismatch -> явный banner/toast + Refresh;
    - >10k nodes -> warning, no silent truncate.
@@ -687,12 +1202,15 @@ AgentMemory решает mode для каждого файла:
    - 2D/3D не вызывают `pagGraphSlice` на каждую trace row;
    - same trace delta updates both projections;
    - activeSessionId change triggers full load even if namespace same.
+   - unmount/remount Memory panel keeps graph state;
+   - delete session clears graph state.
 
 Критерии приёмки:
 
 - В `MemoryGraphPage` нет собственной ручной rev/merge логики.
 - В `MemoryGraph3DPage` нет собственного source of truth для graph rev.
 - Один trace delta одинаково виден 2D и 3D.
+- Lifecycle state соответствует точному правилу session record / delete session, а не факту mounted/unmounted UI.
 
 Проверки:
 
@@ -709,6 +1227,8 @@ AgentMemory решает mode для каждого файла:
 
 **Цель:** тесты должны ловить именно те потери контракта, которые случились после Workflow 12.
 
+**Обязательные описания/выводы:** `A13.1`–`A13.5`, `D13.1`–`D13.8`.
+
 Задачи:
 
 1. Python integration test:
@@ -716,6 +1236,8 @@ AgentMemory решает mode для каждого файла:
    - mock/provider LLM returns C nodes + link claim;
    - runtime writes nodes/edges through traced write service;
    - durable trace contains `pag.node.upsert` and `pag.edge.upsert`.
+   - captured provider requests prove `MemoryLlmOptimizationPolicy` was applied.
+   - test must exercise `AgentMemoryWorker.handle(...)` (or service-level equivalent), real tmp `SqlitePagStore`, fake provider, captured trace emitter/durable trace, and assert all together: node exists in DB, `graph_rev` advanced, trace row emitted, `pagGraphTraceDeltas` desktop parser accepts the row.
 2. AgentWork feedback integration test:
    - successful write/edit emits `memory.change_feedback`;
    - mechanical remap path updates C without LLM provider call;
@@ -737,7 +1259,9 @@ AgentMemory решает mode для каждого файла:
 - Есть тест, который бы провалился на текущем расхождении 2D/3D state.
 - Есть тест, который бы провалился, если LLM pipeline не создаёт C-ноды.
 - Есть тест, который бы провалился, если `AgentWork` не отправляет post-change feedback.
+- Есть тест, который бы провалился, если AgentMemory LLM call ушёл без caps/JSON-only/thinking-off policy.
 - Есть тест, который бы провалился, если writer пишет PAG без traced service в runtime mode.
+- Есть integration test, который не является чистым mock unit: он проходит через worker/service handler + tmp SQLite + fake provider + trace capture + desktop parser compatibility.
 
 Проверки:
 
@@ -754,6 +1278,8 @@ AgentMemory решает mode для каждого файла:
 ## G13.8 — Context/README closure и ручной сценарий
 
 **Цель:** закрыть Workflow 13 только после подтверждения контракта в документации и ручном desktop scenario.
+
+**Обязательные описания/выводы:** `D13.8`.
 
 Задачи:
 
@@ -802,14 +1328,15 @@ Workflow 13 считается закрытым только если однов
 
 1. `memory.query_context` при включённом memory LLM создаёт/обновляет semantic C/D nodes через единый write service.
 2. `AgentWork` после successful write/edit/tool изменений отправляет `memory.change_feedback`, а `AgentMemory` обновляет C/D/edges механически или через LLM.
-3. Все runtime traced writes PAG эмитят `pag.node.upsert` / `pag.edge.upsert`.
-4. Offline writers documented and tested as Refresh-only.
-5. 2D/3D Desktop используют общий graph state.
-6. Full `pag-slice` не вызывается на каждую строку trace.
-7. Есть сквозной regression test, который доказывает путь:
+3. Все AgentMemory LLM calls проходят через `MemoryLlmOptimizationPolicy`: no-LLM first, caps, JSON-only, thinking/reasoning off by default where supported.
+4. Все runtime traced writes PAG эмитят `pag.node.upsert` / `pag.edge.upsert`.
+5. Offline writers documented and tested as Refresh-only.
+6. 2D/3D Desktop используют общий graph state.
+7. Full `pag-slice` не вызывается на каждую строку trace.
+8. Есть сквозной regression test, который доказывает путь:
 
 ```text
 LLM decision -> C node -> edge claim -> resolved edge -> trace delta -> desktop graph
 ```
 
-8. `README.md` и `context/*` отражают фактический контракт.
+9. `README.md` и `context/*` отражают фактический контракт.
