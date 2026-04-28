@@ -54,6 +54,8 @@ sys.exit(cmd_memory_pag_slice(Args()))
     assert data.get("ok") is True
     assert data.get("namespace") == "ns-test"
     assert data.get("kind") == "ailit_pag_graph_slice_v1"
+    gr: object = data.get("graph_rev", 0)
+    assert isinstance(gr, int) and gr >= 1
     nodes: list[object] = data.get("nodes", [])  # type: ignore[assignment]
     assert len(nodes) == 1
     n0: dict[str, object] = nodes[0] if isinstance(nodes[0], dict) else {}

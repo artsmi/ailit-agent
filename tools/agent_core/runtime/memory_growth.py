@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
+
+from agent_core.memory.sqlite_pag import PagGraphTraceFn
 
 from agent_core.memory.pag_indexer import PagIndexer
 from agent_core.memory.sqlite_pag import SqlitePagStore
@@ -157,8 +160,28 @@ class QueryDrivenPagGrowth:
         goal: str,
         explicit_paths: Sequence[str] = (),
         namespace: str | None = None,
+        graph_trace_hook: PagGraphTraceFn | None = None,
     ) -> QueryDrivenGrowthResult:
         """Index only files selected for this memory query."""
+        ctx = nullcontext()
+        if graph_trace_hook is not None:
+            ctx = self._store.graph_trace(graph_trace_hook)
+        with ctx:
+            return self._grow_impl(
+                project_root=project_root,
+                goal=goal,
+                explicit_paths=explicit_paths,
+                namespace=namespace,
+            )
+
+    def _grow_impl(
+        self,
+        *,
+        project_root: Path,
+        goal: str,
+        explicit_paths: Sequence[str],
+        namespace: str | None,
+    ) -> QueryDrivenGrowthResult:
         root = project_root.resolve()
         ctx = detect_repo_context(root)
         ns = str(namespace or "").strip() or project_namespace_for_repo(

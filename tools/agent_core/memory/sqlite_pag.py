@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# (op, namespace, graph_rev, compact payload for UI / trace)
+PagGraphTraceFn = Callable[[str, str, int, dict[str, Any]], None]
 
 
 def _norm_opt_str(value: str | None) -> str | None:
@@ -79,6 +84,7 @@ class SqlitePagStore:
 
     def __init__(self, db_path: Path) -> None:
         self._path = db_path.resolve()
+        self._graph_trace_fn: PagGraphTraceFn | None = None
         self._ensure_parent_dir()
         self._ensure_schema()
 
@@ -132,6 +138,14 @@ class SqlitePagStore:
                 )
                 """,
             )
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pag_graph_rev (
+                    namespace TEXT NOT NULL PRIMARY KEY,
+                    graph_rev INTEGER NOT NULL DEFAULT 0
+                )
+                """,
+            )
             self._migrate_columns(con, "pag_nodes")
             self._migrate_columns(con, "pag_edges")
             self._ensure_indexes(con)
@@ -173,6 +187,47 @@ class SqlitePagStore:
             "CREATE INDEX IF NOT EXISTS pag_edges_class "
             "ON pag_edges(namespace, edge_class)",
         )
+
+    @contextmanager
+    def graph_trace(self, fn: PagGraphTraceFn | None) -> Iterator[None]:
+        """Временно включает колбек после успешных upsert (G12)."""
+        old = self._graph_trace_fn
+        self._graph_trace_fn = fn
+        try:
+            yield
+        finally:
+            self._graph_trace_fn = old
+
+    def get_graph_rev(self, *, namespace: str) -> int:
+        """Текущий монотонный rev по namespace (0 если ещё не было записей)."""
+        ns = str(namespace).strip()
+        if not ns:
+            return 0
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT graph_rev FROM pag_graph_rev WHERE namespace = ?",
+                (ns,),
+            ).fetchone()
+        if row is None:
+            return 0
+        return int(row[0] or 0)
+
+    @staticmethod
+    def _bump_graph_rev(con: sqlite3.Connection, namespace: str) -> int:
+        """Инкремент rev в той же транзакции, что и DML (одно соединение)."""
+        ns = str(namespace).strip()
+        con.execute(
+            """
+            INSERT INTO pag_graph_rev (namespace, graph_rev) VALUES (?, 1)
+            ON CONFLICT(namespace) DO UPDATE SET graph_rev = graph_rev + 1
+            """,
+            (ns,),
+        )
+        row = con.execute(
+            "SELECT graph_rev FROM pag_graph_rev WHERE namespace = ?",
+            (ns,),
+        ).fetchone()
+        return int(row[0] if row is not None else 0)
 
     def _migrate_columns(self, con: sqlite3.Connection, table: str) -> None:
         """Best-effort migrations: add new columns if missing."""
@@ -227,7 +282,7 @@ class SqlitePagStore:
         staleness_state: str = "fresh",
         source_contract: str = "ailit_pag_store_v1",
         updated_at: str | None = None,
-    ) -> None:
+    ) -> int:
         now = _utc_now_iso() if updated_at is None else str(updated_at)
         ns = str(namespace).strip()
         nid = str(node_id).strip()
@@ -235,6 +290,13 @@ class SqlitePagStore:
             raise ValueError("namespace и node_id обязательны")
         a = dict(attrs) if isinstance(attrs, Mapping) else {}
         st = str(staleness_state or "fresh").strip() or "fresh"
+        compact = {
+            "node_id": nid,
+            "level": str(level),
+            "kind": str(kind),
+            "path": str(path),
+            "title": str(title),
+        }
         with self._connect() as con:
             con.execute(
                 """
@@ -274,6 +336,11 @@ class SqlitePagStore:
                     now,
                 ),
             )
+            rev = self._bump_graph_rev(con, ns)
+        fn = self._graph_trace_fn
+        if fn is not None:
+            fn("node", ns, rev, compact)
+        return rev
 
     def upsert_edge(
         self,
@@ -287,13 +354,20 @@ class SqlitePagStore:
         confidence: float = 1.0,
         source_contract: str = "ailit_pag_store_v1",
         updated_at: str | None = None,
-    ) -> None:
+    ) -> int:
         now = _utc_now_iso() if updated_at is None else str(updated_at)
         ns = str(namespace).strip()
         eid = str(edge_id).strip()
         if not ns or not eid:
             raise ValueError("namespace и edge_id обязательны")
         conf = float(confidence)
+        edge_compact: dict[str, Any] = {
+            "edge_id": eid,
+            "edge_class": str(edge_class),
+            "edge_type": str(edge_type),
+            "from_node_id": str(from_node_id),
+            "to_node_id": str(to_node_id),
+        }
         with self._connect() as con:
             con.execute(
                 """
@@ -327,6 +401,11 @@ class SqlitePagStore:
                     now,
                 ),
             )
+            rev = self._bump_graph_rev(con, ns)
+        fn = self._graph_trace_fn
+        if fn is not None:
+            fn("edge", ns, rev, edge_compact)
+        return rev
 
     def fetch_node(self, *, namespace: str, node_id: str) -> PagNode | None:
         ns = str(namespace).strip()
@@ -368,7 +447,7 @@ class SqlitePagStore:
         ns = str(namespace).strip()
         if not ns:
             return []
-        lim = max(1, min(int(limit), 1000))
+        lim = max(1, min(int(limit), 10_000))
         off = max(0, int(offset))
         where: list[str] = ["namespace = ?"]
         params: list[object] = [ns]
@@ -400,7 +479,7 @@ class SqlitePagStore:
         ids = tuple(str(x).strip() for x in node_ids if str(x).strip())
         if not ids:
             return []
-        lim = max(1, min(int(limit), 50_000))
+        lim = max(1, min(int(limit), 20_000))
         ph = ",".join(["?"] * len(ids))
         sql = (
             "SELECT * FROM pag_edges "
@@ -427,7 +506,7 @@ class SqlitePagStore:
         ns = str(namespace).strip()
         if not ns:
             return []
-        lim = max(1, min(int(limit), 50_000))
+        lim = max(1, min(int(limit), 20_000))
         off = max(0, int(offset))
         with self._connect() as con:
             rows = con.execute(

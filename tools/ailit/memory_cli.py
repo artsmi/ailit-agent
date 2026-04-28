@@ -110,11 +110,13 @@ def _pag_slice_payload(
         limit=edge_limit,
         offset=edge_offset,
     )
+    graph_rev: int = store.get_graph_rev(namespace=namespace)
     return {
         "ok": True,
         "kind": "ailit_pag_graph_slice_v1",
         "namespace": namespace,
         "db_path": str(db_path),
+        "graph_rev": graph_rev,
         "level_filter": level,
         "nodes": [_node_json(n) for n in nodes],
         "edges": [_edge_json(e) for e in edges],
@@ -175,9 +177,9 @@ def cmd_memory_pag_slice(args: object) -> int:
         }
         os.write(1, (json.dumps(out, ensure_ascii=False) + "\n").encode())
         return 0
-    nlim = max(1, min(int(getattr(args, "node_limit", 500)), 2000))
+    nlim = max(1, min(int(getattr(args, "node_limit", 500)), 10_000))
     noff = max(0, int(getattr(args, "node_offset", 0)))
-    elim = max(1, min(int(getattr(args, "edge_limit", 500)), 5000))
+    elim = max(1, min(int(getattr(args, "edge_limit", 500)), 20_000))
     eoff = max(0, int(getattr(args, "edge_offset", 0)))
     payload = _pag_slice_payload(
         namespace=namespace,

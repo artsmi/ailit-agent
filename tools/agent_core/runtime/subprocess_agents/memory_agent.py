@@ -12,7 +12,7 @@ from pathlib import Path
 import sys
 import uuid
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 
 from agent_core.runtime.memory_journal import (
     MemoryJournalRow,
@@ -26,6 +26,7 @@ from agent_core.runtime.models import (
     RuntimeRequestEnvelope,
     make_response_envelope,
 )
+from agent_core.runtime.pag_graph_trace import emit_pag_graph_trace_row
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +70,43 @@ class AgentMemoryWorker:
             reason="query_context",
             expires_at="2099-01-01T00:00:00Z",
         )
+
+    @staticmethod
+    def _graph_trace_hook(
+        req: RuntimeRequestEnvelope,
+    ) -> Callable[[str, str, int, dict[str, Any]], None]:
+        """Колбек для SqlitePagStore.graph_trace: G12.1 дельты в trace."""
+
+        def _cb(
+            op: str,
+            namespace: str,
+            rev: int,
+            data: dict[str, Any],
+        ) -> None:
+            if op == "node":
+                emit_pag_graph_trace_row(
+                    req=req,
+                    event_name="pag.node.upsert",
+                    inner_payload={
+                        "kind": "pag.node.upsert",
+                        "namespace": namespace,
+                        "rev": rev,
+                        "node": data,
+                    },
+                )
+            elif op == "edge":
+                emit_pag_graph_trace_row(
+                    req=req,
+                    event_name="pag.edge.upsert",
+                    inner_payload={
+                        "kind": "pag.edge.upsert",
+                        "namespace": namespace,
+                        "rev": rev,
+                        "edges": [data],
+                    },
+                )
+
+        return _cb
 
     def _append_journal(
         self,
@@ -114,6 +152,7 @@ class AgentMemoryWorker:
                 goal=goal,
                 explicit_paths=explicit_paths,
                 namespace=req.namespace or self._cfg.namespace,
+                graph_trace_hook=self._graph_trace_hook(req),
             )
         except Exception as exc:  # noqa: BLE001
             self._append_journal(
