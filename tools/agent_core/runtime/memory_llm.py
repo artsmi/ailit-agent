@@ -18,6 +18,9 @@ from agent_core.runtime.agent_memory_config import (
     load_or_create_agent_memory_config,
     parse_memory_json_with_retry,
 )
+from agent_core.runtime.memory_llm_optimization_policy import (
+    MemoryLlmOptimizationPolicy,
+)
 from agent_core.runtime.memory_journal import (
     MemoryJournalRow,
     MemoryJournalStore,
@@ -130,6 +133,7 @@ class AgentMemoryLLMLoop:
         config: MemoryLLMConfig,
         journal: MemoryJournalStore,
         am_yaml_limits: MemoryLlmSubConfig | None = None,
+        optimization: MemoryLlmOptimizationPolicy | None = None,
     ) -> None:
         self._provider = provider
         self._config = config
@@ -140,6 +144,7 @@ class AgentMemoryLLMLoop:
             self._am_limits: MemoryLlmSubConfig = (
                 load_or_create_agent_memory_config().memory.llm
             )
+        self._opt = optimization or MemoryLlmOptimizationPolicy.default()
 
     def run(
         self,
@@ -226,10 +231,13 @@ class AgentMemoryLLMLoop:
     ) -> MemoryLLMDecision:
         user = {
             "pass_level": level,
-            "goal": goal,
+            "goal": self._opt.clamp_utf8(
+                str(goal or ""),
+                self._opt.planner_max_input_chars,
+            ),
             "known_selected_nodes": list(selected_nodes),
         }
-        req = ChatRequest(
+        req0 = ChatRequest(
             messages=(
                 ChatMessage(
                     role=MessageRole.SYSTEM,
@@ -249,6 +257,11 @@ class AgentMemoryLLMLoop:
             max_tokens=self._config.max_tokens,
             tools=(),
             stream=False,
+        )
+        req = self._opt.apply_chat_request(
+            req0,
+            phase="planner",
+            model_override=self._config.model,
         )
         resp = self._provider.complete(req)
         text = "".join(resp.text_parts).strip()

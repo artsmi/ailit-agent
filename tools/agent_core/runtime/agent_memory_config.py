@@ -11,6 +11,10 @@ from typing import Any, Final, Mapping, MutableMapping, Sequence
 
 import yaml
 
+from agent_core.runtime.memory_llm_optimization_policy import (
+    MemoryLlmOptimizationPolicy,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class MemoryLlmSubConfig:
@@ -53,6 +57,7 @@ class MemoryYamlRoot:
     """Корневой объект `memory:` в config.yaml."""
 
     llm: MemoryLlmSubConfig
+    llm_optimization: MemoryLlmOptimizationPolicy
     d_policy: DPolicySubConfig
     artifacts: ArtifactsSubConfig
 
@@ -64,6 +69,7 @@ class AgentMemoryFileConfig:
     memory: MemoryYamlRoot = field(
         default_factory=lambda: MemoryYamlRoot(
             llm=MemoryLlmSubConfig(),
+            llm_optimization=MemoryLlmOptimizationPolicy.default(),
             d_policy=DPolicySubConfig(),
             artifacts=ArtifactsSubConfig(),
         )
@@ -72,6 +78,7 @@ class AgentMemoryFileConfig:
     def to_nested_dict(self) -> dict[str, Any]:
         """Сериализация для YAML (человеко-читаемо)."""
         m = self.memory
+        opt = m.llm_optimization
         return {
             "memory": {
                 "llm": {
@@ -84,6 +91,37 @@ class AgentMemoryFileConfig:
                     "max_summary_chars": m.llm.max_summary_chars,
                     "max_reason_chars": m.llm.max_reason_chars,
                     "max_decision_chars": m.llm.max_decision_chars,
+                    "enabled": opt.enabled,
+                    "model": opt.model,
+                    "temperature": opt.temperature,
+                    "max_memory_turns": opt.max_memory_turns,
+                    "thinking": {
+                        "enabled": opt.thinking_enabled,
+                        "allow_for_remap": opt.thinking_allow_for_remap,
+                        "effort": opt.thinking_effort,
+                    },
+                    "planner": {
+                        "max_input_chars": opt.planner_max_input_chars,
+                        "max_output_tokens": opt.planner_max_output_tokens,
+                        "max_candidates": opt.planner_max_candidates,
+                    },
+                    "extractor": {
+                        "max_excerpt_chars": opt.extractor_max_excerpt_chars,
+                        "max_output_tokens": opt.extractor_max_output_tokens,
+                        "max_candidates": opt.extractor_max_candidates,
+                    },
+                    "remap": {
+                        "max_excerpt_chars": opt.remap_max_excerpt_chars,
+                        "max_output_tokens": opt.remap_max_output_tokens,
+                        "max_candidates": opt.remap_max_candidates,
+                    },
+                    "thresholds": {
+                        "mechanical_accept": opt.threshold_mechanical_accept,
+                        "ambiguous_min": opt.threshold_ambiguous_min,
+                    },
+                    "cache": {
+                        "enabled": opt.cache_enabled,
+                    },
                 },
                 "d_policy": {
                     "max_d_per_query": m.d_policy.max_d_per_query,
@@ -153,6 +191,9 @@ class AgentMemoryFileConfig:
             if isinstance(art, Mapping)
             else True,
         }
+        llm_opt = MemoryLlmOptimizationPolicy.from_memory_llm_mapping(
+            dict(llm) if isinstance(llm, Mapping) else {},
+        )
         return cls(
             memory=MemoryYamlRoot(
                 llm=MemoryLlmSubConfig(
@@ -166,6 +207,7 @@ class AgentMemoryFileConfig:
                     max_reason_chars=max(0, min(llm_d["max_reason_chars"], 1_000)),
                     max_decision_chars=max(0, min(llm_d["max_decision_chars"], 2_000)),
                 ),
+                llm_optimization=llm_opt,
                 d_policy=DPolicySubConfig(
                     max_d_per_query=max(0, min(d_d["max_d_per_query"], 1_000)),
                     min_linked_nodes=max(0, d_d["min_linked_nodes"]),

@@ -30,6 +30,10 @@ from agent_core.runtime.memory_journal import (
 )
 from agent_core.memory.pag_runtime import PagRuntimeConfig
 from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_core.providers.factory import ProviderFactory, ProviderKind
+from agent_core.runtime.agent_memory_query_pipeline import (
+    AgentMemoryQueryPipeline,
+)
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.runtime.memory_growth import QueryDrivenPagGrowth
 from agent_core.runtime.models import (
@@ -66,6 +70,7 @@ class AgentMemoryWorker:
         self._growth = QueryDrivenPagGrowth(
             db_path=PagRuntimeConfig.from_env().db_path,
         )
+        self._provider = ProviderFactory.create(ProviderKind.MOCK)
 
     def _issue_grant(
         self,
@@ -469,20 +474,24 @@ class AgentMemoryWorker:
                 },
             )
             explicit_paths = []
-        self._grow_pag_for_query(
+        pl = AgentMemoryQueryPipeline(
+            self,
+            self._am_file.memory.llm_optimization,
+            self._provider,
+        )
+        pr = pl.run(
             req=req,
             request_id=request_id,
-            project_root=project_root,
             goal=goal,
+            project_root=project_root,
             explicit_paths=explicit_paths,
-        )
-        memory_slice = self._slice_from_pag(
-            project_root=project_root,
-            namespace=req.namespace or self._cfg.namespace,
-            goal=goal,
             query_kind=query_kind,
             level=level,
         )
+        memory_slice = pr.memory_slice
+        pipeline_partial = pr.partial
+        pipeline_decision = pr.decision_summary
+        pipeline_next = pr.recommended_next_step
         if memory_slice is None:
             memory_slice = self._fallback_slice(
                 namespace=req.namespace or self._cfg.namespace,
@@ -554,15 +563,24 @@ class AgentMemoryWorker:
             memory_slice,
             namespace=str(req.namespace or self._cfg.namespace),
         )
-        if str(memory_slice.get("reason", "") or "") == "pag_runtime_slice":
-            memory_slice["partial"] = bool(memory_slice.get("partial", False))
-        else:
-            memory_slice.setdefault("partial", False)
-        decision_summary = str(memory_slice.get("reason") or "memory slice")
-        if d_gate:
-            decision_summary = f"{d_gate}: {d_rsn}" if d_rsn else d_gate
+        memory_slice["partial"] = bool(
+            memory_slice.get("partial", False) or pipeline_partial,
+        )
         node_ids = list(memory_slice.get("node_ids") or [])
         edge_ids = list(memory_slice.get("edge_ids") or [])
+        decision_summary = str(pipeline_decision or "").strip() or str(
+            memory_slice.get("reason") or "memory slice",
+        )
+        if d_gate:
+            decision_summary = f"{d_gate}: {d_rsn}" if d_rsn else d_gate
+        recommended_next_step = str(pipeline_next or "").strip() or (
+            "read selected context"
+            if node_ids
+            else "provide more specific memory goal"
+        )
+        final_partial: bool = bool(
+            pipeline_partial or memory_slice.get("partial", False),
+        )
         project_refs = [
             {
                 "project_id": "",
@@ -571,11 +589,6 @@ class AgentMemoryWorker:
                 "edge_ids": edge_ids,
             },
         ]
-        recommended_next_step = (
-            "read selected context"
-            if node_ids
-            else "provide more specific memory goal"
-        )
         cj = build_compact_query_journal(
             event_name="memory.slice.returned",
             request_id=request_id,
@@ -593,7 +606,7 @@ class AgentMemoryWorker:
             node_ids=node_ids,
             edge_ids=edge_ids,
             payload={
-                "partial": False,
+                "partial": final_partial,
                 "recommended_next_step": recommended_next_step,
                 "estimated_tokens": memory_slice.get("estimated_tokens"),
                 "compact": cj.to_payload(),
@@ -606,7 +619,7 @@ class AgentMemoryWorker:
                 "memory_slice": memory_slice,
                 "grants": grants,
                 "project_refs": project_refs,
-                "partial": False,
+                "partial": final_partial,
                 "recommended_next_step": recommended_next_step,
                 "decision_summary": decision_summary,
             },

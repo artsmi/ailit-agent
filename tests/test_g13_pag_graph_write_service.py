@@ -176,6 +176,7 @@ def test_rg_upsert_call_sites_match_plan_whitelist() -> None:
         "tools/agent_core/runtime/link_claim_resolver.py",
         "tools/agent_core/runtime/memory_c_remap.py",
         "tools/agent_core/runtime/memory_growth.py",
+        "tools/agent_core/runtime/agent_memory_query_pipeline.py",
         "tools/agent_core/session/d_level_compact.py",
     }
     assert rel_files == expected
