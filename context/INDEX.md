@@ -29,7 +29,7 @@
 
 На `Этапе 6` добавлены **workflow_engine**, CLI **`ailit`**, пример [`examples/workflows/minimal.yaml`](../examples/workflows/minimal.yaml) и руководство [`user-test.md`](../user-test.md).
 
-Дальнейшие этапы (память, PAG, broker/agents, **desktop**, Context Ledger и т.д.) зафиксированы в [`README.md`](../README.md) и соответствующих документах `plan/*`; этот индекс не дублирует таблицу статуса — см. корневой README.
+Дальнейшие этапы (память, PAG, broker/agents, **desktop**, Context Ledger и т.д.) зафиксированы в [`README.md`](../README.md) и соответствующих документах `plan/*` и **`plans/*`**; **активный** крупный план PAG/trace/desktop — **[`plans/12-pag-trace-delta-desktop-sync.md`](../plans/12-pag-trace-delta-desktop-sync.md)** (Workflow 12). Этот индекс не дублирует таблицу статуса — см. корневой README. При реализации G12.4 обновляется **`context/proto/runtime-event-contract.md`** (события `pag.node.upsert` / `pag.edge.upsert`, `graph_rev` в pag-slice).
 
 ## Разделы
 
