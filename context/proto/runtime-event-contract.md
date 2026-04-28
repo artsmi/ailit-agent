@@ -171,6 +171,12 @@ Snapshot события (`state.snapshot.created`) обязаны содержа
 - `based_on_event_id`;
 - ссылку на файл snapshot.
 
+## PAG graph: `graph_rev` и дельты в trace (Workflow 12)
+
+- Монотонный счётчик **`graph_rev` per `namespace`** хранится в SQLite PAG; полный срез `ailit memory pag-slice` возвращает `graph_rev` (текущее значение) для стыковки с дельтами.
+- Графовые дельты (MVP) — **`topic.publish`** в durable trace, `event_name` **`pag.node.upsert`** / **`pag.edge.upsert`**, compact payload (без больших вложенных полей). Нормализованные поля и сценарии: **[`plan/12-pag-trace-delta-desktop-sync.md`](../../plan/12-pag-trace-delta-desktop-sync.md)** (без дублирования политики в этом файле).
+- **Desktop** применяет дельты к удерживаемой модели графа, полный re-sync из БД — только **Refresh** или смена сессии/проекта (см. план 12).
+
 ## Связанные документы
 
 - [`../arch/runtime-local-storage-model.md`](../arch/runtime-local-storage-model.md)
