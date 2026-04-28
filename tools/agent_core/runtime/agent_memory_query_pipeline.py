@@ -1,4 +1,4 @@
-"""AgentMemoryQueryPipeline — основной путь memory.query_context (G13.2, D13.2)."""
+"""AgentMemoryQueryPipeline: memory.query_context (G13.2, D13.2)."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from agent_core.runtime.memory_llm_optimization_policy import (
 from agent_core.runtime.models import RuntimeRequestEnvelope
 from agent_core.memory.pag_runtime import PagRuntimeConfig
 from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_core.runtime.link_claim_resolver import LinkClaimResolver
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 
 if TYPE_CHECKING:
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
         AgentMemoryWorker,
     )
 
-PLANNER_SYSTEM: str = """You are AgentMemory planner. Return ONLY a JSON object.
+PLANNER_SYSTEM: str = """You are AgentMemory planner. Return ONLY JSON.
 No markdown, no chain-of-thought. Fields:
 selected_projects: string[]
 selected_b_nodes: string[]
@@ -32,6 +33,8 @@ requested_reads: {path: string, reason: string}[]
 extraction_targets: {path: string, kind: string, name: string}[]
 c_upserts: {node_id: string, level: string, kind: string, path: string,
   title: string, summary: string, fingerprint: string}[]
+link_claims: optional; each item: from_node_id, to_node_id (or to_stable_key),
+  relation_type (enum), confidence (0..1)
 decision_summary: string
 partial: boolean
 recommended_next_step: string
@@ -190,6 +193,9 @@ class AgentMemoryQueryPipeline:
         c_ups: Any = plan_obj.get("c_upserts", [])
         if not isinstance(c_ups, list):
             c_ups = []
+        link_claims_list: Any = plan_obj.get("link_claims", [])
+        if not isinstance(link_claims_list, list):
+            link_claims_list = []
         req_reads: Any = plan_obj.get("requested_reads", [])
         rels: list[str] = [
             str(x.get("path", "")).strip()
@@ -206,7 +212,7 @@ class AgentMemoryQueryPipeline:
                 explicit_paths=rels,
             )
         created: list[str] = []
-        if c_ups:
+        if c_ups or link_claims_list:
             store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
             write = PagGraphWriteService(store)
             hook = self._w._graph_trace_hook(req)  # noqa: SLF001
@@ -238,6 +244,18 @@ class AgentMemoryQueryPipeline:
                         staleness_state="fresh",
                     )
                     created.append(node_id)
+                vclaims: list[dict[str, Any]] = [
+                    x
+                    for x in link_claims_list
+                    if isinstance(x, dict)
+                ]
+                if vclaims:
+                    resolver = LinkClaimResolver()
+                    _ = resolver.apply_link_claims(
+                        write,
+                        namespace=nspace,
+                        claims=vclaims,
+                    )
         memory_slice = self._w._slice_from_pag(  # noqa: SLF001
             project_root=project_root,
             namespace=nspace,
@@ -264,7 +282,9 @@ class AgentMemoryQueryPipeline:
                 nids.append(cid)
         ms["node_ids"] = nids
         ms["partial"] = bool(ms.get("partial", False) or partial_plan)
-        dsum = str(plan_obj.get("decision_summary", "") or "planner ok")[:1_200]
+        dsum = str(
+            plan_obj.get("decision_summary", "") or "planner ok",
+        )[:1_200]
         rns = str(plan_obj.get("recommended_next_step", "") or "")[:500]
         return AgentMemoryQueryPipelineResult(
             memory_slice=ms,

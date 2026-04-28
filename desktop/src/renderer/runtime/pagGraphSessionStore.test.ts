@@ -118,4 +118,53 @@ describe("pagGraphSessionStore", () => {
     // Повторный full load (как при смене active session / refresh) снова ходит в БД-slice, не в trace-only.
     expect(slice.mock.calls.length).toBeGreaterThan(c1);
   });
+
+  it("manyTraceRowsWithDeltasDoNotTriggerPagGraphSlice", () => {
+    const slice: ReturnType<typeof vi.fn> = vi.fn();
+    const ns: string = "ns-noslice";
+    const rows: Record<string, unknown>[] = [];
+    for (let i: number = 0; i < 12; i += 1) {
+      rows.push(
+        rowPagNodeUpsert(ns, i + 1, {
+          node_id: `B:n${String(i)}.py`,
+          level: "B",
+          path: `n${String(i)}.py`,
+          title: "f",
+          kind: "file"
+        })
+      );
+    }
+    const base: ReturnType<typeof createEmptyPagGraphSessionSnapshot> = {
+      ...createEmptyPagGraphSessionSnapshot({ loadState: "ready" }),
+      merged: { nodes: [], links: [] },
+      graphRevByNamespace: { [ns]: 0 },
+      lastAppliedTraceIndex: -1
+    };
+    const nxt: ReturnType<typeof PagGraphSessionTraceMerge.applyIncremental> =
+      PagGraphSessionTraceMerge.applyIncremental(base, rows, [ns], ns);
+    expect(slice).not.toHaveBeenCalled();
+    expect(nxt.merged.nodes).toHaveLength(12);
+    expect(nxt.lastAppliedTraceIndex).toBe(11);
+  });
+
+  it("revMismatchOnDeltaProducesWarning", () => {
+    const ns: string = "ns-miss";
+    const base: ReturnType<typeof createEmptyPagGraphSessionSnapshot> = {
+      ...createEmptyPagGraphSessionSnapshot({ loadState: "ready" }),
+      merged: { nodes: [], links: [] },
+      graphRevByNamespace: { [ns]: 1 },
+      lastAppliedTraceIndex: -1
+    };
+    const badRow: Record<string, unknown> = rowPagNodeUpsert(ns, 3, {
+      node_id: "B:bad.py",
+      level: "B",
+      path: "bad.py",
+      title: "f",
+      kind: "file"
+    });
+    const nxt: ReturnType<typeof PagGraphSessionTraceMerge.applyIncremental> =
+      PagGraphSessionTraceMerge.applyIncremental(base, [badRow], [ns], ns);
+    const hasW: boolean = nxt.warnings.some((s: string) => s.includes("graph rev") || s.includes("несоответств"));
+    expect(hasW).toBe(true);
+  });
 });
