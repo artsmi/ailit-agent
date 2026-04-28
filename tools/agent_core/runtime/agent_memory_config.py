@@ -11,6 +11,7 @@ from typing import Any, Final, Mapping, MutableMapping, Sequence
 
 import yaml
 
+
 @dataclass(frozen=True, slots=True)
 class MemoryLlmSubConfig:
     """Пороги LLM-payload и обхода графа из YAML."""
@@ -418,9 +419,11 @@ class CompactJournalFields:
     decision: str
     request_id: str
     event_name: str
+    d_creation_gate: str = ""
+    d_creation_reason: str = ""
 
     def to_payload(self) -> dict[str, Any]:
-        return {
+        o: dict[str, Any] = {
             "schema": "agent_memory.journal.compact_v1",
             "task": self.task,
             "action": self.action,
@@ -431,6 +434,12 @@ class CompactJournalFields:
             "request_id": self.request_id,
             "event_name": self.event_name,
         }
+        if self.d_creation_gate:
+            o["d_creation"] = {
+                "gate": self.d_creation_gate,
+                "reason": self.d_creation_reason,
+            }
+        return o
 
 
 def build_compact_query_journal(
@@ -440,6 +449,8 @@ def build_compact_query_journal(
     task_summary: str,
     decision_summary: str,
     node_ids: Sequence[str] | None = None,
+    d_creation_gate: str = "",
+    d_creation_reason: str = "",
 ) -> CompactJournalFields:
     """Compact обёртка вокруг ответа query_context (без chain-of-thought, без сырья)."""
     t = (task_summary or "")[:2_000]
@@ -456,4 +467,6 @@ def build_compact_query_journal(
         decision=d,
         request_id=request_id,
         event_name=event_name,
+        d_creation_gate=(d_creation_gate or "")[:32],
+        d_creation_reason=(d_creation_reason or "")[:240],
     )

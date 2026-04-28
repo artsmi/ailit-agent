@@ -19,6 +19,11 @@ from agent_core.runtime.agent_memory_config import (
     build_compact_query_journal,
     load_or_create_agent_memory_config,
 )
+from agent_core.runtime.d_creation_policy import (
+    DCreationPolicy,
+    enrich_memory_slice_tiered,
+    merge_d_into_node_ids,
+)
 from agent_core.runtime.memory_journal import (
     MemoryJournalRow,
     MemoryJournalStore,
@@ -289,7 +294,10 @@ class AgentMemoryWorker:
                 request=req,
                 ok=False,
                 payload={},
-                error={"code": "bad_request", "message": "project_root required"},
+                error={
+                    "code": "bad_request",
+                    "message": "project_root required",
+                },
             ).to_dict()
         raw_ch: Any = pl.get("changes", [])
         rels: list[str] = []
@@ -496,6 +504,45 @@ class AgentMemoryWorker:
                     "message": "no PAG slice or path hint available",
                 },
             ).to_dict()
+        d_gate: str = ""
+        d_rsn: str = ""
+        if (
+            str(memory_slice.get("reason", "") or "") == "pag_runtime_slice"
+            and str(memory_slice.get("staleness", "") or "") == "fresh"
+        ):
+            p_ns = str(req.namespace or self._cfg.namespace)
+            p_store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
+            d_pol = DCreationPolicy(self._am_file.memory.d_policy)
+            d_out = d_pol.maybe_upsert_query_digest(
+                p_store,
+                namespace=p_ns,
+                goal=goal,
+                node_ids=list(memory_slice.get("node_ids") or ()),
+                graph_trace_hook=self._graph_trace_hook(req),
+            )
+            d_gate = str(d_out.gate)
+            d_rsn = str(d_out.reason)
+            if d_out.d_node_id:
+                memory_slice["node_ids"] = merge_d_into_node_ids(
+                    [str(x) for x in (memory_slice.get("node_ids") or [])],
+                    d_out.d_node_id,
+                )
+            memory_slice["d_creation"] = {
+                "gate": d_gate,
+                "reason": d_rsn,
+                "d_fingerprint": d_out.d_fingerprint,
+            }
+        enrich_memory_slice_tiered(
+            memory_slice,
+            namespace=str(req.namespace or self._cfg.namespace),
+        )
+        if str(memory_slice.get("reason", "") or "") == "pag_runtime_slice":
+            memory_slice["partial"] = bool(memory_slice.get("partial", False))
+        else:
+            memory_slice.setdefault("partial", False)
+        decision_summary = str(memory_slice.get("reason") or "memory slice")
+        if d_gate:
+            decision_summary = f"{d_gate}: {d_rsn}" if d_rsn else d_gate
         node_ids = list(memory_slice.get("node_ids") or [])
         edge_ids = list(memory_slice.get("edge_ids") or [])
         project_refs = [
@@ -506,7 +553,6 @@ class AgentMemoryWorker:
                 "edge_ids": edge_ids,
             },
         ]
-        decision_summary = str(memory_slice.get("reason") or "memory slice")
         recommended_next_step = (
             "read selected context"
             if node_ids
@@ -518,6 +564,8 @@ class AgentMemoryWorker:
             task_summary=goal,
             decision_summary=decision_summary,
             node_ids=node_ids,
+            d_creation_gate=d_gate,
+            d_creation_reason=d_rsn,
         )
         self._append_journal(
             req=req,
