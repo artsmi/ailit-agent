@@ -79,6 +79,23 @@ class PagEdge:
     updated_at: str
 
 
+@dataclass(frozen=True, slots=True)
+class PagPendingLinkClaim:
+    """Очередь LLM link_claim до resolve (G12.8)."""
+
+    namespace: str
+    pending_id: str
+    from_node_id: str
+    relation: str
+    target_name: str
+    target_kind: str
+    path_hint: str
+    language: str
+    confidence: float
+    claim_json: str
+    created_at: str
+
+
 class SqlitePagStore:
     """Very small PAG store on a single SQLite file."""
 
@@ -145,6 +162,28 @@ class SqlitePagStore:
                     graph_rev INTEGER NOT NULL DEFAULT 0
                 )
                 """,
+            )
+            con.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pag_pending_edges (
+                    namespace TEXT NOT NULL,
+                    pending_id TEXT NOT NULL,
+                    from_node_id TEXT NOT NULL,
+                    relation TEXT NOT NULL,
+                    target_name TEXT NOT NULL,
+                    target_kind TEXT NOT NULL,
+                    path_hint TEXT NOT NULL,
+                    language TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    claim_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    PRIMARY KEY (namespace, pending_id)
+                )
+                """,
+            )
+            con.execute(
+                "CREATE INDEX IF NOT EXISTS pag_pending_ns_from "
+                "ON pag_pending_edges(namespace, from_node_id)",
             )
             self._migrate_columns(con, "pag_nodes")
             self._migrate_columns(con, "pag_edges")
@@ -535,6 +574,129 @@ class SqlitePagStore:
             rows = con.execute(sql, tuple(params)).fetchall()
         return [self._row_to_node(r) for r in rows]
 
+    def list_c_nodes_by_kind_title(
+        self,
+        *,
+        namespace: str,
+        kind: str,
+        title: str,
+        limit: int = 50,
+    ) -> list[PagNode]:
+        """C-ноды в namespace с kind+title (G12.8 resolver, без path)."""
+        ns = str(namespace).strip()
+        k = str(kind or "").strip()
+        t = str(title or "").strip()
+        if not ns or not t:
+            return []
+        lim = max(1, min(int(limit), 500))
+        with self._connect() as con:
+            rows = con.execute(
+                """
+                SELECT * FROM pag_nodes
+                WHERE namespace = ? AND level = 'C'
+                  AND LOWER(kind) = LOWER(?) AND LOWER(title) = LOWER(?)
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (ns, k, t, lim),
+            ).fetchall()
+        return [self._row_to_node(r) for r in rows]
+
+    def insert_pending_link_claim(
+        self,
+        *,
+        namespace: str,
+        pending_id: str,
+        from_node_id: str,
+        relation: str,
+        target_name: str,
+        target_kind: str,
+        path_hint: str,
+        language: str,
+        confidence: float,
+        claim_json: str,
+    ) -> None:
+        """Сохранить нерезолвенный link_claim (не graph edge)."""
+        ns = str(namespace).strip()
+        pid = str(pending_id).strip()
+        if not ns or not pid:
+            raise ValueError("namespace и pending_id обязательны")
+        now = _utc_now_iso()
+        with self._connect() as con:
+            con.execute(
+                """
+                INSERT INTO pag_pending_edges (
+                    namespace, pending_id, from_node_id, relation,
+                    target_name, target_kind, path_hint, language,
+                    confidence, claim_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(namespace, pending_id) DO UPDATE SET
+                    from_node_id=excluded.from_node_id,
+                    relation=excluded.relation,
+                    target_name=excluded.target_name,
+                    target_kind=excluded.target_kind,
+                    path_hint=excluded.path_hint,
+                    language=excluded.language,
+                    confidence=excluded.confidence,
+                    claim_json=excluded.claim_json
+                """,
+                (
+                    ns,
+                    pid,
+                    str(from_node_id).strip(),
+                    str(relation).strip(),
+                    str(target_name).strip(),
+                    str(target_kind).strip(),
+                    str(path_hint or "").strip(),
+                    str(language or "").strip(),
+                    float(confidence),
+                    str(claim_json or "{}"),
+                    now,
+                ),
+            )
+
+    def list_pending_link_claims(
+        self,
+        *,
+        namespace: str,
+        limit: int = 20_000,
+    ) -> list[PagPendingLinkClaim]:
+        """Список pending link_claim по namespace (FIFO по created_at)."""
+        ns = str(namespace).strip()
+        if not ns:
+            return []
+        lim = max(1, min(int(limit), 50_000))
+        with self._connect() as con:
+            rows = con.execute(
+                """
+                SELECT * FROM pag_pending_edges
+                WHERE namespace = ?
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (ns, lim),
+            ).fetchall()
+        return [self._row_to_pending(r) for r in rows]
+
+    def delete_pending_link_claim(
+        self,
+        *,
+        namespace: str,
+        pending_id: str,
+    ) -> int:
+        """Удалить pending после успешного resolve."""
+        ns = str(namespace).strip()
+        pid = str(pending_id).strip()
+        if not ns or not pid:
+            return 0
+        with self._connect() as con:
+            cur = con.execute(
+                "DELETE FROM pag_pending_edges "
+                "WHERE namespace = ? AND pending_id = ?",
+                (ns, pid),
+            )
+        return int(getattr(cur, "rowcount", 0) or 0)
+
     def list_edges_touching(
         self,
         *,
@@ -726,6 +888,22 @@ class SqlitePagStore:
                 (ns, *ids, *ids),
             )
             return int(getattr(cur, "rowcount", 0) or 0)
+
+    @staticmethod
+    def _row_to_pending(row: sqlite3.Row) -> PagPendingLinkClaim:
+        return PagPendingLinkClaim(
+            namespace=str(row["namespace"]),
+            pending_id=str(row["pending_id"]),
+            from_node_id=str(row["from_node_id"]),
+            relation=str(row["relation"]),
+            target_name=str(row["target_name"]),
+            target_kind=str(row["target_kind"]),
+            path_hint=str(row["path_hint"] or ""),
+            language=str(row["language"] or ""),
+            confidence=float(row["confidence"] or 0.0),
+            claim_json=str(row["claim_json"] or "{}"),
+            created_at=_col_str(row, "created_at", _utc_now_iso()),
+        )
 
     def _row_to_node(self, row: sqlite3.Row) -> PagNode:
         try:

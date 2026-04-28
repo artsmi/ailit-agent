@@ -16,6 +16,7 @@ from agent_core.runtime.agent_memory_contracts import (
     MemoryLineHintV1,
     MemorySemanticLocatorV1,
 )
+from agent_core.runtime.link_claim_resolver import LinkClaimResolver
 from agent_core.runtime.memory_c_segmentation import FingerprintService
 
 _LINE_MARGINS: tuple[int, ...] = (0, 20, 50, 100)
@@ -373,6 +374,10 @@ class SemanticCRemapService:
                 upd += 1
             elif a == "need_llm":
                 need += 1
+        LinkClaimResolver().resolve_all_pending(
+            self._store,
+            namespace=ns,
+        )
         return CRemapBatchResult(
             path=rel_path,
             updated=upd,
