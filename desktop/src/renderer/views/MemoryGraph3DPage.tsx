@@ -2,6 +2,11 @@ import React from "react";
 import ForceGraph3D, { type ForceGraphMethods } from "react-force-graph-3d";
 
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
+import { loadPagGraphMerged } from "../runtime/loadPagGraphMerged";
+import {
+  applyPagGraphTraceDelta,
+  parsePagGraphTraceDelta
+} from "../runtime/pagGraphTraceDeltas";
 import {
   ensureHighlightNodes,
   linkFromPag,
@@ -65,6 +70,8 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
   const highlightRef = React.useRef<HighlightState | null>(null);
   const highlightFrameRef = React.useRef<number | null>(null);
   const initialFitDoneRef = React.useRef<boolean>(false);
+  const lastTraceRowIndexRef = React.useRef<number>(-1);
+  const graphRevByNsRef = React.useRef<Record<string, number>>({});
   const [viewSize, setViewSize] = React.useState<{ w: number; h: number }>({
     w: 800,
     h: 560
@@ -99,31 +106,30 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       return;
     }
     setLoadState("loading");
+    const slice: typeof window.ailitDesktop.pagGraphSlice = window.ailitDesktop.pagGraphSlice;
     let merged: MemoryGraphData = { nodes: [], links: [] };
     const errors: string[] = [];
+    const nextRevs: Record<string, number> = {};
     for (const namespace of namespaces) {
-      const r: Awaited<ReturnType<NonNullable<typeof window.ailitDesktop.pagGraphSlice>>> =
-        await window.ailitDesktop.pagGraphSlice({
-          namespace,
-          level: null,
-          nodeLimit: 1000,
-          nodeOffset: 0,
-          edgeLimit: 1000,
-          edgeOffset: 0
-        });
+      const r: Awaited<ReturnType<typeof loadPagGraphMerged>> = await loadPagGraphMerged(
+        (p) => slice(p),
+        { namespace, level: null }
+      );
       if (!r.ok) {
         errors.push(`${namespace}: ${r.error}`);
         continue;
       }
+      nextRevs[namespace] = r.graphRev;
       merged = mergeMemoryGraph(merged, {
         nodes: r.nodes.map(nodeFromPag).filter((x): x is MemoryGraphNode => x !== null),
         links: r.edges.map(linkFromPag).filter((x): x is MemoryGraphLink => x !== null)
       });
     }
+    graphRevByNsRef.current = nextRevs;
     setErr(errors.length > 0 ? errors.join("; ") : null);
     setGraph(merged);
     setLoadState(merged.nodes.length > 0 || merged.links.length > 0 ? "ready" : "empty");
-  }, [namespaces]);
+  }, [namespaces, s.activeSessionId]);
 
   React.useLayoutEffect(() => {
     const el: HTMLDivElement | null = hostRef.current;
@@ -153,11 +159,62 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
   }, [loadGraph]);
 
   React.useEffect(() => {
-    const last: Record<string, unknown> | undefined = s.rawTraceRows[s.rawTraceRows.length - 1];
+    lastTraceRowIndexRef.current = -1;
+    graphRevByNsRef.current = {};
+    initialFitDoneRef.current = false;
+  }, [s.activeSessionId]);
+
+  React.useEffect(() => {
+    const rows: readonly Record<string, unknown>[] = s.rawTraceRows;
+    const start: number = lastTraceRowIndexRef.current + 1;
+    if (rows.length > 0 && start < rows.length) {
+      let revWarn: string | null = null;
+      setGraph((cur) => {
+        let g: MemoryGraphData = cur;
+        const revs: Record<string, number> = { ...graphRevByNsRef.current };
+        for (let i: number = start; i < rows.length; i++) {
+          const row: Record<string, unknown> = rows[i]! as Record<string, unknown>;
+          const d = parsePagGraphTraceDelta(row);
+          if (d === null) {
+            continue;
+          }
+          if (!namespaces.includes(d.namespace)) {
+            continue;
+          }
+          const o: Record<string, number> = {};
+          const applied: { data: MemoryGraphData; revWarning: string | null } = applyPagGraphTraceDelta(
+            g,
+            d,
+            revs,
+            o
+          );
+          g = applied.data;
+          for (const k of Object.keys(o)) {
+            const v: number = o[k]!;
+            revs[k] = v;
+          }
+          if (applied.revWarning !== null) {
+            revWarn = applied.revWarning;
+          }
+        }
+        graphRevByNsRef.current = revs;
+        return g;
+      });
+      if (revWarn !== null) {
+        setErr(revWarn);
+      }
+      lastTraceRowIndexRef.current = rows.length - 1;
+    }
+    const last: Record<string, unknown> | undefined = rows[rows.length - 1] as
+      | Record<string, unknown>
+      | undefined;
     if (!last) {
       return;
     }
-    const ev: PagSearchHighlightV1 | null = highlightFromTraceRow(last, namespaces[0] ?? "default");
+    const ev: PagSearchHighlightV1 | null = highlightFromTraceRow(
+      last,
+      namespaces[0] ?? "default"
+    );
     if (!ev) {
       return;
     }
@@ -167,9 +224,8 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       ...ev,
       startedAtMs: nowMs()
     };
-    void loadGraph();
     runHighlightRefreshLoop();
-  }, [loadGraph, namespaces, s.rawTraceRows]);
+  }, [namespaces, s.rawTraceRows]);
 
   React.useEffect(() => {
     return () => {

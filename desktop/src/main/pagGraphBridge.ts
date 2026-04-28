@@ -8,6 +8,8 @@ export type PagGraphSliceOk = {
   readonly kind: "ailit_pag_graph_slice_v1";
   readonly namespace: string;
   readonly db_path: string;
+  /** Монотонный rev PAG в SQLite (G12). */
+  readonly graph_rev?: number;
   readonly pag_state: string;
   readonly level_filter: string | null;
   readonly nodes: readonly Record<string, unknown>[];
@@ -68,7 +70,7 @@ export async function runPagGraphSlice(params: {
   try {
     const { stdout } = await execFileAsync(ailit, args, {
       env: process.env,
-      maxBuffer: 20 * 1024 * 1024
+      maxBuffer: 64 * 1024 * 1024
     });
     const line: string = stdout
       .trim()

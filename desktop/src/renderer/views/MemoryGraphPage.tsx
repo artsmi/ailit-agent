@@ -2,6 +2,7 @@ import React from "react";
 
 import { highlightFromTraceRow, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
+import { parsePagGraphTraceDelta } from "../runtime/pagGraphTraceDeltas";
 import { mockWorkspace } from "../state/mockData";
 
 type LevelFilter = "all" | "A" | "B" | "C";
@@ -62,11 +63,18 @@ export function MemoryGraphPage(): React.JSX.Element {
   const [hi, setHi] = React.useState<LiveHighlight | null>(null);
   const [, tick] = React.useState(0);
   const [mockHighlight, setMockHighlight] = React.useState<LiveHighlight | null>(null);
+  const lastTraceRowIndexRef = React.useRef<number>(-1);
+  const graphRevByNsRef = React.useRef<Record<string, number>>({});
 
   const ns0: string | null =
     s.selectedProjectIds.length > 0
       ? s.registry.find((p) => p.projectId === s.selectedProjectIds[0])?.namespace ?? null
       : s.registry[0]?.namespace ?? null;
+
+  React.useEffect(() => {
+    lastTraceRowIndexRef.current = -1;
+    graphRevByNsRef.current = {};
+  }, [s.activeSessionId, ns0]);
 
   React.useEffect(() => {
     const id: number = window.setInterval(() => {
@@ -76,6 +84,62 @@ export function MemoryGraphPage(): React.JSX.Element {
   }, []);
 
   React.useEffect(() => {
+    if (!ns0) {
+      return;
+    }
+    const rows: readonly Record<string, unknown>[] = s.rawTraceRows;
+    const start: number = lastTraceRowIndexRef.current + 1;
+    if (rows.length > 0 && start < rows.length) {
+      for (let i: number = start; i < rows.length; i++) {
+        const d = parsePagGraphTraceDelta(rows[i]!);
+        if (d === null || d.namespace !== ns0) {
+          continue;
+        }
+        const lastRev: number = graphRevByNsRef.current[ns0] ?? 0;
+        if (lastRev > 0 && d.rev !== lastRev + 1) {
+          setErr("PAG: несоответствие graph rev. Выполните обновление списка (Refresh/вкладка 3D).");
+        }
+        graphRevByNsRef.current = { ...graphRevByNsRef.current, [ns0]: d.rev };
+        if (d.kind === "pag.node.upsert") {
+          setNodes((prev) => {
+            const id: string = String(d.node["node_id"] ?? "");
+            if (!id) {
+              return prev;
+            }
+            const idx: number = prev.findIndex(
+              (x) => String((x as Record<string, unknown>)["node_id"]) === id
+            );
+            if (idx >= 0) {
+              const c: Record<string, unknown>[] = prev.map((x) => x as Record<string, unknown>);
+              c[idx] = { ...c[idx]!, ...d.node };
+              return c;
+            }
+            return [
+              ...prev,
+              { ...d.node, namespace: d.namespace } as Record<string, unknown>
+            ];
+          });
+        } else {
+          setEdges((prev) => {
+            const c: Record<string, unknown>[] = prev.map((x) => x as Record<string, unknown>);
+            for (const e of d.edges) {
+              const eid: string = String(e["edge_id"] ?? "");
+              if (!eid) {
+                continue;
+              }
+              const idx: number = c.findIndex((x) => String(x["edge_id"] ?? "") === eid);
+              if (idx >= 0) {
+                c[idx] = { ...c[idx]!, ...e };
+              } else {
+                c.push(e);
+              }
+            }
+            return c;
+          });
+        }
+      }
+      lastTraceRowIndexRef.current = rows.length - 1;
+    }
     if (!s.rawTraceRows.length) {
       return;
     }
@@ -118,6 +182,9 @@ export function MemoryGraphPage(): React.JSX.Element {
       setNodes([]);
       setEdges([]);
       return;
+    }
+    if (typeof r.graph_rev === "number" && ns0) {
+      graphRevByNsRef.current = { ...graphRevByNsRef.current, [ns0]: r.graph_rev };
     }
     setLoadState(r.pag_state);
     setNodes([...r.nodes]);

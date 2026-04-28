@@ -114,6 +114,7 @@ export type PagGraphSliceResult =
       readonly kind: "ailit_pag_graph_slice_v1";
       readonly namespace: string;
       readonly db_path: string;
+      readonly graph_rev?: number;
       readonly pag_state: string;
       readonly level_filter: string | null;
       readonly nodes: readonly Record<string, unknown>[];
