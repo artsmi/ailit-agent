@@ -141,7 +141,11 @@ def should_read_artifact_bytes(
 
 
 class MechanicalChunkCatalogBuilder:
-    """Построение каталога чанков без семантики (G12.6 п.3)."""
+    """
+    Построение каталога чанков без семантики (G12.6 п.3).
+
+    G13.4: каталог — только кандидаты для LLM, не authority для C identity.
+    """
 
     def __init__(
         self,
@@ -152,7 +156,11 @@ class MechanicalChunkCatalogBuilder:
         self._line_window: int = max(20, int(line_window))
         self._max_chunks: int = max(1, int(max_chunks))
 
-    def build(self, text: str, relative_path: str) -> tuple[MechanicalChunk, ...]:
+    def build(
+        self,
+        text: str,
+        relative_path: str,
+    ) -> tuple[MechanicalChunk, ...]:
         rel = str(relative_path or "").replace("\\", "/").lower()
         lines = (text or "").splitlines()
         if rel.endswith(".md"):
@@ -163,7 +171,10 @@ class MechanicalChunkCatalogBuilder:
             return self._xmlish_line_blocks(lines)
         return self._line_windows_only(lines)
 
-    def _line_windows_only(self, lines: list[str]) -> tuple[MechanicalChunk, ...]:
+    def _line_windows_only(
+        self,
+        lines: list[str],
+    ) -> tuple[MechanicalChunk, ...]:
         out: list[MechanicalChunk] = []
         n = len(lines) or 1
         step = self._line_window
@@ -211,9 +222,9 @@ class MechanicalChunkCatalogBuilder:
                 else nlines
             ) or nlines
             end = max(end, start)
-            body = "\n".join(
-                lines[max(0, start - 1) : min(nlines, end)],
-            )[:1_200]
+            lo = max(0, start - 1)
+            hi = min(nlines, end)
+            body = "\n".join(lines[lo:hi])[:1_200]
             out.append(
                 MechanicalChunk(
                     chunk_id=f"md_h_{i+1}",
@@ -243,19 +254,23 @@ class MechanicalChunkCatalogBuilder:
         if not extra:
             return base
         merged: list[MechanicalChunk] = list(base[: self._max_chunks - 1])
+        ck = "json_top_keys" if rel.endswith(".json") else "yaml_block"
         merged.append(
             MechanicalChunk(
                 chunk_id="struct_top_keys",
                 start_line=1,
                 end_line=min(50, len(lines) or 1),
-                chunk_kind="json_top_keys" if rel.endswith(".json") else "yaml_block",
+                chunk_kind=ck,
                 preview=(head + "\nkeys: " + ", ".join(extra))[:1_200],
             ),
         )
         return tuple(merged[: self._max_chunks])
 
-    def _xmlish_line_blocks(self, lines: list[str]) -> tuple[MechanicalChunk, ...]:
-        """Маркерный chunk_kind для .xml/.launch/.urdf; сетка — line windows."""
+    def _xmlish_line_blocks(
+        self,
+        lines: list[str],
+    ) -> tuple[MechanicalChunk, ...]:
+        """Маркер .xml/.launch/.urdf; сетка — line windows."""
         base = self._line_windows_only(lines)
         merged: list[MechanicalChunk] = []
         for i, ch in enumerate(base):

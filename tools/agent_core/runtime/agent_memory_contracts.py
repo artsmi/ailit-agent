@@ -46,7 +46,10 @@ class MemorySemanticLocatorV1:
         return o
 
     @classmethod
-    def from_mapping(cls, raw: Mapping[str, Any] | None) -> MemorySemanticLocatorV1 | None:
+    def from_mapping(
+        cls,
+        raw: Mapping[str, Any] | None,
+    ) -> MemorySemanticLocatorV1 | None:
         if not raw:
             return None
         k = str(raw.get("kind", "") or "").strip()
@@ -84,7 +87,7 @@ class MemoryLineHintV1:
 
 @dataclass(frozen=True, slots=True)
 class MemoryCNodePayloadV1:
-    """C-нода: stable_key + semantic_locator + отпечатки (G12.6)."""
+    """C-нода: stable_key + semantic_locator + отпечатки (G12.6, G13.4)."""
 
     stable_key: str
     semantic_locator: MemorySemanticLocatorV1 | None
@@ -98,13 +101,17 @@ class MemoryCNodePayloadV1:
     confidence: float
     staleness_state: str
     extraction_contract_version: str = EXTRACTION_CONTRACT_VERSION
+    b_node_id: str = ""
+    source_boundary_decision: str = ""
+    aliases: tuple[str, ...] = ()
 
     def to_pag_attrs(self) -> dict[str, Any]:
-        loc = (
-            self.semantic_locator.to_json_dict() if self.semantic_locator else None
-        )
+        if self.semantic_locator is not None:
+            loc = self.semantic_locator.to_json_dict()
+        else:
+            loc = None
         lh = self.line_hint.to_json_dict() if self.line_hint else None
-        return {
+        o: dict[str, Any] = {
             "stable_key": self.stable_key,
             "semantic_locator": loc,
             "line_hint": lh,
@@ -114,6 +121,13 @@ class MemoryCNodePayloadV1:
             "confidence": float(self.confidence),
             "extraction_contract_version": self.extraction_contract_version,
         }
+        if self.b_node_id:
+            o["b_node_id"] = self.b_node_id
+        if self.source_boundary_decision:
+            o["source_boundary_decision"] = self.source_boundary_decision
+        if self.aliases:
+            o["aliases"] = list(self.aliases)
+        return o
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,10 +173,13 @@ class MemoryExtractorResultV1:
         cls,
         text: str,
     ) -> MemoryExtractorResultV1:
-        """Разбор `agent_memory.extractor_result.v1` (без сырого reasoning)."""
+        """Разбор agent_memory.extractor_result.v1 (без сырого reasoning)."""
         raw: dict[str, Any] = parse_memory_json_with_retry(text)
         sch = str(raw.get("schema", "") or "")
-        if sch and "extractor" not in sch and sch != "agent_memory.extractor_result.v1":
+        bad_sch = "extractor" not in sch and sch != (
+            "agent_memory.extractor_result.v1"
+        )
+        if sch and bad_sch:
             raise ValueError("unexpected extractor schema id")
         src = str(raw.get("source", "") or raw.get("source_b", "") or "")
         nodes_in: Any = raw.get("nodes", [])
@@ -182,7 +199,17 @@ class MemoryExtractorResultV1:
                 if isinstance(n.get("semantic_locator"), dict)
                 else None,
             )
+            if sl is None:
+                continue
             lh = MemoryLineHintV1.from_json(n.get("line_hint", {}))
+            ali_raw = n.get("aliases", [])
+            aliases_t: tuple[str, ...] = ()
+            if isinstance(ali_raw, list):
+                aliases_t = tuple(
+                    str(x).strip() for x in ali_raw if str(x).strip()
+                )[:64]
+            cf = str(n.get("content_fingerprint", "") or "")
+            sbd = str(n.get("source_boundary_decision", "") or "")[:500]
             out_nodes.append(
                 MemoryCNodePayloadV1(
                     stable_key=sk,
@@ -191,13 +218,18 @@ class MemoryExtractorResultV1:
                     kind=str(n.get("kind", "") or "chunk"),
                     title=str(n.get("title", "") or sk)[:512],
                     summary=str(n.get("summary", "") or "")[:2000],
-                    content_fingerprint=str(n.get("content_fingerprint", "") or ""),
+                    content_fingerprint=cf,
                     summary_fingerprint=str(
                         n.get("summary_fingerprint", "") or "",
                     ),
                     b_fingerprint=str(n.get("b_fingerprint", "") or ""),
                     confidence=float(n.get("confidence", 0.0) or 0.0),
-                    staleness_state=str(n.get("staleness_state", "") or "fresh"),
+                    staleness_state=str(
+                        n.get("staleness_state", "") or "fresh",
+                    ),
+                    b_node_id=str(n.get("b_node_id", "") or "")[:512],
+                    source_boundary_decision=sbd,
+                    aliases=aliases_t,
                 ),
             )
         lc: Any = raw.get("link_claims", [])
@@ -247,7 +279,8 @@ class MemoryUpdateResultV1:
     @classmethod
     def from_llm_json(cls, text: str) -> MemoryUpdateResultV1:
         raw: dict[str, Any] = parse_memory_json_with_retry(text)
-        sk = str(raw.get("c_stable_key", "") or raw.get("stable_key", "") or "")
+        k1 = raw.get("c_stable_key", "") or raw.get("stable_key", "") or ""
+        sk = str(k1)
         lh = MemoryLineHintV1.from_json(raw.get("line_hint", {}))
         return cls(
             c_stable_key=sk,

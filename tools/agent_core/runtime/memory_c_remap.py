@@ -8,7 +8,7 @@ import re
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Final, Mapping, Sequence
 
 from agent_core.memory.sqlite_pag import (
     PagGraphTraceFn,
@@ -22,9 +22,15 @@ from agent_core.runtime.agent_memory_contracts import (
 )
 from agent_core.runtime.link_claim_resolver import LinkClaimResolver
 from agent_core.runtime.memory_c_segmentation import FingerprintService
+from agent_core.runtime.memory_llm_optimization_policy import (
+    MemoryLlmOptimizationPolicy,
+)
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
+from agent_core.runtime.semantic_c_extraction import C_NODE_FULL_B_MAX_CHARS
 
-_LINE_MARGINS: tuple[int, ...] = (0, 20, 50, 100)
+_RE_FULL_FILE_CONF: Final[float] = 0.86
+_SEM_WINDOW_CONF: Final[float] = 0.88
+_SEM_PRIME_CONF: Final[float] = 0.95
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +41,18 @@ class CRemapBatchResult:
     updated: int
     needs_llm_remap: int
     b_fingerprint: str
+
+
+@dataclass(frozen=True, slots=True)
+class CRemapSpanResult:
+    """Итог поиска span для C: mechanical только при confidence >= policy."""
+
+    applied: bool = False
+    needs_llm: bool = False
+    start: int = 0
+    end: int = 0
+    mode: str = ""
+    confidence: float = 0.0
 
 
 def _read_text_lines(abs_file: Path) -> tuple[str, list[str]] | None:
@@ -183,14 +201,26 @@ class _MarkdownLocater:
         return None
 
 
-def _search_signature_in_text(text: str, name: str) -> tuple[int, int] | None:
+def _search_signature_in_text(
+    text: str,
+    name: str,
+    *,
+    rel_lower: str = "",
+) -> tuple[int, int] | None:
     n = re.escape((name or "").strip())
     if not n:
         return None
-    pats = [
+    pats: list[re.Pattern[str]] = [
         re.compile(rf"^def\s+{n}\b", re.MULTILINE),
         re.compile(rf"^class\s+{n}\b", re.MULTILINE),
     ]
+    if rel_lower.endswith((".ts", ".tsx", ".js", ".jsx")):
+        pats.extend(
+            [
+                re.compile(rf"^export\s+function\s+{n}\b", re.MULTILINE),
+                re.compile(rf"function\s+{n}\s*\(", re.MULTILINE),
+            ],
+        )
     for pat in pats:
         m = pat.search(text)
         if m is not None:
@@ -201,23 +231,90 @@ def _search_signature_in_text(text: str, name: str) -> tuple[int, int] | None:
     return None
 
 
-def _try_window_locate(
-    lines: list[str],
-    *,
+def _line_hint_search_windows(
     hint: MemoryLineHintV1,
-    target: str,
+    nlines: int,
+    text: str,
+) -> list[tuple[int, int]]:
+    """G13.4: old range, ±100, ±200, ±500, затем весь B если len <= cap."""
+    s, e = int(hint.start), int(hint.end)
+    out: list[tuple[int, int]] = [
+        (max(1, s), min(nlines, e)),
+    ]
+    for margin in (100, 200, 500):
+        out.append(
+            (
+                max(1, s - margin),
+                min(nlines, e + margin),
+            ),
+        )
+    if len(text) <= C_NODE_FULL_B_MAX_CHARS:
+        out.append((1, nlines))
+    return out
+
+
+def _structural_hits_in_range(
+    lines: list[str],
+    lo: int,
+    hi: int,
+    *,
+    name: str,
+    kind: str,
+) -> list[int]:
+    n = re.escape((name or "").strip())
+    if not n:
+        return []
+    hits: list[int] = []
+    k = (kind or "").lower()
+    a = max(1, min(lo, len(lines) or 1))
+    b = min(len(lines), max(hi, 1))
+    for i in range(a, b + 1):
+        line = lines[i - 1]
+        if "class" in k and re.search(rf"^\s*class\s+{n}\b", line):
+            hits.append(i)
+        elif re.search(rf"^\s*(async\s+)?def\s+{n}\b", line):
+            if "class" not in k:
+                hits.append(i)
+        elif re.search(rf"export\s+function\s+{n}\b", line) or re.search(
+            rf"^\s*function\s+{n}\s*\(",
+            line,
+        ):
+            if "class" not in k:
+                hits.append(i)
+    return hits
+
+
+def _count_global_name_structural_hits(
+    text: str,
+    *,
+    name: str,
+    kind: str,
+) -> int:
+    lines = text.splitlines()
+    if not lines:
+        return 0
+    return len(
+        _structural_hits_in_range(lines, 1, len(lines), name=name, kind=kind),
+    )
+
+
+def _span_from_line_run(
+    lines: list[str],
+    name: str,
+    kind: str,
+    *,
+    line_start: int,
 ) -> tuple[int, int] | None:
+    """AST по полному файлу, иначе грубый диапазон вокруг найденной строки."""
+    text = "\n".join(lines)
+    pl = _PythonLocater.find_span(text, name=name, kind=kind)
+    if pl is not None:
+        return pl[0], pl[1]
     nlines = len(lines)
-    t = (target or "").strip()
-    if not t:
+    if line_start < 1:
         return None
-    for margin in _LINE_MARGINS:
-        lo = max(1, hint.start - margin)
-        hi2 = min(nlines, hint.end + margin)
-        snip = _line_slice_text(lines, lo, hi2)
-        if t in snip:
-            return lo, hi2
-    return None
+    e = min(nlines, line_start + 200)
+    return line_start, e
 
 
 def _line_slice_text(lines: list[str], s: int, e: int) -> str:
@@ -236,21 +333,51 @@ def _remap_node_span(
     lines: list[str],
     rel_lower: str,
     node: PagNode,
-) -> tuple[int, int, str] | None:
-    """Возврат: start, end, mode."""
+    policy: MemoryLlmOptimizationPolicy,
+) -> CRemapSpanResult:
+    """
+    semantic (AST/md) -> line_hint окна ±100/200/500 -> full-B при cap.
+
+    Identity: stable_key/semantic; line_hint — подсказка (G13.4).
+    """
+    th_ok = float(policy.threshold_mechanical_accept)
+    th_amb = float(policy.threshold_ambiguous_min)
     attrs = dict(node.attrs)
     sem = _semantic_from_attrs(attrs)
     title = str(node.title or "")
     name = str(attrs.get("name", "") or title)
     kind = str(node.kind or "function")
+    nlines = len(lines)
+
+    def mech(
+        s: int,
+        e: int,
+        mode: str,
+        conf: float,
+    ) -> CRemapSpanResult:
+        s2 = max(1, min(s, max(1, nlines)))
+        e2 = max(s2, min(e, max(1, nlines)))
+        if conf >= th_ok:
+            return CRemapSpanResult(
+                applied=True,
+                start=s2,
+                end=e2,
+                mode=mode,
+                confidence=conf,
+            )
+        if conf >= th_amb:
+            return CRemapSpanResult(needs_llm=True, confidence=conf)
+        return CRemapSpanResult(needs_llm=True, confidence=conf)
+
     if rel_lower.endswith(".py"):
-        pl = _PythonLocater.find_span(
-            text,
-            name=name,
-            kind=kind,
-        )
-        if pl is not None:
-            return pl[0], pl[1], "python_ast"
+        if _count_global_name_structural_hits(text, name=name, kind=kind) <= 1:
+            pl = _PythonLocater.find_span(
+                text,
+                name=name,
+                kind=kind,
+            )
+            if pl is not None:
+                return mech(pl[0], pl[1], "python_ast", _SEM_PRIME_CONF)
     if rel_lower.endswith(".md"):
         hp: list[str] = []
         if sem and isinstance(sem.raw.get("heading_path"), list):
@@ -263,29 +390,107 @@ def _remap_node_span(
         if md is None and title:
             md = _MarkdownLocater.find_title(lines, title)
         if md is not None:
-            return md[0], md[1], "md_heading"
+            return mech(md[0], md[1], "md_heading", _SEM_PRIME_CONF)
+    if rel_lower.endswith((".xml", ".launch", ".urdf")) and sem is not None:
+        tag = str(sem.raw.get("tag", "") or "").strip()
+        if tag:
+            hits: list[int] = []
+            for i, line in enumerate(lines, start=1):
+                if f"<{tag}" in line or f"</{tag}" in line:
+                    hits.append(i)
+            if len(hits) == 1:
+                a, b = hits[0], min(nlines, hits[0] + 60)
+                return mech(a, b, "markup_tag", _SEM_WINDOW_CONF)
+            if len(hits) > 1:
+                return CRemapSpanResult(needs_llm=True, confidence=0.55)
+
     hint = _attrs_line_hint(attrs)
-    if hint is not None and len(lines) >= 1:
-        w = _try_window_locate(
-            lines,
-            hint=hint,
-            target=str(attrs.get("name") or title or ""),
-        )
-        if w is not None:
-            lo, hi2 = w
-            return lo, hi2, "line_window"
-    alt = _search_signature_in_text(text, name=attrs.get("name") or title)
-    if alt is not None:
-        return alt[0], alt[1], "regex_fn"
-    return None
+    if hint is not None and nlines >= 1:
+        for lo, hi in _line_hint_search_windows(hint, nlines, text):
+            hlist = _structural_hits_in_range(
+                lines,
+                lo,
+                hi,
+                name=name,
+                kind=kind,
+            )
+            if len(hlist) > 1:
+                return CRemapSpanResult(needs_llm=True, confidence=0.55)
+            if len(hlist) == 0:
+                continue
+            gh = _count_global_name_structural_hits(
+                text,
+                name=name,
+                kind=kind,
+            )
+            if gh > 1:
+                return CRemapSpanResult(needs_llm=True, confidence=0.55)
+            if rel_lower.endswith(".py"):
+                pl2 = _PythonLocater.find_span(text, name=name, kind=kind)
+                if pl2 is not None:
+                    return mech(
+                        pl2[0],
+                        pl2[1],
+                        "line_windows_ast",
+                        _SEM_WINDOW_CONF,
+                    )
+            if rel_lower.endswith((".ts", ".tsx", ".js", ".jsx")):
+                rts = _search_signature_in_text(
+                    text,
+                    name,
+                    rel_lower=rel_lower,
+                )
+                if rts is not None:
+                    return mech(
+                        rts[0],
+                        rts[1],
+                        "ts_line_windows",
+                        _SEM_WINDOW_CONF,
+                    )
+            he = _span_from_line_run(
+                lines,
+                name,
+                kind,
+                line_start=hlist[0],
+            )
+            if he is not None:
+                return mech(
+                    he[0],
+                    he[1],
+                    "line_windows_struct",
+                    _SEM_WINDOW_CONF,
+                )
+
+    gcount = _count_global_name_structural_hits(
+        text,
+        name=name,
+        kind=kind,
+    )
+    alt = _search_signature_in_text(
+        text,
+        name=attrs.get("name") or title,
+        rel_lower=rel_lower,
+    )
+    if alt is not None and gcount == 1:
+        return mech(alt[0], alt[1], "regex_fn_full_file", _RE_FULL_FILE_CONF)
+    if alt is not None and gcount > 1:
+        return CRemapSpanResult(needs_llm=True, confidence=0.55)
+    return CRemapSpanResult(needs_llm=True, confidence=0.0)
 
 
 class SemanticCRemapService:
     """B.fingerprint с диска; remap C по stable_key+semantic, не lines-only."""
 
-    def __init__(self, pag: PagGraphWriteService) -> None:
+    def __init__(
+        self,
+        pag: PagGraphWriteService,
+        policy: MemoryLlmOptimizationPolicy | None = None,
+    ) -> None:
         self._write: PagGraphWriteService = pag
         self._store: SqlitePagStore = pag.store
+        self._policy: MemoryLlmOptimizationPolicy = (
+            policy or MemoryLlmOptimizationPolicy.default()
+        )
 
     def process_changes(
         self,
@@ -414,10 +619,11 @@ class SemanticCRemapService:
             lines=lines,
             rel_lower=rel_lower,
             node=c,
+            policy=self._policy,
         )
         attrs: dict[str, Any] = dict(c.attrs)
-        if res is not None:
-            s, e, _mode = res
+        if res.applied:
+            s, e = res.start, res.end
             sk = _stable_key_from_attrs(attrs, c.title)
             attrs["stable_key"] = sk
             attrs["b_fingerprint"] = b_fp
