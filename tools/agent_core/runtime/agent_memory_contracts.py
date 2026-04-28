@@ -131,6 +131,36 @@ class MemoryCNodePayloadV1:
 
 
 @dataclass(frozen=True, slots=True)
+class SemanticLinkClaim:
+    """
+    Утверждение о семантической связи между C-нодами (G13.5, D13.7).
+    До resolution хранится в ``pag_pending_edges``, не в ``pag_edges``.
+    """
+
+    from_stable_key: str
+    from_node_id: str
+    to_stable_key: str
+    to_node_id: str
+    relation_type: str
+    confidence: float
+    evidence_summary: str
+    source_request_id: str
+
+    def to_json_dict(self) -> dict[str, Any]:
+        return {
+            "schema": "agent_memory.semantic_link_claim.v1",
+            "from_stable_key": self.from_stable_key,
+            "from_node_id": self.from_node_id,
+            "to_stable_key": self.to_stable_key,
+            "to_node_id": self.to_node_id,
+            "relation_type": self.relation_type,
+            "confidence": float(self.confidence),
+            "evidence_summary": self.evidence_summary,
+            "source_request_id": self.source_request_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class MemoryExtractorInputV1:
     """Вход extractor: полный B или ссылка на мех. каталог чанков."""
 

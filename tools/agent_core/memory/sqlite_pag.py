@@ -690,6 +690,51 @@ class SqlitePagStore:
             ).fetchall()
         return [self._row_to_node(r) for r in rows]
 
+    def list_c_nodes_by_stable_key(
+        self,
+        *,
+        namespace: str,
+        stable_key: str,
+        limit: int = 32,
+    ) -> list[PagNode]:
+        """C-ноды с ``attrs['stable_key'] == stable_key`` (G13.5)."""
+        ns = str(namespace).strip()
+        sk = str(stable_key or "").strip()
+        if not ns or not sk:
+            return []
+        lim = max(1, min(int(limit), 200))
+        rows: list[sqlite3.Row] = []
+        with self._connect() as con:
+            try:
+                rows = list(
+                    con.execute(
+                        """
+                        SELECT * FROM pag_nodes
+                        WHERE namespace = ? AND level = 'C'
+                          AND json_extract(attrs_json, '$.stable_key') = ?
+                        ORDER BY updated_at DESC
+                        LIMIT ?
+                        """,
+                        (ns, sk, lim),
+                    ).fetchall()
+                    or []
+                )
+            except sqlite3.OperationalError:
+                rows = []
+        if rows:
+            return [self._row_to_node(r) for r in rows]
+        # Fallback при отсутствии JSON1
+        cands = self.list_nodes(
+            namespace=ns,
+            level="C",
+            limit=10_000,
+        )
+        return [
+            n
+            for n in cands
+            if str(n.attrs.get("stable_key", "")).strip() == sk
+        ][:lim]
+
     def insert_pending_link_claim(
         self,
         *,

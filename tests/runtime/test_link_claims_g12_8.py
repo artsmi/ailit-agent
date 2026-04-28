@@ -8,6 +8,7 @@ from agent_core.memory.sqlite_pag import SqlitePagStore
 from agent_core.runtime.link_claim_resolver import (
     LinkClaimResolver,
     MVP_LINK_RELATIONS,
+    SEMANTIC_LINK_RELATION_TYPES,
 )
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 
@@ -17,9 +18,11 @@ def _store(tmp_path: Path) -> SqlitePagStore:
 
 
 def test_mvp_relations_cover_plan() -> None:
-    assert "calls" in MVP_LINK_RELATIONS
-    assert "imports_symbol" in MVP_LINK_RELATIONS
-    assert "tests" in MVP_LINK_RELATIONS
+    assert MVP_LINK_RELATIONS == SEMANTIC_LINK_RELATION_TYPES
+    assert "calls" in SEMANTIC_LINK_RELATION_TYPES
+    assert "imports" in SEMANTIC_LINK_RELATION_TYPES
+    assert "related_to" in SEMANTIC_LINK_RELATION_TYPES
+    assert "tests" in SEMANTIC_LINK_RELATION_TYPES
 
 
 def test_resolve_creates_real_edge_cross_link(tmp_path: Path) -> None:
@@ -70,6 +73,7 @@ def test_resolve_creates_real_edge_cross_link(tmp_path: Path) -> None:
         e.edge_type == "calls"
         and e.from_node_id == "C:src/a.go#from"
         and e.to_node_id == "C:src/b.go#to"
+        and e.edge_class == "semantic"
         for e in edges
     )
     assert not st.list_pending_link_claims(namespace=ns)
@@ -123,7 +127,7 @@ def test_no_target_goes_pending_then_resolved(tmp_path: Path) -> None:
     assert n2 == 1
     assert not st.list_pending_link_claims(namespace=ns)
     ed = st.list_edges(namespace=ns, limit=20)
-    assert any(e.edge_type == "references" for e in ed)
+    assert any(e.edge_type == "related_to" for e in ed)
 
 
 def test_ambiguous_stays_pending(tmp_path: Path) -> None:
