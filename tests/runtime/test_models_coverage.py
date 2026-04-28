@@ -1,21 +1,24 @@
 """Unit tests for runtime/models.py — coverage of uncovered lines.
 
 Covers:
-- RuntimeIdentity.to_dict()
+- RuntimeIdentity (dataclass fields via asdict)
 - RuntimeNow.iso() / RuntimeNow
 - ServiceResponse.to_payload()
-- ActionStarted / ActionFeedback / ActionCompleted / ActionFailed .to_payload()
+- Action payloads (started/feedback/completed/failed): ``.to_payload()``
 - MemoryGrantRange.to_dict()
 - MemoryGrant.from_dict() with invalid ranges
 - MemoryGrant.to_dict()
 - make_request_envelope / make_response_envelope
-- ensure_json_object / ensure_json_mapping / ensure_json_list with non-dict/non-list
+- ensure_json_object / ensure_json_mapping / ensure_json_list
+  (non-dict / non-list inputs)
 """
 
 from __future__ import annotations
 
 from collections import OrderedDict
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
+from dataclasses import asdict
+from datetime import datetime
 from typing import Any
 
 import pytest
@@ -44,7 +47,7 @@ from agent_core.runtime.models import (
 # ---------------------------------------------------------------------------
 
 class TestRuntimeIdentity:
-    def test_to_dict(self) -> None:
+    def test_fields_asdict(self) -> None:
         ident = RuntimeIdentity(
             runtime_id="r1",
             chat_id="c1",
@@ -53,7 +56,7 @@ class TestRuntimeIdentity:
             goal_id="g1",
             namespace="ns1",
         )
-        d = ident.to_dict()
+        d = asdict(ident)
         assert d["runtime_id"] == "r1"
         assert d["chat_id"] == "c1"
         assert d["broker_id"] == "b1"
@@ -77,7 +80,13 @@ class TestRuntimeNow:
         now = RuntimeNow()
         iso1 = now.iso()
         iso2 = now.iso()
-        assert iso1 == iso2  # same instant
+
+        def _parse_utc(s: str) -> datetime:
+            if s.endswith("Z"):
+                s = s[:-1] + "+00:00"
+            return datetime.fromisoformat(s)
+
+        assert abs((_parse_utc(iso2) - _parse_utc(iso1)).total_seconds()) < 1.0
 
 
 # ---------------------------------------------------------------------------
@@ -87,24 +96,32 @@ class TestRuntimeNow:
 class TestServiceResponse:
     def test_to_payload(self) -> None:
         resp = ServiceResponse(
-            status="ok",
-            data={"result": 42},
+            service="test.svc",
+            request_id="req-1",
+            ok=True,
+            payload={"result": 42},
             error=None,
         )
         p = resp.to_payload()
-        assert p["status"] == "ok"
-        assert p["data"] == {"result": 42}
+        assert p["type"] == "service.response"
+        assert p["ok"] is True
+        assert p["service"] == "test.svc"
+        assert p["request_id"] == "req-1"
+        assert p["payload"] == {"result": 42}
         assert p["error"] is None
 
     def test_to_payload_with_error(self) -> None:
         resp = ServiceResponse(
-            status="error",
-            data=None,
-            error="something went wrong",
+            service="test.svc",
+            request_id="req-1",
+            ok=False,
+            payload={},
+            error={"code": "failed", "message": "something went wrong"},
         )
         p = resp.to_payload()
-        assert p["status"] == "error"
-        assert p["error"] == "something went wrong"
+        assert p["ok"] is False
+        expect_err = {"code": "failed", "message": "something went wrong"}
+        assert p["error"] == expect_err
 
 
 # ---------------------------------------------------------------------------
@@ -114,45 +131,54 @@ class TestServiceResponse:
 class TestActionPayloads:
     def test_action_started(self) -> None:
         a = ActionStarted(
+            action="read_file",
             action_id="act-1",
-            action_type="read_file",
-            params={"path": "/tmp/x.txt"},
+            payload={"path": "/tmp/x.txt"},
         )
         p = a.to_payload()
+        assert p["type"] == "action.started"
         assert p["action_id"] == "act-1"
-        assert p["action_type"] == "read_file"
-        assert p["params"] == {"path": "/tmp/x.txt"}
+        assert p["action"] == "read_file"
+        assert p["payload"] == {"path": "/tmp/x.txt"}
 
     def test_action_feedback(self) -> None:
         a = ActionFeedback(
+            action="read_file",
             action_id="act-1",
-            status="in_progress",
-            progress=0.5,
-            message="halfway there",
+            payload={
+                "status": "in_progress",
+                "progress": 0.5,
+                "message": "halfway there",
+            },
         )
         p = a.to_payload()
+        assert p["type"] == "action.feedback"
         assert p["action_id"] == "act-1"
-        assert p["status"] == "in_progress"
-        assert p["progress"] == 0.5
-        assert p["message"] == "halfway there"
+        assert p["payload"]["status"] == "in_progress"
+        assert p["payload"]["progress"] == 0.5
+        assert p["payload"]["message"] == "halfway there"
 
     def test_action_completed(self) -> None:
         a = ActionCompleted(
+            action="read_file",
             action_id="act-1",
-            result={"lines": ["a", "b"]},
+            payload={"result": {"lines": ["a", "b"]}},
         )
         p = a.to_payload()
+        assert p["type"] == "action.completed"
         assert p["action_id"] == "act-1"
-        assert p["result"] == {"lines": ["a", "b"]}
+        assert p["payload"] == {"result": {"lines": ["a", "b"]}}
 
     def test_action_failed(self) -> None:
         a = ActionFailed(
+            action="read_file",
             action_id="act-1",
-            error="permission denied",
+            error={"code": "denied", "message": "permission denied"},
         )
         p = a.to_payload()
+        assert p["type"] == "action.failed"
         assert p["action_id"] == "act-1"
-        assert p["error"] == "permission denied"
+        assert p["error"] == {"code": "denied", "message": "permission denied"}
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +255,10 @@ class TestMemoryGrant:
             "reason": "test",
             "expires_at": "2025-12-31T23:59:59Z",
         }
-        with pytest.raises(RuntimeProtocolError, match="start_line/end_line must be int"):
+        with pytest.raises(
+            RuntimeProtocolError,
+            match="start_line/end_line must be int",
+        ):
             MemoryGrant.from_dict(raw)
 
     def test_from_dict_range_missing_keys(self) -> None:
@@ -244,7 +273,10 @@ class TestMemoryGrant:
             "reason": "test",
             "expires_at": "2025-12-31T23:59:59Z",
         }
-        with pytest.raises(RuntimeProtocolError, match="start_line/end_line must be int"):
+        with pytest.raises(
+            RuntimeProtocolError,
+            match="start_line/end_line must be int",
+        ):
             MemoryGrant.from_dict(raw)
 
 
@@ -298,7 +330,7 @@ class TestEnvelopeFactories:
             payload={},
             now=now,
         )
-        # created_at and now.iso() may differ by microseconds; compare up to seconds
+        # created_at и now.iso() могут отличаться микросекундами — до секунд
         assert env.created_at[:19] == now.iso()[:19]
 
     def test_make_response_envelope(self) -> None:
@@ -370,7 +402,10 @@ class TestEnsureJson:
         assert ensure_json_object({"a": 1}) == {"a": 1}
 
     def test_ensure_json_object_fail(self) -> None:
-        with pytest.raises(RuntimeProtocolError, match="expected dict payload"):
+        with pytest.raises(
+            RuntimeProtocolError,
+            match="expected dict payload",
+        ):
             ensure_json_object("not dict")
 
     def test_ensure_json_mapping_ok(self) -> None:
@@ -378,12 +413,18 @@ class TestEnsureJson:
         assert ensure_json_mapping(m) is m
 
     def test_ensure_json_mapping_fail(self) -> None:
-        with pytest.raises(RuntimeProtocolError, match="expected mapping payload"):
+        with pytest.raises(
+            RuntimeProtocolError,
+            match="expected mapping payload",
+        ):
             ensure_json_mapping("not mapping")
 
     def test_ensure_json_list_ok(self) -> None:
         assert ensure_json_list([1, 2, 3]) == [1, 2, 3]
 
     def test_ensure_json_list_fail(self) -> None:
-        with pytest.raises(RuntimeProtocolError, match="expected list payload"):
+        with pytest.raises(
+            RuntimeProtocolError,
+            match="expected list payload",
+        ):
             ensure_json_list("not list")

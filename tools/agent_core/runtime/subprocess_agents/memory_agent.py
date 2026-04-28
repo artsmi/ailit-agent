@@ -18,6 +18,7 @@ from agent_core.runtime.memory_journal import (
     MemoryJournalRow,
     MemoryJournalStore,
 )
+from agent_core.memory.pag_runtime import PagRuntimeConfig
 from agent_core.runtime.memory_growth import QueryDrivenPagGrowth
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
@@ -44,7 +45,9 @@ class AgentMemoryWorker:
     def __init__(self, cfg: MemoryAgentConfig) -> None:
         self._cfg = cfg
         self._journal = MemoryJournalStore()
-        self._growth = QueryDrivenPagGrowth()
+        self._growth = QueryDrivenPagGrowth(
+            db_path=PagRuntimeConfig.from_env().db_path,
+        )
 
     def _issue_grant(
         self,

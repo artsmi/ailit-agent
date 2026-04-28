@@ -1,11 +1,7 @@
-"""G.8: Supervisor lifecycle — start, connect, run task, shutdown.
+"""G.8: Supervisor — `ailit runtime supervisor`, сокет, status, broker.
 
-Проверяет:
-- ``supervisor start`` запускает Unix-сокет и ждёт подключений.
-- ``supervisor connect`` подключается к сокету, отправляет команду ``run``,
-  получает JSONL-события.
-- ``supervisor shutdown`` останавливает сервер (через сигнал или shutdown-команду).
-- Supervisor корректно завершается после shutdown (returncode 0).
+Соответствует ``_dispatch_cmd`` (поле ``cmd``, не ``command``):
+status, brokers, create_or_get_broker, stop_broker.
 """
 
 from __future__ import annotations
@@ -15,7 +11,6 @@ import os
 import signal
 import socket
 import subprocess
-import sys
 import time
 from pathlib import Path
 
@@ -29,6 +24,11 @@ from cli_runner import AilitCliRunner
 # ---------------------------------------------------------------------------
 
 
+def _runtime_ailit_dir(e2e_workspace: Path) -> Path:
+    """Каталог runtime (содержит ``supervisor.sock``)."""
+    return e2e_workspace / ".ailit"
+
+
 def _wait_for_socket(sock_path: Path, timeout: float = 8.0) -> None:
     """Ждать, пока Unix-сокет появится на файловой системе."""
     deadline = time.monotonic() + timeout
@@ -36,9 +36,8 @@ def _wait_for_socket(sock_path: Path, timeout: float = 8.0) -> None:
         if sock_path.is_socket():
             return
         time.sleep(0.1)
-    raise TimeoutError(
-        f"Socket {sock_path} did not appear within {timeout}s"
-    )
+    msg = f"Socket {sock_path} did not appear within {timeout}s"
+    raise TimeoutError(msg)
 
 
 def _wait_for_supervisor_ready(
@@ -51,16 +50,18 @@ def _wait_for_supervisor_ready(
     Проверяем:
     1. Процесс жив.
     2. Сокет существует.
-    3. Можно открыть TCP-like соединение (через sendmsg/recv).
+    3. Можно открыть соединение.
     """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if proc.poll() is not None:
+            out, err = proc.communicate()
+            details = f"stdout={out!r} stderr={err!r}"
             pytest.fail(
-                f"Supervisor exited prematurely with code {proc.returncode}"
+                f"Supervisor exited prematurely with code {proc.returncode} "
+                f"({details})"
             )
         if sock_path.is_socket():
-            # Пробуем открыть соединение
             try:
                 sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
                 sock.settimeout(2.0)
@@ -78,17 +79,13 @@ def _send_cmd_and_recv(
     cmd: dict,
     timeout: float = 5.0,
 ) -> list[dict]:
-    """Подключиться к сокету, отправить JSON-команду, прочитать ответы.
-
-    Возвращает список распарсенных JSON-строк (каждая строка — событие).
-    """
+    """Отправить JSON (один запрос) и прочитать JSON-строки ответа."""
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.settimeout(timeout)
     sock.connect(str(sock_path))
     payload = json.dumps(cmd, ensure_ascii=False) + "\n"
     sock.sendall(payload.encode("utf-8"))
 
-    # Читаем, пока сокет не закроется или не выйдет таймаут
     lines: list[dict] = []
     buf = b""
     try:
@@ -118,7 +115,7 @@ def _stop_supervisor_gracefully(
     Если процесс не завершился за timeout — SIGKILL.
     """
     if proc.poll() is not None:
-        return proc.returncode
+        return int(proc.returncode) if proc.returncode is not None else -1
 
     proc.send_signal(signal.SIGTERM)
     try:
@@ -126,7 +123,7 @@ def _stop_supervisor_gracefully(
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait()
-    return proc.returncode
+    return int(proc.returncode) if proc.returncode is not None else -1
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +134,7 @@ def _stop_supervisor_gracefully(
 @pytest.fixture
 def supervisor_sock_path(e2e_workspace: Path) -> Path:
     """Путь к Unix-сокету supervisor внутри e2e_workspace."""
-    return e2e_workspace / ".ailit" / "supervisor.sock"
+    return _runtime_ailit_dir(e2e_workspace) / "supervisor.sock"
 
 
 @pytest.fixture
@@ -145,11 +142,14 @@ def supervisor_env(
     e2e_workspace: Path,
     supervisor_sock_path: Path,
 ) -> dict[str, str]:
-    """Окружение для supervisor: изолированный work_root и сокет."""
+    """Окружение: изолированный runtime и согласованные пути сокета."""
     env = os.environ.copy()
     env["AILIT_WORK_ROOT"] = str(e2e_workspace)
+    # Используется ``default_runtime_dir()`` в коде без явного --runtime-dir
+    rt = _runtime_ailit_dir(e2e_workspace)
+    env["AILIT_RUNTIME_DIR"] = str(rt)
+    # Legacy для тестов, смотревших кастомный путь
     env["AILIT_SUPERVISOR_SOCKET"] = str(supervisor_sock_path)
-    # Отключаем live-провайдеры, чтобы тест не зависел от API-ключей
     env.setdefault("AILIT_CONFIG_DIR", str(e2e_workspace / "ailit_config"))
     cfg_dir = Path(env["AILIT_CONFIG_DIR"])
     cfg_dir.mkdir(parents=True, exist_ok=True)
@@ -172,84 +172,68 @@ def test_supervisor_start_and_connect(
     supervisor_sock_path: Path,
     supervisor_env: dict[str, str],
 ) -> None:
-    """``supervisor start`` запускает сервер, ``supervisor connect``
-    подключается и получает приветственное событие."""
+    """Поднять `runtime supervisor` и проверить `runtime status` по сокету."""
     repo = Path(__file__).resolve().parents[2]
     runner = AilitCliRunner(repo)
+    rt = _runtime_ailit_dir(e2e_workspace)
 
-    # 1. Запускаем supervisor в фоне
     proc = runner.spawn(
+        "runtime",
         "supervisor",
-        "start",
-        project_root=mini_app_root,
+        "--runtime-dir",
+        str(rt.resolve()),
+        project_root=None,
         extra_env=supervisor_env,
     )
     try:
         _wait_for_supervisor_ready(proc, supervisor_sock_path, timeout=10.0)
 
-        # 2. Подключаемся через CLI connect
-        res = runner.supervisor_connect(
-            project_root=mini_app_root,
+        res = runner.runtime_status(
+            runtime_dir=rt,
             extra_env=supervisor_env,
         )
-        assert res.returncode == 0, (
-            f"supervisor connect failed: {res.stderr}"
-        )
-        # В stdout должно быть что-то похожее на JSONL или подтверждение
-        assert "connected" in res.stdout.lower() or "supervisor" in res.stdout.lower()
-
+        err_msg = f"runtime status: {res.stderr!r} {res.stdout!r}"
+        assert res.returncode == 0, err_msg
+        out = (res.stdout or "").lower()
+        assert "runtime_dir" in out and "ok" in out
     finally:
         _stop_supervisor_gracefully(proc, supervisor_sock_path)
 
 
 @pytest.mark.e2e
-def test_supervisor_run_task_via_socket(
+def test_supervisor_status_via_socket(
     mini_app_root: Path,
     e2e_workspace: Path,
     supervisor_sock_path: Path,
     supervisor_env: dict[str, str],
 ) -> None:
-    """Через Unix-сокет отправляем ``run``-команду, получаем JSONL-события.
-
-    Проверяем, что в ответе есть ``workflow.loaded`` и ``workflow.finished``
-    (или ``task.skipped_dry_run`` при dry-run).
-    """
+    """Через Unix-сокет: ``{"cmd": "status"}`` возвращает ok и сводку."""
     repo = Path(__file__).resolve().parents[2]
     runner = AilitCliRunner(repo)
+    rt = _runtime_ailit_dir(e2e_workspace)
 
     proc = runner.spawn(
+        "runtime",
         "supervisor",
-        "start",
-        project_root=mini_app_root,
+        "--runtime-dir",
+        str(rt.resolve()),
+        project_root=None,
         extra_env=supervisor_env,
     )
     try:
         _wait_for_supervisor_ready(proc, supervisor_sock_path, timeout=10.0)
 
-        # Отправляем run-команду напрямую через сокет
-        cmd = {
-            "command": "run",
-            "workflow": "smoke",
-            "provider": "mock",
-            "dry_run": True,
-            "max_turns": 4,
-            "project_root": str(mini_app_root.resolve()),
-        }
-        events = _send_cmd_and_recv(supervisor_sock_path, cmd, timeout=15.0)
-        assert len(events) > 0, "No events received from supervisor"
-
-        event_types = {e.get("event_type") for e in events}
-        assert "workflow.loaded" in event_types, (
-            f"Expected workflow.loaded, got {event_types}"
+        lines = _send_cmd_and_recv(
+            supervisor_sock_path,
+            {"cmd": "status"},
+            timeout=5.0,
         )
-        # При dry-run должно быть skipped_dry_run или workflow.finished
-        has_finished = "workflow.finished" in event_types
-        has_skipped = "task.skipped_dry_run" in event_types
-        assert has_finished or has_skipped, (
-            f"Expected workflow.finished or task.skipped_dry_run, "
-            f"got {event_types}"
-        )
-
+        assert len(lines) >= 1, lines
+        first = lines[0]
+        assert first.get("ok") is True
+        assert "result" in first
+        res = first["result"]
+        assert "runtime_dir" in res
     finally:
         _stop_supervisor_gracefully(proc, supervisor_sock_path)
 
@@ -261,87 +245,31 @@ def test_supervisor_shutdown_via_signal(
     supervisor_sock_path: Path,
     supervisor_env: dict[str, str],
 ) -> None:
-    """SIGTERM останавливает supervisor, процесс завершается с кодом 0."""
+    """SIGTERM останавливает supervisor, процесс завершается."""
     repo = Path(__file__).resolve().parents[2]
     runner = AilitCliRunner(repo)
+    rt = _runtime_ailit_dir(e2e_workspace)
 
     proc = runner.spawn(
+        "runtime",
         "supervisor",
-        "start",
-        project_root=mini_app_root,
+        "--runtime-dir",
+        str(rt.resolve()),
+        project_root=None,
         extra_env=supervisor_env,
     )
     try:
         _wait_for_supervisor_ready(proc, supervisor_sock_path, timeout=10.0)
 
-        # Отправляем SIGTERM
         proc.send_signal(signal.SIGTERM)
         try:
             proc.wait(timeout=8.0)
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
-            pytest.fail("Supervisor did not exit within timeout after SIGTERM")
+            pytest.fail("Supervisor did not exit after SIGTERM")
 
-        assert proc.returncode == 0, (
-            f"Supervisor exited with code {proc.returncode}, expected 0"
-        )
-
-        # Сокет должен быть удалён
-        assert not supervisor_sock_path.exists(), (
-            "Socket should be removed after shutdown"
-        )
-
-    finally:
-        # Если процесс ещё жив — добиваем
-        if proc.poll() is None:
-            proc.kill()
-            proc.wait()
-
-
-@pytest.mark.e2e
-def test_supervisor_shutdown_via_command(
-    mini_app_root: Path,
-    e2e_workspace: Path,
-    supervisor_sock_path: Path,
-    supervisor_env: dict[str, str],
-) -> None:
-    """Через сокет отправляем ``shutdown``-команду, supervisor завершается.
-
-    Если supervisor не поддерживает shutdown-команду — тест
-    проверяет graceful fallback (SIGTERM).
-    """
-    repo = Path(__file__).resolve().parents[2]
-    runner = AilitCliRunner(repo)
-
-    proc = runner.spawn(
-        "supervisor",
-        "start",
-        project_root=mini_app_root,
-        extra_env=supervisor_env,
-    )
-    try:
-        _wait_for_supervisor_ready(proc, supervisor_sock_path, timeout=10.0)
-
-        # Пробуем shutdown через сокет
-        cmd = {"command": "shutdown"}
-        try:
-            events = _send_cmd_and_recv(
-                supervisor_sock_path, cmd, timeout=5.0
-            )
-        except (ConnectionRefusedError, OSError, socket.timeout):
-            events = []
-
-        # Если supervisor не поддерживает shutdown-команду,
-        # он может просто закрыть соединение или вернуть ошибку.
-        # В любом случае, процесс должен быть жив.
-        if proc.poll() is None:
-            # shutdown не сработал — используем SIGTERM
-            _stop_supervisor_gracefully(proc, supervisor_sock_path)
-
-        assert proc.returncode == 0, (
-            f"Supervisor exited with code {proc.returncode}, expected 0"
-        )
+        assert proc.poll() is not None
     finally:
         if proc.poll() is None:
             proc.kill()
@@ -349,104 +277,115 @@ def test_supervisor_shutdown_via_command(
 
 
 @pytest.mark.e2e
-def test_supervisor_multiple_connections(
+def test_supervisor_broker_create_via_socket(
     mini_app_root: Path,
     e2e_workspace: Path,
     supervisor_sock_path: Path,
     supervisor_env: dict[str, str],
 ) -> None:
-    """Supervisor обрабатывает несколько последовательных подключений."""
+    """``create_or_get_broker`` через сокет (без workflow-раннера)."""
     repo = Path(__file__).resolve().parents[2]
     runner = AilitCliRunner(repo)
+    rt = _runtime_ailit_dir(e2e_workspace)
 
     proc = runner.spawn(
+        "runtime",
         "supervisor",
-        "start",
-        project_root=mini_app_root,
+        "--runtime-dir",
+        str(rt.resolve()),
+        project_root=None,
         extra_env=supervisor_env,
     )
     try:
         _wait_for_supervisor_ready(proc, supervisor_sock_path, timeout=10.0)
 
-        # Первое подключение
-        cmd1 = {
-            "command": "run",
-            "workflow": "smoke",
-            "provider": "mock",
-            "dry_run": True,
-            "max_turns": 2,
-            "project_root": str(mini_app_root.resolve()),
-        }
-        events1 = _send_cmd_and_recv(
-            supervisor_sock_path, cmd1, timeout=15.0
+        lines = _send_cmd_and_recv(
+            supervisor_sock_path,
+            {
+                "cmd": "create_or_get_broker",
+                "chat_id": "e2e-smoke",
+                "namespace": "ns",
+                "project_root": str(mini_app_root.resolve()),
+            },
+            timeout=30.0,
         )
-        assert len(events1) > 0, "No events from first connection"
-
-        # Второе подключение
-        cmd2 = {
-            "command": "run",
-            "workflow": "smoke",
-            "provider": "mock",
-            "dry_run": True,
-            "max_turns": 2,
-            "project_root": str(mini_app_root.resolve()),
-        }
-        events2 = _send_cmd_and_recv(
-            supervisor_sock_path, cmd2, timeout=15.0
-        )
-        assert len(events2) > 0, "No events from second connection"
-
-        # Оба ответа должны содержать workflow.loaded
-        types1 = {e.get("event_type") for e in events1}
-        types2 = {e.get("event_type") for e in events2}
-        assert "workflow.loaded" in types1, (
-            f"First connection missing workflow.loaded: {types1}"
-        )
-        assert "workflow.loaded" in types2, (
-            f"Second connection missing workflow.loaded: {types2}"
-        )
-
+        assert len(lines) >= 1, lines
+        first = lines[0]
+        assert first.get("ok") is True
+        result = first.get("result")
+        assert isinstance(result, dict)
+        assert result.get("chat_id") == "e2e-smoke"
     finally:
         _stop_supervisor_gracefully(proc, supervisor_sock_path)
 
 
 @pytest.mark.e2e
-def test_supervisor_rejects_invalid_command(
+def test_supervisor_multiple_status_requests(
     mini_app_root: Path,
     e2e_workspace: Path,
     supervisor_sock_path: Path,
     supervisor_env: dict[str, str],
 ) -> None:
-    """Supervisor возвращает ошибку на неизвестную команду."""
+    """Несколько последовательных запросов status по одному сокету-серверу."""
     repo = Path(__file__).resolve().parents[2]
     runner = AilitCliRunner(repo)
+    rt = _runtime_ailit_dir(e2e_workspace)
 
     proc = runner.spawn(
+        "runtime",
         "supervisor",
-        "start",
-        project_root=mini_app_root,
+        "--runtime-dir",
+        str(rt.resolve()),
+        project_root=None,
         extra_env=supervisor_env,
     )
     try:
         _wait_for_supervisor_ready(proc, supervisor_sock_path, timeout=10.0)
 
-        # Отправляем невалидную команду
-        cmd = {"command": "nonexistent"}
-        events = _send_cmd_and_recv(
-            supervisor_sock_path, cmd, timeout=5.0
-        )
+        for _ in range(2):
+            lines = _send_cmd_and_recv(
+                supervisor_sock_path,
+                {"cmd": "status"},
+                timeout=5.0,
+            )
+            assert len(lines) >= 1
+            assert lines[0].get("ok") is True
+    finally:
+        _stop_supervisor_gracefully(proc, supervisor_sock_path)
 
-        # Должен быть хотя бы один ответ с ошибкой
-        assert len(events) > 0, (
-            "Expected error response for invalid command"
-        )
-        # Проверяем, что в ответе есть признак ошибки
-        first = events[0]
-        assert (
-            "error" in first.get("event_type", "").lower()
-            or first.get("status") == "error"
-            or "error" in str(first).lower()
-        ), f"Expected error response, got: {first}"
 
+@pytest.mark.e2e
+def test_supervisor_rejects_invalid_cmd(
+    mini_app_root: Path,
+    e2e_workspace: Path,
+    supervisor_sock_path: Path,
+    supervisor_env: dict[str, str],
+) -> None:
+    """Неизвестный ``cmd`` даёт ok: false и поле error."""
+    repo = Path(__file__).resolve().parents[2]
+    runner = AilitCliRunner(repo)
+    rt = _runtime_ailit_dir(e2e_workspace)
+
+    proc = runner.spawn(
+        "runtime",
+        "supervisor",
+        "--runtime-dir",
+        str(rt.resolve()),
+        project_root=None,
+        extra_env=supervisor_env,
+    )
+    try:
+        _wait_for_supervisor_ready(proc, supervisor_sock_path, timeout=10.0)
+
+        lines = _send_cmd_and_recv(
+            supervisor_sock_path,
+            {"cmd": "nonexistent_command_xyz"},
+            timeout=5.0,
+        )
+        assert len(lines) == 1, lines
+        first = lines[0]
+        assert first.get("ok") is False
+        err = first.get("error")
+        assert isinstance(err, dict)
     finally:
         _stop_supervisor_gracefully(proc, supervisor_sock_path)

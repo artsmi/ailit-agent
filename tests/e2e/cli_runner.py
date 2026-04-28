@@ -107,10 +107,15 @@ class AilitCliRunner:
     def spawn(
         self,
         *args: str,
-        project_root: Path,
+        project_root: Path | None = None,
         extra_env: dict[str, str] | None = None,
     ) -> subprocess.Popen[str]:
         """Запустить `python -m ailit.cli <args>` в фоне (Popen).
+
+        Если ``project_root`` задан, в конец добавляется
+        ``--project-root <path>`` (для команд вроде ``agent run``).
+        Для ``ailit runtime …`` обычно передают только ``--runtime-dir`` в
+        ``args`` и оставляют ``project_root=None``.
 
         Возвращает Popen-объект; вызывающий отвечает за proc.wait/kill.
         stdout/stderr не захватываются (pipe=False), чтобы процесс
@@ -121,9 +126,14 @@ class AilitCliRunner:
             "-m",
             "ailit.cli",
             *args,
-            "--project-root",
-            str(project_root.resolve()),
         ]
+        if project_root is not None:
+            cmd.extend(
+                [
+                    "--project-root",
+                    str(project_root.resolve()),
+                ]
+            )
         env = self._env(extra=extra_env)
         proc = subprocess.Popen(
             cmd,
@@ -135,21 +145,21 @@ class AilitCliRunner:
         )
         return proc
 
-    def supervisor_connect(
+    def runtime_status(
         self,
         *,
-        project_root: Path,
+        runtime_dir: Path,
         extra_env: dict[str, str] | None = None,
     ) -> AilitCliResult:
-        """Выполнить `python -m ailit.cli supervisor connect`."""
+        """Выполнить ``ailit runtime status`` (проверка сокета supervisor)."""
         cmd: list[str] = [
             self._python(),
             "-m",
             "ailit.cli",
-            "supervisor",
-            "connect",
-            "--project-root",
-            str(project_root.resolve()),
+            "runtime",
+            "status",
+            "--runtime-dir",
+            str(runtime_dir.resolve()),
         ]
         env = self._env(extra=extra_env)
         proc = subprocess.run(
