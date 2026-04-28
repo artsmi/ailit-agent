@@ -174,7 +174,8 @@ Snapshot события (`state.snapshot.created`) обязаны содержа
 ## PAG graph: `graph_rev` и дельты в trace (Workflow 12)
 
 - Монотонный счётчик **`graph_rev` per `namespace`** хранится в SQLite PAG; полный срез `ailit memory pag-slice` возвращает `graph_rev` (текущее значение) для стыковки с дельтами.
-- Графовые дельты (MVP) — **`topic.publish`** в durable trace, `event_name` **`pag.node.upsert`** / **`pag.edge.upsert`**, compact payload (без больших вложенных полей). Нормализованные поля и сценарии: **[`plan/12-pag-trace-delta-desktop-sync.md`](../../plan/12-pag-trace-delta-desktop-sync.md)** (без дублирования политики в этом файле).
+- Ответ `pag-slice` включает **`has_more.{nodes,edges}`**: признак, что в БД ещё есть страница после `offset+len` (в т.ч. «лишняя» выборка `limit+1` в CLI при `node_limit<10_000` / `edge_limit<20_000`; на верхних капах — сравнение с `COUNT`).
+- Графовые дельты (MVP) — **`topic.publish`** в durable trace, `event_name` **`pag.node.upsert`** / **`pag.edge.upsert`**, compact payload (внутренняя строка: `kind` совпадает с `event_name`, поля `namespace`, **`rev`**, `node` или `edges[]`). Без копии больших BLOB/исходников. Нормализованные поля и сценарии: **[`plan/12-pag-trace-delta-desktop-sync.md`](../../plan/12-pag-trace-delta-desktop-sync.md)**.
 - **Desktop** применяет дельты к удерживаемой модели графа, полный re-sync из БД — только **Refresh** или смена сессии/проекта (см. план 12).
 
 ## Связанные документы

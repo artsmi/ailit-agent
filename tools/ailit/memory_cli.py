@@ -98,18 +98,48 @@ def _pag_slice_payload(
     edge_offset: int,
 ) -> dict[str, Any]:
     store = SqlitePagStore(db_path)
-    nodes = store.list_nodes(
-        namespace=namespace,
-        level=level,
-        limit=node_limit,
-        offset=node_offset,
-        include_stale=True,
-    )
-    edges = store.list_edges(
-        namespace=namespace,
-        limit=edge_limit,
-        offset=edge_offset,
-    )
+    # limit+1 чтобы зафиксировать has_more без ложного True на последней «полной» странице;
+    # при node_limit=10k кап SqlitePagStore не даёт +1 — используем COUNT.
+    if node_limit < 10_000:
+        nodes_raw = store.list_nodes(
+            namespace=namespace,
+            level=level,
+            limit=node_limit + 1,
+            offset=node_offset,
+            include_stale=True,
+        )
+        has_more_nodes = len(nodes_raw) > node_limit
+        nodes = nodes_raw[:node_limit]
+    else:
+        nodes = store.list_nodes(
+            namespace=namespace,
+            level=level,
+            limit=node_limit,
+            offset=node_offset,
+            include_stale=True,
+        )
+        total_n = store.count_nodes(
+            namespace=namespace,
+            level=level,
+            include_stale=True,
+        )
+        has_more_nodes = node_offset + len(nodes) < total_n
+    if edge_limit < 20_000:
+        edges_raw = store.list_edges(
+            namespace=namespace,
+            limit=edge_limit + 1,
+            offset=edge_offset,
+        )
+        has_more_edges = len(edges_raw) > edge_limit
+        edges = edges_raw[:edge_limit]
+    else:
+        edges = store.list_edges(
+            namespace=namespace,
+            limit=edge_limit,
+            offset=edge_offset,
+        )
+        total_e = store.count_edges(namespace=namespace)
+        has_more_edges = edge_offset + len(edges) < total_e
     graph_rev: int = store.get_graph_rev(namespace=namespace)
     return {
         "ok": True,
@@ -127,8 +157,8 @@ def _pag_slice_payload(
             "edge_offset": edge_offset,
         },
         "has_more": {
-            "nodes": len(nodes) >= node_limit,
-            "edges": len(edges) >= edge_limit,
+            "nodes": has_more_nodes,
+            "edges": has_more_edges,
         },
     }
 

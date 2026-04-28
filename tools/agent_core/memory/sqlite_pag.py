@@ -435,6 +435,46 @@ class SqlitePagStore:
             ).fetchall()
         return [self._row_to_node(r) for r in rows]
 
+    def count_nodes(
+        self,
+        *,
+        namespace: str,
+        level: str | None = None,
+        include_stale: bool = True,
+    ) -> int:
+        """Число нод в namespace (для has_more при node_limit=10k, G12)."""
+        ns = str(namespace).strip()
+        if not ns:
+            return 0
+        where: list[str] = ["namespace = ?"]
+        params: list[object] = [ns]
+        if level is not None:
+            where.append("level = ?")
+            params.append(str(level))
+        if not include_stale:
+            where.append("staleness_state = 'fresh'")
+        where_sql = " AND ".join(where)
+        sql = f"SELECT COUNT(1) FROM pag_nodes WHERE {where_sql}"
+        with self._connect() as con:
+            row = con.execute(sql, tuple(params)).fetchone()
+        return int(row[0] or 0) if row is not None else 0
+
+    def count_edges(
+        self,
+        *,
+        namespace: str,
+    ) -> int:
+        """Число рёбер в namespace (для has_more при edge_limit=20k)."""
+        ns = str(namespace).strip()
+        if not ns:
+            return 0
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT COUNT(1) FROM pag_edges WHERE namespace = ?",
+                (ns,),
+            ).fetchone()
+        return int(row[0] or 0) if row is not None else 0
+
     def list_nodes(
         self,
         *,
