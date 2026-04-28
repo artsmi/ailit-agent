@@ -6,7 +6,7 @@
 
 | Область | Состояние |
 |---------|-----------|
-| **Главный активный workflow** | **[`plan/12-pag-trace-delta-desktop-sync.md`](plan/12-pag-trace-delta-desktop-sync.md)**: PAG **дельты в trace** (`pag.node.upsert` / `pag.edge.upsert`), **`rev` per namespace**, синк **Refresh** + полная загрузка при смене чата/проекта, фикс OOM 3D, **до 10 000 нод**; этапы **G12.0+**. Канон процесса: [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc). |
+| **Workflow 12 (PAG trace + desktop sync)** | **Закрыт (G12.0–G12.9):** [`plan/12-pag-trace-delta-desktop-sync.md`](plan/12-pag-trace-delta-desktop-sync.md) — дельты в trace, `rev`, лимиты 10k/20k, desktop graph state, **C link claims + pending resolver**, **D policy + compact slice**; критерии закрытия в плане. Канон процесса: [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc). |
 | Актуальная стратегия продукта | [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md): этапы **DP-1…DP-5** закрыты; проект перешёл в **этап тестирования** (сбор багов → фиксы). |
 | Bash / shell в runtime | [`plan/ailit-bash-strategy.md`](plan/ailit-bash-strategy.md): **B–E**, **D.4**, **F.1–F.2** — `run_shell` и file tools включены по умолчанию, `bash:` в `project.yaml`, **H** — сессионный shell позже. |
 | [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md) | Этапы **G–Q** закрыты; документ архивен как ориентир закрытой ветки. |
@@ -21,7 +21,7 @@
 
 ## Как работать по проекту
 
-1. **Актуальный план (главный):** **[`plan/12-pag-trace-delta-desktop-sync.md`](plan/12-pag-trace-delta-desktop-sync.md)** — этапы G12.0+ (PAG trace deltas, desktop graph sync, OOM fix, 10k nodes).
+1. **Закрытый план (архив итерации):** [`plan/12-pag-trace-delta-desktop-sync.md`](plan/12-pag-trace-delta-desktop-sync.md) (G12.0–G12.9). Следующая крупная ветка — по новой **постановке** / research (см. workflow-правила).
 2. **Workflow:** обязательный порядок задач и правило «конец workflow → research и постановка» — в [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc).
 3. **Стратегия и критерии этапов:** [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md) (актуально); bash/shell — [`plan/ailit-bash-strategy.md`](plan/ailit-bash-strategy.md); закрытая ветка — [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md).
 4. **Workflow 11 (`AgentMemory LLM + journal`)** закрыт по [`plan/11-agent-memory-llm-journal.md`](plan/11-agent-memory-llm-journal.md). **Текущая крупная ветка** — **Workflow 12** (см. п.1). Workflow 10 закрыт по [`plan/10-context-ledger-memory-highlights.md`](plan/10-context-ledger-memory-highlights.md). Токен-экономия и память: M3 закрыта; runtime M4 — [`plan/workflow-memory-4.md`](plan/workflow-memory-4.md). Сводка M3: [`docs/ailit-ai-memory-implementation.md`](docs/ailit-ai-memory-implementation.md).

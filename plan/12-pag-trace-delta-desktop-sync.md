@@ -2,7 +2,7 @@
 
 **Идентификатор:** `pag-trace-delta-desktop-12` (канонический файл: [`plan/12-pag-trace-delta-desktop-sync.md`](12-pag-trace-delta-desktop-sync.md)).
 
-**Статус:** **активен** — главная стратегия по [`README.md`](../README.md) до закрытия последнего этапа (G12.n) или новой постановки/research.
+**Статус:** **закрыт** (G12.0–G12.9 выполнены, см. [`README.md`](../README.md)). Следующая ветка — по новой постановке/research.
 
 Канон процесса: [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc).
 
