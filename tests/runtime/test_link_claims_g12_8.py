@@ -9,6 +9,7 @@ from agent_core.runtime.link_claim_resolver import (
     LinkClaimResolver,
     MVP_LINK_RELATIONS,
 )
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 
 
 def _store(tmp_path: Path) -> SqlitePagStore:
@@ -48,7 +49,7 @@ def test_resolve_creates_real_edge_cross_link(tmp_path: Path) -> None:
     )
     r = LinkClaimResolver()
     res = r.process_claim_dict(
-        st,
+        PagGraphWriteService(st),
         namespace=ns,
         claim={
             "from": {"node_id": "C:src/a.go#from"},
@@ -90,7 +91,7 @@ def test_no_target_goes_pending_then_resolved(tmp_path: Path) -> None:
     )
     r = LinkClaimResolver()
     o = r.process_claim_dict(
-        st,
+        PagGraphWriteService(st),
         namespace=ns,
         claim={
             "from": {"node_id": "C:src/x.py#1"},
@@ -118,7 +119,7 @@ def test_no_target_goes_pending_then_resolved(tmp_path: Path) -> None:
         attrs={},
         fingerprint="2",
     )
-    n2 = r.resolve_all_pending(st, namespace=ns)
+    n2 = r.resolve_all_pending(PagGraphWriteService(st), namespace=ns)
     assert n2 == 1
     assert not st.list_pending_link_claims(namespace=ns)
     ed = st.list_edges(namespace=ns, limit=20)
@@ -163,7 +164,7 @@ def test_ambiguous_stays_pending(tmp_path: Path) -> None:
     )
     r = LinkClaimResolver()
     o = r.process_claim_dict(
-        st,
+        PagGraphWriteService(st),
         namespace=ns,
         claim={
             "from": {"node_id": "C:c.md#3"},
@@ -198,7 +199,7 @@ def test_from_not_c_skipped(tmp_path: Path) -> None:
     )
     r = LinkClaimResolver()
     o = r.process_claim_dict(
-        st,
+        PagGraphWriteService(st),
         namespace=ns,
         claim={
             "from": {"node_id": "B:README.md"},

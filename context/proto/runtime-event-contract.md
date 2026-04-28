@@ -178,6 +178,60 @@ Snapshot события (`state.snapshot.created`) обязаны содержа
 - Графовые дельты (MVP) — **`topic.publish`** в durable trace, `event_name` **`pag.node.upsert`** / **`pag.edge.upsert`**, compact payload (внутренняя строка: `kind` совпадает с `event_name`, поля `namespace`, **`rev`**, `node` или `edges[]`). Без копии больших BLOB/исходников. Нормализованные поля и сценарии: **[`plan/12-pag-trace-delta-desktop-sync.md`](../../plan/12-pag-trace-delta-desktop-sync.md)**.
 - **Desktop** применяет дельты к удерживаемой модели графа, полный re-sync из БД — только **Refresh** или смена сессии/проекта (см. план 12).
 
+## G13.1 — Runtime PAG write contract (канон D13.1)
+
+- **Единая точка записи в runtime:** все вызовы `upsert_node` / `upsert_edge` / `upsert_edges_batch` в `tools/agent_core` идут через `PagGraphWriteService` (делегат к `SqlitePagStore`); низкоуровневые DML вне сервиса — только в `sqlite_pag.py` и теле `PagGraphWriteService`.
+- **`graph_rev`:** монотонно растёт per `namespace` при любом успешном upsert ноды/ребра (см. `SqlitePagStore._bump_graph_rev`).
+- **`rev` в trace payload:** равен текущему `graph_rev` namespace **после** данной операции (один upsert — один bump — одно значение `rev` в delta).
+
+### `pag.node.upsert` (durable trace / `topic.publish` inner payload)
+
+Тело (compact, без сырого исходника):
+
+```json
+{
+  "kind": "pag.node.upsert",
+  "namespace": "string",
+  "rev": 1,
+  "node": {
+    "node_id": "string",
+    "level": "A|B|C|D",
+    "kind": "string",
+    "path": "string",
+    "title": "string"
+  }
+}
+```
+
+### `pag.edge.upsert`
+
+Одно ребро или пачка (batch — одна строка trace, `edges` — массив):
+
+```json
+{
+  "kind": "pag.edge.upsert",
+  "namespace": "string",
+  "rev": 2,
+  "edges": [
+    {
+      "edge_id": "string",
+      "edge_class": "containment|semantic|provenance|cross_link",
+      "edge_type": "string",
+      "from_node_id": "string",
+      "to_node_id": "string"
+    }
+  ]
+}
+```
+
+### Режимы
+
+| Режим | Trace delta | `graph_rev` | Когда |
+|--------|-------------|-------------|--------|
+| `runtime_traced` | Да, compact | Да | Есть `RuntimeRequestEnvelope` + hook в `SqlitePagStore.graph_trace` |
+| `offline_writer` | Нет | Да | `ailit memory index`, `PagIndexer`, инкрементальный index без trace; Desktop — только **Refresh** / смена чата |
+| `runtime_untraced` | Нет | Да (или N/A) | Только явный allowlist (см. `RUNTIME_UNTRACED_WRITE_ALLOWLIST` / тесты); иначе запрещён |
+
 ## Связанные документы
 
 - [`../arch/runtime-local-storage-model.md`](../arch/runtime-local-storage-model.md)

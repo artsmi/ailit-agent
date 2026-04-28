@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
 from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.session.repo_context import (
     detect_repo_context,
     namespace_for_repo,
@@ -129,6 +130,7 @@ class PagIndexer:
 
     def __init__(self, store: SqlitePagStore) -> None:
         self._store = store
+        self._write = PagGraphWriteService(store)
 
     @staticmethod
     def default_db_path() -> Path:
@@ -243,7 +245,7 @@ class PagIndexer:
         fp = str(getattr(rc, "commit", None) or "") if rc is not None else ""
         if not fp:
             fp = "not_git"
-        self._store.upsert_node(
+        self._write.upsert_node(
             namespace=ns,
             node_id=a_node_id,
             level="A",
@@ -343,7 +345,7 @@ class PagIndexer:
         dirs: Sequence[str],
         files: Sequence[str],
     ) -> None:
-        self._store.upsert_edge(
+        self._write.upsert_edge(
             namespace=ns,
             edge_id=self._edge_id(
                 "containment",
@@ -368,7 +370,7 @@ class PagIndexer:
                 parent = ""
             from_id = a_node_id if not parent else self._b_node_id(parent)
             to_id = self._b_node_id(d)
-            self._store.upsert_edge(
+            self._write.upsert_edge(
                 namespace=ns,
                 edge_id=self._edge_id(
                     "containment",
@@ -389,7 +391,7 @@ class PagIndexer:
                 parent = ""
             from_id = a_node_id if not parent else self._b_node_id(parent)
             to_id = self._b_node_id(f)
-            self._store.upsert_edge(
+            self._write.upsert_edge(
                 namespace=ns,
                 edge_id=self._edge_id(
                     "containment",
@@ -407,7 +409,7 @@ class PagIndexer:
 
     def _upsert_dir_b_node(self, ns: str, rel_dir: str) -> None:
         nid = self._b_node_id(rel_dir)
-        self._store.upsert_node(
+        self._write.upsert_node(
             namespace=ns,
             node_id=nid,
             level="B",
@@ -433,7 +435,7 @@ class PagIndexer:
             "mtime": float(st.st_mtime),
             "hash": h,
         }
-        self._store.upsert_node(
+        self._write.upsert_node(
             namespace=ns,
             node_id=self._b_node_id(rel_file),
             level="B",
@@ -506,7 +508,7 @@ class PagIndexer:
                 s["end"],
             )
             c_node_ids.append(c_id)
-            self._store.upsert_node(
+            self._write.upsert_node(
                 namespace=ns,
                 node_id=c_id,
                 level="C",
@@ -525,7 +527,7 @@ class PagIndexer:
                 staleness_state="fresh",
                 source_contract="ailit_pag_store_v1",
             )
-            self._store.upsert_edge(
+            self._write.upsert_edge(
                 namespace=ns,
                 edge_id=self._edge_id(
                     "containment",
@@ -545,7 +547,7 @@ class PagIndexer:
             if target is None:
                 continue
             to_b = self._b_node_id(target)
-            self._store.upsert_edge(
+            self._write.upsert_edge(
                 namespace=ns,
                 edge_id=self._edge_id(
                     "cross_link",

@@ -30,6 +30,7 @@ from agent_core.runtime.memory_journal import (
 )
 from agent_core.memory.pag_runtime import PagRuntimeConfig
 from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.runtime.memory_growth import QueryDrivenPagGrowth
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
@@ -123,6 +124,23 @@ class AgentMemoryWorker:
                         "namespace": namespace,
                         "rev": rev,
                         "edges": [data],
+                    },
+                )
+            elif op == "edge_batch":
+                if isinstance(data, dict):
+                    edge_list = data.get("edges")
+                else:
+                    edge_list = None
+                if not isinstance(edge_list, list):
+                    edge_list = []
+                emit_pag_graph_trace_row(
+                    req=req,
+                    event_name="pag.edge.upsert",
+                    inner_payload={
+                        "kind": "pag.edge.upsert",
+                        "namespace": namespace,
+                        "rev": rev,
+                        "edges": edge_list,
                     },
                 )
 
@@ -321,7 +339,7 @@ class AgentMemoryWorker:
             payload={"paths": list(rels)},
         )
         store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
-        svc = SemanticCRemapService(store)
+        svc = SemanticCRemapService(PagGraphWriteService(store))
         ns = str(
             pl.get("namespace", "") or req.namespace or self._cfg.namespace,
         ).strip() or self._cfg.namespace
@@ -514,7 +532,7 @@ class AgentMemoryWorker:
             p_store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
             d_pol = DCreationPolicy(self._am_file.memory.d_policy)
             d_out = d_pol.maybe_upsert_query_digest(
-                p_store,
+                PagGraphWriteService(p_store),
                 namespace=p_ns,
                 goal=goal,
                 node_ids=list(memory_slice.get("node_ids") or ()),

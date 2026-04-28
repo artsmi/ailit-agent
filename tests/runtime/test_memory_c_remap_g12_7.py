@@ -6,6 +6,7 @@ from pathlib import Path
 
 from agent_core.memory.sqlite_pag import SqlitePagStore
 from agent_core.runtime.memory_c_remap import SemanticCRemapService
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 
 
 def test_remap_python_function_by_name_after_line_shift(tmp_path: Path) -> None:
@@ -46,7 +47,7 @@ def test_remap_python_function_by_name_after_line_shift(tmp_path: Path) -> None:
     )
     found = store.list_nodes_for_path(namespace=ns, path="mod.py", level="C")
     assert len(found) == 1
-    svc = SemanticCRemapService(store)
+    svc = SemanticCRemapService(PagGraphWriteService(store))
     res = svc.process_changes(
         namespace=ns,
         project_root=tmp_path,
@@ -100,7 +101,7 @@ def test_remap_markdown_section_by_title(tmp_path: Path) -> None:
         staleness_state="fresh",
         source_contract="ailit_pag_store_v1",
     )
-    svc = SemanticCRemapService(store)
+    svc = SemanticCRemapService(PagGraphWriteService(store))
     res = svc.process_changes(
         namespace=ns,
         project_root=tmp_path,

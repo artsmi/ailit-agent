@@ -6,6 +6,7 @@ from pathlib import Path
 
 from agent_core.memory.sqlite_pag import SqlitePagStore
 from agent_core.runtime.agent_memory_config import DPolicySubConfig
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.runtime.d_creation_policy import (
     DCreationPolicy,
     d_fingerprint,
@@ -66,14 +67,14 @@ def test_at_most_one_new_d_per_query(tmp_path: Path) -> None:
         DPolicySubConfig(max_d_per_query=1, min_linked_nodes=2),
     )
     o1 = pol.maybe_upsert_query_digest(
-        st,
+        PagGraphWriteService(st),
         namespace=ns,
         goal="find tests",
         node_ids=["A:ns1", "B:a.py"],
     )
     assert o1.gate in ("created", "reused")
     o2 = pol.maybe_upsert_query_digest(
-        st,
+        PagGraphWriteService(st),
         namespace=ns,
         goal="find tests",
         node_ids=["A:ns1", "B:a.py"],
@@ -89,7 +90,7 @@ def test_min_linked_skips(tmp_path: Path) -> None:
         DPolicySubConfig(max_d_per_query=1, min_linked_nodes=3),
     )
     o = pol.maybe_upsert_query_digest(
-        st,
+        PagGraphWriteService(st),
         namespace=ns,
         goal="x",
         node_ids=["A:ns2", "B:x"],

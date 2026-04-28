@@ -12,6 +12,7 @@ from agent_core.memory.sqlite_pag import (
     PagPendingLinkClaim,
     SqlitePagStore,
 )
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 
 MVP_LINK_RELATIONS: Final[frozenset[str]] = frozenset(
     {
@@ -109,7 +110,7 @@ class LinkClaimResolver:
 
     def _try_resolve_one(
         self,
-        store: SqlitePagStore,
+        pag: PagGraphWriteService,
         *,
         namespace: str,
         from_node_id: str,
@@ -119,6 +120,7 @@ class LinkClaimResolver:
         target_kind: str,
         confidence: float,
     ) -> tuple[bool, str]:
+        store = pag.store
         to_nodes = self._find_target_nodes(
             store,
             namespace=namespace,
@@ -129,7 +131,7 @@ class LinkClaimResolver:
         if len(to_nodes) == 1:
             to_id = to_nodes[0].node_id
             eid = self._edge_id(relation, from_node_id, to_id)
-            store.upsert_edge(
+            pag.upsert_edge(
                 namespace=namespace,
                 edge_id=eid,
                 edge_class="cross_link",
@@ -144,7 +146,7 @@ class LinkClaimResolver:
 
     def process_claim_dict(
         self,
-        store: SqlitePagStore,
+        pag: PagGraphWriteService,
         *,
         namespace: str,
         claim: Mapping[str, Any],
@@ -165,6 +167,7 @@ class LinkClaimResolver:
                 path="skipped",
                 reason="missing_from_node_id",
             )
+        store = pag.store
         src = store.fetch_node(namespace=ns, node_id=from_id)
         if src is None or str(src.level) != "C":
             return LinkResolveResult(
@@ -197,7 +200,7 @@ class LinkClaimResolver:
                 reason="missing_target_name_or_kind",
             )
         ok, eid = self._try_resolve_one(
-            store,
+            pag,
             namespace=ns,
             from_node_id=from_id,
             relation=rel,
@@ -213,7 +216,7 @@ class LinkClaimResolver:
                 edge_id=eid,
             )
         cands = self._find_target_nodes(
-            store,
+            pag.store,
             namespace=ns,
             path_hint=ph,
             target_name=tname,
@@ -251,7 +254,7 @@ class LinkClaimResolver:
 
     def apply_link_claims(
         self,
-        store: SqlitePagStore,
+        pag: PagGraphWriteService,
         *,
         namespace: str,
         claims: Sequence[Mapping[str, Any]],
@@ -269,20 +272,20 @@ class LinkClaimResolver:
                 continue
             out.append(
                 self.process_claim_dict(
-                    store,
+                    pag,
                     namespace=namespace,
                     claim=c,
                 ),
             )
         self.resolve_all_pending(
-            store,
+            pag,
             namespace=namespace,
         )
         return out
 
     def resolve_all_pending(
         self,
-        store: SqlitePagStore,
+        pag: PagGraphWriteService,
         *,
         namespace: str,
         max_passes: int = 12,
@@ -291,6 +294,7 @@ class LinkClaimResolver:
         ns = str(namespace or "").strip()
         if not ns:
             return 0
+        store = pag.store
         total_resolved = 0
         for _ in range(max(1, int(max_passes))):
             rows = store.list_pending_link_claims(namespace=ns)
@@ -299,7 +303,7 @@ class LinkClaimResolver:
             progress = 0
             for row in rows:
                 ok, eid = self._try_resolve_one(
-                    store,
+                    pag,
                     namespace=ns,
                     from_node_id=row.from_node_id,
                     relation=row.relation,
@@ -321,14 +325,15 @@ class LinkClaimResolver:
 
     def rehydrate_from_pending_row(
         self,
-        store: SqlitePagStore,
+        pag: PagGraphWriteService,
         *,
         namespace: str,
         row: PagPendingLinkClaim,
     ) -> bool:
         """Публичный helper: resolve одной pending-строки (тесты)."""
+        store = pag.store
         ok, eid = self._try_resolve_one(
-            store,
+            pag,
             namespace=namespace,
             from_node_id=row.from_node_id,
             relation=row.relation,

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.models import ChatMessage, MessageRole
 from agent_core.session.context_ledger import estimate_text_tokens
 
@@ -70,6 +71,7 @@ class DLevelCompactService:
 
     def __init__(self, store: SqlitePagStore) -> None:
         self._store = store
+        self._write = PagGraphWriteService(store)
 
     @staticmethod
     def default() -> DLevelCompactService:
@@ -112,7 +114,7 @@ class DLevelCompactService:
             "post_tokens_estimated": post_tokens,
             "freed_tokens_estimated": freed,
         }
-        self._store.upsert_node(
+        self._write.upsert_node(
             namespace=ns,
             node_id=d_node_id,
             level="D",
@@ -126,7 +128,7 @@ class DLevelCompactService:
         )
         for linked_id in links:
             edge_id = f"{d_node_id}->summarizes->{linked_id}"
-            self._store.upsert_edge(
+            self._write.upsert_edge(
                 namespace=ns,
                 edge_id=edge_id,
                 edge_class="provenance",

@@ -10,7 +10,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Final, Literal, Sequence
 
-from agent_core.memory.sqlite_pag import PagGraphTraceFn, SqlitePagStore
+from agent_core.memory.sqlite_pag import PagGraphTraceFn
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.runtime.agent_memory_config import DPolicySubConfig
 
 _GATE = Literal["created", "reused", "skipped"]
@@ -87,7 +88,7 @@ class DCreationPolicy:
 
     def maybe_upsert_query_digest(
         self,
-        store: SqlitePagStore,
+        pag: PagGraphWriteService,
         *,
         namespace: str,
         goal: str,
@@ -140,6 +141,7 @@ class DCreationPolicy:
         fp = d_fingerprint(kind, g, linked)
         d_id = f"D:query_digest:{fp[:32]}"
         now = datetime.now(timezone.utc).isoformat()
+        store = pag.store
         exist = store.fetch_node(namespace=ns, node_id=d_id)
         ctx: Any
         if graph_trace_hook is not None:
@@ -151,7 +153,7 @@ class DCreationPolicy:
                 attrs: dict[str, Any] = dict(exist.attrs)
                 attrs["last_used_at"] = now
                 attrs["d_policy_fingerprint"] = fp
-                store.upsert_node(
+                pag.upsert_node(
                     namespace=ns,
                     node_id=d_id,
                     level=exist.level,
@@ -184,7 +186,7 @@ class DCreationPolicy:
                 "last_used_at": now,
                 "created_at": now,
             }
-            store.upsert_node(
+            pag.upsert_node(
                 namespace=ns,
                 node_id=d_id,
                 level="D",
@@ -199,7 +201,7 @@ class DCreationPolicy:
             )
             for ref in linked:
                 eid = f"{d_id}->from->{ref}"
-                store.upsert_edge(
+                pag.upsert_edge(
                     namespace=ns,
                     edge_id=eid,
                     edge_class="provenance",

@@ -1,4 +1,4 @@
-"""Семантический remap C-нод после file change (G12.7) — AgentMemory.own'd PAG."""
+"""Семантический remap C-нод после file change (G12.7)."""
 
 from __future__ import annotations
 
@@ -10,7 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from agent_core.memory.sqlite_pag import PagGraphTraceFn, PagNode, SqlitePagStore
+from agent_core.memory.sqlite_pag import (
+    PagGraphTraceFn,
+    PagNode,
+    SqlitePagStore,
+)
 from agent_core.runtime.agent_memory_contracts import (
     EXTRACTION_CONTRACT_VERSION,
     MemoryLineHintV1,
@@ -18,6 +22,7 @@ from agent_core.runtime.agent_memory_contracts import (
 )
 from agent_core.runtime.link_claim_resolver import LinkClaimResolver
 from agent_core.runtime.memory_c_segmentation import FingerprintService
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 
 _LINE_MARGINS: tuple[int, ...] = (0, 20, 50, 100)
 
@@ -153,13 +158,18 @@ class _MarkdownLocater:
             if not m2:
                 continue
             level = len(str(m2.group(1) or ""))
-            if j + 1 > first and 0 < level <= base_level:
+            cond_level = 0 < level <= base_level
+            if j + 1 > first and cond_level:
                 end = j
                 break
         return first, max(first, end)
 
     @classmethod
-    def find_title(cls, lines: list[str], title: str) -> tuple[int, int] | None:
+    def find_title(
+        cls,
+        lines: list[str],
+        title: str,
+    ) -> tuple[int, int] | None:
         w0 = (title or "").strip().lower()
         if not w0:
             return None
@@ -271,12 +281,11 @@ def _remap_node_span(
 
 
 class SemanticCRemapService:
-    """
-    Обновление B.fingerprint с диска; remap C по stable_key+semantic, не lines-only.
-    """
+    """B.fingerprint с диска; remap C по stable_key+semantic, не lines-only."""
 
-    def __init__(self, store: SqlitePagStore) -> None:
-        self._store: SqlitePagStore = store
+    def __init__(self, pag: PagGraphWriteService) -> None:
+        self._write: PagGraphWriteService = pag
+        self._store: SqlitePagStore = pag.store
 
     def process_changes(
         self,
@@ -320,18 +329,22 @@ class SemanticCRemapService:
             return None
         text, lines = tlines
         raw_bytes = abs_f.read_bytes()
-        b_fp = FingerprintService.b_fingerprint_file_bytes(raw_bytes)
+        b_fp = FingerprintService.b_fingerprint_file_bytes(
+            raw_bytes,
+        )
         ns = str(namespace).strip()
         bid = _b_node_id(rel_path)
         b_node = self._store.fetch_node(namespace=ns, node_id=bid)
-        b_attrs: dict[str, Any] = dict(b_node.attrs) if b_node is not None else {}
+        b_attrs: dict[str, Any] = (
+            dict(b_node.attrs) if b_node is not None else {}
+        )
         b_attrs.update(
             {
                 "size_bytes": len(raw_bytes),
                 "hash": hashlib.sha1(raw_bytes).hexdigest(),
             },
         )
-        self._store.upsert_node(
+        self._write.upsert_node(
             namespace=ns,
             node_id=bid,
             level="B",
@@ -375,7 +388,7 @@ class SemanticCRemapService:
             elif a == "need_llm":
                 need += 1
         LinkClaimResolver().resolve_all_pending(
-            self._store,
+            self._write,
             namespace=ns,
         )
         return CRemapBatchResult(
@@ -413,10 +426,10 @@ class SemanticCRemapService:
                 attrs.get("extraction_contract_version", "") or ""
             ) or EXTRACTION_CONTRACT_VERSION
             c_fp = _content_fp_for_slice(lines, s, e)
-            sm_fp = FingerprintService.sha256_text(
+            _ = FingerprintService.sha256_text(
                 f"{c.summary}::{b_fp}::{c_fp}"[:1_200],
             )
-            self._store.upsert_node(
+            self._write.upsert_node(
                 namespace=namespace,
                 node_id=c.node_id,
                 level=c.level,
@@ -432,7 +445,7 @@ class SemanticCRemapService:
             return "updated"
         attrs["staleness_state"] = "needs_llm_remap"
         attrs["b_fingerprint"] = b_fp
-        self._store.upsert_node(
+        self._write.upsert_node(
             namespace=namespace,
             node_id=c.node_id,
             level=c.level,

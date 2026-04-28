@@ -12,6 +12,7 @@ from agent_core.memory.sqlite_pag import PagGraphTraceFn
 
 from agent_core.memory.pag_indexer import PagIndexer
 from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.session.repo_context import (
     detect_repo_context,
     project_namespace_for_repo,
@@ -150,6 +151,7 @@ class QueryDrivenPagGrowth:
         planner: MemoryExplorationPlanner | None = None,
     ) -> None:
         self._store = SqlitePagStore(db_path or PagIndexer.default_db_path())
+        self._write = PagGraphWriteService(self._store)
         self._indexer = PagIndexer(self._store)
         self._planner = planner or MemoryExplorationPlanner()
 
@@ -236,7 +238,7 @@ class QueryDrivenPagGrowth:
             "default_branch": ctx.default_branch,
             "namespace": namespace,
         }
-        self._store.upsert_node(
+        self._write.upsert_node(
             namespace=namespace,
             node_id=f"A:{namespace}",
             level="A",
@@ -261,7 +263,7 @@ class QueryDrivenPagGrowth:
         branch_key = ctx.branch or "__no_branch__"
         for rel in selected_paths:
             b_id = f"B:{rel}"
-            self._store.upsert_edge(
+            self._write.upsert_edge(
                 namespace=namespace,
                 edge_id=f"containment:contains:A:{namespace}->{b_id}",
                 edge_class="containment",
@@ -286,7 +288,7 @@ class QueryDrivenPagGrowth:
             attrs["by_branch"] = by_branch
             attrs["last_seen_branch"] = ctx.branch
             attrs["last_seen_commit"] = ctx.commit
-            self._store.upsert_node(
+            self._write.upsert_node(
                 namespace=namespace,
                 node_id=node.node_id,
                 level=node.level,

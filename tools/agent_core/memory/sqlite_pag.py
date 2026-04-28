@@ -446,6 +446,94 @@ class SqlitePagStore:
             fn("edge", ns, rev, edge_compact)
         return rev
 
+    def upsert_edges_batch(
+        self,
+        *,
+        namespace: str,
+        edges: Sequence[Mapping[str, Any]],
+        updated_at: str | None = None,
+    ) -> int:
+        """
+        Атомарно upsert рёбер: один bump rev; один trace-callback (G13.1).
+
+        Пустой ``edges`` не меняет rev.
+        """
+        now = _utc_now_iso() if updated_at is None else str(updated_at)
+        ns = str(namespace).strip()
+        if not ns:
+            raise ValueError("namespace обязателен")
+        seq = [e for e in edges if isinstance(e, Mapping)]
+        if not seq:
+            return self.get_graph_rev(namespace=ns)
+        compacts: list[dict[str, Any]] = []
+        with self._connect() as con:
+            for raw in seq:
+                eid = str(raw.get("edge_id", "") or "").strip()
+                if not eid:
+                    continue
+                e_class = str(raw.get("edge_class", "") or "")
+                e_type = str(raw.get("edge_type", "") or "")
+                from_id = str(raw.get("from_node_id", "") or "")
+                to_id = str(raw.get("to_node_id", "") or "")
+                if not e_class or not e_type or not from_id or not to_id:
+                    continue
+                try:
+                    conf = float(raw.get("confidence", 1.0) or 1.0)
+                except (TypeError, ValueError):
+                    conf = 1.0
+                s_contract = str(
+                    raw.get("source_contract", "ailit_pag_store_v1")
+                    or "ailit_pag_store_v1",
+                )
+                con.execute(
+                    """
+                    INSERT INTO pag_edges (
+                        namespace, edge_id, edge_class, edge_type,
+                        from_node_id, to_node_id, confidence,
+                        source_contract, updated_at
+                    ) VALUES (
+                        ?, ?, ?, ?,
+                        ?, ?, ?,
+                        ?, ?
+                    )
+                    ON CONFLICT(namespace, edge_id) DO UPDATE SET
+                        edge_class=excluded.edge_class,
+                        edge_type=excluded.edge_type,
+                        from_node_id=excluded.from_node_id,
+                        to_node_id=excluded.to_node_id,
+                        confidence=excluded.confidence,
+                        source_contract=excluded.source_contract,
+                        updated_at=excluded.updated_at
+                    """,
+                    (
+                        ns,
+                        eid,
+                        e_class,
+                        e_type,
+                        from_id,
+                        to_id,
+                        conf,
+                        s_contract,
+                        now,
+                    ),
+                )
+                compacts.append(
+                    {
+                        "edge_id": eid,
+                        "edge_class": e_class,
+                        "edge_type": e_type,
+                        "from_node_id": from_id,
+                        "to_node_id": to_id,
+                    },
+                )
+            if not compacts:
+                return self.get_graph_rev(namespace=ns)
+            rev = self._bump_graph_rev(con, ns)
+        fn = self._graph_trace_fn
+        if fn is not None:
+            fn("edge_batch", ns, rev, {"edges": compacts})
+        return rev
+
     def fetch_node(self, *, namespace: str, node_id: str) -> PagNode | None:
         ns = str(namespace).strip()
         nid = str(node_id).strip()
