@@ -14,6 +14,11 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
+from agent_core.runtime.agent_memory_config import (
+    SourceBoundaryFilter,
+    build_compact_query_journal,
+    load_or_create_agent_memory_config,
+)
 from agent_core.runtime.memory_journal import (
     MemoryJournalRow,
     MemoryJournalStore,
@@ -45,6 +50,8 @@ class AgentMemoryWorker:
     def __init__(self, cfg: MemoryAgentConfig) -> None:
         self._cfg = cfg
         self._journal = MemoryJournalStore()
+        self._am_file = load_or_create_agent_memory_config()
+        self._boundary = SourceBoundaryFilter(self._am_file.memory.artifacts)
         self._growth = QueryDrivenPagGrowth(
             db_path=PagRuntimeConfig.from_env().db_path,
         )
@@ -340,7 +347,19 @@ class AgentMemoryWorker:
                 ),
             },
         )
-        explicit_paths = [want_path] if want_path else []
+        explicit_paths: list[str] = [want_path] if want_path else []
+        if want_path and self._boundary.is_forbidden_source_path(want_path):
+            self._append_journal(
+                req=req,
+                event_name="memory.path.excluded",
+                summary="path matched source-boundary forbidden rule",
+                request_id=request_id,
+                payload={
+                    "path": want_path,
+                    "reason": "forbidden_artifact_or_cache_path",
+                },
+            )
+            explicit_paths = []
         self._grow_pag_for_query(
             req=req,
             request_id=request_id,
@@ -410,6 +429,13 @@ class AgentMemoryWorker:
             if node_ids
             else "provide more specific memory goal"
         )
+        cj = build_compact_query_journal(
+            event_name="memory.slice.returned",
+            request_id=request_id,
+            task_summary=goal,
+            decision_summary=decision_summary,
+            node_ids=node_ids,
+        )
         self._append_journal(
             req=req,
             event_name="memory.slice.returned",
@@ -421,6 +447,7 @@ class AgentMemoryWorker:
                 "partial": False,
                 "recommended_next_step": recommended_next_step,
                 "estimated_tokens": memory_slice.get("estimated_tokens"),
+                "compact": cj.to_payload(),
             },
         )
         return make_response_envelope(

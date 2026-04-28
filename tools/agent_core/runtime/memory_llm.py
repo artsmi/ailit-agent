@@ -12,6 +12,12 @@ from agent_core.models import (
     MessageRole,
 )
 from agent_core.providers.protocol import ChatProvider
+from agent_core.runtime.agent_memory_config import (
+    MemoryLlmSubConfig,
+    ResultOnlyClamp,
+    load_or_create_agent_memory_config,
+    parse_memory_json_with_retry,
+)
 from agent_core.runtime.memory_journal import (
     MemoryJournalRow,
     MemoryJournalStore,
@@ -78,21 +84,38 @@ def parse_memory_llm_decision(
     text: str,
     *,
     pass_level: str,
+    limits: MemoryLlmSubConfig | None = None,
 ) -> MemoryLLMDecision:
-    """Parse strict JSON LLM output into a memory decision."""
+    """Parse strict JSON LLM output; retry/обрезка — G12.5."""
+    lim: MemoryLlmSubConfig = limits or MemoryLlmSubConfig()
     try:
-        raw = json.loads(text)
-    except json.JSONDecodeError as exc:
+        raw0 = parse_memory_json_with_retry(text)
+    except ValueError as exc:
         raise ValueError(f"invalid memory decision json: {exc}") from exc
-    if not isinstance(raw, dict):
-        raise ValueError("memory decision must be object")
+    d: dict[str, object] = {str(k): v for k, v in raw0.items()}
+    ResultOnlyClamp().apply_to_memory_decision(
+        d,  # type: ignore[arg-type]
+        max_summary=lim.max_summary_chars,
+        max_reason=lim.max_reason_chars,
+        max_decision=lim.max_decision_chars,
+    )
+    next_act: str = str(d.get("next_action", "") or "")
+    if len(next_act) > lim.max_reason_chars:
+        next_act = next_act[: lim.max_reason_chars] + "…"
+    summ: str = str(d.get("decision_summary", "") or "")
+    if len(summ) > lim.max_summary_chars:
+        summ = summ[: lim.max_summary_chars] + "…"
+    rns: str = str(d.get("recommended_next_step", "") or "")
+    if len(rns) > lim.max_decision_chars:
+        rns = rns[: lim.max_decision_chars] + "…"
+    sel: tuple[str, ...] = _str_list(d.get("selected_nodes"))[: max(0, lim.max_selected_b)]
     return MemoryLLMDecision(
-        selected_nodes=_str_list(raw.get("selected_nodes")),
-        candidate_nodes=_str_list(raw.get("candidate_nodes")),
-        next_action=str(raw.get("next_action") or ""),
-        decision_summary=str(raw.get("decision_summary") or ""),
-        partial=bool(raw.get("partial", False)),
-        recommended_next_step=str(raw.get("recommended_next_step") or ""),
+        selected_nodes=sel,
+        candidate_nodes=_str_list(d.get("candidate_nodes")),
+        next_action=next_act,
+        decision_summary=summ,
+        partial=bool(d.get("partial", False)),
+        recommended_next_step=rns,
         pass_level=pass_level,
     )
 
@@ -106,10 +129,17 @@ class AgentMemoryLLMLoop:
         provider: ChatProvider,
         config: MemoryLLMConfig,
         journal: MemoryJournalStore,
+        am_yaml_limits: MemoryLlmSubConfig | None = None,
     ) -> None:
         self._provider = provider
         self._config = config
         self._journal = journal
+        if am_yaml_limits is not None:
+            self._am_limits: MemoryLlmSubConfig = am_yaml_limits
+        else:
+            self._am_limits: MemoryLlmSubConfig = (
+                load_or_create_agent_memory_config().memory.llm
+            )
 
     def run(
         self,
@@ -222,7 +252,11 @@ class AgentMemoryLLMLoop:
         )
         resp = self._provider.complete(req)
         text = "".join(resp.text_parts).strip()
-        decision = parse_memory_llm_decision(text, pass_level=level)
+        decision = parse_memory_llm_decision(
+            text,
+            pass_level=level,
+            limits=self._am_limits,
+        )
         return decision
 
     def _append(
