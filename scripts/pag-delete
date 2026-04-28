@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Удаляет локальный PAG (SQLite), чтобы ailit пересобрал граф при следующей работе.
+# Останавливает user-сервис, удаляет ~/.ailit/pag/store.sqlite3, снова запускает сервис.
+set -euo pipefail
+
+systemctl --user stop ailit.service
+rm -f "${HOME}/.ailit/pag/store.sqlite3"
+systemctl --user start ailit.service
