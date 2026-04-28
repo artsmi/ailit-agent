@@ -2,15 +2,10 @@ import React from "react";
 
 import { highlightFromTraceRow, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
-import { parsePagGraphTraceDelta } from "../runtime/pagGraphTraceDeltas";
-import {
-  MEM3D_PAG_MAX_NODES,
-  PAG_2D_PAGE_EDGE,
-  PAG_2D_PAGE_NODE
-} from "../runtime/pagGraphLimits";
+import { PagGraph2dListBuilder, type LevelFilter2d } from "../runtime/pagGraph2dSlice";
+import type { MemoryGraphNode } from "../runtime/memoryGraphState";
+import { MEM3D_PAG_MAX_NODES, PAG_2D_PAGE_EDGE, PAG_2D_PAGE_NODE } from "../runtime/pagGraphLimits";
 import { mockWorkspace } from "../state/mockData";
-
-type LevelFilter = "all" | "A" | "B" | "C";
 
 type LiveHighlight = {
   readonly event: PagSearchHighlightV1;
@@ -30,124 +25,49 @@ function intensity01(h: LiveHighlight, atMs: number): number {
   return 1 - t;
 }
 
-function asStr(x: unknown): string {
-  return typeof x === "string" ? x : x == null ? "" : String(x);
-}
-
-function nodeLabel(n: Record<string, unknown>): { id: string; label: string; level: string; staleness: string } {
-  return {
-    id: asStr(n["node_id"]),
-    label: asStr(n["title"] ?? n["path"] ?? n["node_id"]),
-    level: asStr(n["level"] ?? "?"),
-    staleness: asStr(n["staleness_state"] ?? "")
-  };
-}
-
-function edgeLabel(e: Record<string, unknown>): { id: string; from: string; to: string; et: string } {
-  return {
-    id: asStr(e["edge_id"]),
-    from: asStr(e["from_node_id"]),
-    to: asStr(e["to_node_id"]),
-    et: asStr(e["edge_type"] ?? e["edge_class"] ?? "")
-  };
-}
-
 export function MemoryGraphPage(): React.JSX.Element {
   const s: ReturnType<typeof useDesktopSession> = useDesktopSession();
-  const [level, setLevel] = React.useState<LevelFilter>("all");
+  const [level, setLevel] = React.useState<LevelFilter2d>("all");
   const [nodeOff, setNodeOff] = React.useState(0);
   const [edgeOff, setEdgeOff] = React.useState(0);
-  const [err, setErr] = React.useState<string | null>(null);
-  const [, setLoadState] = React.useState<string | null>(null);
-  const [nodes, setNodes] = React.useState<Record<string, unknown>[]>([]);
-  const [edges, setEdges] = React.useState<Record<string, unknown>[]>([]);
-  const [hasMore, setHasMore] = React.useState({ nodes: false, edges: false });
-  const [hi, setHi] = React.useState<LiveHighlight | null>(null);
-  const [, tick] = React.useState(0);
+  const [, setTick] = React.useState(0);
   const [mockHighlight, setMockHighlight] = React.useState<LiveHighlight | null>(null);
-  const lastTraceRowIndexRef = React.useRef<number>(-1);
-  const graphRevByNsRef = React.useRef<Record<string, number>>({});
-  const atPagNodeCap2d: boolean =
-    !hasMore.nodes && nodeOff + nodes.length >= MEM3D_PAG_MAX_NODES;
+  const [hi, setHi] = React.useState<LiveHighlight | null>(null);
 
   const ns0: string | null =
     s.selectedProjectIds.length > 0
       ? s.registry.find((p) => p.projectId === s.selectedProjectIds[0])?.namespace ?? null
       : s.registry[0]?.namespace ?? null;
 
-  React.useEffect(() => {
-    lastTraceRowIndexRef.current = -1;
-    graphRevByNsRef.current = {};
-  }, [s.activeSessionId, ns0]);
+  const snap: ReturnType<typeof useDesktopSession>["pagGraph"]["activeSnapshot"] = s.pagGraph.activeSnapshot;
+  const displayLive: ReturnType<typeof PagGraph2dListBuilder.build> | null = React.useMemo((): ReturnType<
+    typeof PagGraph2dListBuilder.build
+  > | null => {
+    if (!ns0 || !snap || snap.loadState === "error") {
+      return null;
+    }
+    return PagGraph2dListBuilder.build(snap.merged, ns0, level, nodeOff, edgeOff);
+  }, [level, nodeOff, edgeOff, ns0, snap]);
 
-  React.useEffect(() => {
-    const id: number = window.setInterval(() => {
-      tick((v) => v + 1);
+  React.useEffect((): (() => void) | void => {
+    const id: number = window.setInterval((): void => {
+      setTick((v) => v + 1);
     }, 80);
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearInterval(id);
+    };
   }, []);
 
-  React.useEffect(() => {
+  React.useEffect((): void => {
     if (!ns0) {
       return;
     }
-    const rows: readonly Record<string, unknown>[] = s.rawTraceRows;
-    const start: number = lastTraceRowIndexRef.current + 1;
-    if (rows.length > 0 && start < rows.length) {
-      for (let i: number = start; i < rows.length; i++) {
-        const d = parsePagGraphTraceDelta(rows[i]!);
-        if (d === null || d.namespace !== ns0) {
-          continue;
-        }
-        const lastRev: number = graphRevByNsRef.current[ns0] ?? 0;
-        if (lastRev > 0 && d.rev !== lastRev + 1) {
-          setErr("PAG: несоответствие graph rev. Выполните обновление списка (Refresh/вкладка 3D).");
-        }
-        graphRevByNsRef.current = { ...graphRevByNsRef.current, [ns0]: d.rev };
-        if (d.kind === "pag.node.upsert") {
-          setNodes((prev) => {
-            const id: string = String(d.node["node_id"] ?? "");
-            if (!id) {
-              return prev;
-            }
-            const idx: number = prev.findIndex(
-              (x) => String((x as Record<string, unknown>)["node_id"]) === id
-            );
-            if (idx >= 0) {
-              const c: Record<string, unknown>[] = prev.map((x) => x as Record<string, unknown>);
-              c[idx] = { ...c[idx]!, ...d.node };
-              return c;
-            }
-            return [
-              ...prev,
-              { ...d.node, namespace: d.namespace } as Record<string, unknown>
-            ];
-          });
-        } else {
-          setEdges((prev) => {
-            const c: Record<string, unknown>[] = prev.map((x) => x as Record<string, unknown>);
-            for (const e of d.edges) {
-              const eid: string = String(e["edge_id"] ?? "");
-              if (!eid) {
-                continue;
-              }
-              const idx: number = c.findIndex((x) => String(x["edge_id"] ?? "") === eid);
-              if (idx >= 0) {
-                c[idx] = { ...c[idx]!, ...e };
-              } else {
-                c.push(e);
-              }
-            }
-            return c;
-          });
-        }
-      }
-      lastTraceRowIndexRef.current = rows.length - 1;
-    }
-    if (!s.rawTraceRows.length) {
+    if (s.rawTraceRows.length === 0) {
       return;
     }
-    const last: Record<string, unknown> | undefined = s.rawTraceRows[s.rawTraceRows.length - 1];
+    const last: Record<string, unknown> | undefined = s.rawTraceRows[s.rawTraceRows.length - 1] as
+      | Record<string, unknown>
+      | undefined;
     if (!last) {
       return;
     }
@@ -157,57 +77,16 @@ export function MemoryGraphPage(): React.JSX.Element {
     }
   }, [ns0, s.rawTraceRows]);
 
-  const loadGraph: () => Promise<void> = React.useCallback(async () => {
-    if (!ns0) {
-      setErr("Выберите проект в «Проекты»/чате, чтобы знать namespace PAG.");
-      setNodes([]);
-      setEdges([]);
-      return;
-    }
-    if (!window.ailitDesktop.pagGraphSlice) {
-      setErr("pagGraphSlice недоступен (только в Electron).");
-      return;
-    }
-    setErr(null);
-    setLoadState("loading");
-    const lv: string | null = level === "all" ? null : level;
-    const r: Awaited<ReturnType<NonNullable<typeof window.ailitDesktop.pagGraphSlice>>> =
-      await window.ailitDesktop.pagGraphSlice({
-        namespace: ns0,
-        level: lv,
-        nodeLimit: PAG_2D_PAGE_NODE,
-        nodeOffset: nodeOff,
-        edgeLimit: PAG_2D_PAGE_EDGE,
-        edgeOffset: edgeOff
-      });
-    if (!r.ok) {
-      setLoadState(r.code === "missing_db" ? "missing_db" : "error");
-      setErr(r.error);
-      setNodes([]);
-      setEdges([]);
-      return;
-    }
-    if (typeof r.graph_rev === "number" && ns0) {
-      graphRevByNsRef.current = { ...graphRevByNsRef.current, [ns0]: r.graph_rev };
-    }
-    setLoadState(r.pag_state);
-    setNodes([...r.nodes]);
-    setEdges([...r.edges]);
-    setHasMore(r.has_more);
-  }, [level, nodeOff, edgeOff, ns0]);
-
-  React.useEffect(() => {
-    void loadGraph();
-  }, [loadGraph]);
-
   const at: number = nowMs();
+  const useMock: boolean = !ns0;
+  const atPagNodeCap2d: boolean = displayLive != null && displayLive.atNamespaceNodeCap;
+
   const useLive: boolean = Boolean(ns0) && s.rawTraceRows.length > 0;
   const liveGlow: number =
     useLive && hi && isAlive(hi, at) ? intensity01(hi, at) : 0;
   const liveIds: Set<string> =
     useLive && hi && isAlive(hi, at) ? new Set(hi.event.nodeIds) : new Set();
 
-  const useMock: boolean = !ns0;
   const mockG: number =
     useMock && mockHighlight && isAlive(mockHighlight, at) ? intensity01(mockHighlight, at) : 0;
   const mockIds: Set<string> =
@@ -228,6 +107,15 @@ export function MemoryGraphPage(): React.JSX.Element {
     });
   }
 
+  const errMsg: string | null =
+    snap != null
+      ? snap.loadError != null
+        ? snap.loadError
+        : snap.warnings.length > 0
+          ? snap.warnings.join(" | ")
+          : null
+      : null;
+
   return (
     <div className="grid2 mem2dRoot">
       <section className="card">
@@ -242,10 +130,11 @@ export function MemoryGraphPage(): React.JSX.Element {
                 border: "1px solid rgba(234, 179, 8, 0.45)"
               }}
             >
-              Достигнут лимит {MEM3D_PAG_MAX_NODES} нод в текущем срезе PAG. Используйте Refresh или см. вкладку 3D.
+              Достигнут лимит {MEM3D_PAG_MAX_NODES} нод PAG в текущем срезе (namespace). Используйте Refresh на 3D или
+              смену фильтра.
             </div>
           ) : null}
-          {err ? <div className="errLine" style={{ marginBottom: 8 }}>{err}</div> : null}
+          {errMsg ? <div className="errLine" style={{ marginBottom: 8 }}>{errMsg}</div> : null}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12, alignItems: "center" }}>
             {(["all", "A", "B", "C"] as const).map((lv) => (
               <button
@@ -262,7 +151,7 @@ export function MemoryGraphPage(): React.JSX.Element {
                 {lv}
               </button>
             ))}
-            {hasMore.nodes ? (
+            {displayLive != null && displayLive.hasMore.nodes ? (
               <button
                 className="pill"
                 type="button"
@@ -278,7 +167,7 @@ export function MemoryGraphPage(): React.JSX.Element {
                 nodes −page
               </button>
             ) : null}
-            {hasMore.edges ? (
+            {displayLive != null && displayLive.hasMore.edges ? (
               <button
                 className="pill"
                 type="button"
@@ -302,75 +191,144 @@ export function MemoryGraphPage(): React.JSX.Element {
             >
               highlight
             </button>
+            {!useMock ? (
+              <button
+                className="primaryButton smBtn"
+                type="button"
+                onClick={() => {
+                  s.pagGraph.refreshPagGraph();
+                }}
+              >
+                Refresh
+              </button>
+            ) : null}
           </div>
           <div style={{ marginTop: 16 }}>
-            {(useMock ? mockWorkspace.pag.nodes : (nodes as unknown as typeof mockWorkspace.pag.nodes)).map((n) => {
-              const nrec: { id: string; label: string; level: string; staleness?: string } = useMock
-                ? { id: n.id, label: n.label, level: n.level, staleness: "" }
-                : (() => {
-                    const a = nodeLabel(n as Record<string, unknown>);
-                    return { id: a.id, label: a.label, level: a.level, staleness: a.staleness };
-                  })();
-              const isHot: boolean = useMock ? mockIds.has(nrec.id) : liveIds.has(nrec.id);
-              const g: number = isHot ? (useMock ? mockG : liveGlow) : 0;
-              return (
-                <div
-                  key={nrec.id}
-                  style={{
-                    marginBottom: 10,
-                    padding: "10px 12px",
-                    borderRadius: 14,
-                    border: "1px solid var(--candy-border)",
-                    background: "rgba(255,255,255,0.7)",
-                    boxShadow: isHot ? `0 0 0 ${3 + g * 8}px rgba(224, 64, 160, ${0.1 + g * 0.35})` : "",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 12
-                  }}
-                >
-                  <div style={{ minWidth: 0 }}>
-                    <div style={{ fontWeight: 750 }}>{nrec.label}</div>
-                    {nrec.staleness ? <div className="metaTiny">{nrec.staleness}</div> : null}
-                  </div>
-                  <div className="pill" style={{ background: "transparent" }}>
-                    <span>{nrec.level}</span>
-                  </div>
-                </div>
-              );
-            })}
+            {useMock
+              ? mockWorkspace.pag.nodes.map((n) => {
+                  const nrec: { id: string; label: string; level: string; staleness: string } = {
+                    id: n.id,
+                    label: n.label,
+                    level: n.level,
+                    staleness: ""
+                  };
+                  const isHot: boolean = mockIds.has(nrec.id);
+                  const g: number = isHot ? mockG : 0;
+                  return (
+                    <div
+                      key={nrec.id}
+                      style={{
+                        marginBottom: 10,
+                        padding: "10px 12px",
+                        borderRadius: 14,
+                        border: "1px solid var(--candy-border)",
+                        background: "rgba(255,255,255,0.7)",
+                        boxShadow: isHot ? `0 0 0 ${3 + g * 8}px rgba(224, 64, 160, ${0.1 + g * 0.35})` : "",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 750 }}>{nrec.label}</div>
+                        {nrec.staleness ? <div className="metaTiny">{nrec.staleness}</div> : null}
+                      </div>
+                      <div className="pill" style={{ background: "transparent" }}>
+                        <span>{nrec.level}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              : (displayLive != null ? displayLive.nodes : []).map((n: MemoryGraphNode) => {
+                  const nrec: { id: string; label: string; level: string; staleness?: string } = {
+                    id: n.id,
+                    label: n.label,
+                    level: n.level,
+                    staleness: n.staleness
+                  };
+                  const isHot: boolean = liveIds.has(nrec.id);
+                  const g: number = isHot ? liveGlow : 0;
+                  return (
+                    <div
+                      key={nrec.id}
+                      style={{
+                        marginBottom: 10,
+                        padding: "10px 12px",
+                        borderRadius: 14,
+                        border: "1px solid var(--candy-border)",
+                        background: "rgba(255,255,255,0.7)",
+                        boxShadow: isHot ? `0 0 0 ${3 + g * 8}px rgba(224, 64, 160, ${0.1 + g * 0.35})` : "",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: 12
+                      }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 750 }}>{nrec.label}</div>
+                        {nrec.staleness ? <div className="metaTiny">{nrec.staleness}</div> : null}
+                      </div>
+                      <div className="pill" style={{ background: "transparent" }}>
+                        <span>{nrec.level}</span>
+                      </div>
+                    </div>
+                  );
+                })}
           </div>
         </div>
       </section>
       <section className="card">
         <div className="cardHeader">Рёбра</div>
         <div className="cardBody">
-          {(useMock ? mockWorkspace.pag.edges : edges).map((e) => {
-            const er: { id: string; from: string; to: string; et: string } = useMock
-              ? {
-                  id: (e as (typeof mockWorkspace.pag.edges)[0]).id,
-                  from: (e as (typeof mockWorkspace.pag.edges)[0]).from,
-                  to: (e as (typeof mockWorkspace.pag.edges)[0]).to,
+          {useMock
+            ? mockWorkspace.pag.edges.map((e) => {
+                const er: { id: string; from: string; to: string; et: string } = {
+                  id: e.id,
+                  from: e.from,
+                  to: e.to,
                   et: ""
-                }
-              : edgeLabel(e as Record<string, unknown>);
-            return (
-              <div
-                key={er.id}
-                style={{
-                  marginBottom: 10,
-                  padding: "10px 12px",
-                  borderRadius: 14,
-                  border: "1px solid var(--candy-border)",
-                  background: "rgba(224, 64, 160, 0.12)"
-                }}
-              >
-                <div style={{ fontWeight: 750, display: "flex" }}>
-                  {er.from} → {er.to}
-                </div>
-                {!useMock && er.et ? <div className="metaTiny">{er.et}</div> : null}
-              </div>
-            );
-          })}
+                };
+                return (
+                  <div
+                    key={er.id}
+                    style={{
+                      marginBottom: 10,
+                      padding: "10px 12px",
+                      borderRadius: 14,
+                      border: "1px solid var(--candy-border)",
+                      background: "rgba(224, 64, 160, 0.12)"
+                    }}
+                  >
+                    <div style={{ fontWeight: 750, display: "flex" }}>
+                      {er.from} → {er.to}
+                    </div>
+                  </div>
+                );
+              })
+            : (displayLive != null ? displayLive.edges : []).map((e) => {
+                const er: { id: string; from: string; to: string; et: string } = {
+                  id: e.id,
+                  from: e.from,
+                  to: e.to,
+                  et: e.et
+                };
+                return (
+                  <div
+                    key={er.id}
+                    style={{
+                      marginBottom: 10,
+                      padding: "10px 12px",
+                      borderRadius: 14,
+                      border: "1px solid var(--candy-border)",
+                      background: "rgba(224, 64, 160, 0.12)"
+                    }}
+                  >
+                    <div style={{ fontWeight: 750, display: "flex" }}>
+                      {er.from} → {er.to}
+                    </div>
+                    {er.et ? <div className="metaTiny">{er.et}</div> : null}
+                  </div>
+                );
+              })}
         </div>
       </section>
     </div>

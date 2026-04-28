@@ -5,6 +5,8 @@ export type MemoryGraphNode = {
   label: string;
   level: MemoryGraphLevel;
   namespace?: string;
+  /** PAG `staleness_state` при наличии (2D, unified store). */
+  staleness?: string;
   x?: number;
   y?: number;
   z?: number;
@@ -17,6 +19,8 @@ export type MemoryGraphLink = {
   id: string;
   source: string;
   target: string;
+  edgeType?: string;
+  edgeClass?: string;
 };
 
 export type MemoryGraphData = {
@@ -55,7 +59,11 @@ export function nodeFromPag(raw: Record<string, unknown>): MemoryGraphNode | nul
     id,
     label: str(raw["title"] ?? raw["path"] ?? raw["node_id"]) || id,
     level,
-    namespace: str(raw["namespace"] ?? "")
+    namespace: str(raw["namespace"] ?? ""),
+    staleness: (() => {
+      const st: string = str(raw["staleness_state"] ?? raw["staleness"] ?? "");
+      return st.length > 0 ? st : undefined;
+    })()
   };
 }
 
@@ -66,7 +74,13 @@ export function linkFromPag(raw: Record<string, unknown>): MemoryGraphLink | nul
   if (!id || !source || !target) {
     return null;
   }
-  return { id, source, target };
+  return {
+    id,
+    source,
+    target,
+    edgeType: str(raw["edge_type"] ?? raw["edgeType"] ?? "") || undefined,
+    edgeClass: str(raw["edge_class"] ?? raw["edgeClass"] ?? "") || undefined
+  };
 }
 
 export function mergeMemoryGraph(

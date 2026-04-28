@@ -6,7 +6,7 @@
 
 | Область | Состояние |
 |---------|-----------|
-| **Workflow 13 (AgentMemory contract recovery)** | **Активен:** [`plan/13-agent-memory-contract-recovery.md`](plan/13-agent-memory-contract-recovery.md) — **G13.1–G13.5 закрыты** (G13.1–G13.3: как ранее; **G13.4** — semantic C; **G13.5** — `SemanticLinkClaim`, enum `relation_type`, pending отдельно от `pag_edges`, resolve → `edge_class=semantic` + batch/trace, `tests/test_g13_link_claims.py`); далее G13.6+ (desktop store, integration). |
+| **Workflow 13 (AgentMemory contract recovery)** | **Активен:** [`plan/13-agent-memory-contract-recovery.md`](plan/13-agent-memory-contract-recovery.md) — **G13.1–G13.6 закрыты** (в т.ч. **G13.6** — единый `pagGraph` session store в `DesktopSessionContext`, 2D/3D на одном `merged` + `loadPagGraphMerged` / trace merge, `pagGraphSessionStore.test.ts`); далее G13.7+ (сквозная интеграция). |
 | **Workflow 12 (PAG trace + desktop sync)** | **Закрыт (G12.0–G12.9):** [`plan/12-pag-trace-delta-desktop-sync.md`](plan/12-pag-trace-delta-desktop-sync.md) — дельты в trace, `rev`, лимиты 10k/20k, desktop graph state, **C link claims + pending resolver**, **D policy + compact slice**; критерии закрытия в плане. Канон процесса: [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc). |
 | Актуальная стратегия продукта | [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md): этапы **DP-1…DP-5** закрыты; проект перешёл в **этап тестирования** (сбор багов → фиксы). |
 | Bash / shell в runtime | [`plan/ailit-bash-strategy.md`](plan/ailit-bash-strategy.md): **B–E**, **D.4**, **F.1–F.2** — `run_shell` и file tools включены по умолчанию, `bash:` в `project.yaml`, **H** — сессионный shell позже. |

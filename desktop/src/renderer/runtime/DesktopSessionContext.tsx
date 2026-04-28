@@ -31,6 +31,13 @@ import {
   type ContextFillState,
   type ToolApprovalPending
 } from "./chatTraceProjector";
+import {
+  createEmptyPagGraphSessionSnapshot,
+  PagGraphSessionFullLoad,
+  PagGraphSessionTraceMerge,
+  PagGraphWorkspaceNamespaces,
+  type PagGraphSessionSnapshot
+} from "./pagGraphSessionStore";
 import { dedupKeyForRow, type NormalizedTraceProjection } from "./traceNormalize";
 import { newMessageId } from "./uuid";
 
@@ -91,6 +98,15 @@ export type DesktopSessionValue = {
   readonly setMemoryPanelOpen: (open: boolean) => void;
   readonly setMemoryPanelTab: (tab: MemoryPanelTabV1) => void;
   readonly setMemorySplitRatio: (ratio: number) => void;
+  /**
+   * Единый PAG graph store на session (G13.6): 2D/3D читают `activeSnapshot`,
+   * не держат отдельный source of truth для rev/merge.
+   */
+  readonly pagGraph: {
+    readonly activeSnapshot: PagGraphSessionSnapshot | null;
+    /** Полная перезагрузка из БД (как Refresh 3D) + reconcile с trace. */
+    readonly refreshPagGraph: () => void;
+  };
 };
 
 const Ctx = React.createContext<DesktopSessionValue | null>(null);
@@ -195,6 +211,9 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const [lastError, setLastError] = React.useState<string | null>(null);
   const [registry, setRegistry] = React.useState<readonly ProjectRegistryEntry[]>([]);
   const [rawTraceRows, setRawTraceRows] = React.useState<Record<string, unknown>[]>([]);
+  const rawTraceRowsRef: React.MutableRefObject<Record<string, unknown>[]> = React.useRef<Record<string, unknown>[]>([]);
+  const [pagGraphBySession, setPagGraphBySession] = React.useState<Record<string, PagGraphSessionSnapshot>>({});
+  const [pagLoadTick, setPagLoadTick] = React.useState(0);
   const [optimisticChatLines, setOptimisticChatLines] = React.useState<ChatLine[]>([]);
   const [reconnectAttempt, setReconnectAttempt] = React.useState(0);
   const seenRowKeys: React.MutableRefObject<Set<string>> = React.useRef<Set<string>>(new Set());
@@ -220,6 +239,20 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   }, [ui.sessions, ui.activeSessionId]);
 
   activeChatIdRef.current = activeSession.chatId;
+
+  React.useEffect((): void => {
+    rawTraceRowsRef.current = rawTraceRows;
+  }, [rawTraceRows]);
+
+  const pagNamespaces: readonly string[] = React.useMemo(
+    (): readonly string[] => PagGraphWorkspaceNamespaces.list(registry, activeSession.projectIds),
+    [registry, activeSession.projectIds]
+  );
+
+  const pagDefaultNamespace: string = React.useMemo(
+    (): string => PagGraphWorkspaceNamespaces.defaultNamespace(registry, activeSession.projectIds),
+    [registry, activeSession.projectIds]
+  );
 
   const traceProjection = React.useMemo(
     () => projectChatTraceRows(rawTraceRows, { suppressedToolApprovalCallId }),
@@ -354,6 +387,14 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
 
   const removeSession: (sessionId: string) => void = React.useCallback(
     (sessionId) => {
+      setPagGraphBySession((pg) => {
+        if (!(sessionId in pg)) {
+          return pg;
+        }
+        const n: Record<string, PagGraphSessionSnapshot> = { ...pg };
+        delete n[sessionId];
+        return n;
+      });
       setUiAndSave((p) => {
         if (p.sessions.length <= 1) {
           const one: ChatSessionRecordV1 = p.sessions[0]!;
@@ -848,6 +889,88 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     };
   }, [mergeRows, resubscribeTrace]);
 
+  const refreshPagGraph: () => void = React.useCallback((): void => {
+    setPagLoadTick((t) => t + 1);
+  }, []);
+
+  React.useEffect((): (() => void) | void => {
+    const sessionId: string = activeSession.id;
+    const slice: unknown = window.ailitDesktop?.pagGraphSlice;
+    if (!runtimeDir || typeof slice !== "function" || pagNamespaces.length === 0) {
+      return;
+    }
+    const sliceFn: typeof window.ailitDesktop.pagGraphSlice = slice as typeof window.ailitDesktop.pagGraphSlice;
+    let cancelled: boolean = false;
+    setPagGraphBySession((prev) => ({
+      ...prev,
+      [sessionId]: createEmptyPagGraphSessionSnapshot({ loadState: "loading" })
+    }));
+    void (async () => {
+      const r: Awaited<ReturnType<typeof PagGraphSessionFullLoad.run>> = await PagGraphSessionFullLoad.run(
+        (p) => sliceFn(p),
+        pagNamespaces
+      );
+      if (cancelled) {
+        return;
+      }
+      if (!r.ok) {
+        setPagGraphBySession((p0) => ({
+          ...p0,
+          [sessionId]: {
+            ...createEmptyPagGraphSessionSnapshot({ loadState: "error" }),
+            loadState: "error" as const,
+            loadError: r.error
+          }
+        }));
+        return;
+      }
+      const rows: readonly Record<string, unknown>[] = rawTraceRowsRef.current;
+      const snap: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.afterFullLoad(
+        r.merged,
+        r.graphRevByNamespace,
+        rows,
+        pagNamespaces,
+        pagDefaultNamespace
+      );
+      if (cancelled) {
+        return;
+      }
+      setPagGraphBySession((p0) => {
+        if (p0[sessionId]?.loadState === "loading" || p0[sessionId] == null) {
+          return { ...p0, [sessionId]: snap };
+        }
+        // concurrent refresh: только если тот же load tick-контур; упрощённо перезаписываем
+        return { ...p0, [sessionId]: snap };
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSession.id, pagDefaultNamespace, pagLoadTick, pagNamespaces, projKey, registry, runtimeDir]);
+
+  React.useEffect((): void => {
+    const sessionId: string = activeSession.id;
+    setPagGraphBySession((prev) => {
+      const cur: PagGraphSessionSnapshot | undefined = prev[sessionId];
+      if (!cur || cur.loadState !== "ready") {
+        return prev;
+      }
+      const nxt: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.applyIncremental(
+        cur,
+        rawTraceRows,
+        pagNamespaces,
+        pagDefaultNamespace
+      );
+      if (nxt === cur) {
+        return prev;
+      }
+      return { ...prev, [sessionId]: nxt };
+    });
+  }, [activeSession.id, pagDefaultNamespace, pagNamespaces, rawTraceRows]);
+
+  const pagGraphActive: PagGraphSessionSnapshot | null =
+    pagGraphBySession[activeSession.id] ?? null;
+
   const v: DesktopSessionValue = {
     chatId: activeSession.chatId,
     sessions: ui.sessions,
@@ -893,7 +1016,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     memorySplitRatio: ui.memorySplitRatio,
     setMemoryPanelOpen,
     setMemoryPanelTab,
-    setMemorySplitRatio
+    setMemorySplitRatio,
+    pagGraph: { activeSnapshot: pagGraphActive, refreshPagGraph }
   };
 
   return <Ctx.Provider value={v}>{children}</Ctx.Provider>;
