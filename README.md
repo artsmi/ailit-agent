@@ -22,7 +22,7 @@
 
 ## Как работать по проекту
 
-1. **Актуальный план:** [`plan/13-agent-memory-contract-recovery.md`](plan/13-agent-memory-contract-recovery.md) (G13.0–G13.7). Workflow 12 остаётся архивной попыткой и входным аудитом для recovery.
+1. **Актуальный план:** [`plan/13-agent-memory-contract-recovery.md`](plan/13-agent-memory-contract-recovery.md) (G13.0–G13.8, включая `AgentWork -> AgentMemory` change feedback). Workflow 12 остаётся архивной попыткой и входным аудитом для recovery.
 2. **Workflow:** обязательный порядок задач и правило «конец workflow → research и постановка» — в [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc).
 3. **Стратегия и критерии этапов:** [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md) (актуально); bash/shell — [`plan/ailit-bash-strategy.md`](plan/ailit-bash-strategy.md); закрытая ветка — [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md).
 4. **Workflow 11 (`AgentMemory LLM + journal`)** закрыт по [`plan/11-agent-memory-llm-journal.md`](plan/11-agent-memory-llm-journal.md). **Текущая крупная ветка** — **Workflow 13** (см. п.1). Workflow 12 закрыт формально, но его runtime/desktop контракты восстанавливаются в G13. Workflow 10 закрыт по [`plan/10-context-ledger-memory-highlights.md`](plan/10-context-ledger-memory-highlights.md). Токен-экономия и память: M3 закрыта; runtime M4 — [`plan/workflow-memory-4.md`](plan/workflow-memory-4.md). Сводка M3: [`docs/ailit-ai-memory-implementation.md`](docs/ailit-ai-memory-implementation.md).

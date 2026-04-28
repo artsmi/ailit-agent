@@ -232,6 +232,52 @@ AgentWork
        7. AgentMemory returns compact memory_slice + project_refs
 ```
 
+### AgentWork post-change feedback contract
+
+`AgentWork` обязан возвращать `AgentMemory` сведения о **успешных изменениях**, чтобы память росла не только по запросу `memory.query_context`, но и после фактических edits/tools. Это отдельный feedback-loop:
+
+```text
+AgentWork
+  -> tool/edit/write succeeds
+  -> memory.change_feedback(change_set, intent, touched paths/symbol hints)
+    -> AgentMemory
+       1. Validate changed files against source boundary
+       2. Compare B fingerprints / existing C semantic locators
+       3. Decide update mode:
+          a. mechanical_remap (без LLM)
+          b. llm_remap (нужен semantic extraction)
+          c. skip_artifact / no_source_change
+       4. Upsert B/C/D + resolve link claims through PagGraphWriteService
+       5. Emit pag.node.upsert / pag.edge.upsert
+       6. Append compact journal rows
+```
+
+Минимальный payload `memory.change_feedback`:
+
+- `chat_id`, `request_id`, `turn_id`, `namespace`, `project_root`;
+- `goal` / `user_intent_summary` — короткое описание зачем выполнялись изменения;
+- `changed_files[]`:
+  - `path`;
+  - `operation`: `create | modify | delete | rename`;
+  - `old_path` для rename;
+  - `tool_call_id` / `message_id`;
+  - `content_before_fingerprint` (если известен);
+  - `content_after_fingerprint`;
+  - `line_ranges_touched[]` (если tool/runtime знает);
+  - `symbol_hints[]` (если AgentWork/tool знает: function/class/config key/heading);
+  - `change_summary` — результат-only summary без chain-of-thought;
+  - `requires_llm_review`: optional hint, не окончательное решение.
+- `created_artifacts[]` — если были build/cache/generated outputs; по умолчанию AgentMemory не анализирует content artifacts, только metadata.
+
+Правила:
+
+1. `AgentWork` не пишет PAG напрямую. Он отправляет feedback; `AgentMemory` решает, что делать.
+2. Если файл text-like source и существующие C-ноды можно перенести по `semantic_locator` / line remap — используется **mechanical_remap без LLM**.
+3. Если файл новый, C-нода потеряла locator, изменился смысловой блок, появились новые symbols/sections или `needs_llm_remap` — используется **LLM extraction/remap**.
+4. Если путь запрещён source boundary (`node_modules`, `.venv`, `dist`, cache, binary, build output) — AgentMemory пишет journal `memory.change.skipped` и не создаёт C.
+5. Если изменённый файл связан с pending link claims, resolver запускается после C update.
+6. Feedback должен быть идемпотентным: повтор одного `tool_call_id` / `change_id` не создаёт дубликаты C/D/edges.
+
 ### Desktop contract
 
 2D и 3D используют один graph store:
@@ -281,7 +327,7 @@ DesktopSessionContext
 
 Критерии приёмки:
 
-- План содержит G13.0–G13.7.
+- План содержит G13.0–G13.8.
 - README указывает Workflow 13 как актуальный план.
 - В плане есть раздел "Аудит текущего runtime".
 - Код не меняется.
@@ -379,7 +425,141 @@ DesktopSessionContext
 
 ---
 
-## G13.3 — Canonical C-node extraction schema
+## G13.3 — AgentWork post-change feedback loop
+
+**Цель:** после успешных изменений файлов `AgentWork` обязан отправлять `AgentMemory` структурированный feedback, на основе которого память обновляется: механически без LLM, либо через LLM extraction/remap, если механики недостаточно.
+
+### Контракт события `memory.change_feedback`
+
+`memory.change_feedback` — runtime service request от `AgentWork` к `AgentMemory`, а не запись в PAG напрямую.
+
+Обязательные поля:
+
+- `chat_id`, `request_id`, `turn_id`, `namespace`, `project_root`;
+- `goal` / `user_intent_summary`;
+- `changed_files[]`;
+- `source`: `AgentWork`;
+- `change_batch_id` — idempotency key для всего батча.
+
+`changed_files[]`:
+
+- `path`;
+- `operation`: `create | modify | delete | rename`;
+- `old_path` для rename;
+- `tool_call_id` / `message_id`;
+- `content_before_fingerprint` (если известен);
+- `content_after_fingerprint`;
+- `line_ranges_touched[]`;
+- `symbol_hints[]`;
+- `change_summary`;
+- `requires_llm_review`.
+
+Пример:
+
+```json
+{
+  "service": "memory.change_feedback",
+  "chat_id": "chat-1",
+  "request_id": "req-42",
+  "turn_id": "turn-7",
+  "namespace": "repo-ns",
+  "project_root": "/home/artem/reps/ailit-agent",
+  "source": "AgentWork",
+  "change_batch_id": "tool-write-abc",
+  "user_intent_summary": "Исправил обработку PAG delta в desktop",
+  "changed_files": [
+    {
+      "path": "desktop/src/renderer/runtime/pagGraphTraceDeltas.ts",
+      "operation": "modify",
+      "tool_call_id": "tool-write-abc",
+      "content_after_fingerprint": "sha256:...",
+      "line_ranges_touched": [{"start": 82, "end": 119}],
+      "symbol_hints": ["applyPagGraphTraceDelta"],
+      "change_summary": "Обновлён merge PAG delta и warning при rev mismatch",
+      "requires_llm_review": false
+    }
+  ]
+}
+```
+
+### Decision matrix AgentMemory
+
+AgentMemory решает mode для каждого файла:
+
+| Mode | Когда | Что делает |
+|------|-------|------------|
+| `mechanical_remap` | Существующие C-ноды имеют валидный `semantic_locator`, changed ranges не меняют смысловую границу, файл text-like source | Пересчитать B fingerprint, обновить line hints / content fingerprints, `staleness_state=fresh`, без LLM |
+| `llm_extract_new` | Файл создан, C-ноды отсутствуют, появились новые symbols/sections | Bounded read + LLM extractor -> новые C + link claims |
+| `llm_remap` | `semantic_locator` не найден, C marked `needs_llm_remap`, changed range пересекает несколько C, confidence низкий | Bounded read + LLM remap -> обновить/заменить C |
+| `delete_or_stale` | Файл удалён или rename без target | Mark B/C stale или перенести ids по rename policy |
+| `skip_artifact` | Path forbidden by source boundary | Journal `memory.change.skipped`, без C |
+
+### Задачи
+
+1. Добавить DTO:
+   - `AgentWorkChangeFeedback`;
+   - `ChangedFileFeedback`;
+   - `TouchedRange`;
+   - `SymbolHint`;
+   - `MemoryChangeDecision`.
+2. Добавить handler `memory.change_feedback` в `AgentMemoryWorker` рядом с существующим `memory.file_changed`, но не смешивать контракты:
+   - `memory.file_changed` остаётся низкоуровневым runtime event;
+   - `memory.change_feedback` несёт намерение, tool ids, summaries и hints от `AgentWork`.
+3. В `AgentWork` / session loop после успешных write/edit/tool операций сформировать feedback:
+   - только после успешного commit изменения tool'ом;
+   - не отправлять при failed/rejected tool call;
+   - батчить несколько изменений одного turn.
+4. Реализовать idempotency:
+   - `change_batch_id` + `tool_call_id` не создают повторные journal rows / C nodes / edges;
+   - повтор feedback возвращает previous decision summary.
+5. Реализовать `MemoryChangeUpdateService`:
+   - принимает feedback;
+   - применяет source boundary;
+   - выбирает decision mode;
+   - вызывает mechanical C remap или LLM extraction/remap;
+   - пишет PAG через `PagGraphWriteService`;
+   - запускает pending link resolver.
+6. Journal events:
+   - `memory.change.received`;
+   - `memory.change.file_decided`;
+   - `memory.change.mechanical_remap.finished`;
+   - `memory.change.llm_remap.started`;
+   - `memory.change.llm_remap.finished`;
+   - `memory.change.skipped`;
+   - `memory.change.error`.
+7. Trace deltas:
+   - B/C/D node changes -> `pag.node.upsert`;
+   - resolved edges -> `pag.edge.upsert`;
+   - artifact skips do not emit graph deltas.
+8. Tests:
+   - modify existing function with valid locator -> mechanical remap, no LLM provider call;
+   - create new source file -> LLM extraction creates B/C and emits deltas;
+   - modify ambiguous C span -> `llm_remap`;
+   - artifact path -> skipped, no C node;
+   - duplicate `change_batch_id` -> idempotent;
+   - failed tool call -> no feedback sent.
+
+### Критерии приёмки
+
+- После write/edit `AgentWork` отправляет `memory.change_feedback` с достаточными данными для обновления памяти.
+- `AgentWork` не пишет PAG напрямую.
+- AgentMemory может обновить C **без LLM**, если mechanical remap безопасен.
+- AgentMemory использует LLM, если появились новые semantic blocks или старые C нельзя безопасно перенести.
+- Все successful graph updates проходят через `PagGraphWriteService` и видны Desktop через trace deltas.
+- Tests доказывают оба пути: `mechanical_remap` и `llm_remap`.
+
+### Проверки
+
+- `pytest` по новым tests для `AgentWork` feedback и `AgentMemory` change update.
+- `flake8` по затронутым Python-файлам.
+
+### Коммит
+
+- `g13/G13.3 memory: add AgentWork change feedback contract`
+
+---
+
+## G13.4 — Canonical C-node extraction schema
 
 **Цель:** закрепить LLM-создание C-ноды как строгий typed contract.
 
@@ -430,11 +610,11 @@ DesktopSessionContext
 
 Коммит:
 
-- `g13/G13.3 memory: canonical semantic C-node extraction`
+- `g13/G13.4 memory: canonical semantic C-node extraction`
 
 ---
 
-## G13.4 — Link claims, pending edges и resolved edge deltas
+## G13.5 — Link claims, pending edges и resolved edge deltas
 
 **Цель:** связи между конкретными C-нодами фиксируются явно: pending relation не является graph edge до resolution.
 
@@ -470,11 +650,11 @@ DesktopSessionContext
 
 Коммит:
 
-- `g13/G13.4 memory: resolve semantic link claims into graph edges`
+- `g13/G13.5 memory: resolve semantic link claims into graph edges`
 
 ---
 
-## G13.5 — Desktop unified PAG graph session store
+## G13.6 — Desktop unified PAG graph session store
 
 **Цель:** убрать расхождение 2D/3D; graph state должен жить на уровне desktop session, а не внутри отдельных страниц.
 
@@ -521,11 +701,11 @@ DesktopSessionContext
 
 Коммит:
 
-- `g13/G13.5 desktop: unify PAG graph session store`
+- `g13/G13.6 desktop: unify PAG graph session store`
 
 ---
 
-## G13.6 — Сквозной runtime/desktop regression suite
+## G13.7 — Сквозной runtime/desktop regression suite
 
 **Цель:** тесты должны ловить именно те потери контракта, которые случились после Workflow 12.
 
@@ -536,21 +716,27 @@ DesktopSessionContext
    - mock/provider LLM returns C nodes + link claim;
    - runtime writes nodes/edges through traced write service;
    - durable trace contains `pag.node.upsert` and `pag.edge.upsert`.
-2. Desktop vitest:
+2. AgentWork feedback integration test:
+   - successful write/edit emits `memory.change_feedback`;
+   - mechanical remap path updates C without LLM provider call;
+   - new source file path triggers LLM extraction/remap;
+   - failed/rejected tool call emits no feedback.
+3. Desktop vitest:
    - feed trace rows into session store;
    - assert graph grows without `pagGraphSlice`;
    - assert rev mismatch produces warning.
-3. CLI test:
+4. CLI test:
    - `ailit memory pag-slice` returns `graph_rev`;
    - offline indexer bumps `graph_rev`;
    - Refresh aligns desktop store to `graph_rev`.
-4. Memory safety proxy:
+5. Memory safety proxy:
    - N trace rows with deltas do not trigger N full `pagGraphSlice` calls.
 
 Критерии приёмки:
 
 - Есть тест, который бы провалился на текущем расхождении 2D/3D state.
 - Есть тест, который бы провалился, если LLM pipeline не создаёт C-ноды.
+- Есть тест, который бы провалился, если `AgentWork` не отправляет post-change feedback.
 - Есть тест, который бы провалился, если writer пишет PAG без traced service в runtime mode.
 
 Проверки:
@@ -561,11 +747,11 @@ DesktopSessionContext
 
 Коммит:
 
-- `g13/G13.6 tests: enforce AgentMemory PAG delta contract`
+- `g13/G13.7 tests: enforce AgentMemory PAG delta contract`
 
 ---
 
-## G13.7 — Context/README closure и ручной сценарий
+## G13.8 — Context/README closure и ручной сценарий
 
 **Цель:** закрыть Workflow 13 только после подтверждения контракта в документации и ручном desktop scenario.
 
@@ -597,7 +783,7 @@ DesktopSessionContext
 
 Коммит:
 
-- `g13/G13.7 docs: close AgentMemory contract recovery`
+- `g13/G13.8 docs: close AgentMemory contract recovery`
 
 ---
 
@@ -615,14 +801,15 @@ DesktopSessionContext
 Workflow 13 считается закрытым только если одновременно выполнено:
 
 1. `memory.query_context` при включённом memory LLM создаёт/обновляет semantic C/D nodes через единый write service.
-2. Все runtime traced writes PAG эмитят `pag.node.upsert` / `pag.edge.upsert`.
-3. Offline writers documented and tested as Refresh-only.
-4. 2D/3D Desktop используют общий graph state.
-5. Full `pag-slice` не вызывается на каждую строку trace.
-6. Есть сквозной regression test, который доказывает путь:
+2. `AgentWork` после successful write/edit/tool изменений отправляет `memory.change_feedback`, а `AgentMemory` обновляет C/D/edges механически или через LLM.
+3. Все runtime traced writes PAG эмитят `pag.node.upsert` / `pag.edge.upsert`.
+4. Offline writers documented and tested as Refresh-only.
+5. 2D/3D Desktop используют общий graph state.
+6. Full `pag-slice` не вызывается на каждую строку trace.
+7. Есть сквозной regression test, который доказывает путь:
 
 ```text
 LLM decision -> C node -> edge claim -> resolved edge -> trace delta -> desktop graph
 ```
 
-7. `README.md` и `context/*` отражают фактический контракт.
+8. `README.md` и `context/*` отражают фактический контракт.
