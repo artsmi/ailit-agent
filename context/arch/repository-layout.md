@@ -12,6 +12,9 @@ plan/
 context/
   arch/
   proto/
+scripts/
+  install          # установка CLI, desktop-артефакта, shim, systemd user unit
+desktop/           # Electron UI (Linux), сборка через npm
 tools/
   agent_core/
   workflow_engine/
@@ -72,6 +75,14 @@ CLI (`ailit chat`, `ailit agent run`) и Streamlit `chat_app.py`.
 ### `examples/workflows/`
 
 Примеры workflow для ручного и интеграционного запуска.
+
+### `scripts/`
+
+Вспомогательные сценарии из корня репозитория; установка продукта описана в [`../proto/install.md`](../proto/install.md) (канон для [`scripts/install`](../../scripts/install)).
+
+### `desktop/`
+
+Продуктовый UI **ailit desktop** (Electron). Сборка и копирование AppImage в prefix — в [`scripts/install`](../../scripts/install) (prod) либо `npm run dev` в этом каталоге (разработка).
 
 ### `tools/runtime/`
 

@@ -54,6 +54,7 @@
 ### Canonical context
 
 - [`../context/INDEX.md`](../context/INDEX.md)
+- установка через `scripts/install` (режимы, пути, env): [`../context/proto/install.md`](../context/proto/install.md)
 
 ### Память и экономия контекста (канон уровней)
 
