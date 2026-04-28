@@ -29,7 +29,7 @@
 
 На `Этапе 6` добавлены **workflow_engine**, CLI **`ailit`**, пример [`examples/workflows/minimal.yaml`](../examples/workflows/minimal.yaml) и руководство [`user-test.md`](../user-test.md).
 
-Дальнейшие этапы (память, PAG, broker/agents, **desktop**, Context Ledger и т.д.) зафиксированы в [`README.md`](../README.md) и соответствующих документах `plan/*`; **активный** крупный план восстановления AgentMemory/PAG/desktop contract — **[`plan/13-agent-memory-contract-recovery.md`](../plan/13-agent-memory-contract-recovery.md)** (Workflow 13). Workflow 12 остаётся архивной попыткой PAG trace/delta sync, но сквозной runtime/LLM/Desktop contract, включая `AgentWork -> AgentMemory` change feedback после изменений, восстанавливается в G13. Канон событий PAG-графа (дельты в trace, `graph_rev`, pag-slice) — в **`context/proto/runtime-event-contract.md`**, финальная схема уточняется в G13.1/G13.8. Таблица статуса этапов — в корневом README.
+Дальнейшие этапы (память, PAG, broker/agents, **desktop**, Context Ledger и т.д.) зафиксированы в [`README.md`](../README.md) и соответствующих документах `plan/*`. План **[`plan/13-agent-memory-contract-recovery.md`](../plan/13-agent-memory-contract-recovery.md)** (Workflow 13) **закрыт** (G13.0–G13.8). Workflow 12 — архивная ветка PAG trace/delta; фактический сквозной contract зафиксирован в W13. Канон событий PAG-графа, IPC `memory.change_feedback` и DTO семантического C/link claims — в **`context/proto/runtime-event-contract.md`** (финальные схемы G13.8). Таблица статуса — в корневом README.
 
 ## Разделы
 

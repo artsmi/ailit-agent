@@ -2,7 +2,7 @@
 
 **Идентификатор:** `agent-memory-contract-recovery-13` (файл `plan/13-agent-memory-contract-recovery.md`).
 
-**Статус:** **активен**. Workflow 12 закрыт формально, но аудит текущего runtime показывает, что часть продуктового контракта была реализована не сквозным образом: дельты PAG существуют, но не покрывают все пути записи; LLM/C-node семантика и desktop graph state не закреплены как единый контракт.
+**Статус:** **закрыт** (G13.0–G13.8, 2026-04). Историческая мотивация: Workflow 12 был закрыт формально, но аудит показал разрыв сквозного контракта; recovery реализован в G13.1–G13.7 и задокументирован в G13.8 (`context/proto/runtime-event-contract.md`, `context/arch/visual-monitoring-ui-map.md`, корневой `README.md`).
 
 Канон процесса: [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc).
 

@@ -135,6 +135,29 @@
 
 - `.ailit/runs/<run_id>/*` целиком, но с фильтрами.
 
+## Экран J: Memory panel — PAG graph (Desktop, Workflow 12/13)
+
+Показывает:
+
+- граф PAG в **2D** и **3D** проекциях из одного **session-level** состояния (`pagGraphSessionStore` + reducer’ы `parsePagGraphTraceDelta` / `applyPagGraphTraceDelta` / `loadPagGraphMerged` — см. `desktop/src/renderer/runtime/`).
+
+Источники:
+
+- durable trace: `topic.publish` с `event_name` **`pag.node.upsert`** / **`pag.edge.upsert`** (compact payload, [`runtime-event-contract.md`](../proto/runtime-event-contract.md));
+- полный срез и стыковка rev: `ailit memory pag-slice` → `graph_rev`, лимиты `has_more` (см. тот же proto).
+
+**Graph state / lifecycle (канон G13.6):**
+
+- state привязан к **session record** (`activeSessionId` и т.д.), а не к факту mounted/unmounted виджета;
+- **full load** (merge из БД / сброс к согласованному срезу): смена активного чата/проекта, **Refresh** в UI, первая загрузка для ключа сессии;
+- переключение **2D ↔ 3D**, unmount панели, сворачивание right split **не** очищают граф;
+- **удаление** вкладки чата / сессии — очищает state этой сессии.
+
+**Предупреждения (UX):**
+
+- **rev mismatch** (дельта не соответствует ожидаемому `graph_rev`) — явный баннер / toast + действие **Refresh**;
+- **>10k нод** (или лимит из плана) — предупреждение без тихого truncate.
+
 ## Проверка полноты (тест этапа в терминах UI)
 
 Для каждого блока UI выше должен существовать минимум один `event_type` из `runtime-event-contract.md`, который делает блок самодостаточным без частных логов.

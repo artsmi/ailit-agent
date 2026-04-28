@@ -6,8 +6,8 @@
 
 | Область | Состояние |
 |---------|-----------|
-| **Workflow 13 (AgentMemory contract recovery)** | **Активен:** [`plan/13-agent-memory-contract-recovery.md`](plan/13-agent-memory-contract-recovery.md) — **G13.1–G13.7 закрыты** (в т.ч. **G13.7** — `test_g13_agent_memory_contract_integration.py::test_llm_to_c_edge_trace_desktop_parser_path`, suite `tests/test_g13_*.py`, `pagGraphSessionStore` regression); далее **G13.8** (документация + ручной smoke). |
-| **Workflow 12 (PAG trace + desktop sync)** | **Закрыт (G12.0–G12.9):** [`plan/12-pag-trace-delta-desktop-sync.md`](plan/12-pag-trace-delta-desktop-sync.md) — дельты в trace, `rev`, лимиты 10k/20k, desktop graph state, **C link claims + pending resolver**, **D policy + compact slice**; критерии закрытия в плане. Канон процесса: [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc). |
+| **Workflow 13 (AgentMemory contract recovery)** | **Закрыт (G13.0–G13.8):** [`plan/13-agent-memory-contract-recovery.md`](plan/13-agent-memory-contract-recovery.md) — `PagGraphWriteService`, `memory.query_context` + `MemoryLlmOptimizationPolicy`, `memory.change_feedback`, C-идентичность, link claims, единый desktop graph store, regression (`tests/test_g13_*.py`, `test_g13_agent_memory_contract_integration.py::test_llm_to_c_edge_trace_desktop_parser_path`, `pagGraphSessionStore`); **финальные схемы** — `context/proto/runtime-event-contract.md`. |
+| **Workflow 12 (PAG trace + desktop sync)** | **Архив (исходная попытка, пересечение с W13):** [`plan/12-pag-trace-delta-desktop-sync.md`](plan/12-pag-trace-delta-desktop-sync.md) — ввод дельт trace / `graph_rev` / desktop; **фактический сквозной runtime/LLM/desktop контракт** закреплён в W13. Канон процесса: [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc). |
 | Актуальная стратегия продукта | [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md): этапы **DP-1…DP-5** закрыты; проект перешёл в **этап тестирования** (сбор багов → фиксы). |
 | Bash / shell в runtime | [`plan/ailit-bash-strategy.md`](plan/ailit-bash-strategy.md): **B–E**, **D.4**, **F.1–F.2** — `run_shell` и file tools включены по умолчанию, `bash:` в `project.yaml`, **H** — сессионный shell позже. |
 | [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md) | Этапы **G–Q** закрыты; документ архивен как ориентир закрытой ветки. |
@@ -22,10 +22,10 @@
 
 ## Как работать по проекту
 
-1. **Актуальный план:** [`plan/13-agent-memory-contract-recovery.md`](plan/13-agent-memory-contract-recovery.md) (G13.0–G13.8, включая `AgentWork -> AgentMemory` change feedback). Workflow 12 остаётся архивной попыткой и входным аудитом для recovery.
+1. **AgentMemory / PAG / desktop (Workflow 13):** [`plan/13-agent-memory-contract-recovery.md`](plan/13-agent-memory-contract-recovery.md) — **закрыт**; канон контракта: `context/proto/runtime-event-contract.md`, карта UI: `context/arch/visual-monitoring-ui-map.md` (экран J). Workflow 12 — архивная ветка до recovery.
 2. **Workflow:** обязательный порядок задач и правило «конец workflow → research и постановка» — в [`.cursor/rules/project-workflow.mdc`](.cursor/rules/project-workflow.mdc).
 3. **Стратегия и критерии этапов:** [`plan/deploy-project-strategy.md`](plan/deploy-project-strategy.md) (актуально); bash/shell — [`plan/ailit-bash-strategy.md`](plan/ailit-bash-strategy.md); закрытая ветка — [`plan/ailit-global-agent-teams-strategy.md`](plan/ailit-global-agent-teams-strategy.md).
-4. **Workflow 11 (`AgentMemory LLM + journal`)** закрыт по [`plan/11-agent-memory-llm-journal.md`](plan/11-agent-memory-llm-journal.md). **Текущая крупная ветка** — **Workflow 13** (см. п.1). Workflow 12 закрыт формально, но его runtime/desktop контракты восстанавливаются в G13. Workflow 10 закрыт по [`plan/10-context-ledger-memory-highlights.md`](plan/10-context-ledger-memory-highlights.md). Токен-экономия и память: M3 закрыта; runtime M4 — [`plan/workflow-memory-4.md`](plan/workflow-memory-4.md). Сводка M3: [`docs/ailit-ai-memory-implementation.md`](docs/ailit-ai-memory-implementation.md).
+4. **Workflow 11 (`AgentMemory LLM + journal`)** закрыт по [`plan/11-agent-memory-llm-journal.md`](plan/11-agent-memory-llm-journal.md). **Workflow 13** закрыт (см. п.1). Workflow 10 закрыт по [`plan/10-context-ledger-memory-highlights.md`](plan/10-context-ledger-memory-highlights.md). Токен-экономия и память: M3 закрыта; runtime M4 — [`plan/workflow-memory-4.md`](plan/workflow-memory-4.md). Сводка M3: [`docs/ailit-ai-memory-implementation.md`](docs/ailit-ai-memory-implementation.md).
 5. **Оглавление документации:** [`docs/INDEX.md`](docs/INDEX.md).
 
 ## Установка и быстрая проверка

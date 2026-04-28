@@ -171,22 +171,23 @@ Snapshot события (`state.snapshot.created`) обязаны содержа
 - `based_on_event_id`;
 - ссылку на файл snapshot.
 
-## PAG graph: `graph_rev` и дельты в trace (Workflow 12)
+## PAG graph: `graph_rev` и дельты в trace (Workflow 12, контракт восстановлен в Workflow 13)
 
 - Монотонный счётчик **`graph_rev` per `namespace`** хранится в SQLite PAG; полный срез `ailit memory pag-slice` возвращает `graph_rev` (текущее значение) для стыковки с дельтами.
 - Ответ `pag-slice` включает **`has_more.{nodes,edges}`**: признак, что в БД ещё есть страница после `offset+len` (в т.ч. «лишняя» выборка `limit+1` в CLI при `node_limit<10_000` / `edge_limit<20_000`; на верхних капах — сравнение с `COUNT`).
 - Графовые дельты (MVP) — **`topic.publish`** в durable trace, `event_name` **`pag.node.upsert`** / **`pag.edge.upsert`**, compact payload (внутренняя строка: `kind` совпадает с `event_name`, поля `namespace`, **`rev`**, `node` или `edges[]`). Без копии больших BLOB/исходников. Нормализованные поля и сценарии: **[`plan/12-pag-trace-delta-desktop-sync.md`](../../plan/12-pag-trace-delta-desktop-sync.md)**.
 - **Desktop** применяет дельты к удерживаемой модели графа, полный re-sync из БД — только **Refresh** или смена сессии/проекта (см. план 12).
 
-## G13.1 — Runtime PAG write contract (канон D13.1)
+## G13.1 / G13.8 — Runtime PAG write contract и финальные payload-схемы (канон D13.1, D13.8)
 
 - **Единая точка записи в runtime:** все вызовы `upsert_node` / `upsert_edge` / `upsert_edges_batch` в `tools/agent_core` идут через `PagGraphWriteService` (делегат к `SqlitePagStore`); низкоуровневые DML вне сервиса — только в `sqlite_pag.py` и теле `PagGraphWriteService`.
 - **`graph_rev`:** монотонно растёт per `namespace` при любом успешном upsert ноды/ребра (см. `SqlitePagStore._bump_graph_rev`).
 - **`rev` в trace payload:** равен текущему `graph_rev` namespace **после** данной операции (один upsert — один bump — одно значение `rev` в delta).
+- **G13.8:** ниже — нормативные JSON-формы для trace (`topic.publish` inner payload) и IPC `memory.change_feedback`; их отражают тесты `tests/test_g13_*.py` и интеграция [`plan/13-agent-memory-contract-recovery.md`](../../plan/13-agent-memory-contract-recovery.md).
 
 ### `pag.node.upsert` (durable trace / `topic.publish` inner payload)
 
-Тело (compact, без сырого исходника):
+`pag.node.upsert` (trace `topic.publish.payload.payload`):
 
 ```json
 {
@@ -198,14 +199,19 @@ Snapshot события (`state.snapshot.created`) обязаны содержа
     "level": "A|B|C|D",
     "kind": "string",
     "path": "string",
-    "title": "string"
+    "title": "string",
+    "summary": "string",
+    "attrs": {},
+    "staleness_state": "fresh|stale|needs_llm_remap"
   }
 }
 ```
 
+Тело compact: без сырого исходника файла; `summary`/`attrs`/`staleness_state` — как в реализации `PagGraphWriteService` / store.
+
 ### `pag.edge.upsert`
 
-Одно ребро или пачка (batch — одна строка trace, `edges` — массив):
+Одно ребро или пачка (batch — одна строка trace, `edges` — массив).
 
 ```json
 {
@@ -215,12 +221,85 @@ Snapshot события (`state.snapshot.created`) обязаны содержа
   "edges": [
     {
       "edge_id": "string",
-      "edge_class": "containment|semantic|provenance|cross_link",
-      "edge_type": "string",
+      "edge_class": "containment|semantic|provenance",
+      "edge_type": "calls|imports|implements|configures|reads|writes|tests|documents|depends_on|summarizes|related_to",
       "from_node_id": "string",
       "to_node_id": "string"
     }
   ]
+}
+```
+
+### `memory.change_feedback` (AgentWork → AgentMemory)
+
+Сервисное сообщение после успешных изменений кода/инструментов (см. G13.3, D13.3):
+
+```json
+{
+  "service": "memory.change_feedback",
+  "chat_id": "string",
+  "request_id": "string",
+  "turn_id": "string",
+  "namespace": "string",
+  "project_root": "string",
+  "source": "AgentWork",
+  "change_batch_id": "string",
+  "user_intent_summary": "string",
+  "changed_files": [
+    {
+      "path": "string",
+      "operation": "create|modify|delete|rename",
+      "old_path": null,
+      "tool_call_id": "string",
+      "message_id": "string",
+      "content_before_fingerprint": null,
+      "content_after_fingerprint": "sha256:string",
+      "line_ranges_touched": [{"start": 1, "end": 10}],
+      "symbol_hints": ["string"],
+      "change_summary": "string",
+      "requires_llm_review": false
+    }
+  ],
+  "created_artifacts": []
+}
+```
+
+### `SemanticCNodeCandidate` (LLM / идентичность C, D13.6)
+
+```json
+{
+  "stable_key": "string",
+  "semantic_locator": {
+    "kind": "function|class|method|heading|config_key|xml_block|notebook_cell|text_chunk",
+    "name": "string",
+    "signature": "string",
+    "parent": "string|null",
+    "module_path": "string"
+  },
+  "line_hint": {"start": 1, "end": 20},
+  "content_fingerprint": "sha256:string",
+  "summary_fingerprint": "sha256:string",
+  "confidence": 0.95,
+  "source_boundary_decision": "source|excluded_artifact",
+  "b_node_id": "B:path",
+  "b_fingerprint": "string",
+  "aliases": [],
+  "extraction_contract_version": "g13.semantic_c.v1"
+}
+```
+
+### `SemanticLinkClaim` (pending / resolved, D13.7)
+
+```json
+{
+  "from_stable_key": "string",
+  "from_node_id": "string|null",
+  "to_stable_key": "string",
+  "to_node_id": "string|null",
+  "relation_type": "calls|imports|implements|configures|reads|writes|tests|documents|depends_on|summarizes|related_to",
+  "confidence": 0.9,
+  "evidence_summary": "string",
+  "source_request_id": "string"
 }
 ```
 
