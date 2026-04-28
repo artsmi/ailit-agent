@@ -8,6 +8,7 @@ UI-события в runtime trace (через `topic.publish`), чтобы desk
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import socket
@@ -573,15 +574,30 @@ class _WorkChatSession:
         )
 
         def _file_changed_notifier(info: dict[str, Any]) -> None:
-            """G12.7: уведомить AgentMemory о записанных путях (semantic C remap)."""
+            """
+            G13.3: `memory.change_feedback` с fingerprint и tool ids
+            (заменяет bare `memory.file_changed` с AgentWork).
+            """
             root = workspace.project_root.resolve()
             paths = info.get("written_paths") or ()
-            if not paths:
+            items_any: list[Any] = list(info.get("written_items") or [])
+            if not items_any and paths:
+                items_any = [
+                    {
+                        "path": str(p),
+                        "call_id": f"w-{i}",
+                        "tool": "write_file",
+                    }
+                    for i, p in enumerate(paths)
+                ]
+            if not items_any:
                 return
             sock = str(worker._cfg.broker_socket_path or "").strip()
             if not sock:
                 return
-            ns0 = str(info.get("namespace") or "").strip() or identity.namespace
+            ns0 = str(info.get("namespace") or "").strip()
+            if not ns0:
+                ns0 = identity.namespace
             ns = ns0
             if not ns:
                 try:
@@ -596,24 +612,75 @@ class _WorkChatSession:
             client = _BrokerServiceClient(
                 worker._cfg.broker_socket_path,
             )
-            changes: list[dict[str, Any]] = [
-                {
-                    "path": str(p),
-                    "operation": "modified",
-                    "changed_ranges": [{"new_lines": [0, 0]}],
-                }
-                for p in paths
-            ]
-            payload: dict[str, Any] = {
-                "service": "memory.file_changed",
-                "request_id": f"fc-{time.time_ns()}",
-                "schema": "memory.file_changed.v1",
+            changed_files: list[dict[str, Any]] = []
+            for it in items_any:
+                if not isinstance(it, dict):
+                    continue
+                rel_path = str(it.get("path", "") or "").strip()
+                if not rel_path:
+                    continue
+                ab = (root / rel_path).resolve()
+                try:
+                    if ab.is_file():
+                        h = hashlib.sha256()
+                        h.update(ab.read_bytes())
+                        after_fp = f"sha256:{h.hexdigest()}"
+                    else:
+                        after_fp = "sha256:missing"
+                except OSError:
+                    after_fp = "sha256:unreadable"
+                tool_name = str(it.get("tool", "") or "write_file")
+                call_id = str(it.get("call_id", "") or "tc")
+                changed_files.append(
+                    {
+                        "path": rel_path,
+                        "operation": "modify",
+                        "old_path": None,
+                        "tool_call_id": call_id,
+                        "message_id": assistant_mid,
+                        "content_before_fingerprint": None,
+                        "content_after_fingerprint": after_fp,
+                        "line_ranges_touched": [],
+                        "symbol_hints": [],
+                        "change_summary": f"{tool_name} commit",
+                        "requires_llm_review": False,
+                    },
+                )
+            if not changed_files:
+                return
+            key_obj = {
+                "turn": assistant_mid,
+                "items": sorted(
+                    [
+                        {"p": str(x["path"]), "c": str(x["tool_call_id"])}
+                        for x in changed_files
+                    ],
+                    key=lambda z: str(z["p"]),
+                ),
+            }
+            key_json = json.dumps(
+                key_obj,
+                sort_keys=True,
+                ensure_ascii=False,
+            )
+            dig = hashlib.sha256(
+                key_json.encode("utf-8"),
+            ).hexdigest()[:24]
+            batch_id = f"cb-{dig}"
+            user_snip = (text or "")[:4000]
+            payload = {
+                "service": "memory.change_feedback",
+                "request_id": f"cf-{time.time_ns()}",
+                "schema": "memory.change_feedback.v1",
                 "chat_id": identity.chat_id,
                 "turn_id": assistant_mid,
                 "namespace": ns,
                 "project_root": str(root),
-                "changes": changes,
                 "source": "AgentWork",
+                "change_batch_id": batch_id,
+                "user_intent_summary": user_snip,
+                "goal": user_snip,
+                "changed_files": changed_files,
             }
             try:
                 client.request(

@@ -385,9 +385,9 @@ class SessionRunner:
         self._context_snapshot_builder = ContextSnapshotBuilder()
         self._d_level_compact = DLevelCompactService.default()
         self._pag_namespace: str = ""
-        self._file_changed_notifier: Callable[[dict[str, Any]], None] | None = (
-            file_changed_notifier
-        )
+        self._file_changed_notifier: (
+            Callable[[dict[str, Any]], None] | None
+        ) = file_changed_notifier
         perm = permission_engine or PermissionEngine()
         self._perm = perm
 
@@ -1172,7 +1172,8 @@ class SessionRunner:
     ) -> None:
         """Добавить TOOL: pager → char budget (батч) → сообщения."""
         written: list[str] = []
-        for tr in results:
+        written_items: list[dict[str, Any]] = []
+        for inv, tr in zip(invs, results, strict=True):
             if (
                 tr.tool_name in ("write_file", "apply_patch")
                 and tr.error is None
@@ -1180,7 +1181,15 @@ class SessionRunner:
                 ext = tr.extras or {}
                 rp = ext.get("relative_path")
                 if isinstance(rp, str) and rp.strip():
-                    written.append(rp.strip())
+                    p0 = rp.strip()
+                    written.append(p0)
+                    written_items.append(
+                        {
+                            "path": p0,
+                            "tool": str(tr.tool_name or ""),
+                            "call_id": str(inv.call_id),
+                        },
+                    )
         if written:
             wr = tuple(sorted(set(written)))
             self._maybe_sync_pag_after_write_file(
@@ -1195,6 +1204,7 @@ class SessionRunner:
                     {
                         "namespace": str(self._pag_namespace or "").strip(),
                         "written_paths": wr,
+                        "written_items": written_items,
                     },
                 )
         pcfg = settings.context_pager

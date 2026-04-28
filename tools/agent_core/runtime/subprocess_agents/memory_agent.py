@@ -36,6 +36,13 @@ from agent_core.runtime.agent_memory_query_pipeline import (
 )
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.runtime.memory_growth import QueryDrivenPagGrowth
+from agent_core.runtime.memory_change_update_service import (
+    ChangeFeedbackIdempotencyStore,
+    MemoryChangeUpdateService,
+)
+from agent_core.runtime.agent_work_change_feedback import (
+    AgentWorkChangeFeedback,
+)
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
     MemoryGrant,
@@ -67,6 +74,7 @@ class AgentMemoryWorker:
         self._journal = MemoryJournalStore()
         self._am_file = load_or_create_agent_memory_config()
         self._boundary = SourceBoundaryFilter(self._am_file.memory.artifacts)
+        self._change_idempotency = ChangeFeedbackIdempotencyStore()
         self._growth = QueryDrivenPagGrowth(
             db_path=PagRuntimeConfig.from_env().db_path,
         )
@@ -379,6 +387,86 @@ class AgentMemoryWorker:
             error=None,
         ).to_dict()
 
+    def _handle_change_feedback(
+        self,
+        req: RuntimeRequestEnvelope,
+        *,
+        request_id: str,
+    ) -> Mapping[str, Any]:
+        """`memory.change_feedback` — AgentWork post-change (G13.3, D13.3)."""
+        pl: Mapping[str, Any] = req.payload
+        try:
+            fb = AgentWorkChangeFeedback.from_payload(dict(pl))
+        except ValueError as exc:
+            return make_response_envelope(
+                request=req,
+                ok=False,
+                payload={},
+                error={
+                    "code": "bad_request",
+                    "message": str(exc),
+                },
+            ).to_dict()
+
+        def jappend(
+            event_name: str,
+            summary: str,
+            request_id: str,
+            payload: Mapping[str, Any] | None = None,
+        ) -> None:
+            self._append_journal(
+                req=req,
+                event_name=event_name,
+                summary=summary,
+                request_id=request_id,
+                payload=dict(payload or {}),
+            )
+
+        svc = MemoryChangeUpdateService(
+            boundary=self._boundary,
+            db_path=PagRuntimeConfig.from_env().db_path,
+            idempotency=self._change_idempotency,
+            journal_append=jappend,
+            llm_provider=self._provider,
+        )
+        res = svc.apply(
+            fb,
+            graph_trace_hook=self._graph_trace_hook(req),
+            chat_id=req.chat_id,
+            request_id=request_id,
+        )
+        if not res.ok:
+            return make_response_envelope(
+                request=req,
+                ok=False,
+                payload={},
+                error={
+                    "code": "change_feedback_failed",
+                    "message": res.error or "error",
+                },
+            ).to_dict()
+        dec_pl: list[dict[str, Any]] = [
+            {
+                "path": d.path,
+                "mode": d.mode,
+                "reason": d.reason,
+                "b_fingerprint": d.b_fingerprint,
+                "c_updated": d.c_updated,
+                "c_needs_llm_remap": d.c_needs_llm_remap,
+            }
+            for d in res.decisions
+        ]
+        return make_response_envelope(
+            request=req,
+            ok=True,
+            payload={
+                "decisions": dec_pl,
+                "idempotent": res.idempotent,
+                "previous_summary": res.previous_summary,
+            },
+            error=None,
+        ).to_dict()
+
     def _fallback_slice(
         self,
         *,
@@ -427,6 +515,11 @@ class AgentMemoryWorker:
                 req.message_id,
             )
             return self._handle_file_changed(req, request_id=rfc)
+        if service == "memory.change_feedback":
+            rfc2 = str(req.payload.get("request_id", "") or "") or str(
+                req.message_id,
+            )
+            return self._handle_change_feedback(req, request_id=rfc2)
         if service and service != "memory.query_context":
             return make_response_envelope(
                 request=req,
