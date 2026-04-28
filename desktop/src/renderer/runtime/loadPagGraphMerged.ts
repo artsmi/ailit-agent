@@ -1,7 +1,9 @@
 import type { PagGraphSliceResult } from "@shared/ipc";
 
-const MAX_NODE: number = 10_000;
-const MAX_EDGE: number = 20_000;
+import { MEM3D_PAG_MAX_EDGES, MEM3D_PAG_MAX_NODES } from "./pagGraphLimits";
+
+const MAX_NODE: number = MEM3D_PAG_MAX_NODES;
+const MAX_EDGE: number = MEM3D_PAG_MAX_EDGES;
 
 export type PagGraphSliceFn = (params: {
   readonly namespace: string;

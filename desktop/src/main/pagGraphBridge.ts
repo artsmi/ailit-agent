@@ -3,6 +3,9 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
+/** JSON pag-slice до 10k нод / 20k рёбер; запас на stdout (G12.3). */
+export const PAG_GRAPH_SLICE_IPC_MAX_BUFFER: number = 96 * 1024 * 1024;
+
 export type PagGraphSliceOk = {
   readonly ok: true;
   readonly kind: "ailit_pag_graph_slice_v1";
@@ -70,7 +73,7 @@ export async function runPagGraphSlice(params: {
   try {
     const { stdout } = await execFileAsync(ailit, args, {
       env: process.env,
-      maxBuffer: 64 * 1024 * 1024
+      maxBuffer: PAG_GRAPH_SLICE_IPC_MAX_BUFFER
     });
     const line: string = stdout
       .trim()

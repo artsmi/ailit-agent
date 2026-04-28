@@ -3,6 +3,11 @@ import React from "react";
 import { highlightFromTraceRow, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
 import { parsePagGraphTraceDelta } from "../runtime/pagGraphTraceDeltas";
+import {
+  MEM3D_PAG_MAX_NODES,
+  PAG_2D_PAGE_EDGE,
+  PAG_2D_PAGE_NODE
+} from "../runtime/pagGraphLimits";
 import { mockWorkspace } from "../state/mockData";
 
 type LevelFilter = "all" | "A" | "B" | "C";
@@ -47,9 +52,6 @@ function edgeLabel(e: Record<string, unknown>): { id: string; from: string; to: 
   };
 }
 
-const PAGE_NODE: number = 400;
-const PAGE_EDGE: number = 400;
-
 export function MemoryGraphPage(): React.JSX.Element {
   const s: ReturnType<typeof useDesktopSession> = useDesktopSession();
   const [level, setLevel] = React.useState<LevelFilter>("all");
@@ -65,6 +67,8 @@ export function MemoryGraphPage(): React.JSX.Element {
   const [mockHighlight, setMockHighlight] = React.useState<LiveHighlight | null>(null);
   const lastTraceRowIndexRef = React.useRef<number>(-1);
   const graphRevByNsRef = React.useRef<Record<string, number>>({});
+  const atPagNodeCap2d: boolean =
+    !hasMore.nodes && nodeOff + nodes.length >= MEM3D_PAG_MAX_NODES;
 
   const ns0: string | null =
     s.selectedProjectIds.length > 0
@@ -171,9 +175,9 @@ export function MemoryGraphPage(): React.JSX.Element {
       await window.ailitDesktop.pagGraphSlice({
         namespace: ns0,
         level: lv,
-        nodeLimit: PAGE_NODE,
+        nodeLimit: PAG_2D_PAGE_NODE,
         nodeOffset: nodeOff,
-        edgeLimit: PAGE_EDGE,
+        edgeLimit: PAG_2D_PAGE_EDGE,
         edgeOffset: edgeOff
       });
     if (!r.ok) {
@@ -229,6 +233,18 @@ export function MemoryGraphPage(): React.JSX.Element {
       <section className="card">
         <div className="mem2dHeader cardHeader">2D</div>
         <div className="cardBody">
+          {atPagNodeCap2d ? (
+            <div
+              className="errLine"
+              style={{
+                marginBottom: 8,
+                background: "rgba(234, 179, 8, 0.15)",
+                border: "1px solid rgba(234, 179, 8, 0.45)"
+              }}
+            >
+              Достигнут лимит {MEM3D_PAG_MAX_NODES} нод в текущем срезе PAG. Используйте Refresh или см. вкладку 3D.
+            </div>
+          ) : null}
           {err ? <div className="errLine" style={{ marginBottom: 8 }}>{err}</div> : null}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 12, alignItems: "center" }}>
             {(["all", "A", "B", "C"] as const).map((lv) => (
@@ -251,14 +267,14 @@ export function MemoryGraphPage(): React.JSX.Element {
                 className="pill"
                 type="button"
                 onClick={() => {
-                  setNodeOff((x) => x + PAGE_NODE);
+                  setNodeOff((x) => x + PAG_2D_PAGE_NODE);
                 }}
               >
                 nodes +page
               </button>
             ) : null}
             {nodeOff > 0 ? (
-              <button className="pill" type="button" onClick={() => setNodeOff((x) => Math.max(0, x - PAGE_NODE))}>
+              <button className="pill" type="button" onClick={() => setNodeOff((x) => Math.max(0, x - PAG_2D_PAGE_NODE))}>
                 nodes −page
               </button>
             ) : null}
@@ -267,14 +283,14 @@ export function MemoryGraphPage(): React.JSX.Element {
                 className="pill"
                 type="button"
                 onClick={() => {
-                  setEdgeOff((x) => x + PAGE_EDGE);
+                  setEdgeOff((x) => x + PAG_2D_PAGE_EDGE);
                 }}
               >
                 edges +page
               </button>
             ) : null}
             {edgeOff > 0 ? (
-              <button className="pill" type="button" onClick={() => setEdgeOff((x) => Math.max(0, x - PAGE_EDGE))}>
+              <button className="pill" type="button" onClick={() => setEdgeOff((x) => Math.max(0, x - PAG_2D_PAGE_EDGE))}>
                 edges −page
               </button>
             ) : null}

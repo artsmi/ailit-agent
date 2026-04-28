@@ -4,6 +4,10 @@ import ForceGraph3D, { type ForceGraphMethods } from "react-force-graph-3d";
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
 import { loadPagGraphMerged } from "../runtime/loadPagGraphMerged";
 import {
+  MEM3D_PAG_MAX_NODES,
+  PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD
+} from "../runtime/pagGraphLimits";
+import {
   applyPagGraphTraceDelta,
   parsePagGraphTraceDelta
 } from "../runtime/pagGraphTraceDeltas";
@@ -69,6 +73,8 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
   const hostRef = React.useRef<HTMLDivElement | null>(null);
   const highlightRef = React.useRef<HighlightState | null>(null);
   const highlightFrameRef = React.useRef<number | null>(null);
+  const lastHighlightRefreshMsRef = React.useRef<number>(0);
+  const graphNodeCountRef = React.useRef<number>(0);
   const initialFitDoneRef = React.useRef<boolean>(false);
   const lastTraceRowIndexRef = React.useRef<number>(-1);
   const graphRevByNsRef = React.useRef<Record<string, number>>({});
@@ -82,6 +88,13 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
   });
   const [loadState, setLoadState] = React.useState<"idle" | "loading" | "empty" | "ready" | "error">("idle");
   const [err, setErr] = React.useState<string | null>(null);
+  const nodeCount: number = graph.nodes.length;
+  const heavyGraph: boolean = nodeCount > PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD;
+  const atPagNodeCap: boolean = nodeCount >= MEM3D_PAG_MAX_NODES;
+
+  React.useEffect(() => {
+    graphNodeCountRef.current = graph.nodes.length;
+  }, [graph.nodes.length]);
 
   const namespaces: readonly string[] = React.useMemo(() => {
     const ids: readonly string[] =
@@ -247,11 +260,28 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     if (highlightFrameRef.current !== null) {
       window.cancelAnimationFrame(highlightFrameRef.current);
     }
+    const minMs: number = 48;
     const tick = (): void => {
       const fg = ref.current;
       const h: HighlightState | null = highlightRef.current;
+      const n: number = graphNodeCountRef.current;
+      const throttle: boolean = n > PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD;
       if (typeof fg !== "undefined") {
-        fg.refresh();
+        const t: number = nowMs();
+        if (throttle) {
+          if (t - lastHighlightRefreshMsRef.current < minMs) {
+            if (h !== null && isAlive(h, t)) {
+              highlightFrameRef.current = window.requestAnimationFrame(tick);
+              return;
+            }
+          } else {
+            lastHighlightRefreshMsRef.current = t;
+            fg.refresh();
+          }
+        } else {
+          lastHighlightRefreshMsRef.current = t;
+          fg.refresh();
+        }
       }
       if (h !== null && isAlive(h, nowMs())) {
         highlightFrameRef.current = window.requestAnimationFrame(tick);
@@ -259,6 +289,8 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       }
       highlightRef.current = null;
       if (typeof fg !== "undefined") {
+        const t2: number = nowMs();
+        lastHighlightRefreshMsRef.current = t2;
         fg.refresh();
       }
       highlightFrameRef.current = null;
@@ -310,6 +342,19 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       <section className="card" style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
         <div className="mem3dHeader cardHeader">3D</div>
         <div className="cardBody" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          {atPagNodeCap ? (
+            <div
+              className="errLine"
+              style={{
+                marginBottom: 8,
+                background: "rgba(234, 179, 8, 0.15)",
+                border: "1px solid rgba(234, 179, 8, 0.45)"
+              }}
+            >
+              Граф достиг лимита {MEM3D_PAG_MAX_NODES} нод (PAG). Показан усечённый срез — нажмите Refresh для
+              согласования с БД.
+            </div>
+          ) : null}
           {err ? <div className="errLine" style={{ marginBottom: 8 }}>{err}</div> : null}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
             <button className="primaryButton smBtn" type="button" onClick={() => void loadGraph()}>
@@ -347,8 +392,8 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
               height={viewSize.h}
               graphData={graph as unknown as { nodes: object[]; links: object[] }}
               backgroundColor="rgba(0,0,0,0)"
-              warmupTicks={80}
-              cooldownTicks={120}
+              warmupTicks={heavyGraph ? 40 : 80}
+              cooldownTicks={heavyGraph ? 60 : 120}
               d3VelocityDecay={0.9}
               enableNodeDrag={false}
               enableNavigationControls
@@ -390,6 +435,9 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
                 return hot ? `rgba(224, 64, 160, ${0.35 + glow * 0.55})` : "rgba(20, 20, 30, 0.12)";
               }}
               linkDirectionalParticles={(l: unknown) => {
+                if (heavyGraph) {
+                  return 0;
+                }
                 const link = l as MemoryGraphLink;
                 const { alive } = getGlow();
                 const h: HighlightState | null = highlightRef.current;
