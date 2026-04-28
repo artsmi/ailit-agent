@@ -29,7 +29,7 @@
 
 На `Этапе 6` добавлены **workflow_engine**, CLI **`ailit`**, пример [`examples/workflows/minimal.yaml`](../examples/workflows/minimal.yaml) и руководство [`user-test.md`](../user-test.md).
 
-Дальнейшие этапы (память, PAG, broker/agents, **desktop**, Context Ledger и т.д.) зафиксированы в [`README.md`](../README.md) и соответствующих документах `plan/*`; **активный** крупный план PAG/trace/desktop — **[`plan/12-pag-trace-delta-desktop-sync.md`](../plan/12-pag-trace-delta-desktop-sync.md)** (Workflow 12). Канон событий PAG-графа (дельты в trace, `graph_rev`, pag-slice) — в **`context/proto/runtime-event-contract.md`**. Таблица статуса этапов — в корневом README.
+Дальнейшие этапы (память, PAG, broker/agents, **desktop**, Context Ledger и т.д.) зафиксированы в [`README.md`](../README.md) и соответствующих документах `plan/*`; **активный** крупный план восстановления AgentMemory/PAG/desktop contract — **[`plan/13-agent-memory-contract-recovery.md`](../plan/13-agent-memory-contract-recovery.md)** (Workflow 13). Workflow 12 остаётся архивной попыткой PAG trace/delta sync, но сквозной runtime/LLM/Desktop contract восстанавливается в G13. Канон событий PAG-графа (дельты в trace, `graph_rev`, pag-slice) — в **`context/proto/runtime-event-contract.md`**, финальная схема уточняется в G13.1/G13.7. Таблица статуса этапов — в корневом README.
 
 ## Разделы
 
