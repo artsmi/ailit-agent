@@ -33,7 +33,9 @@ from agent_core.runtime.agent_memory_chat_log import (
 )
 from agent_core.runtime.d_creation_policy import (
     DCreationPolicy,
+    am_result_digest_goal_text,
     enrich_memory_slice_tiered,
+    linked_abc_from_am_explicit_results,
     merge_d_into_node_ids,
 )
 from agent_core.runtime.memory_journal import (
@@ -1275,6 +1277,12 @@ class AgentMemoryWorker:
             pipeline_partial = True
         pipeline_decision = pr.decision_summary
         pipeline_next = pr.recommended_next_step
+        qid_payload = str(req.payload.get("query_id", "") or "").strip()
+        am_query_id: str = (
+            v1q.query_id
+            if v1q is not None
+            else (qid_payload or f"mem-{request_id}")
+        )
         used_fb = False
         if memory_slice is None:
             memory_slice = self._fallback_slice(
@@ -1339,18 +1347,22 @@ class AgentMemoryWorker:
             return err_out
         d_gate: str = ""
         d_rsn: str = ""
-        if (
-            str(memory_slice.get("reason", "") or "") == "pag_runtime_slice"
-            and str(memory_slice.get("staleness", "") or "") == "fresh"
-        ):
+        if w14_finish:
             p_ns = str(req.namespace or self._cfg.namespace)
             p_store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
             d_pol = DCreationPolicy(self._am_file.memory.d_policy)
+            explicit = list(pr.am_v1_explicit_results or [])
+            linked_for_d = linked_abc_from_am_explicit_results(explicit)
+            digest_goal = am_result_digest_goal_text(
+                subgoal=goal,
+                decision_summary=str(pipeline_decision or "")[:1_200],
+                query_id=am_query_id,
+            )
             d_out = d_pol.maybe_upsert_query_digest(
                 PagGraphWriteService(p_store),
                 namespace=p_ns,
-                goal=goal,
-                node_ids=list(memory_slice.get("node_ids") or ()),
+                goal=digest_goal,
+                node_ids=linked_for_d,
                 graph_trace_hook=self._graph_trace_hook(
                     req,
                     request_id=request_id,
@@ -1394,8 +1406,6 @@ class AgentMemoryWorker:
         decision_summary = str(pipeline_decision or "").strip() or str(
             memory_slice.get("reason") or "memory slice",
         )
-        if d_gate:
-            decision_summary = f"{d_gate}: {d_rsn}" if d_rsn else d_gate
         recommended_next_step = str(pipeline_next or "").strip() or (
             "read selected context"
             if node_ids
@@ -1434,12 +1444,6 @@ class AgentMemoryWorker:
                 "estimated_tokens": memory_slice.get("estimated_tokens"),
                 "compact": cj.to_payload(),
             },
-        )
-        qid_payload = str(req.payload.get("query_id", "") or "").strip()
-        am_query_id: str = (
-            v1q.query_id
-            if v1q is not None
-            else (qid_payload or f"mem-{request_id}")
         )
         agent_mem_res = build_agent_memory_result_v1(
             query_id=am_query_id,

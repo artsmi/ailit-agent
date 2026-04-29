@@ -8,7 +8,7 @@ import re
 from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Final, Literal, Sequence
+from typing import Any, Final, Literal, Mapping, Sequence
 
 from agent_core.memory.sqlite_pag import PagGraphTraceFn
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
@@ -24,6 +24,65 @@ def normalize_summary_for_d_fingerprint(raw: str) -> str:
     t = (raw or "").strip().lower()
     t = _RE_SPACE.sub(" ", t)
     return t
+
+
+def am_result_digest_goal_text(
+    *,
+    subgoal: str,
+    decision_summary: str,
+    query_id: str,
+) -> str:
+    """
+    Текст goal для D.fingerprint после finish_decision (G14R.8, C14R.2 D).
+
+    Вход D: subgoal, compact decision_summary, query_id; без сырого B/C текста.
+    """
+    sg = str(subgoal or "").strip()[:800]
+    ds = str(decision_summary or "").strip()[:400]
+    qid = str(query_id or "").strip()[:120]
+    parts: list[str] = []
+    if sg:
+        parts.append(sg)
+    if ds:
+        parts.append(ds)
+    if qid:
+        parts.append(f"qid:{qid}")
+    body = "\n".join(parts) if parts else "am_result"
+    return body[:1_200]
+
+
+def linked_abc_from_am_explicit_results(
+    results: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    """
+    A/B/C id из finish_decision results для D→provenance (G14R.8).
+
+    D-ноды в явные входы не допускаются: b_path -> B:…; c_node_id -> A/B/C.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in results:
+        if not isinstance(raw, Mapping):
+            continue
+        kind = str(raw.get("kind", "") or "").strip()
+        path = str(raw.get("path", "") or "").strip()
+        cid = str(raw.get("c_node_id", "") or "").strip()
+        if kind == "b_path" and path:
+            tag = f"B:{path}"
+            if tag not in seen:
+                seen.add(tag)
+                out.append(tag)
+            continue
+        if not cid or cid.startswith("D:"):
+            continue
+        if (
+            cid.startswith("A:")
+            or cid.startswith("B:")
+            or cid.startswith("C:")
+        ) and cid not in seen:
+            seen.add(cid)
+            out.append(cid)
+    return out
 
 
 @dataclass(frozen=True, slots=True)
