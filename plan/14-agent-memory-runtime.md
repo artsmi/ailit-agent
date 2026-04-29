@@ -1,8 +1,8 @@
-# Workflow 14: AgentMemory runtime contract + LLM command protocol
+# Рабочий процесс 14: runtime-контракт AgentMemory и протокол команд LLM
 
 **Идентификатор:** `agent-memory-runtime-14` (файл `plan/14-agent-memory-runtime.md`).
 
-**Статус:** **открыт**. Это не MVP и не точечная правка старого planner prompt. Это план рефакторинга AgentMemory runtime и реализации ключевой фичи: LLM-направляемая память проекта с жёсткими командами, машиной состояний и проверяемым контрактом результата.
+**Статус:** **открыт**. Это не MVP и не точечная правка старого prompt планировщика. Это план рефакторинга runtime AgentMemory и реализации ключевой фичи: LLM-направляемая память проекта с жёсткими командами, машиной состояний и проверяемым контрактом результата.
 
 Канон процесса: [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc). Исторический источник проблемы: [`plan/14-agent-memory-planner-command-contract.md`](14-agent-memory-planner-command-contract.md) — считать примером недостаточно строгой постановки, а не целевым контрактом.
 
@@ -12,7 +12,7 @@
 
 ### 1.1 Цель
 
-Workflow 14 должен заменить текущий слабый путь:
+Рабочий процесс 14 должен заменить текущий слабый путь:
 
 ```text
 LLM свободно пишет requested_reads -> runtime угадывает пути -> эвристики goal_terms/entrypoint -> частичный PAG slice
@@ -22,12 +22,12 @@ LLM свободно пишет requested_reads -> runtime угадывает п
 
 ```text
 AgentWork subgoal
-  -> one or more AgentMemory queries
-  -> runtime_step state machine
-  -> AM calls LLM commands with strict JSON
-  -> deterministic AM actions over A/B/C/D
-  -> final memory result: C summaries and/or exact read_lines from C
-  -> AgentWork decides next work step
+  -> один или несколько AgentMemory query
+  -> машина состояний runtime_step
+  -> AM вызывает команды LLM со строгим JSON
+  -> детерминированные действия AM над A/B/C/D
+  -> итоговый memory result: C summaries и/или точные read_lines из C
+  -> AgentWork решает следующий рабочий шаг
 ```
 
 ### 1.2 Ноды памяти
@@ -36,7 +36,7 @@ AgentWork subgoal
 |------|----------------------|
 | **A** | Корень проекта. Один `A` на проектный `namespace`/`project_root`. A не хранит сырой код; A связывает B первого уровня. |
 | **B** | Файл или папка. Содержание B считается зафиксированным только через содержание дочерних элементов: для папки через B/C-потомков, для файла через C-потомков. Summary B **всегда** создаётся отдельным LLM-запросом `summarize_b`. |
-| **C** | Смысловая часть файла B: функция/класс для кода, heading section/абзац для текста, line window только как fallback boundary. Summary C **всегда** создаётся LLM-запросом `summarize_c`. |
+| **C** | Смысловая часть файла B: функция/класс для кода, секция по заголовку/абзац для текста, окно строк только как fallback-граница. Summary C **всегда** создаётся LLM-запросом `summarize_c`. |
 | **D** | Резюме ответа по конкретному пользовательскому запросу. D не подменяет A/B/C и создаётся только после финального AM result для этого запроса. |
 
 ### 1.3 Конечный результат AgentMemory
@@ -77,24 +77,24 @@ AgentWork subgoal
 - `results[].kind="b_path"` — разрешён только когда AgentWork нужно создать/изменить файл и AM должен вернуть релевантный B-путь или папку; `c_node_id` равен `null`.
 - Финальное решение о достаточности результата для пользовательской задачи принимает LLM AgentWork. AgentMemory завершает только свой query и явно помечает `status`.
 
-### 1.4 Вне scope W14
+### 1.4 Вне границ W14
 
 - Менять провайдера LLM или обучать модель.
-- Разрешать LLM исполнять shell/Python или произвольные file tools.
-- Возвращать raw prompt, chain-of-thought, секреты, полный текст больших файлов в journal/trace.
+- Разрешать LLM исполнять shell/Python или произвольные файловые инструменты.
+- Возвращать сырой prompt, chain-of-thought, секреты, полный текст больших файлов в журнал/trace.
 - Считать успешным полный обход проекта без C-summary/read_lines результата.
 
 ---
 
 ## 2. Research / аудит текущего состояния
 
-| ID | Находка | Source of truth |
+| ID | Находка | Источник истины |
 |----|---------|-----------------|
 | **A14R.1** | Текущий `PLANNER_SYSTEM` просит свободные поля `requested_reads`, `c_upserts`, `link_claims`; нет закрытого enum команд и нет state machine. | `tools/agent_core/runtime/agent_memory_query_pipeline.py`, `PLANNER_SYSTEM`. |
 | **A14R.2** | `AgentMemoryQueryPipeline.run()` после JSON берёт `requested_reads[].path` как relpath; namespace может попасть в path и дальше runtime начинает угадывать. | `tools/agent_core/runtime/agent_memory_query_pipeline.py`, разбор `req_reads` и вызов `_grow_pag_for_query`. |
 | **A14R.3** | `MemoryExplorationPlanner.select_paths()` при промахе explicit path переходит к `goal_terms`, затем к `_ENTRYPOINT_NAMES`; это полезный fallback для старого режима, но в новом runtime он не должен маскировать невалидные команды LLM. | `tools/agent_core/runtime/memory_growth.py`, `PATH_SEL_EXPLICIT`, `PATH_SEL_GOAL_TERMS`, `PATH_SEL_ENTRYPOINT`. |
 | **A14R.4** | `PagIndexer` уже умеет строить A/B дерево и механические C для Python, но B summaries сейчас заглушки `"Directory"` / `"File"` и не являются LLM-сводкой. | `tools/agent_core/memory/pag_indexer.py`, `_upsert_dir_b_node`, `_upsert_file_b_node`, `_index_python_files`. |
-| **A14R.5** | C segmentation имеет механический каталог чанков и source boundary policy, но не является единым runtime_step с обязательным LLM `summarize_c`. | `tools/agent_core/runtime/memory_c_segmentation.py`, `MechanicalChunkCatalogBuilder`, `FullBIngestionPolicy`. |
+| **A14R.5** | C segmentation имеет механический каталог чанков и политику границы источника, но не является единым runtime_step с обязательным LLM `summarize_c`. | `tools/agent_core/runtime/memory_c_segmentation.py`, `MechanicalChunkCatalogBuilder`, `FullBIngestionPolicy`. |
 | **A14R.6** | D создаётся через `DCreationPolicy` из goal и node_ids; в W14 D должен создаваться после AM result, а не заменять C/B summaries. | `tools/agent_core/runtime/d_creation_policy.py`, `maybe_upsert_query_digest`. |
 | **A14R.7** | `AgentMemoryWorker.handle()` уже возвращает `memory_slice`, grants, `partial`, `recommended_next_step`, `decision_summary`; это anchor для нового AM result envelope. | `tools/agent_core/runtime/subprocess_agents/memory_agent.py`, обработка `memory.query_context`. |
 | **A14R.8** | `MemoryGrantChecker` уже проверяет path+lines, значит read_lines из C должны материализоваться как grants/read ranges, а не как произвольный полный файл. | `tools/agent_core/tool_runtime/memory_grants.py`. |
@@ -103,12 +103,13 @@ AgentWork subgoal
 | **A14R.11** | В `opencode` session events типизированы через schema classes с literal `type`; это референс для `runtime_step.type`/`command.name`, без копирования кода. | `/home/artem/reps/opencode/packages/opencode/src/v2/session-event.ts:92-140`. |
 | **A14R.12** | В `claude-code` agent memory явно разделяет scopes и path ownership; W14 должен так же отделить AgentWork request от AM-owned memory writes. | `/home/artem/reps/claude-code/tools/AgentTool/agentMemory.ts:12-64`. |
 | **A14R.13** | В `letta` memory blocks рендерятся с metadata и лимитами; W14 должен возвращать компактный результат с лимитами, а не большой сырой контекст. | `/home/artem/reps/letta/letta/schemas/memory.py:68-80`, `/home/artem/reps/letta/letta/schemas/memory.py:142-173`. |
+| **A14R.14** | В W13 уже согласован подробный audit/verbose путь AgentMemory через `memory_journal` и `agent_memory_chat_log`; W14 обязан не просто добавить новые события, а обновить AgentMemory logs/chat_logs по тому же компактному формату и с теми же запретами на сырой prompt/текст. | `tools/agent_core/runtime/memory_journal.py`, `tools/agent_core/runtime/agent_memory_chat_log.py`, `tools/agent_core/runtime/subprocess_agents/memory_agent.py`, `context/proto/runtime-event-contract.md`. |
 
 ---
 
 ## 3. Целевые контракты
 
-### C14R.1 AgentWork ↔ AgentMemory policy
+### C14R.1 Политика AgentWork ↔ AgentMemory
 
 AgentWork имеет право выполнить несколько запросов к AgentMemory на один пользовательский запрос, если собственная декомпозиция задачи требует разные memory goals.
 
@@ -124,7 +125,7 @@ AgentWork имеет право выполнить несколько запро
    - или результат содержит `b_path`, после чего AgentWork должен запросить C/read_lines для проверки перед изменением, если изменение зависит от существующего содержания.
 6. Запрещено вызывать AM в цикле без нового `subgoal` или без уменьшения неопределённости. Runtime обязан иметь cap `max_memory_queries_per_user_turn`.
 
-Input AgentWork → AM:
+Вход AgentWork → AM:
 
 ```json
 {
@@ -145,15 +146,15 @@ Input AgentWork → AM:
 }
 ```
 
-Output AM → AgentWork: `agent_memory_result.v1` из §1.3.
+Выход AM → AgentWork: `agent_memory_result.v1` из §1.3.
 
-### C14R.2 Summary policy for B/C/D
+### C14R.2 Политика summary для B/C/D
 
 #### C summary
 
 `summarize_c` обязателен для каждого C, который попадает в итоговый `c_summary`.
 
-Input:
+Вход:
 
 ```json
 {
@@ -170,7 +171,7 @@ Input:
       "end_line": 20,
       "symbol": "name|null"
     },
-    "text": "bounded source text"
+    "text": "ограниченный исходный текст"
   },
   "user_subgoal": "string",
   "limits": {
@@ -180,7 +181,7 @@ Input:
 }
 ```
 
-Output:
+Выход:
 
 ```json
 {
@@ -204,31 +205,31 @@ Output:
 }
 ```
 
-Prompt restrictions:
+Ограничения prompt:
 
 ```text
-You are AgentMemory summarize_c.
-Return ONLY JSON matching agent_memory_command_output.v1.
-Do not include markdown, chain-of-thought, hidden reasoning, secrets, or text outside JSON.
-Summarize only the supplied C text. Do not infer from files not supplied.
-Every claim must be grounded in source_lines within the C locator.
-If the text is insufficient, return status="partial" and explain in refusal_reason.
-important_lines must be minimal and must not cover the whole C unless the C has <= 20 lines.
+Ты выполняешь команду AgentMemory summarize_c.
+Верни только JSON, соответствующий agent_memory_command_output.v1.
+Не добавляй markdown, chain-of-thought, скрытые рассуждения, секреты или текст вне JSON.
+Суммируй только переданный текст C. Не делай выводы из файлов, которых нет во входе.
+Каждое утверждение из claims должно опираться на source_lines внутри locator текущего C.
+Если текста недостаточно, верни status="partial" и объясни причину в refusal_reason.
+important_lines должны быть минимальными и не должны покрывать весь C, кроме случая когда C содержит <= 20 строк.
 ```
 
 #### B summary
 
-B summary **всегда** создаётся через LLM `summarize_b`, но входом является не произвольный полный файл, а уже зафиксированные children.
+B summary **всегда** создаётся через LLM `summarize_b`, но входом является не произвольный полный файл, а уже зафиксированные дочерние элементы.
 
 Правила:
 
-- B-folder summary создаётся из child B summaries and/or child C summaries.
-- B-file summary создаётся из C summaries этого файла.
+- Summary B-папки создаётся из summary дочерних B и/или summary дочерних C.
+- Summary B-файла создаётся из summary C этого файла.
 - Если C для B ещё не построены, `summarize_b` запрещён; runtime_step обязан сначала перейти в `decompose_b_to_c` или вернуть `partial`.
-- B summary invalidated, если изменился fingerprint любого child C или child B.
-- B summary не может содержать claims без ссылки на child node id.
+- B summary помечается устаревшим, если изменился fingerprint любого дочернего C или B.
+- B summary не может содержать claims без ссылки на id дочерней ноды.
 
-Input:
+Вход:
 
 ```json
 {
@@ -258,7 +259,7 @@ Input:
 }
 ```
 
-Output:
+Выход:
 
 ```json
 {
@@ -274,33 +275,33 @@ Output:
 }
 ```
 
-Prompt restrictions:
+Ограничения prompt:
 
 ```text
-You are AgentMemory summarize_b.
-Return ONLY JSON matching agent_memory_command_output.v1.
-Use only provided child summaries. Do not invent file content.
-For a file B, summarize what the C children say. For a directory B, summarize what child B/C nodes say.
-If required children are missing or stale, return status="partial" with missing_children.
-Do not output raw source code.
-Do not reveal chain-of-thought.
+Ты выполняешь команду AgentMemory summarize_b.
+Верни только JSON, соответствующий agent_memory_command_output.v1.
+Используй только переданные summary дочерних элементов. Не выдумывай содержимое файла.
+Для B-файла суммируй только то, что сообщают дочерние C. Для B-папки суммируй только то, что сообщают дочерние B/C.
+Если обязательные дочерние элементы отсутствуют или устарели, верни status="partial" и заполни missing_children.
+Не выводи сырой исходный код.
+Не раскрывай chain-of-thought.
 ```
 
 #### D summary
 
 D summary создаётся после AM result для конкретного `query_id`.
 
-Rules:
+Правила:
 
-- D input = `subgoal`, final `results`, selected node ids, compact decision summary.
-- D must not be used as source for B/C summary.
-- D fingerprint = normalized summary + linked A/B/C ids, compatible with existing `DCreationPolicy`.
+- Вход D = `subgoal`, финальные `results`, выбранные id нод, компактный `decision_summary`.
+- D запрещено использовать как источник для B/C summary.
+- D fingerprint = нормализованный summary + связанные A/B/C id, совместимо с существующим `DCreationPolicy`.
 
-### C14R.3 Command protocol
+### C14R.3 Протокол команд
 
-`command` — это запрос AgentMemory к LLM. Одна команда имеет один prompt, один input JSON, один output JSON и один deterministic parser.
+`command` — это запрос AgentMemory к LLM. Одна команда имеет один prompt, один входной JSON, один выходной JSON и один детерминированный parser.
 
-Envelope input:
+Входной envelope:
 
 ```json
 {
@@ -321,7 +322,7 @@ Envelope input:
 }
 ```
 
-Envelope output:
+Выходной envelope:
 
 ```json
 {
@@ -335,24 +336,37 @@ Envelope output:
 }
 ```
 
-Global prompt restrictions for every command:
+Глобальные ограничения prompt для каждой команды:
 
 ```text
-You are a strict AgentMemory command executor.
-Return ONLY valid JSON. No markdown. No prose outside JSON.
-Never reveal chain-of-thought or hidden reasoning.
-Use only data provided in the input JSON.
-Do not invent paths, node ids, line numbers, or file contents.
-All paths must be relative POSIX paths under project_root. Absolute paths and ".." are forbidden.
-If information is missing, return status="partial" or "refuse" with a machine-readable reason.
-The final task completion decision must be explicit via finish_decision.
+Ты строгий исполнитель команды AgentMemory.
+Верни только валидный JSON. Не добавляй markdown. Не добавляй поясняющий текст вне JSON.
+Никогда не раскрывай chain-of-thought или скрытые рассуждения.
+Используй только данные из входного JSON.
+Не выдумывай пути, id нод, номера строк или содержимое файлов.
+Все пути должны быть относительными POSIX-путями внутри project_root. Абсолютные пути и ".." запрещены.
+Если информации недостаточно, верни status="partial" или status="refuse" с машинно-читаемой причиной.
+Финальное решение о завершении задачи должно быть явно выражено через finish_decision.
 ```
 
-### C14R.4 `plan_traversal` command
+### C14R.4 Матрица команд LLM
 
-Purpose: decide next AM actions using the current frontier. This is the only command that may choose traversal actions. It does not read files and does not write PAG.
+Эта таблица обязательна для реализации. Агент-исполнитель не должен выводить новую команду из текста prompt или из примеров: команда считается существующей только если она есть в этой таблице, в registry и в parser DTO.
 
-Input payload:
+| Команда LLM | Что делает | Когда вызывается | Формат входа | Формат выхода | Prompt ID | Parser / DTO anchor | Обязательные тесты |
+|-------------|------------|------------------|--------------|---------------|-----------|---------------------|--------------------|
+| `plan_traversal` | Выбирает следующие ограниченные действия AM по текущему frontier. Не читает файлы и не пишет PAG. | После `list_frontier`, после обновления frontier, после `collect_result`, пока нет решения `finish_decision`. | `agent_memory_command_input.v1` + payload из §C14R.5. | `agent_memory_command_output.v1` + `payload.actions[]`, `payload.is_final`, `payload.final_answer_basis`. | `AM_PROMPT_PLAN_TRAVERSAL_RU_V1` | `AgentMemoryCommandName.PLAN_TRAVERSAL`, `PlanTraversalInput`, `PlanTraversalOutput` в `agent_memory_runtime_contract.py`. | `test_plan_traversal_prompt_contains_required_output_schema`, `test_plan_traversal_allows_only_whitelisted_actions`. |
+| `summarize_c` | Создаёт summary C и grounded claims по одному C-фрагменту. | После `decompose_b_to_c`, когда C-текст разрешён политикой границы источника и нужен для результата или B summary. | `agent_memory_command_input.v1` + `c_node`, `user_subgoal`, `limits`. | `agent_memory_command_output.v1` + `summary`, `semantic_tags`, `important_lines`, `claims`, `refusal_reason`. | `AM_PROMPT_SUMMARIZE_C_RU_V1` | `AgentMemoryCommandName.SUMMARIZE_C`, `SummarizeCInput`, `SummarizeCOutput`. | `test_summarize_c_prompt_contains_required_output_schema`, `test_summarize_c_claims_require_source_lines`. |
+| `summarize_b` | Создаёт summary B только из summary дочерних B/C, без сырого B content. | После того как runtime подтвердил свежие child summaries для B-файла или B-папки. | `agent_memory_command_input.v1` + `b_node.children[]`, `user_subgoal`, `limits`. | `agent_memory_command_output.v1` + `summary`, `child_refs`, `missing_children`, `confidence`, `refusal_reason`. | `AM_PROMPT_SUMMARIZE_B_RU_V1` | `AgentMemoryCommandName.SUMMARIZE_B`, `SummarizeBInput`, `SummarizeBOutput`. | `test_summarize_b_prompt_contains_required_output_schema`, `test_summarize_b_requires_child_summaries`. |
+| `finish_decision` | Явно завершает AM query и выбирает итоговые `c_summary`, `read_lines`, `b_path`. | После `collect_result` или при исчерпании бюджета, когда runtime должен вернуть `complete`, `partial` или `blocked`. | `agent_memory_command_input.v1` + `candidate_results[]`, `missing_or_stale[]`. | `agent_memory_command_output.v1` + `finish`, `status`, `selected_results[]`, `decision_summary`, `recommended_next_step`. | `AM_PROMPT_FINISH_DECISION_RU_V1` | `AgentMemoryCommandName.FINISH_DECISION`, `FinishDecisionInput`, `FinishDecisionOutput`. | `test_finish_decision_prompt_contains_required_output_schema`, `test_finish_decision_must_select_existing_candidate_results`. |
+
+Расширение команд допускается только отдельным этапом плана: добавить строку в таблицу, DTO, parser, prompt, tests, observability event и пример сценария. Команда, отсутствующая в матрице, должна отклоняться как `unknown_command`.
+
+### C14R.5 Команда `plan_traversal`
+
+Назначение: выбрать следующие действия AM по текущему frontier. Это единственная команда, которая выбирает traversal-действия. Она не читает файлы и не пишет PAG.
+
+Входной payload:
 
 ```json
 {
@@ -398,7 +412,7 @@ Input payload:
 }
 ```
 
-Output payload:
+Выходной payload:
 
 ```json
 {
@@ -415,35 +429,58 @@ Output payload:
 }
 ```
 
-Hard rules:
+Жёсткие правила:
 
-- `list_children` allowed for A and B.
-- `get_b_summary` allowed for B only and returns summary+path, not raw file.
-- `get_c_content` allowed for C only and may produce C summary and/or read_lines in final result.
-- `decompose_b_to_c` allowed for B only; it is a runtime request to materialize C nodes.
-- `summarize_b` allowed only when runtime knows B children summaries are present and fresh.
-- `finish` must be the only action when `is_final=true`.
+- `list_children` разрешён только для A и B.
+- `get_b_summary` разрешён только для B и возвращает summary+path, а не сырой файл.
+- `get_c_content` разрешён только для C и может дать C summary и/или read_lines в итоговый результат.
+- `decompose_b_to_c` разрешён только для B; это runtime-запрос на материализацию C-нод.
+- `summarize_b` разрешён только когда runtime знает, что дочерние summaries B существуют и свежие.
+- `finish` должен быть единственным действием, если `is_final=true`.
 
-Prompt:
+Полный prompt `AM_PROMPT_PLAN_TRAVERSAL_RU_V1`:
 
 ```text
-You are AgentMemory plan_traversal.
-Choose the next bounded memory actions for the current user_subgoal.
-Return ONLY JSON with payload.actions.
-You may ask for list_children on A or B.
-You may ask for get_b_summary on B, but this returns only summary + path.
-You may ask for get_c_content on C to use C summaries or bounded read_lines.
-You may ask for decompose_b_to_c or summarize_b when required.
-Do not invent paths that are not present in frontier.
-Do not request raw B content. Raw content is only reachable through C read_lines.
-If enough C summaries/read_lines are available, return exactly one finish action with is_final=true.
+Ты выполняешь команду AgentMemory plan_traversal.
+Твоя задача: выбрать следующий ограниченный набор действий AgentMemory для user_subgoal.
+Верни только JSON по схеме agent_memory_command_output.v1.
+Не добавляй markdown, комментарии, chain-of-thought или текст вне JSON.
+
+Обязательные поля верхнего уровня:
+- schema_version: ровно "agent_memory_command_output.v1";
+- command: ровно "plan_traversal";
+- command_id: тот же command_id, что во входе;
+- status: "ok", "partial" или "refuse";
+- payload: объект по схеме ниже;
+- decision_summary: строка до 500 символов;
+- violations: массив строк, пустой массив если нарушений нет.
+
+Схема payload:
+- actions: массив объектов, минимум 1, максимум limits.max_actions;
+- actions[].action: только "list_children", "get_b_summary", "get_c_content", "decompose_b_to_c", "summarize_b", "finish";
+- actions[].path: относительный POSIX-путь из frontier или ".";
+- actions[].node_id: id ноды из frontier или null только для "finish";
+- actions[].reason: короткая причина до 240 символов;
+- is_final: boolean;
+- final_answer_basis: массив id C/B, которые уже есть во входе; пустой массив если is_final=false.
+
+Правила:
+- Запрашивай list_children только для A или B.
+- Запрашивай get_b_summary только для B.
+- Запрашивай get_c_content только для C.
+- Запрашивай decompose_b_to_c только для B-файла или B-папки, которую runtime разрешил материализовать.
+- Запрашивай summarize_b только если во входе указано, что дочерние summaries есть и свежие.
+- Не выдумывай пути, которых нет во frontier.
+- Не запрашивай сырой B content. Сырой текст доступен только как ограниченные read_lines из C.
+- Если достаточно C summaries/read_lines, верни ровно одно действие finish, is_final=true.
+- Если сведений недостаточно, верни status="partial" и действие, которое уменьшает неопределённость.
 ```
 
-### C14R.5 `finish_decision` command
+### C14R.6 Команда `finish_decision`
 
-Purpose: LLM explicitly tells AM whether the AM query can finish and which C summaries/read_lines/B paths form the result. This is not AgentWork final answer to the user.
+Назначение: LLM явно сообщает AM, можно ли завершить AM query и какие C summaries/read_lines/B paths входят в результат. Это не финальный ответ AgentWork пользователю.
 
-Input payload:
+Входной payload:
 
 ```json
 {
@@ -466,7 +503,7 @@ Input payload:
 }
 ```
 
-Output payload:
+Выходной payload:
 
 ```json
 {
@@ -485,21 +522,115 @@ Output payload:
 }
 ```
 
-Prompt:
+Полный prompt `AM_PROMPT_FINISH_DECISION_RU_V1`:
 
 ```text
-You are AgentMemory finish_decision.
-Decide whether this AgentMemory query has enough memory evidence for the user_subgoal.
-Return ONLY JSON.
-You must select only candidate_results that were provided.
-For answer/explanation subgoals prefer C summaries. For exact verification prefer read_lines.
-For create-file subgoals, B paths are allowed only as target locations; they are not evidence about existing code.
-If evidence is incomplete, set status="partial" and recommended_next_step to the next memory query subgoal.
+Ты выполняешь команду AgentMemory finish_decision.
+Твоя задача: решить, достаточно ли memory evidence для user_subgoal внутри текущего AM query.
+Верни только JSON по схеме agent_memory_command_output.v1.
+Не добавляй markdown, комментарии, chain-of-thought или текст вне JSON.
+
+Обязательные поля верхнего уровня:
+- schema_version: ровно "agent_memory_command_output.v1";
+- command: ровно "finish_decision";
+- command_id: тот же command_id, что во входе;
+- status: "ok", "partial" или "refuse";
+- payload: объект по схеме ниже;
+- decision_summary: строка до 500 символов;
+- violations: массив строк, пустой массив если нарушений нет.
+
+Схема payload:
+- finish: boolean, для завершения должен быть true;
+- status: "complete", "partial" или "blocked";
+- selected_results: массив объектов из candidate_results; нельзя добавлять новые node_id/path;
+- selected_results[].kind: "c_summary", "read_lines" или "b_path";
+- selected_results[].path: путь из candidate_results;
+- selected_results[].node_id: node_id из candidate_results;
+- selected_results[].reason: короткая причина выбора;
+- decision_summary: строка до 700 символов;
+- recommended_next_step: строка, пустая если status="complete".
+
+Правила:
+- Выбирай только candidate_results, которые были переданы во входе.
+- Для вопросов "объясни/о чем" предпочитай c_summary.
+- Для точной проверки поведения предпочитай read_lines.
+- Для задач создания файла b_path разрешён только как место назначения; он не является evidence о существующем коде.
+- Если evidence неполный, верни payload.status="partial" и recommended_next_step как следующий memory subgoal для AgentWork.
+- Если дальнейшее движение запрещено политикой или бюджетом, верни payload.status="blocked" и объясни причину в decision_summary.
 ```
 
-### C14R.6 `runtime_step` schema
+### C14R.7 Полные prompt для `summarize_c` и `summarize_b`
 
-`runtime_step` — machine-readable description of AM runtime position. Every AM query is a finite state machine.
+Полный prompt `AM_PROMPT_SUMMARIZE_C_RU_V1`:
+
+```text
+Ты выполняешь команду AgentMemory summarize_c.
+Твоя задача: создать компактный summary одного C-фрагмента и grounded claims по переданному тексту.
+Верни только JSON по схеме agent_memory_command_output.v1.
+Не добавляй markdown, комментарии, chain-of-thought или текст вне JSON.
+
+Обязательные поля верхнего уровня:
+- schema_version: ровно "agent_memory_command_output.v1";
+- command: ровно "summarize_c";
+- command_id: тот же command_id, что во входе;
+- status: "ok", "partial" или "refuse";
+- summary: строка до limits.max_summary_chars;
+- semantic_tags: массив строк, максимум 12 элементов;
+- important_lines: массив объектов;
+- claims: массив объектов, максимум limits.max_claims;
+- refusal_reason: строка, пустая если status="ok".
+
+Схема important_lines:
+- start_line: integer, >= c_node.locator.start_line;
+- end_line: integer, <= c_node.locator.end_line;
+- reason: строка до 240 символов.
+
+Схема claims:
+- claim: строка, только то, что следует из c_node.text;
+- confidence: number от 0.0 до 1.0;
+- source_lines.start_line и source_lines.end_line: диапазон внутри c_node.locator.
+
+Правила:
+- Используй только c_node.text и user_subgoal.
+- Не делай выводы из других файлов, даже если знаешь типичный проект.
+- Не цитируй большие куски исходного кода.
+- Каждый claim обязан иметь source_lines.
+- Если c_node.text пустой, обрезан или недостаточен, верни status="partial" и заполни refusal_reason.
+- Если вход нарушает policy или содержит секреты, верни status="refuse" и кратко укажи refusal_reason.
+```
+
+Полный prompt `AM_PROMPT_SUMMARIZE_B_RU_V1`:
+
+```text
+Ты выполняешь команду AgentMemory summarize_b.
+Твоя задача: создать summary B-файла или B-папки только из summary дочерних B/C.
+Верни только JSON по схеме agent_memory_command_output.v1.
+Не добавляй markdown, комментарии, chain-of-thought или текст вне JSON.
+
+Обязательные поля верхнего уровня:
+- schema_version: ровно "agent_memory_command_output.v1";
+- command: ровно "summarize_b";
+- command_id: тот же command_id, что во входе;
+- status: "ok", "partial" или "refuse";
+- summary: строка до limits.max_summary_chars;
+- child_refs: массив node_id, которые реально использованы;
+- missing_children: массив node_id или path, которые нужны, но отсутствуют/устарели;
+- confidence: number от 0.0 до 1.0;
+- refusal_reason: строка, пустая если status="ok".
+
+Правила:
+- Используй только b_node.children[].summary.
+- Не выдумывай содержимое B-файла или B-папки.
+- Для B-файла summary должен описывать только смысл его C children.
+- Для B-папки summary должен описывать только смысл child B/C.
+- Если children пустые, отсутствуют summary или есть stale children, верни status="partial" и заполни missing_children.
+- Не выводи сырой исходный код.
+- Не раскрывай chain-of-thought.
+```
+
+### C14R.8 Схема `runtime_step`
+
+`runtime_step` — машинно-читаемое описание положения AM runtime. Каждый AM query является конечной машиной состояний.
 
 ```json
 {
@@ -540,94 +671,137 @@ If evidence is incomplete, set status="partial" and recommended_next_step to the
 }
 ```
 
-Allowed transitions:
+Разрешённые переходы:
 
-| From | Allowed next | Required condition |
+| Из состояния | Разрешённый следующий шаг | Обязательное условие |
 |------|--------------|--------------------|
-| `start` | `list_frontier` | Query envelope valid. |
-| `list_frontier` | `plan_traversal` | First-level A-B and A-C frontier prepared. |
-| `plan_traversal` | `materialize_b` | LLM requested `list_children`, `get_b_summary`, or path materialization. |
-| `plan_traversal` | `decompose_b_to_c` | LLM requested `decompose_b_to_c`. |
-| `plan_traversal` | `summarize_b` | LLM requested `summarize_b` and child summaries fresh. |
-| `plan_traversal` | `finish_decision` | LLM requested `finish`. |
-| `materialize_b` | `list_frontier` | New B children available. |
-| `decompose_b_to_c` | `summarize_c` | C boundaries created and text is allowed by source boundary policy. |
-| `summarize_c` | `collect_result` | At least one C summary or read_lines candidate created. |
-| `summarize_b` | `collect_result` | B summary created/updated. |
-| `collect_result` | `plan_traversal` | More traversal needed and budget remains. |
-| `collect_result` | `finish_decision` | Candidate results satisfy expected_result_kind or budget is exhausted. |
-| `finish_decision` | `finish` | LLM returns `finish=true`. |
-| any non-final | `blocked` | Validation failed, cap exceeded, forbidden path/content, or no progress. |
+| `start` | `list_frontier` | Query envelope валиден. |
+| `list_frontier` | `plan_traversal` | Подготовлен frontier первого уровня A-B и A-C. |
+| `plan_traversal` | `materialize_b` | LLM запросила `list_children`, `get_b_summary` или materialization пути. |
+| `plan_traversal` | `decompose_b_to_c` | LLM запросила `decompose_b_to_c`. |
+| `plan_traversal` | `summarize_b` | LLM запросила `summarize_b`, и дочерние summaries свежие. |
+| `plan_traversal` | `finish_decision` | LLM запросила `finish`. |
+| `materialize_b` | `list_frontier` | Доступны новые дочерние B. |
+| `decompose_b_to_c` | `summarize_c` | Созданы C boundaries, и текст разрешён политикой границы источника. |
+| `summarize_c` | `collect_result` | Создан хотя бы один кандидат C summary или read_lines. |
+| `summarize_b` | `collect_result` | Создан или обновлён B summary. |
+| `collect_result` | `plan_traversal` | Требуется дальнейший обход, и бюджет не исчерпан. |
+| `collect_result` | `finish_decision` | Кандидаты результата соответствуют expected_result_kind или бюджет исчерпан. |
+| `finish_decision` | `finish` | LLM вернула `finish=true`. |
+| любое нефинальное | `blocked` | Ошибка валидации, превышен cap, запрещённый путь/контент или нет прогресса. |
 
-Do not implement as:
+Запрещённые реализации:
 
-- implicit booleans like `partial` driving hidden loops;
-- free-form `recommended_next_step` as executable instruction;
-- direct `requested_reads` path execution without `runtime_step`.
+- скрытые циклы, которыми управляют неявные boolean вроде `partial`;
+- выполнение свободного текста `recommended_next_step` как инструкции;
+- прямое исполнение path из `requested_reads` без `runtime_step`.
 
-### C14R.7 Config source of truth
+### C14R.9 Модель исполнения внутри одного AM query
 
-Primary config: merged ailit config loaded through `load_merged_ailit_config_for_memory()` plus AgentMemory YAML from `load_or_create_agent_memory_config()`.
+Внутри одного AM query **разрешены и обязательны** последовательные runtime-запросы, если следующий шаг зависит от результата предыдущего. Это не считается несколькими AM queries. Несколько AM queries появляются только на уровне AgentWork, когда пользовательская задача декомпозирована на разные memory subgoals.
 
-Required keys:
+Норматив:
 
-| Key | Default | Rule |
+1. `plan_traversal` может вернуть несколько `actions`, но runtime исполняет их через `runtime_step` по одному.
+2. Действия считаются зависимыми и обязаны идти строго последовательно, если:
+   - второе действие использует B/C, созданные первым;
+   - второе действие пишет summary того же B/C;
+   - второе действие увеличивает `read_line_ranges_used`;
+   - одно из действий ведёт к `finish_decision`.
+3. Независимые действия можно выполнить в одной пачке только если runtime явно пометил их `parallelizable=true` в своей внутренней модели, и они:
+   - читают разные B/C;
+   - не пишут одни и те же ноды;
+   - не меняют общий frontier до завершения пачки;
+   - имеют общий cap на количество действий.
+4. После любой пачки независимых действий runtime обязан создать один `collect_result` step и заново вызвать `plan_traversal` или `finish_decision`.
+5. LLM не решает, что исполнять параллельно. LLM только возвращает `actions[]`; решение о последовательном или пакетном исполнении принимает runtime по детерминированным правилам.
+
+Пример зависимой цепочки внутри одного AM query:
+
+```text
+list_frontier
+ -> plan_traversal(decompose_b_to_c README.md)
+ -> decompose_b_to_c
+ -> summarize_c
+ -> collect_result
+ -> finish_decision
+ -> finish
+```
+
+Запрещённые реализации:
+
+- считать каждый `runtime_step` новым AM query;
+- вызывать AgentWork между зависимыми runtime steps одного AM query;
+- исполнять `summarize_b` до завершения `summarize_c` для дочерних C;
+- исполнять `finish_decision` параллельно с любым действием.
+
+### C14R.10 Источник истины для config
+
+Основной config: merged ailit config, загруженный через `load_merged_ailit_config_for_memory()`, плюс AgentMemory YAML из `load_or_create_agent_memory_config()`.
+
+Обязательные ключи:
+
+| Ключ | Значение по умолчанию | Правило |
 |-----|---------|------|
-| `memory.runtime.max_memory_queries_per_user_turn` | `6` | AgentWork cap; exceeding returns `blocked` with `too_many_memory_queries`. |
-| `memory.runtime.max_runtime_steps_per_query` | `12` | AM cap; every transition increments counter. |
-| `memory.runtime.max_llm_commands_per_query` | `20` | Includes `plan_traversal`, `summarize_c`, `summarize_b`, `finish_decision`. |
-| `memory.runtime.max_frontier_items` | `200` | Listing sent to `plan_traversal` is truncated deterministically with `truncated=true`. |
-| `memory.runtime.max_c_text_chars` | `12000` | Per `summarize_c` input. Larger C is split into smaller C boundaries or returns partial. |
-| `memory.runtime.max_read_line_ranges` | `40` | Per AM query. |
-| `memory.runtime.strict_command_json` | `true` | Parser rejects non-JSON or unknown fields with journal event. |
+| `memory.runtime.max_memory_queries_per_user_turn` | `6` | Cap AgentWork; превышение возвращает `blocked` с `too_many_memory_queries`. |
+| `memory.runtime.max_runtime_steps_per_query` | `12` | Cap AM; каждый переход увеличивает счётчик. |
+| `memory.runtime.max_llm_commands_per_query` | `20` | Включает `plan_traversal`, `summarize_c`, `summarize_b`, `finish_decision`. |
+| `memory.runtime.max_frontier_items` | `200` | Listing, переданный в `plan_traversal`, детерминированно обрезается с `truncated=true`. |
+| `memory.runtime.max_c_text_chars` | `12000` | На один вход `summarize_c`. Больший C делится на меньшие C boundaries или возвращает partial. |
+| `memory.runtime.max_read_line_ranges` | `40` | На один AM query. |
+| `memory.runtime.strict_command_json` | `true` | Parser отклоняет не-JSON или неизвестные поля с journal event. |
+| `memory.runtime.allow_parallel_action_batches` | `false` | По умолчанию действия внутри одного AM query исполняются строго последовательно; включение требует тестов из C14R.9. |
 
-Test isolation must use existing `tests/conftest.py` environment isolation (`AILIT_*`, tmp HOME, tmp PAG/KB/journal). Subprocess tests must pass the same env explicitly.
+Тестовая изоляция должна использовать существующую изоляцию `tests/conftest.py` (`AILIT_*`, временный HOME, временные PAG/KB/journal). Subprocess tests обязаны явно передавать тот же env.
 
-### C14R.8 Observability contract
+### C14R.11 Контракт observability и обновления AgentMemory logs
 
-Required journal/trace events:
+W14 обязан обновить AgentMemory logs/chat_logs по ранее согласованному W13 варианту: компактный audit/verbose путь, стабильные topic names, whitelist payload и запрет сырого prompt/полного текста. Это не advisory: этап нельзя закрыть, если новые runtime/command события пишутся только в journal и не видны в AgentMemory chat debug logs.
 
-| Event/topic | When | Compact payload |
+Обязательные journal/trace/chat_logs events:
+
+| Event/topic | Когда | Компактный payload |
 |-------------|------|-----------------|
-| `memory.query.accepted` | AM accepted AgentWork query | `query_id`, `user_turn_id`, `expected_result_kind`, budgets |
-| `memory.runtime.step` | Every `runtime_step` transition | `step_id`, `state`, `next_state`, action kind, counts |
-| `memory.command.requested` | Before LLM command | `command`, `command_id`, `query_id`, compact input stats |
-| `memory.command.parsed` | Valid LLM JSON | `command`, `status`, result counts |
-| `memory.command.rejected` | Invalid JSON/schema/unknown action | `command`, `error_code`, `command_id` |
+| `memory.query.accepted` | AM принял AgentWork query | `query_id`, `user_turn_id`, `expected_result_kind`, budgets |
+| `memory.runtime.step` | Каждый переход `runtime_step` | `step_id`, `state`, `next_state`, action kind, counters |
+| `memory.command.requested` | Перед LLM command | `command`, `command_id`, `query_id`, compact input stats, `prompt_id`, без prompt text |
+| `memory.command.parsed` | Валидный JSON от LLM | `command`, `status`, result counts, `schema_version` |
+| `memory.command.rejected` | Невалидный JSON/schema/unknown action | `command`, `error_code`, `command_id`, `prompt_id` |
 | `memory.node.decomposed` | B -> C boundaries materialized | `b_node_id`, `c_count`, `strategy` |
-| `memory.summary.created` | C or B summary written | `level`, `node_id`, `summary_fingerprint` |
-| `memory.result.returned` | AM returns result to AgentWork | `query_id`, `status`, result kinds/counts |
+| `memory.summary.created` | Записан C или B summary | `level`, `node_id`, `summary_fingerprint`, `command_id` |
+| `memory.result.returned` | AM возвращает result в AgentWork | `query_id`, `status`, result kinds/counts |
+| `memory.chat_debug.command` | Запись в `AgentMemoryChatDebugLog` для команды | `command`, `prompt_id`, `command_id`, input/output sizes, redaction policy |
 
-Forbidden payload fields: raw full prompt, chain-of-thought, secrets, full file contents, full repo listing above cap. `read_lines` may appear in the AM response payload only when selected as result; journal stores hashes/counts, not raw text.
+Запрещённые payload fields: сырой полный prompt, chain-of-thought, секреты, полный текст файлов, полный listing репозитория сверх cap. `read_lines` могут появляться в AM response payload только когда выбраны как результат; journal/chat_logs хранят hashes/counts, а не сырой текст.
 
 ---
 
 ## 4. Общий алгоритм AgentMemory
 
-1. **Accept query.** Validate `agent_work_memory_query.v1`; assign `query_id`; load budgets.
-2. **Build first frontier.** AM sends to LLM only A-B and A-C first-level listing:
-   - A root metadata;
-   - B children directly under A;
-   - C children directly under first-level B when already materialized and fresh;
-   - summaries only, no raw B content.
-3. **Call `plan_traversal`.** LLM returns bounded actions from the whitelist.
-4. **Execute runtime action deterministically.**
-   - `list_children` for A/B reads PAG/index/listing and updates frontier.
-   - `get_b_summary` returns B summary+path only.
-   - `get_c_content` adds C summary or bounded read_lines candidates.
-   - `decompose_b_to_c` runs C boundary creation for a B file.
-   - `summarize_c` creates/updates C summary via LLM.
-   - `summarize_b` creates/updates B summary via LLM from child summaries.
-5. **Repeat within budget.** Runtime loops through `runtime_step` transitions until candidate result is enough, blocked, or budget exhausted.
-6. **Call `finish_decision`.** LLM explicitly chooses final selected_results and status.
-7. **Create D summary.** If policy allows, create D from final AM result and linked node ids.
-8. **Return AM result to AgentWork.** AgentWork may ask another AM query for another subgoal; this is the only allowed multi-query path.
+1. **Принять query.** Провалидировать `agent_work_memory_query.v1`; назначить `query_id`; загрузить бюджеты.
+2. **Построить первый frontier.** AM отправляет в LLM только listing первого уровня A-B и A-C:
+   - metadata корня A;
+   - B, которые являются прямыми детьми A;
+   - C, которые являются прямыми детьми B первого уровня, если они уже материализованы и свежие;
+   - только summaries, без raw B content.
+3. **Вызвать `plan_traversal`.** LLM возвращает ограниченные actions из whitelist.
+4. **Детерминированно выполнить runtime action.**
+   - `list_children` для A/B читает PAG/index/listing и обновляет frontier.
+   - `get_b_summary` возвращает только B summary+path.
+   - `get_c_content` добавляет кандидаты C summary или ограниченные read_lines.
+   - `decompose_b_to_c` запускает создание C boundaries для B-файла.
+   - `summarize_c` создаёт/обновляет C summary через LLM.
+   - `summarize_b` создаёт/обновляет B summary через LLM из дочерних summaries.
+5. **Повторять внутри бюджета.** Runtime проходит переходы `runtime_step`, пока кандидат результата не достаточен, query не заблокирован или бюджет не исчерпан.
+6. **Вызвать `finish_decision`.** LLM явно выбирает финальные `selected_results` и status.
+7. **Создать D summary.** Если policy разрешает, создать D из финального AM result и связанных node ids.
+8. **Вернуть AM result в AgentWork.** AgentWork может запросить другой AM query для другого subgoal; это единственный разрешённый multi-query путь.
 
-Important invariant:
+Главный инвариант:
 
 ```text
-AM never returns raw B content.
-AM final result is C summaries and/or read_lines from C, plus B paths only for creation/location tasks.
+AM никогда не возвращает сырой B content.
+Финальный результат AM — C summaries и/или read_lines из C, плюс B paths только для задач создания/выбора места.
 ```
 
 ---
@@ -640,222 +814,261 @@ AM final result is C summaries and/or read_lines from C, plus B paths only for c
 | A14R.4, C14R.2 | G14R.4, G14R.5 |
 | A14R.5 | G14R.4 |
 | A14R.6 | G14R.7 |
-| A14R.7, C14R.1, C14R.6 | G14R.1, G14R.2, G14R.8 |
+| A14R.7, C14R.1 | G14R.1, G14R.6 |
 | A14R.8, A14R.9 | G14R.6 |
 | A14R.10, A14R.11 | G14R.2 |
 | A14R.12 | G14R.1 |
-| A14R.13 | G14R.8 |
-| C14R.3, C14R.4, C14R.5 | G14R.3 |
-| C14R.7 | G14R.2, G14R.9 |
-| C14R.8 | G14R.8, G14R.9 |
+| A14R.13 | G14R.9 |
+| A14R.14 | G14R.8 |
+| C14R.3, C14R.4 | G14R.2, G14R.3 |
+| C14R.5, C14R.6, C14R.7 | G14R.3 |
+| C14R.8 | G14R.2, G14R.3 |
+| C14R.9 | G14R.1, G14R.3 |
+| C14R.10 | G14R.2, G14R.10 |
+| C14R.11 | G14R.8, G14R.9, G14R.10 |
 
 ---
 
 ## 6. Этапы реализации
 
-### G14R.1 — AgentWork memory query policy
+### G14R.1 — Политика memory query для AgentWork
 
 **Обязательные описания/выводы:** C14R.1, A14R.7, A14R.12.
 
-Implementation anchors:
+Якоря реализации:
 
 - `tools/agent_core/runtime/subprocess_agents/work_agent.py` — найти место, где AgentWork запрашивает `memory.query_context`; ввести `user_turn_id`, `query_id`, `subgoal`.
 - `tools/agent_core/runtime/models.py` — DTO/envelope для `agent_work_memory_query.v1`, если текущие generic payload недостаточны.
 - `tools/agent_core/runtime/subprocess_agents/memory_agent.py` — принимать новый query envelope без потери backward compatibility только на один workflow-релиз.
 
-Acceptance tests:
+Критерии приемки:
 
 - `test_agentwork_can_issue_multiple_memory_queries_for_one_turn`
 - `test_agentwork_memory_query_loop_stops_at_config_cap`
 - `test_memory_query_requires_subgoal_and_stop_condition`
 
-Static checks:
+Статические проверки:
 
-- `rg "max_memory_queries_per_user_turn" tools/agent_core tests` -> key exists in config parsing and tests.
+- `rg "max_memory_queries_per_user_turn" tools/agent_core tests` -> ключ есть в parsing config и tests.
 
-Do not implement this as:
+Запрещённые реализации:
 
-- hidden `while partial` loop without new `subgoal`;
-- reuse `recommended_next_step` as executable command string.
+- скрытый цикл `while partial` без нового `subgoal`;
+- повторное использование `recommended_next_step` как исполняемой command string.
 
-### G14R.2 — Runtime step DTO + command registry
+### G14R.2 — DTO runtime step и registry команд
 
-**Обязательные описания/выводы:** C14R.3, C14R.6, C14R.7, A14R.1, A14R.10, A14R.11.
+**Обязательные описания/выводы:** C14R.3, C14R.4, C14R.8, C14R.10, A14R.1, A14R.10, A14R.11.
 
-Implementation anchors:
+Якоря реализации:
 
-- New module allowed: `tools/agent_core/runtime/agent_memory_runtime_contract.py`.
-- `tools/agent_core/runtime/agent_memory_query_pipeline.py` must import and use the registry; no parallel parser hidden inside pipeline.
-- `tools/agent_core/runtime/agent_memory_chat_log.py` or existing log helpers must log compact command events.
+- Разрешён новый модуль: `tools/agent_core/runtime/agent_memory_runtime_contract.py`.
+- `tools/agent_core/runtime/agent_memory_query_pipeline.py` обязан импортировать и использовать registry; параллельный parser внутри pipeline запрещён.
+- `tools/agent_core/runtime/agent_memory_chat_log.py` или существующие log helpers обязаны логировать compact command events.
 
-Acceptance tests:
+Критерии приемки:
 
 - `test_runtime_step_rejects_unknown_state`
 - `test_command_registry_rejects_unknown_command`
 - `test_runtime_step_transition_table_blocks_invalid_transition`
 - `test_command_output_rejects_prose_around_json`
 
-Static checks:
+Статические проверки:
 
-- `rg "requested_reads" tools/agent_core/runtime/agent_memory_query_pipeline.py` -> only legacy adapter section with comment `W14R legacy adapter remove after G14R.3`.
+- `rg "requested_reads" tools/agent_core/runtime/agent_memory_query_pipeline.py` -> только секция legacy adapter с комментарием `W14R legacy adapter remove after G14R.3`.
 
-Do not implement this as:
+Запрещённые реализации:
 
-- scattered string literals for command names;
-- parser that silently drops unknown fields.
+- разбросанные string literals для имён команд;
+- parser, который молча отбрасывает unknown fields.
 
-### G14R.3 — LLM command prompts and strict JSON parsers
+### G14R.3 — Prompt команд LLM и строгие JSON parsers
 
-**Обязательные описания/выводы:** C14R.3, C14R.4, C14R.5.
+**Обязательные описания/выводы:** C14R.3, C14R.4, C14R.5, C14R.6, C14R.7, C14R.9.
 
-Implementation anchors:
+Якоря реализации:
 
-- `tools/agent_core/runtime/agent_memory_query_pipeline.py` — replace old `PLANNER_SYSTEM` path with command-specific prompts.
-- New module allowed: `tools/agent_core/runtime/agent_memory_commands.py` containing prompt builders and typed parse results.
-- `tools/agent_core/runtime/agent_memory_config.py` — reuse `parse_memory_json_with_retry` only if it rejects non-JSON wrappers under `strict_command_json=true`.
+- `tools/agent_core/runtime/agent_memory_query_pipeline.py` — заменить старый путь `PLANNER_SYSTEM` на command-specific prompts.
+- Разрешён новый модуль `tools/agent_core/runtime/agent_memory_commands.py` с prompt builders и typed parse results.
+- `tools/agent_core/runtime/agent_memory_config.py` — переиспользовать `parse_memory_json_with_retry` только если он отклоняет non-JSON wrappers при `strict_command_json=true`.
 
-Acceptance tests:
+Критерии приемки:
 
 - `test_plan_traversal_prompt_forbids_invented_paths`
 - `test_plan_traversal_allows_only_whitelisted_actions`
 - `test_finish_decision_must_select_existing_candidate_results`
 - `test_summarize_c_claims_require_source_lines`
 - `test_summarize_b_requires_child_summaries`
+- `test_plan_traversal_prompt_contains_required_output_schema`
+- `test_summarize_c_prompt_contains_required_output_schema`
+- `test_summarize_b_prompt_contains_required_output_schema`
+- `test_finish_decision_prompt_contains_required_output_schema`
+- `test_one_query_executes_dependent_runtime_steps_sequentially`
+- `test_parallel_action_batches_disabled_by_default`
 
-Do not implement this as:
+Запрещённые реализации:
 
-- one mega prompt that can return any shape;
-- free-form markdown followed by best-effort JSON extraction in strict mode.
+- один mega prompt, который может вернуть любую shape;
+- free-form markdown с последующим best-effort JSON extraction в strict mode.
 
-### G14R.4 — B -> C decomposition runtime
+### G14R.4 — Runtime-декомпозиция B -> C
 
 **Обязательные описания/выводы:** A14R.4, A14R.5, C14R.2.
 
-Implementation anchors:
+Якоря реализации:
 
-- `tools/agent_core/runtime/memory_c_segmentation.py` — single service for C boundaries.
-- `tools/agent_core/memory/pag_indexer.py` — stop treating Python-only AST C as the only C source; new service must cover code/text with explicit `semantic_kind`.
-- `tools/agent_core/runtime/pag_graph_write_service.py` — all C writes through graph write service.
+- `tools/agent_core/runtime/memory_c_segmentation.py` — единый service для C boundaries.
+- `tools/agent_core/memory/pag_indexer.py` — перестать считать Python-only AST C единственным C source; новый service должен покрывать code/text с явным `semantic_kind`.
+- `tools/agent_core/runtime/pag_graph_write_service.py` — все C writes идут через graph write service.
 
-Acceptance tests:
+Критерии приемки:
 
 - `test_decompose_b_to_c_python_function_boundaries`
 - `test_decompose_b_to_c_markdown_sections`
 - `test_decompose_b_to_c_text_line_windows_when_no_structure`
 - `test_decompose_b_to_c_respects_source_boundary_policy`
 
-Do not implement this as:
+Запрещённые реализации:
 
-- returning raw whole B file to LLM;
-- C ids that change when unrelated file lines change and no content changed.
+- возврат целого сырого B file в LLM;
+- C ids, которые меняются при изменении нерелевантных строк файла, когда content C не изменился.
 
-### G14R.5 — C and B LLM summaries
+### G14R.5 — LLM summaries для C и B
 
 **Обязательные описания/выводы:** C14R.2, A14R.4.
 
-Implementation anchors:
+Якоря реализации:
 
-- New module allowed: `tools/agent_core/runtime/agent_memory_summary_service.py`.
-- `tools/agent_core/runtime/semantic_c_extraction.py` and `memory_c_extractor_prompt.py` must be reviewed: either reused as C summary command or explicitly deprecated in favor of the new command service.
-- `tools/agent_core/memory/sqlite_pag.py` / `PagGraphWriteService` existing node fields must store `summary`, `fingerprint`, `attrs.summary_fingerprint`.
+- Разрешён новый модуль: `tools/agent_core/runtime/agent_memory_summary_service.py`.
+- `tools/agent_core/runtime/semantic_c_extraction.py` и `memory_c_extractor_prompt.py` должны быть проверены: либо переиспользовать их как C summary command, либо явно deprecated в пользу нового command service.
+- `tools/agent_core/memory/sqlite_pag.py` / `PagGraphWriteService` существующие поля node должны хранить `summary`, `fingerprint`, `attrs.summary_fingerprint`.
 
-Acceptance tests:
+Критерии приемки:
 
 - `test_summarize_c_writes_summary_and_summary_fingerprint`
 - `test_summarize_b_file_uses_only_child_c_summaries`
 - `test_summarize_b_directory_uses_child_b_or_c_summaries`
 - `test_b_summary_invalidates_when_child_summary_fingerprint_changes`
 
-Do not implement this as:
+Запрещённые реализации:
 
-- B summary `"File"` / `"Directory"` after W14R is marked complete;
-- B summary generated from raw full file instead of child C summaries.
+- B summary `"File"` / `"Directory"` после закрытия W14R;
+- B summary, созданный из сырого полного файла вместо дочерних C summaries.
 
-### G14R.6 — Result assembly: C summaries and read_lines
+### G14R.6 — Сборка результата: C summaries и read_lines
 
 **Обязательные описания/выводы:** A14R.8, A14R.9, §1.3.
 
-Implementation anchors:
+Якоря реализации:
 
-- `tools/agent_core/runtime/subprocess_agents/memory_agent.py` — response payload must include `agent_memory_result.v1` or map it into existing `memory_slice` without losing fields.
-- `tools/agent_core/tool_runtime/memory_grants.py` — read_lines ranges must be covered by grants.
-- `tools/agent_core/tool_runtime/multi_root_paths.py` — path validation must be shared or equivalent with a single helper.
+- `tools/agent_core/runtime/subprocess_agents/memory_agent.py` — response payload должен включать `agent_memory_result.v1` или маппить его в существующий `memory_slice` без потери полей.
+- `tools/agent_core/tool_runtime/memory_grants.py` — ranges для read_lines должны быть покрыты grants.
+- `tools/agent_core/tool_runtime/multi_root_paths.py` — path validation должен быть shared или эквивалентным через один helper.
 
-Acceptance tests:
+Критерии приемки:
 
 - `test_memory_result_contains_c_summary_without_raw_b_content`
 - `test_memory_result_read_lines_are_granted_ranges`
 - `test_memory_result_rejects_absolute_and_parent_paths`
 - `test_create_file_subgoal_may_return_b_path_without_c_content`
 
-Do not implement this as:
+Запрещённые реализации:
 
-- full-file grant for every selected C;
-- AM response that only says "read selected context" without selected C/read_lines.
+- full-file grant для каждого выбранного C;
+- AM response, который только говорит "read selected context" без выбранных C/read_lines.
 
-### G14R.7 — D summary after AM result
+### G14R.7 — D summary после AM result
 
 **Обязательные описания/выводы:** A14R.6.
 
-Implementation anchors:
+Якоря реализации:
 
-- `tools/agent_core/runtime/d_creation_policy.py` — reuse fingerprint/dedupe.
-- `tools/agent_core/runtime/subprocess_agents/memory_agent.py` — call D creation only after `finish_decision`.
+- `tools/agent_core/runtime/d_creation_policy.py` — переиспользовать fingerprint/dedupe.
+- `tools/agent_core/runtime/subprocess_agents/memory_agent.py` — вызывать создание D только после `finish_decision`.
 
-Acceptance tests:
+Критерии приемки:
 
 - `test_d_summary_created_after_finish_decision`
 - `test_d_summary_links_to_selected_abc_nodes`
 - `test_d_summary_not_used_as_b_or_c_source`
 
-### G14R.8 — Observability and desktop-safe compact payloads
+### G14R.8 — Обновление AgentMemory logs/chat_logs по W13 contract
 
-**Обязательные описания/выводы:** C14R.8, A14R.13.
+**Обязательные описания/выводы:** A14R.14, C14R.11.
 
-Implementation anchors:
+Якоря реализации:
+
+- `tools/agent_core/runtime/memory_journal.py`
+- `tools/agent_core/runtime/agent_memory_chat_log.py`
+- `tools/agent_core/runtime/subprocess_agents/memory_agent.py`
+- `tests/test_g13_agent_memory_llm_pipeline.py` или новый `tests/test_g14_agent_memory_runtime_logs.py`
+
+Критерии приемки:
+
+- `test_agent_memory_chat_log_records_command_requested_without_raw_prompt`
+- `test_agent_memory_chat_log_records_command_rejected_with_error_code`
+- `test_memory_journal_and_chat_log_share_command_id`
+- `test_memory_logs_do_not_store_full_file_text`
+
+Статические проверки:
+
+- `rg "memory.command.requested|memory.command.parsed|memory.command.rejected" tools/agent_core/runtime tests` -> есть runtime writer и tests.
+- `rg "prompt_text|raw_prompt|full_file_text" tools/agent_core/runtime/agent_memory_chat_log.py tests` -> только whitelist/redaction tests, не production payload.
+
+Запрещённые реализации:
+
+- писать новые command events только в journal и не писать в AgentMemory chat debug logs;
+- логировать полный prompt или сырой C/B text;
+- использовать разные `command_id` в journal и chat_logs.
+
+### G14R.9 — Observability и desktop-safe compact payloads
+
+**Обязательные описания/выводы:** C14R.11, A14R.13.
+
+Якоря реализации:
 
 - `tools/agent_core/runtime/memory_journal.py`
 - `tools/agent_core/runtime/agent_memory_chat_log.py`
 - `context/proto/runtime-event-contract.md` — add compact W14R event section after implementation.
 
-Acceptance tests:
+Критерии приемки:
 
 - `test_memory_runtime_step_journal_has_compact_payload`
 - `test_memory_command_rejected_logs_error_code_without_prompt`
 - `test_memory_result_returned_logs_counts_not_raw_text`
 
-Manual smoke:
+Ручной smoke:
 
-1. Run `ailit desktop --dev` or runtime test environment.
-2. Ask "о чем этот репозиторий".
-3. Verify journal has `memory.runtime.step`, `memory.command.parsed`, `memory.result.returned`.
-4. Verify no journal row contains full prompt or full file text.
+1. Запустить `ailit desktop --dev` или runtime test environment.
+2. Спросить "о чем этот репозиторий".
+3. Проверить, что journal содержит `memory.runtime.step`, `memory.command.parsed`, `memory.result.returned`.
+4. Проверить, что ни одна journal/chat_logs строка не содержит полный prompt или полный текст файла.
 
-### G14R.9 — Integration, README/context, and old planner removal
+### G14R.10 — Интеграция, README/context и удаление старого planner
 
-**Обязательные описания/выводы:** C14R.7, C14R.8, all audit findings.
+**Обязательные описания/выводы:** C14R.10, C14R.11, все audit findings.
 
-Implementation anchors:
+Якоря реализации:
 
-- `README.md` — update current Workflow 14 row after implementation closes, not when this plan is only drafted.
-- `context/INDEX.md` and `context/proto/runtime-event-contract.md` — add short canonical contract.
-- `plan/14-agent-memory-planner-command-contract.md` — mark superseded by this plan or archive in README status.
+- `README.md` — обновить строку текущего Workflow 14 после закрытия implementation, не при одном только draft плана.
+- `context/INDEX.md` и `context/proto/runtime-event-contract.md` — добавить короткий canonical contract.
+- `plan/14-agent-memory-planner-command-contract.md` — пометить superseded этим планом или архивировать в README status.
 
-Acceptance tests:
+Критерии приемки:
 
 - `test_query_context_runtime_happy_path_repo_question`
 - `test_query_context_runtime_happy_path_file_question`
 - `test_query_context_runtime_partial_when_budget_exhausted`
 - `test_legacy_requested_reads_disabled_after_w14r`
 
-Definition of Done:
+Definition of Done (критерий закрытия):
 
-- All tests named in G14R.1-G14R.9 exist and pass.
-- `flake8` passes on changed Python files.
-- `pytest` passes at least for AgentMemory/runtime affected tests.
-- Manual smoke recorded in task/commit note.
-- README/context updated in the closing commit.
-- Self-review from `.cursor/rules/project-workflow.mdc` passes.
+- Все tests, названные в G14R.1-G14R.10, существуют и проходят.
+- `flake8` проходит по изменённым Python files.
+- `pytest` проходит минимум по затронутым AgentMemory/runtime tests.
+- Ручной smoke записан в task/commit note.
+- README/context обновлены в closing commit.
+- Самопроверка из `.cursor/rules/project-workflow.mdc` проходит.
 
 ---
 
@@ -905,14 +1118,14 @@ Definition of Done:
 Что запрещено:
 
 - вернуть `requested_reads: [{"path": "<namespace>"}]`;
-- silently fallback на README после невалидного path;
+- тихий fallback на README после невалидного path;
 - вернуть весь README как raw B content.
 
 ### 7.2 Пользователь: "Изучи репозиторий, посмотри каждый файл и построй дерево памяти"
 
 Человеческий смысл:
 
-1. Это не один LLM prompt и не один гигантский raw context.
+1. Это не один LLM prompt и не один гигантский сырой context.
 2. AM строит A/B дерево через листинг и PAG writes.
 3. Для каждого файла B в пределах бюджета AM создаёт C boundaries.
 4. Для каждого C AM вызывает `summarize_c`.
@@ -980,7 +1193,7 @@ start
 Сценарий B: пользователь сказал только `toggle.c`.
 
 1. AM показывает LLM первый уровень A-B.
-2. Если путь не найден на первом уровне, LLM просит `list_children` по B-папкам, но только через bounded traversal.
+2. Если путь не найден на первом уровне, LLM просит `list_children` по B-папкам, но только через ограниченный traversal.
 3. Если найден ровно один `a/b/toggle.c`, AM продолжает как в сценарии A.
 4. Если найдено несколько `toggle.c`, AM возвращает `status="partial"` и просит AgentWork уточнить путь или сделать следующий AM query с disambiguation subgoal.
 
@@ -1006,7 +1219,7 @@ start
     "decision_summary": "Достаточно C-summary для ответа о назначении файла.",
     "recommended_next_step": ""
   },
-  "decision_summary": "AM query can finish.",
+  "decision_summary": "AM query можно завершить.",
   "violations": []
 }
 ```
@@ -1025,7 +1238,7 @@ start
 2. AM может вернуть `b_path`, если задача AgentWork — выбрать место для нового файла.
 3. Если выбор зависит от существующего поведения, AM также должен вернуть C summaries/read_lines по соседним файлам.
 
-Valid result:
+Валидный результат:
 
 ```json
 {
@@ -1039,18 +1252,18 @@ Valid result:
       "c_node_id": null,
       "summary": null,
       "read_lines": [],
-      "reason": "Runtime AgentMemory modules live here; new command contract module belongs in this folder."
+      "reason": "Здесь находятся runtime-модули AgentMemory; новый модуль command contract должен быть в этой папке."
     },
     {
       "kind": "c_summary",
       "path": "tools/agent_core/runtime/agent_memory_query_pipeline.py",
       "c_node_id": "C:...",
-      "summary": "Current query pipeline owns planner calls and PAG growth.",
+      "summary": "Текущий query pipeline отвечает за вызовы planner и рост PAG."
       "read_lines": [],
-      "reason": "Anchor for integration."
+      "reason": "Anchor для интеграции."
     }
   ],
-  "decision_summary": "AgentWork has target folder and integration anchor.",
+  "decision_summary": "AgentWork получил целевую папку и anchor для интеграции.",
   "recommended_next_step": "",
   "runtime_trace": {
     "steps_executed": 6,
@@ -1062,7 +1275,7 @@ Valid result:
 
 ---
 
-## 8. Dependencies
+## 8. Зависимости
 
 ```text
 G14R.1 AgentWork policy
@@ -1072,26 +1285,29 @@ G14R.1 AgentWork policy
   -> G14R.5 summaries
   -> G14R.6 result assembly
   -> G14R.7 D after result
-  -> G14R.8 observability
-  -> G14R.9 integration/README/context
+  -> G14R.8 AgentMemory logs/chat_logs
+  -> G14R.9 observability
+  -> G14R.10 integration/README/context
 ```
 
-G14R.4 may start after G14R.2 DTO names are frozen. G14R.5 cannot close before G14R.4 produces stable C boundaries. G14R.6 cannot close before G14R.3 `finish_decision` exists.
+G14R.4 можно начинать только после freeze имён DTO в G14R.2. G14R.5 нельзя закрывать до того, как G14R.4 создаёт стабильные C boundaries. G14R.6 нельзя закрывать до появления `finish_decision` из G14R.3. G14R.8 нельзя закрывать без проверки chat_logs, а G14R.9 нельзя закрывать без compact payload contract в `context/proto/runtime-event-contract.md`.
 
 ---
 
-## 9. Self-review checklist for this plan
+## 9. Checklist самопроверки для этого плана
 
-- Every audit finding A14R.* has an executor in §5.
-- Every contract C14R.* is bound to one or more stages.
-- No stage says only "add tests"; every test has a required name.
-- Commands include input JSON, output JSON, and prompt restrictions.
-- `runtime_step` includes state, transition, budgets, and observability.
-- B summary policy is strict: LLM-only and child-summary based.
-- AgentWork multi-query policy is strict and capped.
-- Exact config source and env isolation rules are stated.
-- Anti-patterns forbid namespace-as-path, raw B content, silent fallback, hidden loops.
-- DoD requires end-to-end path from AgentWork query to AM result, D, observability, context/README.
+- Каждая audit finding A14R.* имеет этап-исполнитель в §5.
+- Каждый contract C14R.* привязан к одному или нескольким этапам.
+- Нет этапа, где написано только "add tests"; каждый test имеет обязательное имя.
+- Команды включают входной JSON, выходной JSON, полный prompt и prompt restrictions.
+- Матрица команд LLM содержит: command, что делает, когда вызывается, input, output, prompt id, parser/DTO anchor и tests.
+- `runtime_step` включает state, transition, budgets и observability.
+- Политика B summary строгая: только через LLM и только из child summaries.
+- Политика AgentWork multi-query строгая и ограничена cap.
+- Модель последовательных runtime steps внутри одного AM query явно описана и покрыта tests.
+- Exact config source и правила env isolation указаны.
+- Anti-patterns запрещают namespace-as-path, raw B content, silent fallback, hidden loops.
+- DoD требует end-to-end путь от AgentWork query до AM result, D, observability, context/README.
 
 ---
 
@@ -1100,6 +1316,7 @@ G14R.4 may start after G14R.2 DTO names are frozen. G14R.5 cannot close before G
 | Дата | Изменение |
 |------|-----------|
 | 2026-04-29 | Первичная публикация `plan/14-agent-memory-runtime.md`: AgentWork/AM policy, command protocol, runtime_step, B/C/D summary policy, общий алгоритм, этапы G14R.1-G14R.9, простые сценарии из старого пункта 6 в новой терминологии. |
+| 2026-04-29 | Вторая итерация: добавлена матрица LLM commands, полные русскоязычные prompts, явная модель последовательных runtime steps внутри одного AM query, отдельный этап AgentMemory logs/chat_logs, расширены tests и обновлена терминология. |
 
 ---
 
