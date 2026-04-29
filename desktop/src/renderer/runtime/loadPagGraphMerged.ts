@@ -2,6 +2,12 @@ import type { PagGraphSliceResult } from "@shared/ipc";
 
 import { MEM3D_PAG_MAX_EDGES, MEM3D_PAG_MAX_NODES } from "./pagGraphLimits";
 
+function errorFromFailedSlice(
+  r: Extract<PagGraphSliceResult, { readonly ok: false }>
+): { readonly error: string; readonly errorCode: string | undefined } {
+  return { error: r.error, errorCode: r.code };
+}
+
 const MAX_NODE: number = MEM3D_PAG_MAX_NODES;
 const MAX_EDGE: number = MEM3D_PAG_MAX_EDGES;
 
@@ -30,7 +36,7 @@ export async function loadPagGraphMerged(
       readonly nodes: readonly Record<string, unknown>[];
       readonly edges: readonly Record<string, unknown>[];
     }
-  | { readonly ok: false; readonly error: string }
+  | { readonly ok: false; readonly error: string; readonly errorCode: string | undefined }
 > {
   const byNode: Map<string, Record<string, unknown>> = new Map();
   const byEdge: Map<string, Record<string, unknown>> = new Map();
@@ -49,7 +55,8 @@ export async function loadPagGraphMerged(
       edgeOffset: 0
     });
     if (!r.ok) {
-      return { ok: false, error: r.error };
+      const ex: { readonly error: string; readonly errorCode: string | undefined } = errorFromFailedSlice(r);
+      return { ok: false, error: ex.error, errorCode: ex.errorCode };
     }
     if (typeof r.graph_rev === "number") {
       graphRev = r.graph_rev;
@@ -80,7 +87,8 @@ export async function loadPagGraphMerged(
       edgeOffset: edgeOff
     });
     if (!r.ok) {
-      return { ok: false, error: r.error };
+      const ex: { readonly error: string; readonly errorCode: string | undefined } = errorFromFailedSlice(r);
+      return { ok: false, error: ex.error, errorCode: ex.errorCode };
     }
     if (typeof r.graph_rev === "number") {
       graphRev = r.graph_rev;

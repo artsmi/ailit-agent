@@ -146,6 +146,8 @@
 - durable trace: `topic.publish` с `event_name` **`pag.node.upsert`** / **`pag.edge.upsert`** (compact payload, [`runtime-event-contract.md`](../proto/runtime-event-contract.md));
 - полный срез и стыковка rev: `ailit memory pag-slice` → `graph_rev`, лимиты `has_more` (см. тот же proto).
 
+**Пока нет `store.sqlite3`:** `pag-slice` даёт `code: missing_db`. Десктоп остаётся в `loadState: ready` с пустым merged и накапливает граф **из trace**; при появлении файла на диске (создаётся рантаймом при первой записи PAG) — **полная подмена** срезом из БД + reconcile с trace (`PagGraphSessionFullLoad` + `afterFullLoad`), периодический ретраи full load до успеха (`DesktopSessionContext`).
+
 **Graph state / lifecycle (канон G13.6):**
 
 - state привязан к **session record** (`activeSessionId` и т.д.), а не к факту mounted/unmounted виджета;

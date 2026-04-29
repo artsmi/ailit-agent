@@ -94,13 +94,20 @@ export class PagGraphSessionFullLoad {
     slice: PagGraphSliceFn,
     namespaces: readonly string[]
   ): Promise<
-    | { readonly ok: true; readonly merged: MemoryGraphData; readonly graphRevByNamespace: Record<string, number> }
+    | {
+        readonly ok: true;
+        readonly merged: MemoryGraphData;
+        readonly graphRevByNamespace: Record<string, number>;
+        /** Все `namespace` вернули `missing_db`; граф до появления файла строим из trace. */
+        readonly pagSqliteMissing?: true;
+      }
     | { readonly ok: false; readonly error: string }
   > {
     if (namespaces.length === 0) {
       return { ok: true, merged: { nodes: [], links: [] }, graphRevByNamespace: {} };
     }
     const errors: string[] = [];
+    const failCodes: (string | undefined)[] = [];
     let merged: MemoryGraphData = { nodes: [], links: [] };
     const revs: Record<string, number> = {};
     for (const namespace of namespaces) {
@@ -110,6 +117,7 @@ export class PagGraphSessionFullLoad {
       );
       if (!r.ok) {
         errors.push(`${namespace}: ${r.error}`);
+        failCodes.push(r.errorCode);
         continue;
       }
       revs[namespace] = r.graphRev;
@@ -132,6 +140,16 @@ export class PagGraphSessionFullLoad {
       merged = mergeMemoryGraph(mergeMemoryGraph(merged, nodesPart), linksPart);
     }
     if (errors.length > 0 && merged.nodes.length === 0 && merged.links.length === 0) {
+      const allMissing: boolean =
+        errors.length === namespaces.length && failCodes.every((c) => c === "missing_db");
+      if (allMissing) {
+        return {
+          ok: true,
+          merged: { nodes: [], links: [] },
+          graphRevByNamespace: {},
+          pagSqliteMissing: true
+        };
+      }
       return { ok: false, error: errors.join("; ") };
     }
     if (errors.length > 0) {

@@ -42,6 +42,7 @@ import { dedupKeyForRow, type NormalizedTraceProjection } from "./traceNormalize
 import { newMessageId } from "./uuid";
 
 const GOAL: string = "g-desktop";
+const PAG_SQLITE_RETRY_MS: number = 2500;
 
 type ConnState = "idle" | "connecting" | "ready" | "error";
 export type { ChatLine } from "./chatTraceProjector";
@@ -217,6 +218,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const rawTraceRowsRef: React.MutableRefObject<Record<string, unknown>[]> = React.useRef<Record<string, unknown>[]>([]);
   const [pagGraphBySession, setPagGraphBySession] = React.useState<Record<string, PagGraphSessionSnapshot>>({});
   const [pagLoadTick, setPagLoadTick] = React.useState(0);
+  /** `pag/store.sqlite3` ещё нет — ждём появления и молча ретраим `PagGraphSessionFullLoad`. */
+  const [awaitingPagSqlite, setAwaitingPagSqlite] = React.useState(false);
   const [optimisticChatLines, setOptimisticChatLines] = React.useState<ChatLine[]>([]);
   const [reconnectAttempt, setReconnectAttempt] = React.useState(0);
   const seenRowKeys: React.MutableRefObject<Set<string>> = React.useRef<Set<string>>(new Set());
@@ -242,6 +245,10 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   }, [ui.sessions, ui.activeSessionId]);
 
   activeChatIdRef.current = activeSession.chatId;
+
+  React.useEffect((): void => {
+    setAwaitingPagSqlite(false);
+  }, [activeSession.id]);
 
   React.useEffect((): void => {
     rawTraceRowsRef.current = rawTraceRows;
@@ -928,6 +935,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         return;
       }
       if (!r.ok) {
+        setAwaitingPagSqlite(false);
         setPagGraphBySession((p0) => ({
           ...p0,
           [sessionId]: {
@@ -937,6 +945,11 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           }
         }));
         return;
+      }
+      if (r.pagSqliteMissing) {
+        setAwaitingPagSqlite(true);
+      } else {
+        setAwaitingPagSqlite(false);
       }
       const rows: readonly Record<string, unknown>[] = rawTraceRowsRef.current;
       const snap: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.afterFullLoad(
@@ -961,6 +974,63 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       cancelled = true;
     };
   }, [activeSession.id, pagDefaultNamespace, pagLoadTick, pagNamespaces, projKey, registry, runtimeDir]);
+
+  /**
+   * Пока `store.sqlite3` ещё не создан, `pag-slice` даёт `missing_db`; после `ready`+trace
+   * периодически повторяем полный load — при появлении БД **подмена** merged срезом + `afterFullLoad`.
+   */
+  React.useEffect((): (() => void) | void => {
+    if (!awaitingPagSqlite) {
+      return;
+    }
+    const sessionId: string = activeSession.id;
+    const slice: unknown = window.ailitDesktop?.pagGraphSlice;
+    if (!runtimeDir || typeof slice !== "function" || pagNamespaces.length === 0) {
+      return;
+    }
+    const sliceFn: typeof window.ailitDesktop.pagGraphSlice = slice as typeof window.ailitDesktop.pagGraphSlice;
+    let cancelled: boolean = false;
+    const h: ReturnType<typeof setInterval> = setInterval((): void => {
+      void (async (): Promise<void> => {
+        const r: Awaited<ReturnType<typeof PagGraphSessionFullLoad.run>> = await PagGraphSessionFullLoad.run(
+          (p) => sliceFn(p),
+          pagNamespaces
+        );
+        if (cancelled) {
+          return;
+        }
+        if (!r.ok) {
+          setAwaitingPagSqlite(false);
+          setPagGraphBySession((p0) => ({
+            ...p0,
+            [sessionId]: {
+              ...createEmptyPagGraphSessionSnapshot({ loadState: "error" }),
+              loadState: "error" as const,
+              loadError: r.error
+            }
+          }));
+          return;
+        }
+        if (r.pagSqliteMissing) {
+          return;
+        }
+        const rows: readonly Record<string, unknown>[] = rawTraceRowsRef.current;
+        const snap: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.afterFullLoad(
+          r.merged,
+          r.graphRevByNamespace,
+          rows,
+          pagNamespaces,
+          pagDefaultNamespace
+        );
+        setAwaitingPagSqlite(false);
+        setPagGraphBySession((p0) => ({ ...p0, [sessionId]: snap }));
+      })();
+    }, PAG_SQLITE_RETRY_MS);
+    return (): void => {
+      cancelled = true;
+      clearInterval(h);
+    };
+  }, [awaitingPagSqlite, activeSession.id, pagDefaultNamespace, pagNamespaces, projKey, registry, runtimeDir]);
 
   React.useEffect((): void => {
     const sessionId: string = activeSession.id;

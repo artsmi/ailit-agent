@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PagGraphSliceResult } from "@shared/ipc";
 
+import { loadPagGraphMerged } from "./loadPagGraphMerged";
+
 import { nodeFromPag, type MemoryGraphData } from "./memoryGraphState";
 import {
   createEmptyPagGraphSessionSnapshot,
@@ -267,5 +269,44 @@ describe("pagGraphSessionStore", () => {
     );
     expect(hasRevWarn).toBe(false);
     expect(snap.graphRevByNamespace[ns]).toBe(3);
+  });
+
+  it("runReturnsPagSqliteMissingWhenAllNamespacesReturnMissingDb", async () => {
+    const missing: PagGraphSliceResult = {
+      ok: false,
+      kind: "ailit_pag_graph_slice_v1",
+      error: "sqlite not found: /tmp/x.db",
+      code: "missing_db"
+    };
+    const slice: ReturnType<typeof vi.fn> = vi.fn(
+      async (): Promise<PagGraphSliceResult> => missing
+    );
+    const r: Awaited<ReturnType<typeof PagGraphSessionFullLoad.run>> = await PagGraphSessionFullLoad.run(
+      slice,
+      ["ns-a", "ns-b"]
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) {
+      return;
+    }
+    expect(r.pagSqliteMissing).toBe(true);
+    expect(r.merged.nodes).toHaveLength(0);
+    expect(Object.keys(r.graphRevByNamespace)).toHaveLength(0);
+  });
+
+  it("loadPagGraphMergedPropagatesSliceErrorCode", async () => {
+    const rSlice: PagGraphSliceResult = {
+      ok: false,
+      kind: "ailit_pag_graph_slice_v1",
+      error: "no file",
+      code: "missing_db"
+    };
+    const slice: ReturnType<typeof vi.fn> = vi.fn(async (): Promise<PagGraphSliceResult> => rSlice);
+    const r = await loadPagGraphMerged(slice, { namespace: "n", level: null });
+    expect(r.ok).toBe(false);
+    if (r.ok) {
+      return;
+    }
+    expect(r.errorCode).toBe("missing_db");
   });
 });
