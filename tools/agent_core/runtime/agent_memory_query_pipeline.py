@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TYPE_CHECKING, Final, Mapping, Sequence
@@ -247,6 +248,12 @@ class AgentMemoryQueryPipeline:
         qid_log = str(
             (req.payload.get("query_id", "") or "") or f"mem-{request_id}",
         ).strip() or f"mem-{request_id}"
+        w14_seq: list[int] = [0]
+
+        def _w14_next_step_id() -> str:
+            w14_seq[0] += 1
+            return f"{qid_log}:s{w14_seq[0]}"
+
         user_pl_chars = len(_json_dumps(pl_user))
         self._w.log_memory_w14_command_requested(  # noqa: SLF001
             req,
@@ -257,6 +264,16 @@ class AgentMemoryQueryPipeline:
             input_message_count=len(c_req.messages),
             input_user_payload_chars=user_pl_chars,
             model=str(c_req.model or "mock-memory"),
+        )
+        self._w.log_memory_w14_runtime_step(  # noqa: SLF001
+            req,
+            request_id,
+            step_id=_w14_next_step_id(),
+            state="start",
+            next_state="llm_await",
+            action_kind="planner_round",
+            query_id=qid_log,
+            counters={"runtime_transitions": 1},
         )
         try:
             resp = self._prov.complete(c_req)
@@ -285,6 +302,8 @@ class AgentMemoryQueryPipeline:
             return self._w14_command_output_rejected_partial(
                 req=req,
                 request_id=request_id,
+                qid_log=qid_log,
+                w14_next_step_id=_w14_next_step_id,
                 project_root=project_root,
                 explicit_paths=explicit_paths,
                 goal=goal,
@@ -329,12 +348,28 @@ class AgentMemoryQueryPipeline:
                 schema_version=str(plan_obj.get("schema_version", "") or ""),
                 result_counts={"payload_items": pld_ct} if pld_ct else None,
             )
+            w14_cmd: str = str(
+                plan_obj.get("command", "") or "unknown",
+            ).strip() or "unknown"
+            self._w.log_memory_w14_runtime_step(  # noqa: SLF001
+                req,
+                request_id,
+                step_id=_w14_next_step_id(),
+                state="llm_await",
+                next_state="w14_command_parsed",
+                action_kind=w14_cmd,
+                query_id=qid_log,
+                counters={"w14_command_ok": 1},
+            )
             if str(plan_obj.get("command", "") or "").strip() == (
                 AgentMemoryCommandName.FINISH_DECISION.value
             ):
                 return self._finish_decision_result(
+                    req=req,
                     plan_obj=plan_obj,
                     request_id=request_id,
+                    qid_log=qid_log,
+                    w14_next_step_id=_w14_next_step_id,
                     project_root=project_root,
                     goal=goal,
                     query_kind=query_kind,
@@ -507,8 +542,11 @@ class AgentMemoryQueryPipeline:
     def _finish_decision_result(
         self,
         *,
+        req: RuntimeRequestEnvelope,
         plan_obj: dict[str, Any],
         request_id: str,
+        qid_log: str,
+        w14_next_step_id: Callable[[], str],
         project_root: str,
         goal: str,
         query_kind: str,
@@ -519,6 +557,16 @@ class AgentMemoryQueryPipeline:
         """
         G14R.7: ``finish_decision`` -> ``agent_memory_result`` (§1.3).
         """
+        self._w.log_memory_w14_runtime_step(  # noqa: SLF001
+            req,
+            request_id,
+            step_id=w14_next_step_id(),
+            state="w14_command_parsed",
+            next_state="finish_assembly",
+            action_kind=AgentMemoryCommandName.FINISH_DECISION.value,
+            query_id=qid_log,
+            counters={"finish_decision_enter": 1},
+        )
         pld: Any = plan_obj.get("payload", {})
         if not isinstance(pld, dict):
             pld = {}
@@ -601,6 +649,8 @@ class AgentMemoryQueryPipeline:
         *,
         req: RuntimeRequestEnvelope,
         request_id: str,
+        qid_log: str,
+        w14_next_step_id: Callable[[], str],
         project_root: str,
         explicit_paths: list[str],
         goal: str,
@@ -623,6 +673,16 @@ class AgentMemoryQueryPipeline:
             detail=reason,
             command_id=command_id,
             prompt_id=prompt_id,
+        )
+        self._w.log_memory_w14_runtime_step(  # noqa: SLF001
+            req,
+            request_id,
+            step_id=w14_next_step_id(),
+            state="llm_await",
+            next_state="w14_command_rejected",
+            action_kind="w14_parse_rejected",
+            query_id=qid_log,
+            counters={"w14_command_reject": 1},
         )
         self._w._grow_pag_for_query(  # noqa: SLF001
             req=req,

@@ -64,6 +64,9 @@ from agent_core.runtime.agent_work_change_feedback import (
 from agent_core.runtime.agent_memory_result_v1 import (
     build_agent_memory_result_v1,
 )
+from agent_core.runtime.agent_memory_w14_observability import (
+    count_am_v1_result_kinds,
+)
 from agent_core.runtime.errors import RuntimeProtocolError
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
@@ -531,6 +534,73 @@ class AgentMemoryWorker:
             service=service,
             change_batch_id=change_batch_id,
             body={**pld, "redaction": "compact_no_raw_prompt"},
+        )
+
+    def log_memory_w14_runtime_step(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        *,
+        step_id: str,
+        state: str,
+        next_state: str,
+        action_kind: str,
+        query_id: str,
+        counters: Mapping[str, int] | None = None,
+    ) -> None:
+        """
+        C14R.11 / G14R.10: ``memory.runtime.step`` — компактный transition,
+        без сырого listing/текста файла.
+        """
+        cnt: dict[str, int] = {}
+        if counters:
+            for k, v in counters.items():
+                cnt[str(k)[:80]] = int(v)
+        pld: dict[str, Any] = {
+            "step_id": str(step_id)[:220],
+            "state": str(state)[:120],
+            "next_state": str(next_state)[:120],
+            "action_kind": str(action_kind)[:200],
+            "query_id": str(query_id)[:200],
+            "counters": cnt,
+        }
+        self._append_journal(
+            req=req,
+            event_name="memory.runtime.step",
+            summary="w14 runtime step",
+            request_id=request_id,
+            payload=pld,
+        )
+
+    def log_memory_w14_result_returned(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        *,
+        query_id: str,
+        status: str,
+        result_kind_counts: Mapping[str, int],
+        results_total: int,
+    ) -> None:
+        """
+        C14R.11 / G14R.10: ``memory.result.returned`` — только
+        query_id, status, counts по kind, без ``results[].summary``/read_lines.
+        """
+        rkc: dict[str, int] = {
+            str(k)[:48]: int(v) for k, v in result_kind_counts.items()
+        }
+        pld: dict[str, Any] = {
+            "query_id": str(query_id)[:200],
+            "status": str(status)[:32],
+            "result_kind_counts": rkc,
+            "results_total": int(results_total),
+        }
+        self._append_journal(
+            req=req,
+            event_name="memory.result.returned",
+            summary="agent_memory_result.v1 (compact index)",
+            request_id=request_id,
+            payload=pld,
         )
 
     def log_memory_graph_write(
@@ -1531,6 +1601,19 @@ class AgentMemoryWorker:
             recommended_next_step=recommended_next_step,
             explicit_results=pr.am_v1_explicit_results,
             explicit_status=pr.am_v1_status,
+        )
+        st_am: str = str(agent_mem_res.get("status", "") or "")
+        _am_res_list: object = agent_mem_res.get("results")
+        _am_n: int = (
+            len(_am_res_list) if isinstance(_am_res_list, list) else 0
+        )
+        self.log_memory_w14_result_returned(
+            req,
+            request_id,
+            query_id=am_query_id,
+            status=st_am,
+            result_kind_counts=count_am_v1_result_kinds(agent_mem_res),
+            results_total=_am_n,
         )
         ok_out = make_response_envelope(
             request=req,

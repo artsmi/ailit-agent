@@ -317,6 +317,163 @@ def _max_str_len_in_obj(obj: object, depth: int = 0) -> int:
     return 0
 
 
+def test_memory_runtime_step_journal_has_compact_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    G14R.10: ``memory.runtime.step`` — только state/next/action/counters,
+    без сырого listing и без текста файлов.
+    """
+    db = tmp_path / "p-rtstep.sqlite3"
+    jpath = tmp_path / "j-rtstep.jsonl"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    monkeypatch.setenv("AILIT_MEMORY_JOURNAL_PATH", str(jpath))
+    (tmp_path / "f_rt.py").write_text("a=1\n", encoding="utf-8")
+    w = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-rt",
+            broker_id="b1",
+            namespace="ns-rt",
+        ),
+    )
+    monkeypatch.setattr(w, "_am_file", _am_verbose(), raising=False)
+    prov: ChatProvider = _SeqProvider([_minimal_w14()])
+    monkeypatch.setattr(w, "_provider", prov, raising=False)
+    w.handle(
+        _env(
+            project_root=tmp_path,
+            path="f_rt.py",
+            goal="g",
+            query_id="q-rt-1",
+        ),
+    )
+    jstore: MemoryJournalStore = MemoryJournalStore(jpath)
+    rstep: list = list(jstore.filter_rows(event_name="memory.runtime.step"))
+    assert rstep, "ожидаем memory.runtime.step"
+    for row in rstep:
+        p0: object = row.payload
+        assert isinstance(p0, dict)
+        p: dict[str, object] = p0
+        for key in (
+            "step_id",
+            "state",
+            "next_state",
+            "action_kind",
+            "query_id",
+        ):
+            assert str(p.get(key, "") or "").strip(), f"missing {key}"
+        mlen: int = _max_str_len_in_obj(p)
+        assert mlen < 4000, (row.event_name, mlen)
+
+
+def test_memory_command_rejected_logs_error_code_without_prompt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    G14R.10: journal ``memory.command.rejected`` — error_code, без
+    вложенного сырого ответа LLM (уникальная long preamble не попадает).
+    """
+    db = tmp_path / "p-rejpr.sqlite3"
+    jpath = tmp_path / "j-rejpr.jsonl"
+    log_dir = tmp_path / "chat_rej"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    monkeypatch.setenv("AILIT_MEMORY_JOURNAL_PATH", str(jpath))
+    monkeypatch.setenv("AILIT_AGENT_MEMORY_CHAT_LOG_DIR", str(log_dir))
+    (tmp_path / "g_rej.py").write_text("y=1\n", encoding="utf-8")
+    secret_pre: str = "RAWLLM" + "Z" * 6_000
+    bad: str = secret_pre + " " + _minimal_w14()
+    w = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-rejpr",
+            broker_id="b1",
+            namespace="ns-t",
+        ),
+    )
+    monkeypatch.setattr(w, "_am_file", _am_verbose(), raising=False)
+    w._chat_debug = (  # noqa: SLF001
+        __import__(
+            "agent_core.runtime.agent_memory_chat_log",
+            fromlist=["AgentMemoryChatDebugLog"],
+        ).AgentMemoryChatDebugLog(
+            _am_verbose(),
+        )
+    )
+    prov: ChatProvider = _SeqProvider([bad])
+    monkeypatch.setattr(w, "_provider", prov, raising=False)
+    w.handle(
+        _env(
+            project_root=tmp_path,
+            path="g_rej.py",
+            goal="g",
+        ),
+    )
+    jt: str = jpath.read_text(encoding="utf-8")
+    assert "RAWLLM" not in jt, "журнал не хранит полный body LLM"
+    rj = list(
+        MemoryJournalStore(jpath).filter_rows(
+            event_name="memory.command.rejected",
+        ),
+    )
+    assert rj
+    assert rj[0].payload.get("error_code") == "w14_command_parse"
+
+
+def test_memory_result_returned_logs_counts_not_raw_text(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    G14R.10: ``memory.result.returned`` — только kind counts / n,
+    без вложенного текста C-summary из ``agent_memory_result``.
+    """
+    db = tmp_path / "p-mrr.sqlite3"
+    jpath = tmp_path / "j-mrr.jsonl"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    monkeypatch.setenv("AILIT_MEMORY_JOURNAL_PATH", str(jpath))
+    (tmp_path / "f_mrr.py").write_text("k=0\n", encoding="utf-8")
+    w = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-mrr",
+            broker_id="b1",
+            namespace="ns-mrr",
+        ),
+    )
+    # Большой goal -> большой ``compat`` c_summary в results (если не
+    # finish); журнал result.returned не должен копировать summary.
+    long_goal: str = "D" * 3_000
+    monkeypatch.setattr(w, "_am_file", _am_verbose(), raising=False)
+    prov: ChatProvider = _SeqProvider([_minimal_w14()])
+    monkeypatch.setattr(w, "_provider", prov, raising=False)
+    w.handle(
+        _env(
+            project_root=tmp_path,
+            path="f_mrr.py",
+            goal=long_goal,
+            query_id="q-mrr-1",
+        ),
+    )
+    rrows = list(
+        MemoryJournalStore(jpath).filter_rows(
+            event_name="memory.result.returned",
+        ),
+    )
+    assert rrows, "ожидаем memory.result.returned"
+    for row in rrows:
+        pl = row.to_dict()
+        dmp: str = json.dumps(pl, ensure_ascii=False)
+        assert "D" * 200 not in dmp, "result.returned: без копий длинного text"
+    p0: object = rrows[0].payload
+    assert isinstance(p0, dict)
+    p: dict[str, object] = p0
+    assert p.get("query_id")
+    assert p.get("status") in ("complete", "partial", "blocked")
+    assert "result_kind_counts" in p
+    mlen2: int = _max_str_len_in_obj(p)
+    assert mlen2 < 2_000, mlen2
+
+
 def test_memory_logs_do_not_store_full_file_text(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

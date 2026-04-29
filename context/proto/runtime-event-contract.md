@@ -311,6 +311,17 @@ Snapshot события (`state.snapshot.created`) обязаны содержа
 | `offline_writer` | Нет | Да | `ailit memory index`, `PagIndexer`, инкрементальный index без trace; Desktop — только **Refresh** / смена чата |
 | `runtime_untraced` | Нет | Да (или N/A) | Только явный allowlist (см. `RUNTIME_UNTRACED_WRITE_ALLOWLIST` / тесты); иначе запрещён |
 
+## W14R / G14R.10 — AgentMemory journal (compact, desktop-safe)
+
+События пишутся в AgentMemory JSONL journal (`MemoryJournalRow`, `event_name`) и, при `memory.debug.verbose=1`, зеркалятся в `chat_logs` только для `memory.chat_debug.command` (см. C14R.11). Запрещено дублировать сырой prompt, CoT, полные тексты файлов и длинные summary из `agent_memory_result` в journal.
+
+| `event_name` (journal) | Когда | Обязательные поля `payload` (компакт) |
+|------------------------|-------|----------------------------------------|
+| `memory.runtime.step` | Переход W14 внутри `AgentMemoryQueryPipeline` (planner / parse / finish) | `step_id`, `state`, `next_state`, `action_kind`, `query_id`, `counters` |
+| `memory.result.returned` | Перед отдачей `payload.agent_memory_result` в `memory.query_context` | `query_id`, `status`, `result_kind_counts`, `results_total` |
+
+`memory.result.returned` **не** содержит `results[]`, `decision_summary`, `read_lines` — только агрегаты по `kind` и число записей. Полный ответ остаётся в IPC payload, не в журнале.
+
 ## Связанные документы
 
 - [`../arch/runtime-local-storage-model.md`](../arch/runtime-local-storage-model.md)
