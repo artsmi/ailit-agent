@@ -20,6 +20,11 @@ from agent_core.runtime.agent_memory_config import (
     build_compact_query_journal,
     load_or_create_agent_memory_config,
 )
+from agent_core.runtime.agent_memory_ailit_config import (
+    build_chat_provider_for_agent_memory,
+    load_merged_ailit_config_for_memory,
+    resolve_memory_llm_optimization,
+)
 from agent_core.runtime.agent_memory_chat_log import AgentMemoryChatDebugLog
 from agent_core.runtime.d_creation_policy import (
     DCreationPolicy,
@@ -32,7 +37,6 @@ from agent_core.runtime.memory_journal import (
 )
 from agent_core.memory.pag_runtime import PagRuntimeConfig
 from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.providers.factory import ProviderFactory, ProviderKind
 from agent_core.runtime.agent_memory_query_pipeline import (
     AgentMemoryQueryPipeline,
 )
@@ -75,13 +79,22 @@ class AgentMemoryWorker:
         self._cfg = cfg
         self._journal = MemoryJournalStore()
         self._am_file = load_or_create_agent_memory_config()
+        self._ailit_merged: dict[str, Any] = (
+            load_merged_ailit_config_for_memory()
+        )
+        self._memory_llm_policy = resolve_memory_llm_optimization(
+            self._ailit_merged,
+            self._am_file.memory.llm_optimization,
+        )
         self._chat_debug = AgentMemoryChatDebugLog(self._am_file)
         self._boundary = SourceBoundaryFilter(self._am_file.memory.artifacts)
         self._change_idempotency = ChangeFeedbackIdempotencyStore()
         self._growth = QueryDrivenPagGrowth(
             db_path=PagRuntimeConfig.from_env().db_path,
         )
-        self._provider = ProviderFactory.create(ProviderKind.MOCK)
+        self._provider = build_chat_provider_for_agent_memory(
+            self._ailit_merged,
+        )
 
     def _issue_grant(
         self,
@@ -594,7 +607,7 @@ class AgentMemoryWorker:
             explicit_paths = []
         pl = AgentMemoryQueryPipeline(
             self,
-            self._am_file.memory.llm_optimization,
+            self._memory_llm_policy,
             self._provider,
         )
         pr = pl.run(

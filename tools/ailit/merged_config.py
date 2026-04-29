@@ -86,6 +86,10 @@ def _default_ailit_config() -> dict[str, Any]:
                 },
             },
         },
+        "agent_memory": {
+            "provider": "",
+            "model": "",
+        },
         "tests": {},
     }
 

@@ -188,6 +188,7 @@ def test_disabled_llm_fallback_does_not_create_validated_c(
     )
     new_mem = replace(w._am_file.memory, llm_optimization=pol)
     w._am_file = replace(w._am_file, memory=new_mem)
+    w._memory_llm_policy = replace(w._memory_llm_policy, enabled=False)
     out = w.handle(
         _env(project_root=tmp_path, path="z.py", goal="goal"),
     )
