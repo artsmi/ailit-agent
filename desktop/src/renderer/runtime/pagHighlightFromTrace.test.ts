@@ -16,6 +16,43 @@ function topic(eventName: string, payload: Record<string, unknown>): Record<stri
 }
 
 describe("pagHighlightFromTrace", () => {
+  it("maps memory.w14.graph_highlight (D16.1)", () => {
+    const row: Record<string, unknown> = {
+      ...topic("memory.w14.graph_highlight", {
+        schema: "ailit_memory_w14_graph_highlight_v1",
+        namespace: "ns",
+        query_id: "q1",
+        w14_command: "plan_traversal",
+        w14_command_id: "q1:pt",
+        node_ids: ["A:ns", "B:x.py"],
+        edge_ids: ["e:1"],
+        reason: "step",
+        ttl_ms: 4500
+      })
+    };
+    const h = highlightFromTraceRow(row, "ns");
+    expect(h).not.toBeNull();
+    if (!h) {
+      return;
+    }
+    expect(h.nodeIds).toEqual(["A:ns", "B:x.py"]);
+    expect(h.edgeIds).toEqual(["e:1"]);
+    expect(h.ttlMs).toBe(4500);
+    expect(h.reason).toBe("step");
+  });
+
+  it("skips w14 graph_highlight on namespace mismatch", () => {
+    const row: Record<string, unknown> = {
+      ...topic("memory.w14.graph_highlight", {
+        schema: "ailit_memory_w14_graph_highlight_v1",
+        namespace: "other",
+        node_ids: ["A:other"],
+        edge_ids: []
+      })
+    };
+    expect(highlightFromTraceRow(row, "ns")).toBeNull();
+  });
+
   it("maps context.memory_injected node ids", () => {
     const row: Record<string, unknown> = {
       ...topic("context.memory_injected", {

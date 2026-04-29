@@ -677,6 +677,22 @@ class AgentMemoryQueryPipeline:
             mem_sl["query_subgoal"] = str(goal)[:200]
         if str(query_kind or "").strip():
             mem_sl["query_kind"] = str(query_kind)[:120]
+        _cmd_id = str(plan_obj.get("command_id", "") or "").strip() or (
+            f"{qid_log}:finish_decision"
+        )
+        _fnids = mem_sl.get("node_ids", [])
+        _feids = mem_sl.get("edge_ids", [])
+        self._w.emit_w14_graph_highlight(
+            req,
+            request_id=request_id,
+            namespace=nspace,
+            query_id=qid_log,
+            w14_command=AgentMemoryCommandName.FINISH_DECISION.value,
+            w14_command_id=_cmd_id,
+            node_ids=[str(x) for x in _fnids if str(x).strip()],
+            edge_ids=[str(x) for x in _feids if str(x).strip()],
+            reason=str(dsum)[:256],
+        )
         return AgentMemoryQueryPipelineResult(
             memory_slice=mem_sl,
             partial=bool(mem_sl.get("partial", False)),
@@ -875,6 +891,29 @@ class AgentMemoryQueryPipeline:
                 else ""
             ),
         )[: limits.max_decision_chars]
+        _pt_cmd = str(plan_obj.get("command", "") or "").strip() or (
+            AgentMemoryCommandName.PLAN_TRAVERSAL.value
+        )
+        _pt_cid = str(plan_obj.get("command_id", "") or "").strip() or (
+            f"{qid_log}:plan_traversal"
+        )
+        _nids = [
+            str(x) for x in (ms2.get("node_ids") or []) if str(x).strip()
+        ]
+        _eids = [
+            str(x) for x in (ms2.get("edge_ids") or []) if str(x).strip()
+        ]
+        self._w.emit_w14_graph_highlight(
+            req,
+            request_id=request_id,
+            namespace=nspace,
+            query_id=qid_log,
+            w14_command=_pt_cmd,
+            w14_command_id=_pt_cid,
+            node_ids=_nids,
+            edge_ids=_eids,
+            reason=str(dsum)[:256],
+        )
         return AgentMemoryQueryPipelineResult(
             memory_slice=ms2,
             partial=status != "complete",
@@ -1134,13 +1173,14 @@ class AgentMemoryQueryPipeline:
                     symbol=str(attrs.get("symbol_key") or node.title),
                 ),
             )
+            _sc_cid = f"{qid_log}:summarize_c:{len(out) + 1}"
             try:
                 svc.summarize_c_call_llm(
                     namespace=namespace,
                     c_input=c_input,
                     user_subgoal=goal,
                     limits=lim,
-                    command_id=f"{qid_log}:summarize_c:{len(out)+1}",
+                    command_id=_sc_cid,
                     query_id=qid_log,
                     complete=lambda raw, phase="summarize_c": (
                         self._complete_w14_subcommand(
@@ -1153,6 +1193,18 @@ class AgentMemoryQueryPipeline:
                 )
             except Exception:  # noqa: BLE001
                 pass
+            else:
+                self._w.emit_w14_graph_highlight(
+                    req,
+                    request_id=request_id,
+                    namespace=namespace,
+                    query_id=qid_log,
+                    w14_command=AgentMemoryCommandName.SUMMARIZE_C.value,
+                    w14_command_id=_sc_cid,
+                    node_ids=[str(c_input.c_node_id)],
+                    edge_ids=[],
+                    reason="summarize_c",
+                )
             refreshed = svc.store.fetch_node(
                 namespace=namespace,
                 node_id=node.node_id,
@@ -1200,6 +1252,7 @@ class AgentMemoryQueryPipeline:
             coverage = len(fresh) / max(1, len(children))
             if coverage < limits.min_child_summary_coverage:
                 continue
+            _sb_cid = f"{qid_log}:summarize_b:{len(out) + 1}"
             try:
                 svc.summarize_b_call_llm(
                     namespace=namespace,
@@ -1209,7 +1262,7 @@ class AgentMemoryQueryPipeline:
                     child_nodes=fresh,
                     user_subgoal=goal,
                     limits=lim,
-                    command_id=f"{qid_log}:summarize_b:{len(out)+1}",
+                    command_id=_sb_cid,
                     query_id=qid_log,
                     complete=lambda raw, phase="summarize_b": (
                         self._complete_w14_subcommand(
@@ -1222,6 +1275,18 @@ class AgentMemoryQueryPipeline:
                 )
             except Exception:  # noqa: BLE001
                 pass
+            else:
+                self._w.emit_w14_graph_highlight(
+                    req,
+                    request_id=request_id,
+                    namespace=namespace,
+                    query_id=qid_log,
+                    w14_command=AgentMemoryCommandName.SUMMARIZE_B.value,
+                    w14_command_id=_sb_cid,
+                    node_ids=[b_id],
+                    edge_ids=[],
+                    reason="summarize_b",
+                )
             refreshed = svc.store.fetch_node(namespace=namespace, node_id=b_id)
             if refreshed is not None:
                 out.append(refreshed)

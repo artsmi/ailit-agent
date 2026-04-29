@@ -14,6 +14,10 @@ export type PagSearchHighlightV1 = {
 
 const TTL_MS: number = 3000;
 
+/** D16.1 — must match `tools/agent_core/runtime/pag_graph_trace.py` */
+export const MEMORY_W14_GRAPH_HIGHLIGHT_EVENT: string = "memory.w14.graph_highlight";
+const MEMORY_W14_GRAPH_HIGHLIGHT_SCHEMA: string = "ailit_memory_w14_graph_highlight_v1";
+
 function str(x: unknown): string {
   if (typeof x === "string") {
     return x;
@@ -72,6 +76,34 @@ export function highlightFromTraceRow(
   if (typ === "topic.publish") {
     const eventName: string = str(p["event_name"]);
     const inner: Record<string, unknown> = asDict(p["payload"]);
+    if (eventName === MEMORY_W14_GRAPH_HIGHLIGHT_EVENT) {
+      if (str(inner["schema"]) !== MEMORY_W14_GRAPH_HIGHLIGHT_SCHEMA) {
+        return null;
+      }
+      const ns: string = str(inner["namespace"] || defaultNamespace) || defaultNamespace;
+      if (defaultNamespace.length > 0 && ns.length > 0 && ns !== defaultNamespace) {
+        return null;
+      }
+      const nodeIds: readonly string[] = strList(inner["node_ids"]);
+      const edgeIds: readonly string[] = strList(inner["edge_ids"]);
+      if (nodeIds.length === 0 && edgeIds.length === 0) {
+        return null;
+      }
+      const ttlRaw: unknown = inner["ttl_ms"];
+      const ttlMs: number =
+        typeof ttlRaw === "number" && Number.isFinite(ttlRaw) && ttlRaw > 0
+          ? Math.min(60000, Math.floor(ttlRaw))
+          : TTL_MS;
+      return {
+        kind: "pag.search.highlight",
+        namespace: ns,
+        nodeIds,
+        edgeIds,
+        reason: str(inner["reason"] ?? MEMORY_W14_GRAPH_HIGHLIGHT_EVENT),
+        ttlMs,
+        intensity: "strong"
+      };
+    }
     if (eventName === "context.memory_injected") {
       const refs = refsFromV2(inner["project_refs"]);
       const nodeIds = refs.nodeIds.length > 0 ? refs.nodeIds : strList(inner["node_ids"]);

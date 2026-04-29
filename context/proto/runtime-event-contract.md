@@ -324,6 +324,25 @@ Snapshot события (`state.snapshot.created`) обязаны содержа
 
 `memory.result.returned` **не** содержит `results[]`, `decision_summary`, `read_lines` — только агрегаты по `kind` и число записей. Полный ответ остаётся в IPC payload, не в журнале.
 
+## W14R / G16 — Durable trace: `memory.w14.graph_highlight` (Desktop 3D)
+
+**D16.1** — `topic.publish` от **AgentMemory** (как PAG-дельты), `from_agent=AgentMemory:{chat_id}`. **Одно** событие на **успешный** шаг W14 (после детерминированной обработки), с **объединёнными** `node_ids` / `edge_ids` за шаг. Эмит: `tools/agent_core/runtime/pag_graph_trace.py` (`emit_memory_w14_graph_highlight_row`).
+
+| Поле | Правило |
+|------|--------|
+| `event_name` (Topic) | `memory.w14.graph_highlight` |
+| `schema` (внутри `payload.payload`) | `ailit_memory_w14_graph_highlight_v1` (required) |
+| `namespace` | string (required) |
+| `query_id` | string (required) |
+| `w14_command` | `plan_traversal` \| `summarize_c` \| `summarize_b` \| `finish_decision` (required) |
+| `w14_command_id` | string (required) |
+| `node_ids` | `string[]` (required) |
+| `edge_ids` | `string[]` (required, default `[]`) |
+| `reason` | string, ≤256 (required, без сырого prompt) |
+| `ttl_ms` | int, optional, default `3000` |
+
+Парсер Desktop: `desktop/src/renderer/runtime/pagHighlightFromTrace.ts` — маппит в `PagSearchHighlightV1` (с `ttlMs` из payload). Запрещено: сырой prompt, полные `agent_memory_result.results[]`, секреты.
+
 ## Связанные документы
 
 - [`../arch/runtime-local-storage-model.md`](../arch/runtime-local-storage-model.md)

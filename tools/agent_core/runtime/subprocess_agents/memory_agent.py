@@ -85,7 +85,11 @@ from agent_core.runtime.memory_c_remap import (
     CRemapBatchResult,
     SemanticCRemapService,
 )
-from agent_core.runtime.pag_graph_trace import emit_pag_graph_trace_row
+from agent_core.runtime.pag_graph_trace import (
+    MEMORY_W14_GRAPH_HIGHLIGHT_SCHEMA,
+    emit_pag_graph_trace_row,
+    emit_memory_w14_graph_highlight_row,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,6 +261,57 @@ class AgentMemoryWorker:
                 )
 
         return _cb
+
+    def emit_w14_graph_highlight(
+        self,
+        req: RuntimeRequestEnvelope,
+        *,
+        request_id: str,
+        namespace: str,
+        query_id: str,
+        w14_command: str,
+        w14_command_id: str,
+        node_ids: list[str],
+        edge_ids: list[str],
+        reason: str,
+        ttl_ms: int = 3_000,
+    ) -> None:
+        """
+        D16.1: durable trace for Desktop 3D; merged node_ids per W14 step.
+        """
+        if not (node_ids or edge_ids):
+            return
+        rsn = (reason or "memory.w14.graph_highlight")[:256]
+        pl: dict[str, Any] = {
+            "schema": MEMORY_W14_GRAPH_HIGHLIGHT_SCHEMA,
+            "namespace": str(namespace or self._cfg.namespace)[:200],
+            "query_id": str(query_id)[:200],
+            "w14_command": str(w14_command)[:64],
+            "w14_command_id": str(w14_command_id)[:200],
+            "node_ids": [str(x) for x in node_ids if str(x).strip()],
+            "edge_ids": [str(x) for x in edge_ids if str(x).strip()],
+            "reason": rsn,
+            "ttl_ms": int(ttl_ms),
+        }
+        if self._chat_debug.enabled:
+            self._chat_debug.log_audit(
+                raw_chat_id=req.chat_id,
+                event="memory.w14_graph_highlight",
+                request_id=str(request_id)[:200],
+                topic="w14_step",
+                service="memory.query_context",
+                change_batch_id=None,
+                body={
+                    "n_node": len(pl["node_ids"]),
+                    "n_edge": len(pl["edge_ids"]),
+                    "w14_command": pl["w14_command"],
+                    "query_id": pl["query_id"],
+                },
+            )
+        emit_memory_w14_graph_highlight_row(
+            req=req,
+            inner_payload=pl,
+        )
 
     def _log_handle_error(
         self,
