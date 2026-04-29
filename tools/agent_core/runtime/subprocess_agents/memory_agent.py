@@ -46,6 +46,8 @@ from agent_core.runtime.agent_memory_query_pipeline import (
 )
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.runtime.memory_growth import (
+    PATH_SEL_ENTRYPOINT,
+    PATH_SEL_GOAL_TERMS,
     QueryDrivenGrowthResult,
     QueryDrivenPagGrowth,
 )
@@ -560,7 +562,34 @@ class AgentMemoryWorker:
                         "node_ids": list(res.node_ids),
                         "partial": res.partial,
                         "reason": res.reason,
+                        "path_selection_source": res.path_selection_source,
+                        "non_matching_explicit_paths": list(
+                            res.non_matching_explicit_paths,
+                        ),
                     },
+                },
+            )
+        heur = (PATH_SEL_GOAL_TERMS, PATH_SEL_ENTRYPOINT)
+        if res.path_selection_source in heur and self._chat_debug.enabled:
+            self._chat_debug.log_audit(
+                raw_chat_id=req.chat_id,
+                event="memory.runtime_decision",
+                request_id=request_id,
+                topic="planner_path_heuristic_fallback",
+                service="memory.query_context",
+                body={
+                    "explanation": (
+                        "Heuristic file shortlist: no valid explicit relpath "
+                        "remained, or the list was empty. Selection used goal "
+                        "token match or entrypoint seed (e.g. README), not "
+                        "only requested_reads that resolve to files."
+                    ),
+                    "input_explicit_paths": list(explicit_paths),
+                    "path_selection_source": res.path_selection_source,
+                    "non_matching_explicit_paths": list(
+                        res.non_matching_explicit_paths,
+                    ),
+                    "selected_paths": list(res.selected_paths),
                 },
             )
         if res.partial:

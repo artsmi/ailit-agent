@@ -34,13 +34,14 @@ def test_planner_selects_explicit_path_without_scanning_all(
     )
     planner = MemoryExplorationPlanner(max_walk_files=1, max_selected=4)
 
-    selected = planner.select_paths(
+    out = planner.select_paths(
         project_root=tmp_path,
         goal="unrelated",
         explicit_paths=("target.py",),
     )
 
-    assert selected == ("target.py",)
+    assert out.paths == ("target.py",)
+    assert out.source == "explicit"
 
 
 def test_planner_uses_entrypoint_seed(tmp_path: Path) -> None:
@@ -53,12 +54,13 @@ def test_planner_uses_entrypoint_seed(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    selected = MemoryExplorationPlanner().select_paths(
+    out = MemoryExplorationPlanner().select_paths(
         project_root=tmp_path,
         goal="разберись что тут происходит",
     )
 
-    assert selected == ("pyproject.toml",)
+    assert out.paths == ("pyproject.toml",)
+    assert out.source == "entrypoint"
 
 
 def test_query_driven_growth_indexes_selected_path(tmp_path: Path) -> None:
@@ -82,6 +84,7 @@ def test_query_driven_growth_indexes_selected_path(tmp_path: Path) -> None:
     store = SqlitePagStore(db_path)
     assert result.partial is False
     assert result.selected_paths == ("target.py",)
+    assert result.path_selection_source == "explicit"
     assert store.fetch_node(namespace=ns, node_id="B:target.py") is not None
     assert store.fetch_node(namespace=ns, node_id=f"A:{ns}") is not None
     assert store.fetch_node(namespace=ns, node_id="B:other.py") is None

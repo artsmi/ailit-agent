@@ -6,7 +6,7 @@ import os
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Final, Sequence
 
 from agent_core.memory.sqlite_pag import PagGraphTraceFn
 
@@ -41,6 +41,22 @@ _IGNORE_DIRS: frozenset[str] = frozenset(
 )
 
 
+# Источник выбранных relpath в MemoryExplorationPlanner (аудит chat_logs).
+PATH_SEL_EXPLICIT: Final[str] = "explicit"
+PATH_SEL_GOAL_TERMS: Final[str] = "goal_terms"
+PATH_SEL_ENTRYPOINT: Final[str] = "entrypoint"
+PATH_SEL_NONE: Final[str] = "none"
+
+
+@dataclass(frozen=True, slots=True)
+class PathSelectOutcome:
+    """Результат select_paths: пути и источник выбора (для аудита)."""
+
+    paths: tuple[str, ...]
+    source: str
+    non_matching_explicit: tuple[str, ...]
+
+
 @dataclass(frozen=True, slots=True)
 class QueryDrivenGrowthResult:
     """Result of one query-driven PAG growth attempt."""
@@ -50,6 +66,8 @@ class QueryDrivenGrowthResult:
     node_ids: tuple[str, ...]
     partial: bool
     reason: str
+    path_selection_source: str = PATH_SEL_NONE
+    non_matching_explicit_paths: tuple[str, ...] = ()
 
 
 class MemoryExplorationPlanner:
@@ -70,16 +88,27 @@ class MemoryExplorationPlanner:
         project_root: Path,
         goal: str,
         explicit_paths: Sequence[str] = (),
-    ) -> tuple[str, ...]:
-        """Return minimal relpaths relevant to the current query."""
+    ) -> PathSelectOutcome:
+        """Return minimal relpaths and how they were chosen."""
         root = project_root.resolve()
         selected: list[str] = []
+        non_matched: list[str] = []
         for raw in explicit_paths:
             rel = self._norm_rel(raw)
-            if rel and self._is_file(root, rel):
+            if not rel:
+                continue
+            if self._is_file(root, rel):
                 selected.append(rel)
+            else:
+                non_matched.append(rel)
         if selected:
-            return tuple(dict.fromkeys(selected[: self._max_selected]))
+            return PathSelectOutcome(
+                paths=tuple(
+                    dict.fromkeys(selected[: self._max_selected]),
+                ),
+                source=PATH_SEL_EXPLICIT,
+                non_matching_explicit=tuple(non_matched),
+            )
 
         terms = self._terms(goal)
         if terms:
@@ -91,14 +120,23 @@ class MemoryExplorationPlanner:
                     if len(selected) >= self._max_selected:
                         break
         if selected:
-            return tuple(dict.fromkeys(selected))
+            return PathSelectOutcome(
+                paths=tuple(dict.fromkeys(selected)),
+                source=PATH_SEL_GOAL_TERMS,
+                non_matching_explicit=tuple(non_matched),
+            )
 
         for rel in _ENTRYPOINT_NAMES:
             if self._is_file(root, rel):
                 selected.append(rel)
                 if len(selected) >= min(3, self._max_selected):
                     break
-        return tuple(dict.fromkeys(selected))
+        paths = tuple(dict.fromkeys(selected))
+        return PathSelectOutcome(
+            paths=paths,
+            source=PATH_SEL_ENTRYPOINT if paths else PATH_SEL_NONE,
+            non_matching_explicit=tuple(non_matched),
+        )
 
     @staticmethod
     def _norm_rel(raw: str) -> str:
@@ -190,11 +228,12 @@ class QueryDrivenPagGrowth:
             repo_uri=ctx.repo_uri,
             repo_path=ctx.repo_path,
         )
-        selected = self._planner.select_paths(
+        outcome = self._planner.select_paths(
             project_root=root,
             goal=goal,
             explicit_paths=explicit_paths,
         )
+        selected = outcome.paths
         if not selected:
             return QueryDrivenGrowthResult(
                 namespace=ns,
@@ -202,6 +241,8 @@ class QueryDrivenPagGrowth:
                 node_ids=(),
                 partial=True,
                 reason="no_query_relevant_files",
+                path_selection_source=outcome.source,
+                non_matching_explicit_paths=outcome.non_matching_explicit,
             )
         self._ensure_project_node(namespace=ns, project_root=root)
         self._indexer.sync_changes(
@@ -221,6 +262,8 @@ class QueryDrivenPagGrowth:
             node_ids=node_ids,
             partial=False,
             reason="query_driven_sync",
+            path_selection_source=outcome.source,
+            non_matching_explicit_paths=outcome.non_matching_explicit,
         )
 
     def _ensure_project_node(
