@@ -8,8 +8,9 @@ from typing import Any, TYPE_CHECKING, Mapping, Sequence
 
 from agent_core.models import ChatMessage, ChatRequest, MessageRole
 from agent_core.providers.protocol import ChatProvider
-from agent_core.runtime.agent_memory_config import (
-    parse_memory_json_with_retry,
+from agent_core.runtime.agent_memory_runtime_contract import (
+    AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
+    parse_memory_query_pipeline_llm_text,
 )
 from agent_core.runtime.agent_memory_chat_log import (
     MEMORY_AUDIT_A1_POLICY_LLM_OFF,
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
         AgentMemoryWorker,
     )
 
+# W14R legacy planner prompt; command-protocol prompts replace in G14R.3.
 PLANNER_SYSTEM: str = """You are AgentMemory planner. Return ONLY JSON.
 No markdown, no chain-of-thought. Fields:
 selected_projects: string[]
@@ -74,7 +76,7 @@ class AgentMemoryQueryPipelineResult:
 
 
 class AgentMemoryQueryPipeline:
-    """LLM plan → PAG grow по requested_reads → c_upserts → slice."""
+    """LLM plan → PAG grow по путям планера → c_upserts → slice."""
 
     def __init__(
         self,
@@ -246,7 +248,7 @@ class AgentMemoryQueryPipeline:
         )
         raw_txt = "".join(resp.text_parts).strip()
         try:
-            plan_obj = parse_memory_json_with_retry(raw_txt)
+            plan_obj = parse_memory_query_pipeline_llm_text(raw_txt)
         except ValueError:
             return self._partial_json_fallback(
                 req=req,
@@ -259,12 +261,25 @@ class AgentMemoryQueryPipeline:
                 nspace=nspace,
             )
         partial_plan = bool(plan_obj.get("partial", False))
+        if (
+            str(plan_obj.get("schema_version", "") or "").strip()
+            == AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
+        ):
+            self._w.log_memory_w14_command_compact(  # noqa: SLF001
+                req,
+                request_id,
+                command=str(plan_obj.get("command", "") or ""),
+                command_id=str(plan_obj.get("command_id", "") or ""),
+                status=str(plan_obj.get("status", "") or ""),
+            )
         c_ups: Any = plan_obj.get("c_upserts", [])
         if not isinstance(c_ups, list):
             c_ups = []
         link_claims_list: Any = plan_obj.get("link_claims", [])
         if not isinstance(link_claims_list, list):
             link_claims_list = []
+        # W14R legacy adapter remove after G14R.3: G13 planner field
+        # ``requested_reads`` for PAG grow; W14 command protocol supersedes.
         req_reads: Any = plan_obj.get("requested_reads", [])
         rels: list[str] = [
             str(x.get("path", "")).strip()

@@ -353,6 +353,38 @@ class AgentMemoryWorker:
             },
         )
 
+    def log_memory_w14_command_compact(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        *,
+        command: str,
+        command_id: str,
+        status: str,
+        service: str = "memory.query_context",
+        change_batch_id: str | None = None,
+    ) -> None:
+        """
+        C14R.11: compact command event (без raw prompt), topic
+        ``memory.chat_debug.command``.
+        """
+        if not self._chat_debug.enabled:
+            return
+        self._chat_debug.log_audit(
+            raw_chat_id=req.chat_id,
+            event="memory.chat_debug.command",
+            request_id=request_id,
+            topic="w14_command_envelope",
+            service=service,
+            change_batch_id=change_batch_id,
+            body={
+                "command": str(command)[:200],
+                "command_id": str(command_id)[:200],
+                "status": str(status)[:64],
+                "redaction": "compact_no_raw_prompt",
+            },
+        )
+
     def log_memory_graph_write(
         self,
         req: RuntimeRequestEnvelope,
