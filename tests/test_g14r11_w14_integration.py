@@ -22,6 +22,9 @@ from agent_core.models import (
 from agent_core.runtime.agent_memory_result_v1 import (
     build_agent_memory_result_v1,
 )
+from agent_core.runtime.agent_memory_config import (
+    load_or_create_agent_memory_config,
+)
 from agent_core.runtime.models import RuntimeIdentity, make_request_envelope
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.runtime.subprocess_agents.memory_agent import (
@@ -91,6 +94,80 @@ class _SeqProvider:
         raise NotImplementedError
 
 
+class _RuntimeProvider:
+    """Provider that returns W14 JSON for planner, summaries and finish."""
+
+    def __init__(self) -> None:
+        self.calls: list[ChatRequest] = []
+
+    @property
+    def provider_id(self) -> str:
+        return "g14r11-runtime"
+
+    def complete(self, request: ChatRequest) -> NormalizedChatResponse:
+        self.calls.append(request)
+        content = str(request.messages[-1].content or "")
+        body = _w14_plan()
+        if "summarize_c" in content:
+            body = _w14_command(
+                command="summarize_c",
+                payload={
+                    "summary": "compact C summary",
+                    "semantic_tags": [],
+                    "important_lines": [],
+                    "claims": [],
+                    "refusal_reason": "",
+                },
+            )
+        elif "summarize_b" in content:
+            body = _w14_command(
+                command="summarize_b",
+                payload={
+                    "summary": "compact B summary",
+                    "child_refs": [],
+                    "missing_children": [],
+                    "confidence": 1.0,
+                    "refusal_reason": "",
+                },
+            )
+        elif "finish_decision" in content:
+            selected: list[object] = []
+            try:
+                raw = json.loads(content)
+                payload = raw.get("payload", {})
+                if isinstance(payload, dict):
+                    sr = payload.get("selected_results", [])
+                    if isinstance(sr, list):
+                        selected = sr
+            except json.JSONDecodeError:
+                selected = []
+            body = _w14_command(
+                command="finish_decision",
+                payload={
+                    "finish": True,
+                    "status": "complete" if selected else "partial",
+                    "selected_results": selected,
+                    "decision_summary": "done",
+                    "recommended_next_step": "",
+                },
+            )
+        return NormalizedChatResponse(
+            text_parts=(body,),
+            tool_calls=(),
+            finish_reason=FinishReason.STOP,
+            usage=NormalizedUsage(
+                input_tokens=1,
+                output_tokens=1,
+                total_tokens=2,
+            ),
+            provider_metadata={"mock": "g14r11-runtime"},
+            raw_debug_payload=None,
+        )
+
+    def stream(self, request: ChatRequest) -> None:
+        raise NotImplementedError
+
+
 def _rt_ident(namespace: str = "ns-g14r11") -> RuntimeIdentity:
     return RuntimeIdentity(
         runtime_id="rt-g14r11",
@@ -131,6 +208,19 @@ def _w14_finish(
         "command_id": "fd-g14r11",
         "status": "ok",
         "payload": pl,
+        "decision_summary": "d",
+        "violations": [],
+    }
+    return json.dumps(o, ensure_ascii=False)
+
+
+def _w14_command(command: str, payload: dict[str, object]) -> str:
+    o: dict[str, object] = {
+        "schema_version": "agent_memory_command_output.v1",
+        "command": command,
+        "command_id": f"cmd-{command}",
+        "status": "ok",
+        "payload": payload,
         "decision_summary": "d",
         "violations": [],
     }
@@ -403,7 +493,7 @@ def test_w14_schema_repair_retry_accepts_fixed_envelope(
         ),
     )
     assert out.get("ok") is True
-    assert len(prov.calls) == 2
+    assert len(prov.calls) >= 2
     pl = out.get("payload")
     assert isinstance(pl, dict)
     assert pl.get("decision_summary") == "plan"
@@ -474,6 +564,109 @@ def test_agent_memory_result_does_not_project_a_or_b_as_c_summary() -> None:
         recommended_next_step="n",
     )
     assert amr["results"] == []
+
+
+def test_w14_all_files_processes_multiple_b_not_only_readme(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """All-files goal materializes multiple B files and real C results."""
+    db = tmp_path / "runtime.sqlite3"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    (tmp_path / "README.md").write_text("# Demo\n", encoding="utf-8")
+    (tmp_path / "a.py").write_text(
+        "def a() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "b.py").write_text(
+        "def b() -> int:\n    return 2\n",
+        encoding="utf-8",
+    )
+    prov = _RuntimeProvider()
+    worker = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-g14r11",
+            broker_id="b1",
+            namespace="ns-g14r11",
+        ),
+    )
+    monkeypatch.setattr(worker, "_provider", prov, raising=False)
+    out = worker.handle(
+        _env(
+            tmp_path,
+            goal="посмотри каждый файл репозитория",
+            path="",
+        ),
+    )
+    assert out.get("ok") is True
+    store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
+    b_paths = {
+        n.path for n in store.list_nodes(namespace="ns-g14r11", level="B")
+    }
+    assert {"README.md", "a.py", "b.py"}.issubset(b_paths)
+    amr = (out.get("payload") or {}).get("agent_memory_result")
+    assert isinstance(amr, dict)
+    results = amr.get("results")
+    assert isinstance(results, list) and results
+    summarize_calls = [
+        c for c in prov.calls if "summarize_c" in c.messages[-1].content
+    ]
+    assert len(summarize_calls) >= 2
+
+
+def test_w14_normal_path_does_not_call_query_driven_pag_growth(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """W14 normal path must not use legacy QueryDrivenPagGrowth."""
+    db = tmp_path / "runtime-no-growth.sqlite3"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    (tmp_path / "a.py").write_text(
+        "def a() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    prov = _RuntimeProvider()
+    worker = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-g14r11",
+            broker_id="b1",
+            namespace="ns-g14r11",
+        ),
+    )
+
+    class BadGrowth:
+        def grow(self, **_: object) -> object:
+            raise AssertionError("legacy growth used")
+
+    monkeypatch.setattr(worker, "_provider", prov, raising=False)
+    monkeypatch.setattr(worker, "_growth", BadGrowth(), raising=False)
+    out = worker.handle(
+        _env(
+            tmp_path,
+            goal="посмотри каждый файл",
+            path="",
+        ),
+    )
+    assert out.get("ok") is True
+
+
+def test_agent_memory_config_uses_tmp_agent_memory_config_in_tests(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AILIT_AGENT_MEMORY_CONFIG isolates memory.runtime defaults in tests."""
+    cfg = tmp_path / "agent-memory.yaml"
+    monkeypatch.setenv("AILIT_AGENT_MEMORY_CONFIG", str(cfg))
+    loaded = load_or_create_agent_memory_config()
+    assert loaded.memory.runtime.max_turns == 50
+    assert loaded.memory.runtime.max_selected_b == 50
+    assert loaded.memory.runtime.max_c_per_b == 100
+    assert loaded.memory.runtime.max_total_c == 1_000
+    assert loaded.memory.runtime.max_reads_per_turn == 10
+    assert loaded.memory.runtime.max_summary_chars == 150
+    assert loaded.memory.runtime.max_reason_chars == 50
+    assert loaded.memory.runtime.max_decision_chars == 150
+    assert loaded.memory.runtime.min_child_summary_coverage == 0.5
 
 
 def test_query_context_runtime_partial_when_budget_exhausted(

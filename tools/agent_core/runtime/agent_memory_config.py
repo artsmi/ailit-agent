@@ -32,6 +32,21 @@ class MemoryLlmSubConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryRuntimeSubConfig:
+    """W14 runtime loop limits."""
+
+    max_turns: int = 50
+    max_selected_b: int = 50
+    max_c_per_b: int = 100
+    max_total_c: int = 1_000
+    max_reads_per_turn: int = 10
+    max_summary_chars: int = 150
+    max_reason_chars: int = 50
+    max_decision_chars: int = 150
+    min_child_summary_coverage: float = 0.5
+
+
+@dataclass(frozen=True, slots=True)
 class DPolicySubConfig:
     """Политика D-нод (YAML)."""
 
@@ -64,6 +79,7 @@ class MemoryYamlRoot:
     """Корневой объект `memory:` в config.yaml."""
 
     llm: MemoryLlmSubConfig
+    runtime: MemoryRuntimeSubConfig
     llm_optimization: MemoryLlmOptimizationPolicy
     d_policy: DPolicySubConfig
     artifacts: ArtifactsSubConfig
@@ -77,6 +93,7 @@ class AgentMemoryFileConfig:
     memory: MemoryYamlRoot = field(
         default_factory=lambda: MemoryYamlRoot(
             llm=MemoryLlmSubConfig(),
+            runtime=MemoryRuntimeSubConfig(),
             llm_optimization=MemoryLlmOptimizationPolicy.default(),
             d_policy=DPolicySubConfig(),
             artifacts=ArtifactsSubConfig(),
@@ -132,6 +149,19 @@ class AgentMemoryFileConfig:
                         "enabled": opt.cache_enabled,
                     },
                 },
+                "runtime": {
+                    "max_turns": m.runtime.max_turns,
+                    "max_selected_b": m.runtime.max_selected_b,
+                    "max_c_per_b": m.runtime.max_c_per_b,
+                    "max_total_c": m.runtime.max_total_c,
+                    "max_reads_per_turn": m.runtime.max_reads_per_turn,
+                    "max_summary_chars": m.runtime.max_summary_chars,
+                    "max_reason_chars": m.runtime.max_reason_chars,
+                    "max_decision_chars": m.runtime.max_decision_chars,
+                    "min_child_summary_coverage": (
+                        m.runtime.min_child_summary_coverage
+                    ),
+                },
                 "d_policy": {
                     "max_d_per_query": m.d_policy.max_d_per_query,
                     "min_linked_nodes": m.d_policy.min_linked_nodes,
@@ -155,6 +185,7 @@ class AgentMemoryFileConfig:
         if not isinstance(mem, Mapping):
             mem = {}
         llm: Any = mem.get("llm", {})
+        runtime: Any = mem.get("runtime", {})
         dp: Any = mem.get("d_policy", {})
         art: Any = mem.get("artifacts", {})
         llm_d = (
@@ -170,6 +201,29 @@ class AgentMemoryFileConfig:
                 "max_decision_chars": int(llm.get("max_decision_chars", 240)),
             }
             if isinstance(llm, Mapping)
+            else {}
+        )
+        rt_d = (
+            {
+                "max_turns": int(runtime.get("max_turns", 50)),
+                "max_selected_b": int(runtime.get("max_selected_b", 50)),
+                "max_c_per_b": int(runtime.get("max_c_per_b", 100)),
+                "max_total_c": int(runtime.get("max_total_c", 1_000)),
+                "max_reads_per_turn": int(
+                    runtime.get("max_reads_per_turn", 10),
+                ),
+                "max_summary_chars": int(
+                    runtime.get("max_summary_chars", 150),
+                ),
+                "max_reason_chars": int(runtime.get("max_reason_chars", 50)),
+                "max_decision_chars": int(
+                    runtime.get("max_decision_chars", 150),
+                ),
+                "min_child_summary_coverage": float(
+                    runtime.get("min_child_summary_coverage", 0.5),
+                ),
+            }
+            if isinstance(runtime, Mapping)
             else {}
         )
         kinds: tuple[str, ...] = (
@@ -190,10 +244,11 @@ class AgentMemoryFileConfig:
                 dp,
                 Mapping,
             ) else 1,
-            "min_linked_nodes": int(dp.get("min_linked_nodes", 2)) if isinstance(
-                dp,
-                Mapping,
-            ) else 2,
+            "min_linked_nodes": (
+                int(dp.get("min_linked_nodes", 2))
+                if isinstance(dp, Mapping)
+                else 2
+            ),
             "allowed_kinds": kinds,
         }
         a_d = {
@@ -217,15 +272,62 @@ class AgentMemoryFileConfig:
         return cls(
             memory=MemoryYamlRoot(
                 llm=MemoryLlmSubConfig(
-                    max_full_b_bytes=max(1, min(llm_d["max_full_b_bytes"], 1_000_000)),
-                    max_full_b_chars=max(1, min(llm_d["max_full_b_chars"], 1_000_000)),
+                    max_full_b_bytes=max(
+                        1,
+                        min(llm_d["max_full_b_bytes"], 1_000_000),
+                    ),
+                    max_full_b_chars=max(
+                        1,
+                        min(llm_d["max_full_b_chars"], 1_000_000),
+                    ),
                     max_turns=max(1, min(llm_d["max_turns"], 64)),
-                    max_selected_b=max(0, min(llm_d["max_selected_b"], 10_000)),
+                    max_selected_b=max(
+                        0,
+                        min(llm_d["max_selected_b"], 10_000),
+                    ),
                     max_c_per_b=max(0, min(llm_d["max_c_per_b"], 10_000)),
-                    max_reads_per_turn=max(0, min(llm_d["max_reads_per_turn"], 1_000)),
-                    max_summary_chars=max(0, min(llm_d["max_summary_chars"], 2_000)),
-                    max_reason_chars=max(0, min(llm_d["max_reason_chars"], 1_000)),
-                    max_decision_chars=max(0, min(llm_d["max_decision_chars"], 2_000)),
+                    max_reads_per_turn=max(
+                        0,
+                        min(llm_d["max_reads_per_turn"], 1_000),
+                    ),
+                    max_summary_chars=max(
+                        0,
+                        min(llm_d["max_summary_chars"], 2_000),
+                    ),
+                    max_reason_chars=max(
+                        0,
+                        min(llm_d["max_reason_chars"], 1_000),
+                    ),
+                    max_decision_chars=max(
+                        0,
+                        min(llm_d["max_decision_chars"], 2_000),
+                    ),
+                ),
+                runtime=MemoryRuntimeSubConfig(
+                    max_turns=max(1, min(rt_d["max_turns"], 1_000)),
+                    max_selected_b=max(0, min(rt_d["max_selected_b"], 10_000)),
+                    max_c_per_b=max(0, min(rt_d["max_c_per_b"], 10_000)),
+                    max_total_c=max(0, min(rt_d["max_total_c"], 100_000)),
+                    max_reads_per_turn=max(
+                        0,
+                        min(rt_d["max_reads_per_turn"], 1_000),
+                    ),
+                    max_summary_chars=max(
+                        0,
+                        min(rt_d["max_summary_chars"], 2_000),
+                    ),
+                    max_reason_chars=max(
+                        0,
+                        min(rt_d["max_reason_chars"], 1_000),
+                    ),
+                    max_decision_chars=max(
+                        0,
+                        min(rt_d["max_decision_chars"], 2_000),
+                    ),
+                    min_child_summary_coverage=max(
+                        0.0,
+                        min(rt_d["min_child_summary_coverage"], 1.0),
+                    ),
                 ),
                 llm_optimization=llm_opt,
                 d_policy=DPolicySubConfig(
@@ -248,11 +350,13 @@ class AgentMemoryConfigPaths:
 
     @staticmethod
     def default_file_path() -> Path:
-        """`~/.ailit/agent-memory/config.yaml` либо `AILIT_AGENT_MEMORY_CONFIG`."""
+        """Return AgentMemory config path with env override."""
         ex = os.environ.get("AILIT_AGENT_MEMORY_CONFIG", "").strip()
         if ex:
             return Path(ex).expanduser().resolve()
-        return (Path.home() / ".ailit" / "agent-memory" / "config.yaml").resolve()
+        return (
+            Path.home() / ".ailit" / "agent-memory" / "config.yaml"
+        ).resolve()
 
     @staticmethod
     def ensure_parent(path: Path) -> None:
@@ -269,10 +373,17 @@ def load_or_create_agent_memory_config() -> AgentMemoryFileConfig:
     if not p.is_file():
         AgentMemoryConfigPaths.ensure_parent(p)
         cfg = AgentMemoryFileConfig()
+        header = (
+            "# Auto-created by ailit (G12.5) — "
+            "see plan/12-pag-trace-delta-desktop-sync.md\n"
+        )
         p.write_text(
-            "# Auto-created by ailit (G12.5) — see plan/12-pag-trace-delta-desktop-sync.md\n"
+            header
             + yaml.safe_dump(
-                cfg.to_nested_dict(), allow_unicode=True, default_flow_style=False, sort_keys=False
+                cfg.to_nested_dict(),
+                allow_unicode=True,
+                default_flow_style=False,
+                sort_keys=False,
             ),
             encoding="utf-8",
         )
@@ -344,7 +455,9 @@ class SourceBoundaryFilter:
         s = str(posixish or "").strip().replace("\\", "/").lstrip("/")
         if not s:
             return True
-        parts: list[str] = [x for x in s.split("/") if x and x not in (".", "..")]
+        parts: list[str] = [
+            x for x in s.split("/") if x and x not in (".", "..")
+        ]
         for part in parts:
             low = part.lower()
             for seg in self._FORBIDDEN_DIR_SEGMENTS:
@@ -365,7 +478,7 @@ class SourceBoundaryFilter:
 
 
 def _json_extract_object(text: str) -> str | None:
-    """Первый балансный JSON-object в строке (fallback после сбоя `json.loads`)."""
+    """Первый балансный JSON-object в строке."""
     t = (text or "").strip()
     start: int = t.find("{")
     if start < 0:
@@ -377,7 +490,7 @@ def _json_extract_object(text: str) -> str | None:
         elif ch == "}":
             depth -= 1
             if depth == 0:
-                return t[start : i + 1]
+                return t[start:i + 1]
     return None
 
 
@@ -447,7 +560,11 @@ class MemoryPlannerResultV1:
         """Разбор + обрезка `decision`."""
         raw: dict[str, Any] = parse_memory_json_with_retry(text)
         sch = str(raw.get("schema", "") or "")
-        if sch and "planner" not in sch and sch != "agent_memory.planner_result.v1":
+        if (
+            sch
+            and "planner" not in sch
+            and sch != "agent_memory.planner_result.v1"
+        ):
             raise ValueError("unexpected planner schema id")
         action: str = str(raw.get("action", "") or "stop")
         sel: Any = raw.get("selected", [])
@@ -460,8 +577,12 @@ class MemoryPlannerResultV1:
         dec: str = str(raw.get("decision", "") or raw.get("stop", "") or "")
         if len(dec) > max_decision:
             dec = dec[:max_decision] + "…"
-        out_sel: list[Mapping[str, Any]] = [dict(x) for x in sel if isinstance(x, Mapping)][:8]
-        out_ex: list[Mapping[str, Any]] = [dict(x) for x in ex if isinstance(x, Mapping)][:16]
+        out_sel: list[Mapping[str, Any]] = [
+            dict(x) for x in sel if isinstance(x, Mapping)
+        ][:8]
+        out_ex: list[Mapping[str, Any]] = [
+            dict(x) for x in ex if isinstance(x, Mapping)
+        ][:16]
         return cls(
             action=action,
             selected=tuple(out_sel),
@@ -515,7 +636,7 @@ def build_compact_query_journal(
     d_creation_gate: str = "",
     d_creation_reason: str = "",
 ) -> CompactJournalFields:
-    """Compact обёртка вокруг ответа query_context (без chain-of-thought, без сырья)."""
+    """Compact query_context response wrapper without raw artifacts."""
     t = (task_summary or "")[:2_000]
     d = (decision_summary or "")[:1_000]
     sel: tuple[Mapping[str, Any], ...] = tuple(

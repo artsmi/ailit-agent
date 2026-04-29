@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TYPE_CHECKING, Mapping, Sequence
 
+from agent_core.memory.pag_indexer import PagIndexer
 from agent_core.models import ChatMessage, ChatRequest, MessageRole
 from agent_core.providers.protocol import ChatProvider
 from agent_core.runtime.agent_memory_runtime_contract import (
@@ -20,6 +23,12 @@ from agent_core.runtime.agent_memory_runtime_contract import (
 )
 from agent_core.runtime.agent_memory_result_assembly import (
     FinishDecisionResultAssembler,
+)
+from agent_core.runtime.agent_memory_summary_service import (
+    AgentMemorySummaryService,
+    SummarizeCNodeInputV1,
+    SummarizeCLocator,
+    W14CommandLimits,
 )
 from agent_core.runtime.agent_memory_chat_log import (
     MEMORY_AUDIT_A1_POLICY_LLM_OFF,
@@ -35,6 +44,7 @@ from agent_core.runtime.memory_llm_optimization_policy import (
 from agent_core.runtime.models import RuntimeRequestEnvelope
 from agent_core.memory.pag_runtime import PagRuntimeConfig
 from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 
 if TYPE_CHECKING:
     from agent_core.runtime.subprocess_agents.memory_agent import (
@@ -61,6 +71,48 @@ W14_PLAN_TRAVERSAL_SYSTEM: str = (
 
 def _json_dumps(obj: Mapping[str, Any]) -> str:
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+
+
+def _norm_rel_path(raw: str) -> str:
+    return str(raw or "").replace("\\", "/").strip().lstrip("./")
+
+
+def _b_node_id(rel: str) -> str:
+    return f"B:{_norm_rel_path(rel)}"
+
+
+def _edge_id(edge_class: str, edge_type: str, from_id: str, to_id: str) -> str:
+    raw = f"{edge_class}:{edge_type}:{from_id}->{to_id}"
+    h = hashlib.sha1(raw.encode("utf-8", errors="replace")).hexdigest()[:16]
+    return f"e:{h}"
+
+
+def _looks_like_full_repo_goal(goal: str) -> bool:
+    g = str(goal or "").lower()
+    return any(
+        token in g
+        for token in (
+            "кажд",
+            "все файл",
+            "всех файл",
+            "all files",
+            "whole repo",
+            "full repo",
+        )
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class W14RuntimeLimits:
+    max_turns: int
+    max_selected_b: int
+    max_c_per_b: int
+    max_total_c: int
+    max_reads_per_turn: int
+    max_summary_chars: int
+    max_reason_chars: int
+    max_decision_chars: int
+    min_child_summary_coverage: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -655,9 +707,7 @@ class AgentMemoryQueryPipeline:
         explicit_paths: list[str],
     ) -> AgentMemoryQueryPipelineResult:
         """
-        G14R.11: W14 envelope, command != finish_decision.
-
-        Один run() — partial slice + PAG grow по explicit_paths; без c_upserts.
+        W14 action runtime: execute plan_traversal actions deterministically.
         """
         self._w.log_memory_w14_runtime_step(  # noqa: SLF001
             req,
@@ -669,12 +719,116 @@ class AgentMemoryQueryPipeline:
             query_id=qid_log,
             counters={"w14_intermediate": 1},
         )
-        self._w._grow_pag_for_query(  # noqa: SLF001
+        return self._run_w14_action_runtime(
             req=req,
             request_id=request_id,
+            qid_log=qid_log,
+            plan_obj=plan_obj,
             project_root=project_root,
             goal=goal,
+            query_kind=query_kind,
+            level=level,
+            nspace=nspace,
             explicit_paths=explicit_paths,
+        )
+
+    def _runtime_limits(self) -> W14RuntimeLimits:
+        cfg = self._w._am_file.memory.runtime  # noqa: SLF001
+        return W14RuntimeLimits(
+            max_turns=int(cfg.max_turns),
+            max_selected_b=int(cfg.max_selected_b),
+            max_c_per_b=int(cfg.max_c_per_b),
+            max_total_c=int(cfg.max_total_c),
+            max_reads_per_turn=int(cfg.max_reads_per_turn),
+            max_summary_chars=int(cfg.max_summary_chars),
+            max_reason_chars=int(cfg.max_reason_chars),
+            max_decision_chars=int(cfg.max_decision_chars),
+            min_child_summary_coverage=float(cfg.min_child_summary_coverage),
+        )
+
+    def _run_w14_action_runtime(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        qid_log: str,
+        plan_obj: dict[str, Any],
+        project_root: str,
+        goal: str,
+        query_kind: str,
+        level: str,
+        nspace: str,
+        explicit_paths: list[str],
+    ) -> AgentMemoryQueryPipelineResult:
+        limits = self._runtime_limits()
+        root = Path(str(project_root or "")).expanduser().resolve()
+        store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
+        selected_b = self._select_b_paths_for_w14(
+            root=root,
+            goal=goal,
+            plan_obj=plan_obj,
+            explicit_paths=explicit_paths,
+            limits=limits,
+        )
+        with store.graph_trace(
+            self._w._graph_trace_hook(  # noqa: SLF001
+                req,
+                request_id=request_id,
+                service="memory.query_context",
+            ),
+        ):
+            self._materialize_b_paths(
+                store=store,
+                namespace=nspace,
+                root=root,
+                rel_paths=selected_b,
+            )
+            PagIndexer(store).sync_changes(
+                namespace=nspace,
+                project_root=root,
+                changed_paths=selected_b,
+            )
+        c_nodes = self._c_nodes_for_b_paths(
+            store=store,
+            namespace=nspace,
+            paths=selected_b,
+            limits=limits,
+        )
+        svc = AgentMemorySummaryService(PagGraphWriteService(store))
+        summarized_c = self._summarize_c_nodes(
+            req=req,
+            request_id=request_id,
+            qid_log=qid_log,
+            svc=svc,
+            namespace=nspace,
+            root=root,
+            c_nodes=c_nodes,
+            goal=goal,
+            limits=limits,
+        )
+        summarized_b = self._summarize_b_nodes(
+            req=req,
+            request_id=request_id,
+            qid_log=qid_log,
+            svc=svc,
+            namespace=nspace,
+            paths=selected_b,
+            goal=goal,
+            limits=limits,
+        )
+        candidates = self._candidate_results_from_c_nodes(summarized_c)
+        status, explicit_results = self._finish_from_candidates(
+            req=req,
+            request_id=request_id,
+            qid_log=qid_log,
+            project_root=root,
+            namespace=nspace,
+            goal=goal,
+            candidates=candidates,
+            exhausted=(
+                len(selected_b) >= limits.max_selected_b
+                or len(c_nodes) >= limits.max_total_c
+            ),
         )
         ms0 = self._w._slice_from_pag(  # noqa: SLF001
             project_root=project_root,
@@ -697,25 +851,517 @@ class AgentMemoryQueryPipeline:
                 "reason": "w14_intermediate_no_runtime_loop",
             },
         )
-        ms2["partial"] = True
+        ms2["partial"] = status != "complete"
+        ms2["w14_runtime"] = {
+            "selected_b": len(selected_b),
+            "c_total": len(c_nodes),
+            "c_summarized": len(summarized_c),
+            "b_summarized": len(summarized_b),
+            "candidate_results": len(candidates),
+            "max_turns": limits.max_turns,
+            "max_selected_b": limits.max_selected_b,
+            "max_c_per_b": limits.max_c_per_b,
+            "max_total_c": limits.max_total_c,
+        }
         dsum = str(
             plan_obj.get("decision_summary", "")
             or "W14: промежуточная команда; нужны следующие runtime-шаги",
-        )[:1_200]
+        )[: limits.max_decision_chars]
         rns = str(
             plan_obj.get("recommended_next_step", "")
-            or "Повторите memory query после расширения PAG",
-        )[:500]
+            or (
+                "Продолжить AgentMemory query со следующей партией файлов"
+                if status != "complete"
+                else ""
+            ),
+        )[: limits.max_decision_chars]
         return AgentMemoryQueryPipelineResult(
             memory_slice=ms2,
-            partial=True,
+            partial=status != "complete",
             decision_summary=dsum,
             recommended_next_step=rns,
             created_node_ids=[],
             created_edge_ids=[],
             used_llm=True,
             llm_disabled_fallback=False,
+            am_v1_explicit_results=explicit_results,
+            am_v1_status=status,
         )
+
+    def _select_b_paths_for_w14(
+        self,
+        *,
+        root: Path,
+        goal: str,
+        plan_obj: Mapping[str, Any],
+        explicit_paths: Sequence[str],
+        limits: W14RuntimeLimits,
+    ) -> list[str]:
+        selected: list[str] = []
+        for raw in explicit_paths:
+            rel = _norm_rel_path(str(raw))
+            if rel and (root / rel).resolve().is_file():
+                selected.append(rel)
+        payload = plan_obj.get("payload")
+        actions = (
+            payload.get("actions", []) if isinstance(payload, dict) else []
+        )
+        if isinstance(actions, list):
+            for item in actions:
+                if not isinstance(item, dict):
+                    continue
+                rel = _norm_rel_path(str(item.get("path", "") or ""))
+                if rel and rel != "." and (root / rel).resolve().is_file():
+                    selected.append(rel)
+        if not selected:
+            if _looks_like_full_repo_goal(goal):
+                max_b = limits.max_selected_b
+                selected.extend(
+                    self._walk_project_files(root, limit=max_b),
+                )
+            else:
+                selected.extend(self._first_level_files(root))
+        out: list[str] = []
+        for rel in selected:
+            if rel and rel not in out:
+                out.append(rel)
+            if len(out) >= limits.max_selected_b:
+                break
+        return out
+
+    @staticmethod
+    def _walk_project_files(root: Path, *, limit: int) -> list[str]:
+        ignore = {
+            ".git",
+            ".hg",
+            ".svn",
+            ".venv",
+            "venv",
+            "__pycache__",
+            "node_modules",
+            "dist",
+            "build",
+            ".pytest_cache",
+            ".mypy_cache",
+        }
+        out: list[str] = []
+        for dirpath, dirnames, filenames in os.walk(root):
+            dirnames[:] = [d for d in dirnames if d not in ignore]
+            rel_dir = Path(dirpath).resolve().relative_to(root).as_posix()
+            if rel_dir == ".":
+                rel_dir = ""
+            for filename in sorted(filenames):
+                if filename.startswith(".") and filename != ".gitignore":
+                    continue
+                rel = f"{rel_dir}/{filename}" if rel_dir else filename
+                out.append(rel)
+                if len(out) >= limit:
+                    return out
+        return out
+
+    @staticmethod
+    def _first_level_files(root: Path) -> list[str]:
+        out: list[str] = []
+        try:
+            entries = sorted(root.iterdir(), key=lambda p: p.name)
+        except OSError:
+            return out
+        for p in entries:
+            if p.is_file() and not p.name.startswith("."):
+                out.append(p.name)
+        return out
+
+    def _materialize_b_paths(
+        self,
+        *,
+        store: SqlitePagStore,
+        namespace: str,
+        root: Path,
+        rel_paths: Sequence[str],
+    ) -> None:
+        write = PagGraphWriteService(store)
+        a_id = f"A:{namespace}"
+        write.upsert_node(
+            namespace=namespace,
+            node_id=a_id,
+            level="A",
+            kind="project",
+            path=".",
+            title=root.name,
+            summary="",
+            attrs={"namespace": namespace, "repo_path": str(root)},
+            fingerprint=str(root),
+            staleness_state="fresh",
+        )
+        dirs: set[str] = set()
+        for rel in rel_paths:
+            parent = Path(rel).parent.as_posix()
+            while parent and parent != ".":
+                dirs.add(parent)
+                parent = Path(parent).parent.as_posix()
+        for d in sorted(dirs):
+            b_id = _b_node_id(d)
+            write.upsert_node(
+                namespace=namespace,
+                node_id=b_id,
+                level="B",
+                kind="dir",
+                path=d,
+                title=Path(d).name,
+                summary="Directory",
+                attrs={"child_count": 0},
+                fingerprint="dir",
+                staleness_state="fresh",
+            )
+            parent = Path(d).parent.as_posix()
+            from_id = a_id if parent == "." else _b_node_id(parent)
+            write.upsert_edge(
+                namespace=namespace,
+                edge_id=_edge_id("containment", "contains", from_id, b_id),
+                edge_class="containment",
+                edge_type="contains",
+                from_node_id=from_id,
+                to_node_id=b_id,
+            )
+        for rel in rel_paths:
+            b_id = _b_node_id(rel)
+            parent = Path(rel).parent.as_posix()
+            from_id = a_id if parent == "." else _b_node_id(parent)
+            write.upsert_edge(
+                namespace=namespace,
+                edge_id=_edge_id("containment", "contains", from_id, b_id),
+                edge_class="containment",
+                edge_type="contains",
+                from_node_id=from_id,
+                to_node_id=b_id,
+            )
+
+    @staticmethod
+    def _c_nodes_for_b_paths(
+        *,
+        store: SqlitePagStore,
+        namespace: str,
+        paths: Sequence[str],
+        limits: W14RuntimeLimits,
+    ) -> list[Any]:
+        out: list[Any] = []
+        for rel in paths:
+            nodes = store.list_nodes_for_path(
+                namespace=namespace,
+                path=rel,
+                level="C",
+                limit=limits.max_c_per_b,
+            )
+            out.extend(nodes[: limits.max_c_per_b])
+            if len(out) >= limits.max_total_c:
+                return out[: limits.max_total_c]
+        return out
+
+    def _complete_w14_subcommand(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        phase: str,
+        raw_input: str,
+    ) -> str:
+        c_req = self._policy.apply_chat_request(
+            ChatRequest(
+                messages=(
+                    ChatMessage(
+                        role=MessageRole.SYSTEM,
+                        content=(
+                            "Ты выполняешь команду AgentMemory. Верни только "
+                            "JSON agent_memory_command_output.v1 без markdown."
+                        ),
+                    ),
+                    ChatMessage(role=MessageRole.USER, content=raw_input),
+                ),
+                model="mock-memory",
+                temperature=0.0,
+                max_tokens=self._policy.extractor_max_output_tokens,
+                stream=False,
+            ),
+            phase="extractor",
+            model_override=self._policy.model or "mock-memory",
+        )
+        resp = self._prov.complete(c_req)
+        self._w.log_memory_llm_verbose(  # noqa: SLF001
+            req,
+            request_id,
+            phase,
+            c_req,
+            resp,
+            None,
+        )
+        return "".join(resp.text_parts).strip()
+
+    def _summarize_c_nodes(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        qid_log: str,
+        svc: AgentMemorySummaryService,
+        namespace: str,
+        root: Path,
+        c_nodes: Sequence[Any],
+        goal: str,
+        limits: W14RuntimeLimits,
+    ) -> list[Any]:
+        out: list[Any] = []
+        lim = W14CommandLimits(
+            max_summary_chars=limits.max_summary_chars,
+            max_claims=4,
+        )
+        for node in c_nodes:
+            attrs = node.attrs if isinstance(node.attrs, dict) else {}
+            if str(attrs.get("summary_fingerprint", "") or "").strip():
+                out.append(node)
+                continue
+            span = self._span_from_c_attrs(attrs)
+            if span is None:
+                continue
+            text = self._read_lines(root / node.path, span[0], span[1])
+            c_input = SummarizeCNodeInputV1(
+                c_node_id=node.node_id,
+                path=node.path,
+                semantic_kind=str(attrs.get("semantic_kind") or node.kind),
+                text=text[:12_000],
+                locator=SummarizeCLocator(
+                    start_line=span[0],
+                    end_line=span[1],
+                    symbol=str(attrs.get("symbol_key") or node.title),
+                ),
+            )
+            try:
+                svc.summarize_c_call_llm(
+                    namespace=namespace,
+                    c_input=c_input,
+                    user_subgoal=goal,
+                    limits=lim,
+                    command_id=f"{qid_log}:summarize_c:{len(out)+1}",
+                    query_id=qid_log,
+                    complete=lambda raw, phase="summarize_c": (
+                        self._complete_w14_subcommand(
+                            req=req,
+                            request_id=request_id,
+                            phase=phase,
+                            raw_input=raw,
+                        )
+                    ),
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            refreshed = svc.store.fetch_node(
+                namespace=namespace,
+                node_id=node.node_id,
+            )
+            if refreshed is not None:
+                out.append(refreshed)
+        return out
+
+    def _summarize_b_nodes(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        qid_log: str,
+        svc: AgentMemorySummaryService,
+        namespace: str,
+        paths: Sequence[str],
+        goal: str,
+        limits: W14RuntimeLimits,
+    ) -> list[Any]:
+        out: list[Any] = []
+        lim = W14CommandLimits(
+            max_summary_chars=limits.max_summary_chars,
+            max_claims=4,
+            max_children=limits.max_c_per_b,
+        )
+        for rel in paths:
+            b_id = _b_node_id(rel)
+            b_node = svc.store.fetch_node(namespace=namespace, node_id=b_id)
+            if b_node is None:
+                continue
+            children = svc.store.list_nodes_for_path(
+                namespace=namespace,
+                path=rel,
+                level="C",
+                limit=limits.max_c_per_b,
+            )
+            if not children:
+                continue
+            fresh = [
+                n
+                for n in children
+                if str((n.attrs or {}).get("summary_fingerprint", "")).strip()
+            ]
+            coverage = len(fresh) / max(1, len(children))
+            if coverage < limits.min_child_summary_coverage:
+                continue
+            try:
+                svc.summarize_b_call_llm(
+                    namespace=namespace,
+                    b_node_id=b_id,
+                    path=rel,
+                    kind=b_node.kind,
+                    child_nodes=fresh,
+                    user_subgoal=goal,
+                    limits=lim,
+                    command_id=f"{qid_log}:summarize_b:{len(out)+1}",
+                    query_id=qid_log,
+                    complete=lambda raw, phase="summarize_b": (
+                        self._complete_w14_subcommand(
+                            req=req,
+                            request_id=request_id,
+                            phase=phase,
+                            raw_input=raw,
+                        )
+                    ),
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            refreshed = svc.store.fetch_node(namespace=namespace, node_id=b_id)
+            if refreshed is not None:
+                out.append(refreshed)
+        return out
+
+    @staticmethod
+    def _candidate_results_from_c_nodes(
+        nodes: Sequence[Any],
+    ) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for n in nodes:
+            attrs = n.attrs if isinstance(n.attrs, dict) else {}
+            if not str(attrs.get("summary_fingerprint", "") or "").strip():
+                continue
+            out.append(
+                {
+                    "kind": "c_summary",
+                    "path": n.path,
+                    "node_id": n.node_id,
+                    "summary": n.summary,
+                    "read_lines": [],
+                    "reason": "w14_runtime_candidate",
+                },
+            )
+        return out
+
+    def _finish_from_candidates(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        qid_log: str,
+        project_root: Path,
+        namespace: str,
+        goal: str,
+        candidates: list[dict[str, Any]],
+        exhausted: bool,
+    ) -> tuple[str, list[dict[str, Any]]]:
+        selected = candidates[:]
+        if candidates:
+            payload = {
+                "finish": True,
+                "status": "partial" if exhausted else "complete",
+                "selected_results": [
+                    {
+                        "kind": c["kind"],
+                        "path": c["path"],
+                        "node_id": c["node_id"],
+                        "reason": c["reason"],
+                    }
+                    for c in candidates
+                ],
+                "decision_summary": "w14 runtime collected evidence",
+                "recommended_next_step": (
+                    "continue with next file batch" if exhausted else ""
+                ),
+            }
+            env = {
+                "schema_version": AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
+                "command": AgentMemoryCommandName.FINISH_DECISION.value,
+                "command_id": f"{qid_log}:finish_decision",
+                "status": "ok",
+                "payload": payload,
+                "decision_summary": "finish",
+                "violations": [],
+            }
+            try:
+                raw = self._complete_w14_subcommand(
+                    req=req,
+                    request_id=request_id,
+                    phase="finish_decision",
+                    raw_input=_json_dumps(env),
+                )
+                parsed = parse_memory_query_pipeline_llm_text_result(raw).obj
+                pld = parsed.get("payload", {})
+                if isinstance(pld, dict):
+                    raw_sel = pld.get("selected_results", [])
+                    if isinstance(raw_sel, list):
+                        selected = [x for x in raw_sel if isinstance(x, dict)]
+                    st = str(pld.get("status", "") or "")
+                    status = (
+                        st if st in ("complete", "partial", "blocked") else ""
+                    )
+                    if status:
+                        assembled_status, assembled = self._assemble_selected(
+                            project_root=project_root,
+                            namespace=namespace,
+                            selected=selected,
+                        )
+                        return assembled_status or status, assembled
+            except Exception:  # noqa: BLE001
+                pass
+        status = "partial" if exhausted or not selected else "complete"
+        _, assembled = self._assemble_selected(
+            project_root=project_root,
+            namespace=namespace,
+            selected=selected,
+        )
+        return status, assembled
+
+    @staticmethod
+    def _assemble_selected(
+        *,
+        project_root: Path,
+        namespace: str,
+        selected: Sequence[Mapping[str, Any]],
+    ) -> tuple[str, list[dict[str, Any]]]:
+        store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
+        asm = FinishDecisionResultAssembler(
+            project_root=project_root,
+            namespace=namespace,
+            store=store,
+        )
+        results, rejects = asm.assemble_finish_decision_results(selected)
+        status = "partial" if rejects else "complete"
+        if not results:
+            status = "partial"
+        return status, results
+
+    @staticmethod
+    def _span_from_c_attrs(attrs: Mapping[str, Any]) -> tuple[int, int] | None:
+        try:
+            sl = int(attrs.get("start_line", 0) or 0)
+            el = int(attrs.get("end_line", 0) or 0)
+        except (TypeError, ValueError):
+            return None
+        if sl < 1 or el < sl:
+            return None
+        return sl, el
+
+    @staticmethod
+    def _read_lines(path: Path, start_line: int, end_line: int) -> str:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+            lines = text.splitlines()
+        except OSError:
+            return ""
+        lo = max(0, start_line - 1)
+        hi = min(len(lines), end_line)
+        return "\n".join(lines[lo:hi])
 
     def _w14_command_output_rejected_partial(
         self,
