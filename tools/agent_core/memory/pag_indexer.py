@@ -13,6 +13,16 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
 from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_core.runtime.agent_memory_config import (
+    ArtifactsSubConfig,
+    MemoryLlmSubConfig,
+)
+from agent_core.runtime.memory_c_segmentation import (
+    BToCDecompositionService,
+    CNodeBoundary,
+    FullBIngestionPolicy,
+    is_text_like_path,
+)
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.session.repo_context import (
     detect_repo_context,
@@ -131,6 +141,9 @@ class PagIndexer:
     def __init__(self, store: SqlitePagStore) -> None:
         self._store = store
         self._write = PagGraphWriteService(store)
+        self._b2c = BToCDecompositionService()
+        self._ingest_policy = FullBIngestionPolicy(ArtifactsSubConfig())
+        self._llm_mem = MemoryLlmSubConfig()
 
     @staticmethod
     def default_db_path() -> Path:
@@ -166,6 +179,12 @@ class PagIndexer:
             files=files,
             max_bytes=cfg.max_bytes_per_file,
         )
+        self._index_non_python_text_c_files(
+            ns,
+            root,
+            files=files,
+            max_bytes=cfg.max_bytes_per_file,
+        )
         return ns
 
     def sync_changes(
@@ -194,21 +213,26 @@ class PagIndexer:
                 )
                 continue
             self._upsert_file_b_node(ns, root, rel)
-            if abs_p.suffix.lower() == ".py":
-                self._reindex_python_file(
+            if is_text_like_path(rel):
+                mtr: dict[str, str] | None = None
+                if rel.lower().endswith(".py"):
+                    mtr = self._build_module_index([rel])
+                self._reindex_c_for_b_file(
                     ns,
                     root,
                     rel,
                     max_bytes=max_bytes_per_file,
+                    module_to_rel=mtr,
                 )
 
-    def _reindex_python_file(
+    def _reindex_c_for_b_file(
         self,
         ns: str,
         root: Path,
         rel: str,
         *,
         max_bytes: int,
+        module_to_rel: Mapping[str, str] | None = None,
     ) -> None:
         b_id = self._b_node_id(rel)
         self._store.delete_edges_touching_node_ids(
@@ -220,7 +244,13 @@ class PagIndexer:
             level="C",
             path=rel,
         )
-        self._index_python_files(ns, root, files=[rel], max_bytes=max_bytes)
+        self._read_and_upsert_c_decomposition(
+            ns,
+            root,
+            rel,
+            max_bytes,
+            module_to_rel=module_to_rel,
+        )
 
     def _upsert_project_node(
         self,
@@ -277,20 +307,6 @@ class PagIndexer:
     @staticmethod
     def _b_node_id(rel: str) -> str:
         return f"B:{rel}"
-
-    @staticmethod
-    def _c_node_id(
-        rel: str,
-        kind: str,
-        name: str,
-        start: int,
-        end: int,
-    ) -> str:
-        base = f"{rel}#{kind}:{name}:{start}:{end}"
-        h = hashlib.sha1(
-            base.encode("utf-8", errors="replace"),
-        ).hexdigest()[:16]
-        return f"C:{rel}#{h}"
 
     def _walk_relpaths(
         self,
@@ -462,106 +478,136 @@ class PagIndexer:
             return
         module_to_rel = self._build_module_index(py_files)
         for rel in py_files:
-            p = (root / rel).resolve()
-            try:
-                raw = p.read_bytes()
-            except OSError:
-                continue
-            if len(raw) > max_bytes:
-                # Whole-file ingest (capped): decode with 'replace'.
-                text = raw[:max_bytes].decode("utf-8", errors="replace")
-                truncated = True
-            else:
-                text = raw.decode("utf-8", errors="replace")
-                truncated = False
-            self._index_python_file(
+            self._read_and_upsert_c_decomposition(
                 ns,
+                root,
                 rel,
-                text,
+                max_bytes,
                 module_to_rel=module_to_rel,
-                truncated=truncated,
             )
 
-    def _index_python_file(
+    def _index_non_python_text_c_files(
         self,
         ns: str,
-        rel: str,
-        text: str,
+        root: Path,
         *,
-        module_to_rel: Mapping[str, str],
-        truncated: bool,
+        files: Sequence[str],
+        max_bytes: int,
     ) -> None:
-        b_id = self._b_node_id(rel)
-        try:
-            tree = ast.parse(text)
-        except SyntaxError:
-            tree = ast.Module(body=[], type_ignores=[])
-        imports = self._py_imports(tree)
-        symbols = self._py_top_level_symbols(tree)
-        c_node_ids: list[str] = []
-        for s in symbols:
-            c_id = self._c_node_id(
-                rel,
-                s["kind"],
-                s["name"],
-                s["start"],
-                s["end"],
-            )
-            c_node_ids.append(c_id)
-            self._write.upsert_node(
-                namespace=ns,
-                node_id=c_id,
-                level="C",
-                kind=s["kind"],
-                path=rel,
-                title=s["name"],
-                summary=f"{s['kind']} {s['name']}",
-                attrs={
-                    "name": s["name"],
-                    "kind": s["kind"],
-                    "start_line": s["start"],
-                    "end_line": s["end"],
-                    "truncated_source": bool(truncated),
-                },
-                fingerprint=f"{s['start']}:{s['end']}",
-                staleness_state="fresh",
-                source_contract="ailit_pag_store_v1",
-            )
-            self._write.upsert_edge(
-                namespace=ns,
-                edge_id=self._edge_id(
-                    "containment",
-                    "contains",
-                    b_id,
-                    c_id,
-                ),
-                edge_class="containment",
-                edge_type="contains",
-                from_node_id=b_id,
-                to_node_id=c_id,
-                confidence=1.0,
-                source_contract="ailit_pag_store_v1",
-            )
-        for mod in imports:
-            target = module_to_rel.get(mod)
-            if target is None:
+        for rel in files:
+            if not is_text_like_path(rel) or rel.lower().endswith(".py"):
                 continue
-            to_b = self._b_node_id(target)
-            self._write.upsert_edge(
-                namespace=ns,
-                edge_id=self._edge_id(
-                    "cross_link",
-                    "imports",
-                    b_id,
-                    to_b,
-                ),
-                edge_class="cross_link",
-                edge_type="imports",
-                from_node_id=b_id,
-                to_node_id=to_b,
-                confidence=0.6,
-                source_contract="ailit_pag_store_v1",
+            if not (root / rel).resolve().is_file():
+                continue
+            self._read_and_upsert_c_decomposition(
+                ns,
+                root,
+                rel,
+                max_bytes,
+                module_to_rel=None,
             )
+
+    def _read_and_upsert_c_decomposition(
+        self,
+        ns: str,
+        root: Path,
+        rel: str,
+        max_bytes: int,
+        *,
+        module_to_rel: Mapping[str, str] | None = None,
+    ) -> None:
+        p = (root / rel).resolve()
+        try:
+            raw = p.read_bytes()
+        except OSError:
+            return
+        if len(raw) > max_bytes:
+            text = raw[:max_bytes].decode("utf-8", errors="replace")
+        else:
+            text = raw.decode("utf-8", errors="replace")
+        b_id = self._b_node_id(rel)
+        bounds = self._b2c.decompose_b_to_c(
+            rel,
+            text,
+            size_bytes=len(raw),
+            policy=self._ingest_policy,
+            llm=self._llm_mem,
+            source_truncated=len(raw) > max_bytes,
+        )
+        for b in bounds:
+            self._upsert_c_boundary_node(ns, b_id, rel, b)
+        if rel.lower().endswith(".py") and module_to_rel is not None:
+            try:
+                tree = ast.parse(text)
+            except SyntaxError:
+                tree = ast.Module(body=[], type_ignores=[])
+            for mod in self._py_imports(tree):
+                target = module_to_rel.get(mod)
+                if target is None:
+                    continue
+                to_b = self._b_node_id(target)
+                self._write.upsert_edge(
+                    namespace=ns,
+                    edge_id=self._edge_id(
+                        "cross_link",
+                        "imports",
+                        b_id,
+                        to_b,
+                    ),
+                    edge_class="cross_link",
+                    edge_type="imports",
+                    from_node_id=b_id,
+                    to_node_id=to_b,
+                    confidence=0.6,
+                    source_contract="ailit_pag_store_v1",
+                )
+
+    def _upsert_c_boundary_node(
+        self,
+        ns: str,
+        b_id: str,
+        rel: str,
+        b: CNodeBoundary,
+    ) -> str:
+        c_id = b.c_node_id()
+        self._write.upsert_node(
+            namespace=ns,
+            node_id=c_id,
+            level="C",
+            kind=b.pag_kind,
+            path=rel,
+            title=b.title,
+            summary=f"{b.semantic_kind} {b.title}",
+            attrs={
+                "name": b.title,
+                "kind": b.pag_kind,
+                "semantic_kind": b.semantic_kind,
+                "start_line": b.start_line,
+                "end_line": b.end_line,
+                "symbol_key": b.symbol_key,
+                "content_fingerprint": b.content_sha256,
+                "truncated_source": b.source_truncated,
+            },
+            fingerprint=b.content_sha256,
+            staleness_state="fresh",
+            source_contract="ailit_pag_store_v1",
+        )
+        self._write.upsert_edge(
+            namespace=ns,
+            edge_id=self._edge_id(
+                "containment",
+                "contains",
+                b_id,
+                c_id,
+            ),
+            edge_class="containment",
+            edge_type="contains",
+            from_node_id=b_id,
+            to_node_id=c_id,
+            confidence=1.0,
+            source_contract="ailit_pag_store_v1",
+        )
+        return c_id
 
     @staticmethod
     def _py_imports(tree: ast.AST) -> list[str]:
@@ -575,18 +621,6 @@ class PagIndexer:
                 if node.module:
                     out.append(node.module.split(".", 1)[0])
         return sorted(set(out))
-
-    @staticmethod
-    def _py_top_level_symbols(tree: ast.AST) -> list[dict[str, Any]]:
-        out: list[dict[str, Any]] = []
-        for node in getattr(tree, "body", []):
-            if isinstance(node, ast.FunctionDef):
-                out.append(_sym(node.name, "function", node))
-            elif isinstance(node, ast.AsyncFunctionDef):
-                out.append(_sym(node.name, "async_function", node))
-            elif isinstance(node, ast.ClassDef):
-                out.append(_sym(node.name, "class", node))
-        return out
 
     @staticmethod
     def _build_module_index(py_files: Sequence[str]) -> dict[str, str]:
@@ -624,13 +658,6 @@ class PagIndexer:
             raw.encode("utf-8", errors="replace"),
         ).hexdigest()[:16]
         return f"e:{h}"
-
-
-def _sym(name: str, kind: str, node: ast.AST) -> dict[str, Any]:
-    start = int(getattr(node, "lineno", 1) or 1)
-    end_raw = getattr(node, "end_lineno", None)
-    end = int(end_raw) if end_raw is not None else start
-    return {"name": str(name), "kind": str(kind), "start": start, "end": end}
 
 
 def index_project_to_default_store(
