@@ -294,6 +294,26 @@ describe("pagGraphSessionStore", () => {
     expect(Object.keys(r.graphRevByNamespace)).toHaveLength(0);
   });
 
+  it("runReturnsPagSqliteMissingWhenSqliteNotFoundTextWithoutErrorCode", async () => {
+    const missing: PagGraphSliceResult = {
+      ok: false,
+      kind: "ailit_pag_graph_slice_v1",
+      error: "sqlite not found: /home/x/.ailit/pag/store.sqlite3"
+    };
+    const slice: ReturnType<typeof vi.fn> = vi.fn(
+      async (): Promise<PagGraphSliceResult> => missing
+    );
+    const r: Awaited<ReturnType<typeof PagGraphSessionFullLoad.run>> = await PagGraphSessionFullLoad.run(
+      slice,
+      ["_home_x_repo"]
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) {
+      return;
+    }
+    expect(r.pagSqliteMissing).toBe(true);
+  });
+
   it("loadPagGraphMergedPropagatesSliceErrorCode", async () => {
     const rSlice: PagGraphSliceResult = {
       ok: false,

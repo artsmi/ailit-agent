@@ -89,6 +89,23 @@ export class PagGraphWorkspaceNamespaces {
   }
 }
 
+/**
+ * `code: missing_db` в JSON pag-slice; без кода (старый ailit/IPC) — тот же смысл по тексту memory_cli.
+ */
+function isPagSqliteFileMissingError(message: string, errorCode: string | undefined): boolean {
+  if (errorCode === "missing_db") {
+    return true;
+  }
+  const m: string = message.toLowerCase();
+  if (m.includes("sqlite not found")) {
+    return true;
+  }
+  if (m.includes("no such file") && m.includes("sqlite")) {
+    return true;
+  }
+  return false;
+}
+
 export class PagGraphSessionFullLoad {
   static async run(
     slice: PagGraphSliceFn,
@@ -107,7 +124,7 @@ export class PagGraphSessionFullLoad {
       return { ok: true, merged: { nodes: [], links: [] }, graphRevByNamespace: {} };
     }
     const errors: string[] = [];
-    const failCodes: (string | undefined)[] = [];
+    const failMeta: { readonly code: string | undefined; readonly message: string }[] = [];
     let merged: MemoryGraphData = { nodes: [], links: [] };
     const revs: Record<string, number> = {};
     for (const namespace of namespaces) {
@@ -116,8 +133,8 @@ export class PagGraphSessionFullLoad {
         { namespace, level: null }
       );
       if (!r.ok) {
+        failMeta.push({ code: r.errorCode, message: r.error });
         errors.push(`${namespace}: ${r.error}`);
-        failCodes.push(r.errorCode);
         continue;
       }
       revs[namespace] = r.graphRev;
@@ -141,7 +158,8 @@ export class PagGraphSessionFullLoad {
     }
     if (errors.length > 0 && merged.nodes.length === 0 && merged.links.length === 0) {
       const allMissing: boolean =
-        errors.length === namespaces.length && failCodes.every((c) => c === "missing_db");
+        failMeta.length === namespaces.length &&
+        failMeta.every((f) => isPagSqliteFileMissingError(f.message, f.code));
       if (allMissing) {
         return {
           ok: true,
