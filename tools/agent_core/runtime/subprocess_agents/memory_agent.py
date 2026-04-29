@@ -1,8 +1,9 @@
 """AgentMemory subprocess worker (G8.4.2, memory slice adapter).
 
 The worker owns the Desktop actor contract for ``memory.query_context``:
-it returns both legacy ``MemoryGrant`` objects and a prompt-ready
-``memory_slice`` with PAG node ids for Context Ledger / Memory 3D.
+it returns ``MemoryGrant`` objects, a ``memory_slice`` (compatibility
+projection) and W14 ``agent_memory_result`` (``agent_memory_result.v1``)
+as the source of truth in the response payload.
 """
 
 from __future__ import annotations
@@ -58,12 +59,18 @@ from agent_core.runtime.memory_change_update_service import (
 from agent_core.runtime.agent_work_change_feedback import (
     AgentWorkChangeFeedback,
 )
+from agent_core.runtime.agent_memory_result_v1 import (
+    build_agent_memory_result_v1,
+)
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
     MemoryGrant,
     MemoryGrantRange,
     RuntimeRequestEnvelope,
     make_response_envelope,
+)
+from agent_core.runtime.w14_clean_replacement import (
+    W14_CLEAN_REPLACEMENT_REQUESTED_READS_IN_CLIENT_PAYLOAD_REJECTED,
 )
 from agent_core.runtime.memory_c_remap import (
     CRemapBatchResult,
@@ -1043,6 +1050,28 @@ class AgentMemoryWorker:
             )
             return out
         request_id = str(req.payload.get("request_id", "") or req.message_id)
+        if W14_CLEAN_REPLACEMENT_REQUESTED_READS_IN_CLIENT_PAYLOAD_REJECTED:
+            raw_rr: Any = req.payload.get("requested_reads")
+            if isinstance(raw_rr, list) and len(raw_rr) > 0:
+                out = make_response_envelope(
+                    request=req,
+                    ok=False,
+                    payload={},
+                    error={
+                        "code": "legacy_contract_rejected",
+                        "message": (
+                            "W14 clean replacement: client field "
+                            "requested_reads is not supported"
+                        ),
+                    },
+                ).to_dict()
+                self._log_handle_error(
+                    req,
+                    request_id=request_id,
+                    service="memory.query_context",
+                    out=out,
+                )
+                return out
         goal = str(req.payload.get("goal", "") or "")
         if not goal.strip():
             goal = str(req.payload.get("need", "") or "")
@@ -1258,11 +1287,22 @@ class AgentMemoryWorker:
                 "compact": cj.to_payload(),
             },
         )
+        qid_payload = str(req.payload.get("query_id", "") or "").strip()
+        am_query_id: str = qid_payload or f"mem-{request_id}"
+        agent_mem_res = build_agent_memory_result_v1(
+            query_id=am_query_id,
+            status=("partial" if final_partial else "complete"),
+            memory_slice=dict(memory_slice),
+            partial=final_partial,
+            decision_summary=decision_summary,
+            recommended_next_step=recommended_next_step,
+        )
         ok_out = make_response_envelope(
             request=req,
             ok=True,
             payload={
                 "memory_slice": memory_slice,
+                "agent_memory_result": agent_mem_res,
                 "grants": grants,
                 "project_refs": project_refs,
                 "partial": final_partial,
