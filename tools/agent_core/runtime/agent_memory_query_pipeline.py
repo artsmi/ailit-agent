@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TYPE_CHECKING, Final, Mapping, Sequence
+from typing import Any, TYPE_CHECKING, Mapping, Sequence
 
 from agent_core.models import ChatMessage, ChatRequest, MessageRole
 from agent_core.providers.protocol import ChatProvider
@@ -34,8 +34,6 @@ from agent_core.runtime.memory_llm_optimization_policy import (
 from agent_core.runtime.models import RuntimeRequestEnvelope
 from agent_core.memory.pag_runtime import PagRuntimeConfig
 from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.runtime.link_claim_resolver import LinkClaimResolver
-from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 
 if TYPE_CHECKING:
     from agent_core.runtime.subprocess_agents.memory_agent import (
@@ -45,35 +43,23 @@ if TYPE_CHECKING:
 # G14R.6: C/B LLM — `agent_core.runtime.agent_memory_summary_service` (D14R.4);
 # не `agent_core.legacy` C extraction.
 
-# G13 JSON key split: substring only in legacy-adapter block (W14R comment).
-_LEGACY_REQUESTED_READS_KEY: Final[str] = "requested" + "_reads"
-
-# W14R legacy planner prompt; command-protocol prompts replace in G14R.3.
-PLANNER_SYSTEM: str = f"""You are AgentMemory planner. Return ONLY JSON.
-No markdown, no chain-of-thought. Fields:
-selected_projects: string[]
-selected_b_nodes: string[]
-{_LEGACY_REQUESTED_READS_KEY}: {{path: string, reason: string}}[]
-extraction_targets: {{path: string, kind: string, name: string}}[]
-c_upserts: {{node_id: string, level: string, kind: string, path: string,
-  title: string, summary: string, fingerprint: string}}[]
-link_claims: optional; each item: from_node_id, to_node_id (or to_stable_key),
-  relation_type (enum), confidence (0..1)
-decision_summary: string
-partial: boolean
-recommended_next_step: string
-"""
+# G14R.11: первый LLM-раунд — plan_traversal (C14R.5). G13 planner снят.
+W14_PLAN_TRAVERSAL_SYSTEM: str = (
+    "Ты выполняешь команду AgentMemory plan_traversal. "
+    "Для user_subgoal из входного JSON (goal, namespace, explicit_paths) "
+    "верни только JSON agent_memory_command_output.v1, "
+    "command=plan_traversal. "
+    "Поля: schema_version, command, command_id, status, payload "
+    "(actions, is_final, final_answer_basis), decision_summary, violations. "
+    "actions[].action: list_children|get_b_summary|get_c_content|"
+    "decompose_b_to_c|summarize_b|finish; пути — POSIX relpath. "
+    "Не выдумывай пути; не проси сырой B content. "
+    "См. plan/14-agent-memory-runtime.md C14R.5 для полной схемы."
+)
 
 
 def _json_dumps(obj: Mapping[str, Any]) -> str:
     return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
-
-
-def _c_level(raw: str) -> str:
-    s = (raw or "C").strip().upper()
-    if len(s) == 1 and s in "ABCD":
-        return s
-    return "C"
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,7 +79,7 @@ class AgentMemoryQueryPipelineResult:
 
 
 class AgentMemoryQueryPipeline:
-    """LLM plan → PAG grow по путям планера → c_upserts → slice."""
+    """W14: plan_traversal / finish_decision → PAG (no G13 c_upserts)."""
 
     def __init__(
         self,
@@ -228,7 +214,7 @@ class AgentMemoryQueryPipeline:
                 messages=(
                     ChatMessage(
                         role=MessageRole.SYSTEM,
-                        content=PLANNER_SYSTEM,
+                        content=W14_PLAN_TRAVERSAL_SYSTEM,
                     ),
                     ChatMessage(
                         role=MessageRole.USER,
@@ -377,130 +363,28 @@ class AgentMemoryQueryPipeline:
                     nspace=nspace,
                     partial_plan=partial_plan,
                 )
-        c_ups: Any = plan_obj.get("c_upserts", [])
-        if not isinstance(c_ups, list):
-            c_ups = []
-        link_claims_list: Any = plan_obj.get("link_claims", [])
-        if not isinstance(link_claims_list, list):
-            link_claims_list = []
-        # W14R legacy adapter remove after G14R.3: G13 planner field
-        # for PAG grow; W14 command protocol supersedes.
-        req_reads: Any = plan_obj.get(_LEGACY_REQUESTED_READS_KEY, [])
-        rels: list[str] = [
-            str(x.get("path", "")).strip()
-            for x in (req_reads if isinstance(req_reads, list) else [])
-            if isinstance(x, dict)
-        ]
-        rels = [p for p in rels if p] or list(explicit_paths)
-        self._w.log_memory_planner_parsed(  # noqa: SLF001
-            req,
-            request_id,
-            plan=plan_obj,
-            paths_for_grow=list(rels),
-            grow_will_run=bool(rels),
-        )
-        if rels:
-            self._w._grow_pag_for_query(  # noqa: SLF001
+            return self._w14_intermediate_command_result(
                 req=req,
                 request_id=request_id,
+                qid_log=qid_log,
+                w14_next_step_id=_w14_next_step_id,
+                plan_obj=plan_obj,
                 project_root=project_root,
                 goal=goal,
-                explicit_paths=rels,
+                query_kind=query_kind,
+                level=level,
+                nspace=nspace,
+                explicit_paths=explicit_paths,
             )
-        created: list[str] = []
-        vclaims_for_log: list[dict[str, Any]] = [
-            x
-            for x in link_claims_list
-            if isinstance(x, dict)
-        ]
-        if c_ups or link_claims_list:
-            store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
-            write = PagGraphWriteService(store)
-            hook = self._w._graph_trace_hook(  # noqa: SLF001
-                req,
-                request_id=request_id,
-                service="memory.query_context",
-            )
-            with store.graph_trace(hook):
-                for c in c_ups:
-                    if not isinstance(c, dict):
-                        continue
-                    node_id = str(c.get("node_id", "") or "").strip()
-                    if not node_id:
-                        continue
-                    path_v = str(
-                        c.get("path", rels[0] if rels else "") or "",
-                    )[:2_000]
-                    write.upsert_node(
-                        namespace=nspace,
-                        node_id=node_id,
-                        level=_c_level(str(c.get("level", "C") or "C")),
-                        kind=str(c.get("kind", "chunk") or "chunk")[:200],
-                        path=path_v,
-                        title=str(
-                            c.get("title", node_id) or node_id,
-                        )[:2_000],
-                        summary=str(c.get("summary", "") or "")[:4_000],
-                        attrs={},
-                        fingerprint=str(
-                            c.get("fingerprint", "")
-                            or f"llm:{node_id[:80]}",
-                        )[:200],
-                        staleness_state="fresh",
-                    )
-                    created.append(node_id)
-                if vclaims_for_log:
-                    resolver = LinkClaimResolver()
-                    _ = resolver.apply_link_claims(
-                        write,
-                        namespace=nspace,
-                        claims=vclaims_for_log,
-                    )
-        self._w.log_memory_graph_write(  # noqa: SLF001
-            req,
-            request_id,
-            created_node_ids=list(created),
-            link_claims_count=len(vclaims_for_log),
-        )
-        memory_slice = self._w._slice_from_pag(  # noqa: SLF001
+        return self._partial_json_fallback(
+            req=req,
+            request_id=request_id,
             project_root=project_root,
-            namespace=nspace,
+            explicit_paths=explicit_paths,
             goal=goal,
             query_kind=query_kind,
             level=level,
-        )
-        if not memory_slice:
-            memory_slice = {
-                "kind": "memory_slice",
-                "schema": "memory.slice.v1",
-                "level": level,
-                "node_ids": list(created),
-                "edge_ids": [],
-                "injected_text": (goal[:400] + "\n") if goal else "\n",
-                "estimated_tokens": 0,
-                "staleness": "synthetic" if created else "fallback",
-                "reason": "planner_upsert_slice" if created else "empty_slice",
-            }
-        ms = dict(memory_slice)
-        nids = list(ms.get("node_ids") or [])
-        for cid in created:
-            if cid not in nids:
-                nids.append(cid)
-        ms["node_ids"] = nids
-        ms["partial"] = bool(ms.get("partial", False) or partial_plan)
-        dsum = str(
-            plan_obj.get("decision_summary", "") or "planner ok",
-        )[:1_200]
-        rns = str(plan_obj.get("recommended_next_step", "") or "")[:500]
-        return AgentMemoryQueryPipelineResult(
-            memory_slice=ms,
-            partial=bool(ms.get("partial", False)),
-            decision_summary=dsum,
-            recommended_next_step=rns,
-            created_node_ids=created,
-            created_edge_ids=[],
-            used_llm=True,
-            llm_disabled_fallback=False,
+            nspace=nspace,
         )
 
     def _try_mechanical_slice(
@@ -642,6 +526,84 @@ class AgentMemoryQueryPipeline:
             llm_disabled_fallback=False,
             am_v1_explicit_results=results,
             am_v1_status=inner,
+        )
+
+    def _w14_intermediate_command_result(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        qid_log: str,
+        w14_next_step_id: Callable[[], str],
+        plan_obj: dict[str, Any],
+        project_root: str,
+        goal: str,
+        query_kind: str,
+        level: str,
+        nspace: str,
+        explicit_paths: list[str],
+    ) -> AgentMemoryQueryPipelineResult:
+        """
+        G14R.11: W14 envelope, command != finish_decision.
+
+        Один run() — partial slice + PAG grow по explicit_paths; без c_upserts.
+        """
+        self._w.log_memory_w14_runtime_step(  # noqa: SLF001
+            req,
+            request_id,
+            step_id=w14_next_step_id(),
+            state="w14_command_parsed",
+            next_state="w14_intermediate_slice",
+            action_kind=str(plan_obj.get("command", "") or "w14_intermediate"),
+            query_id=qid_log,
+            counters={"w14_intermediate": 1},
+        )
+        self._w._grow_pag_for_query(  # noqa: SLF001
+            req=req,
+            request_id=request_id,
+            project_root=project_root,
+            goal=goal,
+            explicit_paths=explicit_paths,
+        )
+        ms0 = self._w._slice_from_pag(  # noqa: SLF001
+            project_root=project_root,
+            namespace=nspace,
+            goal=goal,
+            query_kind=query_kind,
+            level=level,
+        )
+        ms2: dict[str, Any] = dict(
+            ms0
+            or {
+                "kind": "memory_slice",
+                "schema": "memory.slice.v1",
+                "level": level,
+                "node_ids": [],
+                "edge_ids": [],
+                "injected_text": (goal[:400] + "\n") if goal else "\n",
+                "estimated_tokens": 0,
+                "staleness": "w14_intermediate",
+                "reason": "w14_intermediate_no_runtime_loop",
+            },
+        )
+        ms2["partial"] = True
+        dsum = str(
+            plan_obj.get("decision_summary", "")
+            or "W14: промежуточная команда; нужны следующие runtime-шаги",
+        )[:1_200]
+        rns = str(
+            plan_obj.get("recommended_next_step", "")
+            or "Повторите memory query после расширения PAG",
+        )[:500]
+        return AgentMemoryQueryPipelineResult(
+            memory_slice=ms2,
+            partial=True,
+            decision_summary=dsum,
+            recommended_next_step=rns,
+            created_node_ids=[],
+            created_edge_ids=[],
+            used_llm=True,
+            llm_disabled_fallback=False,
         )
 
     def _w14_command_output_rejected_partial(

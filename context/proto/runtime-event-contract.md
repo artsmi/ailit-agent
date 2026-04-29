@@ -313,6 +313,8 @@ Snapshot события (`state.snapshot.created`) обязаны содержа
 
 ## W14R / G14R.10 — AgentMemory journal (compact, desktop-safe)
 
+**G14R.11:** runtime `AgentMemoryQueryPipeline` больше не исполняет G13 JSON (`c_upserts` / `requested_reads`); первый LLM-раунд — `plan_traversal`, финал — `finish_decision` → `payload.agent_memory_result` (см. `plan/14-agent-memory-runtime.md`).
+
 События пишутся в AgentMemory JSONL journal (`MemoryJournalRow`, `event_name`) и, при `memory.debug.verbose=1`, зеркалятся в `chat_logs` только для `memory.chat_debug.command` (см. C14R.11). Запрещено дублировать сырой prompt, CoT, полные тексты файлов и длинные summary из `agent_memory_result` в journal.
 
 | `event_name` (journal) | Когда | Обязательные поля `payload` (компакт) |

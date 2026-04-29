@@ -21,10 +21,12 @@ from agent_core.models import (
     NormalizedUsage,
 )
 from agent_core.providers.protocol import ChatProvider
+from agent_core.runtime.link_claim_resolver import LinkClaimResolver
 from agent_core.runtime.models import (
     RuntimeIdentity,
     make_request_envelope,
 )
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,
@@ -74,7 +76,11 @@ class _SeqProvider:
 
     def complete(self, request: ChatRequest) -> NormalizedChatResponse:
         self.calls.append(request)
-        body = self._bodies.pop(0) if self._bodies else '{"c_upserts":[]}'
+        body = (
+            self._bodies.pop(0)
+            if self._bodies
+            else '{"not":"w14_envelope"}'
+        )
         return NormalizedChatResponse(
             text_parts=(body,),
             tool_calls=(),
@@ -124,13 +130,43 @@ def _row_matches_desktop_pag_graph_trace_row(row: dict[str, Any]) -> bool:
     return True
 
 
+def _w14_finish_one(path: str, node_id: str) -> str:
+    o: dict[str, Any] = {
+        "schema_version": "agent_memory_command_output.v1",
+        "command": "finish_decision",
+        "command_id": "cmd-g13-int",
+        "status": "ok",
+        "payload": {
+            "finish": True,
+            "status": "complete",
+            "selected_results": [
+                {
+                    "kind": "c_summary",
+                    "path": path,
+                    "node_id": node_id,
+                    "summary": None,
+                    "read_lines": [],
+                    "reason": "g13 int",
+                },
+            ],
+            "decision_summary": "ok",
+            "recommended_next_step": "",
+        },
+        "decision_summary": "ok",
+        "violations": [],
+    }
+    return json.dumps(o, ensure_ascii=False)
+
+
 def test_llm_to_c_edge_trace_desktop_parser_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """
-    G13.7: handle → PAG (сервис) → ``pag.*`` в durable trace; строка совместима
-    с desktop parser; C и ребро в SQLite; ``graph_rev`` растёт.
+    G13.7: PAG writes + trace, затем W14 finish_decision.
+
+    G14R.11: G13 planner JSON не исполняется; ноды/ребро — PagGraphWriteService
+    + graph_trace (тот же hook, что handle).
     """
     db = tmp_path / "g13int.sqlite3"
     monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
@@ -138,43 +174,11 @@ def test_llm_to_c_edge_trace_desktop_parser_path(
     root.mkdir()
     f = root / "m.py"
     f.write_text("def a():\n  pass\ndef b():\n  pass\n", encoding="utf-8")
-    plan: dict[str, Any] = {
-        "selected_projects": [],
-        "selected_b_nodes": ["B:m.py"],
-        "requested_reads": [{"path": "m.py", "reason": "read"}],
-        "c_upserts": [
-            {
-                "node_id": "C:m.py#a",
-                "level": "C",
-                "kind": "function",
-                "path": "m.py",
-                "title": "a",
-                "summary": "sa",
-                "fingerprint": "fp_a",
-            },
-            {
-                "node_id": "C:m.py#b",
-                "level": "C",
-                "kind": "function",
-                "path": "m.py",
-                "title": "b",
-                "summary": "sb",
-                "fingerprint": "fp_b",
-            },
-        ],
-        "link_claims": [
-            {
-                "from_node_id": "C:m.py#a",
-                "to_node_id": "C:m.py#b",
-                "relation_type": "calls",
-                "confidence": 0.9,
-            },
-        ],
-        "decision_summary": "plan ok",
-        "partial": False,
-        "recommended_next_step": "done",
-    }
-    prov: ChatProvider = _SeqProvider([json.dumps(plan, ensure_ascii=False)])
+    env = _planner_envelope(
+        project_root=root,
+        path="m.py",
+    )
+    prov: ChatProvider = _SeqProvider([_w14_finish_one("m.py", "C:m.py#a")])
     w = AgentMemoryWorker(
         MemoryAgentConfig(
             chat_id="c1",
@@ -185,12 +189,54 @@ def test_llm_to_c_edge_trace_desktop_parser_path(
     monkeypatch.setattr(w, "_provider", prov, raising=False)
     buf: StringIO = StringIO()
     with patch("sys.stdout", new=buf):
-        out: dict[str, Any] = w.handle(  # type: ignore[assignment]
-            _planner_envelope(
-                project_root=root,
-                path="m.py",
-            )  # type: ignore[arg-type]
+        store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
+        write = PagGraphWriteService(store)
+        hook = w._graph_trace_hook(
+            env,
+            request_id="r-g13-7",
+            service="memory.query_context",
         )
+        claims: list[dict[str, Any]] = [
+            {
+                "from_node_id": "C:m.py#a",
+                "to_node_id": "C:m.py#b",
+                "relation_type": "calls",
+                "confidence": 0.9,
+            },
+        ]
+        with store.graph_trace(hook):
+            for spec in (
+                {
+                    "node_id": "C:m.py#a",
+                    "title": "a",
+                    "summary": "sa",
+                    "fingerprint": "fp_a",
+                },
+                {
+                    "node_id": "C:m.py#b",
+                    "title": "b",
+                    "summary": "sb",
+                    "fingerprint": "fp_b",
+                },
+            ):
+                write.upsert_node(
+                    namespace="g13-int",
+                    node_id=str(spec["node_id"]),
+                    level="C",
+                    kind="function",
+                    path="m.py",
+                    title=str(spec["title"]),
+                    summary=str(spec["summary"]),
+                    attrs={},
+                    fingerprint=str(spec["fingerprint"]),
+                    staleness_state="fresh",
+                )
+            _ = LinkClaimResolver().apply_link_claims(
+                write,
+                namespace="g13-int",
+                claims=claims,
+            )
+        out: dict[str, Any] = w.handle(env)  # type: ignore[assignment]
     assert out.get("ok") is True
     st = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
     assert st.fetch_node(namespace="g13-int", node_id="C:m.py#a") is not None

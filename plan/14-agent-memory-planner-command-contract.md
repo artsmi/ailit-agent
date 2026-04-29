@@ -2,7 +2,7 @@
 
 **Идентификатор:** `agent-memory-planner-command-contract-14` (файл `plan/14-agent-memory-planner-command-contract.md`).
 
-**Статус:** **открыт** (этапы G14.1–G14.6; закрытие — после DoD и сквозного теста). Актуальный план: этот документ; Workflow 13 закрыт, настоящий план **расширяет** G13, не дублируя recovery trace/desktop.
+**Статус:** **суперсeded** рабочим планом **[`plan/14-agent-memory-runtime.md`](14-agent-memory-runtime.md)** (W14R, G14R.*). Этот файл остаётся **историческим** контекстом (G14.1–G14.6, enum `op`, идеи `repo_inventory` / path dispatch). Нормативный runtime и DoD: W14R (закрыт G14R.11).
 
 Канон процесса: [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc). Референс закрытого тела памяти: [`plan/13-agent-memory-contract-recovery.md`](13-agent-memory-contract-recovery.md), [`plan/11-agent-memory-llm-journal.md`](11-agent-memory-llm-journal.md).
 

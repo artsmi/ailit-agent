@@ -11,6 +11,7 @@ import pytest
 
 from agent_core.memory.pag_runtime import PagRuntimeConfig
 from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.models import (
     ChatRequest,
     FinishReason,
@@ -38,7 +39,10 @@ class _SeqProvider:
 
     def complete(self, request: ChatRequest) -> NormalizedChatResponse:
         self.calls.append(request)
-        body = self._bodies.pop(0) if self._bodies else '{"c_upserts":[]}'
+        if self._bodies:
+            body = self._bodies.pop(0)
+        else:
+            body = '{"not":"w14_envelope"}'
         return NormalizedChatResponse(
             text_parts=(body,),
             tool_calls=(),
@@ -87,6 +91,38 @@ def _env(
     )
 
 
+def _w14_finish_c_summary(
+    path: str,
+    node_id: str,
+) -> str:
+    """G14R.11: ответ планнера — только W14 finish_decision (PAG заранее)."""
+    plan = {
+        "schema_version": "agent_memory_command_output.v1",
+        "command": "finish_decision",
+        "command_id": "cmd-finish-g13",
+        "status": "ok",
+        "payload": {
+            "finish": True,
+            "status": "complete",
+            "selected_results": [
+                {
+                    "kind": "c_summary",
+                    "path": path,
+                    "node_id": node_id,
+                    "summary": None,
+                    "read_lines": [],
+                    "reason": "g13 test",
+                },
+            ],
+            "decision_summary": "ok",
+            "recommended_next_step": "",
+        },
+        "decision_summary": "ok",
+        "violations": [],
+    }
+    return json.dumps(plan, ensure_ascii=False)
+
+
 def test_query_context_creates_c_node_via_structured_llm(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -95,27 +131,24 @@ def test_query_context_creates_c_node_via_structured_llm(
     monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
     pyf = tmp_path / "m.py"
     pyf.write_text("def f():\n    return 1\n", encoding="utf-8")
-    plan = {
-        "selected_projects": [],
-        "selected_b_nodes": ["B:m.py"],
-        "requested_reads": [{"path": "m.py", "reason": "x"}],
-        "extraction_targets": [],
-        "c_upserts": [
-            {
-                "node_id": "C:m.py#c1",
-                "level": "C",
-                "kind": "function",
-                "path": "m.py",
-                "title": "f",
-                "summary": "s",
-                "fingerprint": "fp9",
-            },
-        ],
-        "decision_summary": "ok",
-        "partial": False,
-        "recommended_next_step": "done",
-    }
-    prov: ChatProvider = _SeqProvider([json.dumps(plan, ensure_ascii=False)])
+    wseed = PagGraphWriteService(
+        SqlitePagStore(PagRuntimeConfig.from_env().db_path),
+    )
+    wseed.upsert_node(
+        namespace="ns-t",
+        node_id="C:m.py#c1",
+        level="C",
+        kind="function",
+        path="m.py",
+        title="f",
+        summary="s",
+        attrs={},
+        fingerprint="fp9",
+        staleness_state="fresh",
+    )
+    prov: ChatProvider = _SeqProvider(
+        [_w14_finish_c_summary("m.py", "C:m.py#c1")],
+    )
     w = AgentMemoryWorker(
         MemoryAgentConfig(
             chat_id="c1",

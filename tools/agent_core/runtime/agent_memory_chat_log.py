@@ -56,7 +56,7 @@ MEMORY_AUDIT_WHY: Final[dict[str, str]] = {
         "Planner response not valid JSON after parse attempts: grow + partial"
     ),
     MEMORY_AUDIT_A5_LLM_PLANNER: (
-        "Invoke memory planner LLM (requested_reads, c_upserts plan)"
+        "Invoke AgentMemory W14 LLM (plan_traversal, finish_decision)"
     ),
     MEMORY_AUDIT_A6_W14_COMMAND_REJECTED: (
         "W14 agent_memory_command_output.v1 rejected "

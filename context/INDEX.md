@@ -29,7 +29,7 @@
 
 На `Этапе 6` добавлены **workflow_engine**, CLI **`ailit`**, пример [`examples/workflows/minimal.yaml`](../examples/workflows/minimal.yaml) и руководство [`user-test.md`](../user-test.md).
 
-Дальнейшие этапы (память, PAG, broker/agents, **desktop**, Context Ledger и т.д.) зафиксированы в [`README.md`](../README.md) и соответствующих документах `plan/*`. План **[`plan/13-agent-memory-contract-recovery.md`](../plan/13-agent-memory-contract-recovery.md)** (Workflow 13) **закрыт** (G13.0–G13.8). Workflow 12 — архивная ветка PAG trace/delta; фактический сквозной contract зафиксирован в W13. Канон событий PAG-графа, IPC `memory.change_feedback` и DTO семантического C/link claims — в **`context/proto/runtime-event-contract.md`** (финальные схемы G13.8). Таблица статуса — в корневом README.
+Дальнейшие этапы (память, PAG, broker/agents, **desktop**, Context Ledger и т.д.) зафиксированы в [`README.md`](../README.md) и соответствующих документах `plan/*`. План **[`plan/13-agent-memory-contract-recovery.md`](../plan/13-agent-memory-contract-recovery.md)** (Workflow 13) **закрыт** (G13.0–G13.8). План **[`plan/14-agent-memory-runtime.md`](../plan/14-agent-memory-runtime.md)** (W14R, AgentMemory command protocol) **закрыт** (G14R.0–G14R.11). Старый [`plan/14-agent-memory-planner-command-contract.md`](../plan/14-agent-memory-planner-command-contract.md) — **суперсeded** W14R. Workflow 12 — архивная ветка PAG trace/delta. Канон: **`context/proto/runtime-event-contract.md`** (G13.8 + секция W14R journal/compact), таблица статуса — корневой `README.md`.
 
 ## Разделы
 

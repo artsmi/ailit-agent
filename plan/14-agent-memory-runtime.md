@@ -2,7 +2,7 @@
 
 **Идентификатор:** `agent-memory-runtime-14` (файл `plan/14-agent-memory-runtime.md`).
 
-**Статус:** **открыт**. Это не MVP и не точечная правка старого prompt планировщика. Это план рефакторинга runtime AgentMemory и реализации ключевой фичи: LLM-направляемая память проекта с жёсткими командами, машиной состояний и проверяемым контрактом результата.
+**Статус:** **закрыт (G14R.0–G14R.11, 2026-04-29).** Реализация: W14 `AgentMemoryQueryPipeline` (`plan_traversal` / `finish_decision`), `payload.agent_memory_result`, без G13 `c_upserts`/`requested_reads` в ответе планнера; legacy C extraction — `agent_core.legacy`; интеграция — `tests/test_g14r11_w14_integration.py`.
 
 Канон процесса: [`.cursor/rules/project-workflow.mdc`](../.cursor/rules/project-workflow.mdc). Исторический источник проблемы: [`plan/14-agent-memory-planner-command-contract.md`](14-agent-memory-planner-command-contract.md) — считать примером недостаточно строгой постановки, а не целевым контрактом.
 
