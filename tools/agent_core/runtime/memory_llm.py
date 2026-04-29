@@ -175,6 +175,18 @@ class AgentMemoryLLMLoop:
                 summary=f"start {level} exploration",
                 payload={"known_nodes_count": len(selected)},
             )
+            if self._debug_log is not None and self._debug_log.enabled:
+                self._debug_log.log_audit(
+                    raw_chat_id=chat_id,
+                    event="memory.explore_loop",
+                    request_id=request_id,
+                    topic=f"pass_{level}.started",
+                    service="memory.explore_loop",
+                    body={
+                        "namespace": namespace,
+                        "known_nodes_count": len(selected),
+                    },
+                )
             try:
                 decision = self._invoke_pass(
                     level=level,
@@ -202,6 +214,15 @@ class AgentMemoryLLMLoop:
                     node_ids=list(decision.selected_nodes),
                     payload=decision.to_payload(),
                 )
+                if self._debug_log is not None and self._debug_log.enabled:
+                    self._debug_log.log_audit(
+                        raw_chat_id=chat_id,
+                        event="memory.explore_loop",
+                        request_id=request_id,
+                        topic="parse_failed",
+                        service="memory.explore_loop",
+                        body=decision.to_payload(),
+                    )
                 return decision
             selected = decision.selected_nodes or selected
             latest = decision
@@ -214,6 +235,15 @@ class AgentMemoryLLMLoop:
                 node_ids=list(decision.selected_nodes),
                 payload=decision.to_payload(),
             )
+            if self._debug_log is not None and self._debug_log.enabled:
+                self._debug_log.log_audit(
+                    raw_chat_id=chat_id,
+                    event="memory.explore_loop",
+                    request_id=request_id,
+                    topic=f"pass_{level}.finished",
+                    service="memory.explore_loop",
+                    body=decision.to_payload(),
+                )
             if decision.partial:
                 return decision
         if latest is None:
@@ -282,6 +312,7 @@ class AgentMemoryLLMLoop:
                     request=req,
                     response=None,
                     error=f"{type(exc).__name__}:{exc}",
+                    service="memory.explore_loop",
                 )
             raise
         if self._debug_log is not None:
@@ -292,6 +323,7 @@ class AgentMemoryLLMLoop:
                 request=req,
                 response=resp,
                 error=None,
+                service="memory.explore_loop",
             )
         text = "".join(resp.text_parts).strip()
         decision = parse_memory_llm_decision(

@@ -28,6 +28,7 @@ from agent_core.runtime.agent_memory_ailit_config import (
 from agent_core.runtime.agent_memory_chat_log import (
     AgentMemoryChatDebugLog,
     MEMORY_AUDIT_WHY,
+    audit_jsonable,
 )
 from agent_core.runtime.d_creation_policy import (
     DCreationPolicy,
@@ -127,11 +128,16 @@ class AgentMemoryWorker:
             expires_at="2099-01-01T00:00:00Z",
         )
 
-    @staticmethod
     def _graph_trace_hook(
+        self,
         req: RuntimeRequestEnvelope,
+        *,
+        request_id: str,
+        service: str,
+        change_batch_id: str | None = None,
     ) -> Callable[[str, str, int, dict[str, Any]], None]:
-        """Колбек для SqlitePagStore.graph_trace: G12.1 дельты в trace."""
+        """graph_trace: desktop trace + chat_logs (verbose)."""
+        w = self
 
         def _cb(
             op: str,
@@ -139,6 +145,21 @@ class AgentMemoryWorker:
             rev: int,
             data: dict[str, Any],
         ) -> None:
+            if w._chat_debug.enabled:
+                w._chat_debug.log_audit(
+                    raw_chat_id=req.chat_id,
+                    event="memory.pag_graph",
+                    request_id=request_id,
+                    topic=f"graph_{op}",
+                    service=service,
+                    change_batch_id=change_batch_id,
+                    body={
+                        "op": op,
+                        "namespace": namespace,
+                        "rev": rev,
+                        "data": audit_jsonable(data),
+                    },
+                )
             if op == "node":
                 emit_pag_graph_trace_row(
                     req=req,
@@ -181,6 +202,27 @@ class AgentMemoryWorker:
 
         return _cb
 
+    def _log_handle_error(
+        self,
+        req: RuntimeRequestEnvelope,
+        *,
+        request_id: str,
+        service: str,
+        out: Mapping[str, Any],
+        change_batch_id: str | None = None,
+    ) -> None:
+        if not self._chat_debug.enabled:
+            return
+        self._chat_debug.log_audit(
+            raw_chat_id=req.chat_id,
+            event="memory.error",
+            request_id=request_id,
+            topic="handler_reject",
+            service=service,
+            change_batch_id=change_batch_id,
+            body={"response": dict(out)},
+        )
+
     def _append_journal(
         self,
         *,
@@ -216,6 +258,9 @@ class AgentMemoryWorker:
         c_req: ChatRequest,
         resp: NormalizedChatResponse | None,
         exc: BaseException | None = None,
+        *,
+        service: str = "memory.query_context",
+        change_batch_id: str | None = None,
     ) -> None:
         """`memory.debug.verbose=1` — полные LLM-запрос/ответ в chat_logs."""
         err: str | None = None
@@ -228,6 +273,8 @@ class AgentMemoryWorker:
             request=c_req,
             response=resp,
             error=err,
+            service=service,
+            change_batch_id=change_batch_id,
         )
 
     def log_memory_why_llm(
@@ -238,6 +285,8 @@ class AgentMemoryWorker:
         reason_id: str,
         checklist: Mapping[str, Any] | None = None,
         extra: Mapping[str, Any] | None = None,
+        service: str = "memory.query_context",
+        change_batch_id: str | None = None,
     ) -> None:
         """Аудит: стабильный reason_id (whitelist) + опциональный чеклист."""
         if not self._chat_debug.enabled:
@@ -258,6 +307,8 @@ class AgentMemoryWorker:
             event="memory.why_llm",
             request_id=request_id,
             topic="llm_decision",
+            service=service,
+            change_batch_id=change_batch_id,
             body=body,
         )
 
@@ -269,6 +320,8 @@ class AgentMemoryWorker:
         plan: Mapping[str, Any],
         paths_for_grow: list[str],
         grow_will_run: bool,
+        service: str = "memory.query_context",
+        change_batch_id: str | None = None,
     ) -> None:
         """Сырой план панера + пути для query-driven grow."""
         if not self._chat_debug.enabled:
@@ -278,6 +331,8 @@ class AgentMemoryWorker:
             event="memory.runtime_decision",
             request_id=request_id,
             topic="planner_parsed",
+            service=service,
+            change_batch_id=change_batch_id,
             body={
                 "plan": dict(plan),
                 "paths_for_grow": list(paths_for_grow),
@@ -292,6 +347,8 @@ class AgentMemoryWorker:
         *,
         created_node_ids: list[str],
         link_claims_count: int,
+        service: str = "memory.query_context",
+        change_batch_id: str | None = None,
     ) -> None:
         """Результат upsert C-нод и link claims от планера."""
         if not self._chat_debug.enabled:
@@ -301,6 +358,8 @@ class AgentMemoryWorker:
             event="memory.runtime_decision",
             request_id=request_id,
             topic="c_upserts_and_links",
+            service=service,
+            change_batch_id=change_batch_id,
             body={
                 "created_node_ids": list(created_node_ids),
                 "link_claims_submitted": int(link_claims_count),
@@ -325,6 +384,7 @@ class AgentMemoryWorker:
             event="memory.request",
             request_id=request_id,
             topic="query_context",
+            service="memory.query_context",
             body={
                 "envelope": req.to_dict(),
                 "derived": {
@@ -350,7 +410,95 @@ class AgentMemoryWorker:
             event="memory.response",
             request_id=request_id,
             topic="to_agent_work",
+            service="memory.query_context",
             body={"response": dict(out)},
+        )
+
+    def _log_path_boundary(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        *,
+        path: str,
+    ) -> None:
+        if not self._chat_debug.enabled:
+            return
+        self._chat_debug.log_audit(
+            raw_chat_id=req.chat_id,
+            event="memory.runtime_decision",
+            request_id=request_id,
+            topic="path_boundary",
+            service="memory.query_context",
+            body={
+                "excluded_path": path,
+                "reason": "forbidden_artifact_or_cache",
+            },
+        )
+
+    def _log_pipeline_slice(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        *,
+        after_pipeline: dict[str, Any],
+        used_fallback: bool,
+    ) -> None:
+        if not self._chat_debug.enabled:
+            return
+        self._chat_debug.log_audit(
+            raw_chat_id=req.chat_id,
+            event="memory.runtime_decision",
+            request_id=request_id,
+            topic="query_slice_after_pipeline",
+            service="memory.query_context",
+            body={
+                "memory_slice": audit_jsonable(after_pipeline),
+                "used_path_fallback": used_fallback,
+            },
+        )
+
+    def _log_d_policy(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        *,
+        gate: str,
+        reason: str,
+        d_fingerprint: str,
+        d_node_id: str | None,
+    ) -> None:
+        if not self._chat_debug.enabled:
+            return
+        self._chat_debug.log_audit(
+            raw_chat_id=req.chat_id,
+            event="memory.runtime_decision",
+            request_id=request_id,
+            topic="d_policy",
+            service="memory.query_context",
+            body={
+                "d_gate": gate,
+                "d_reason": reason,
+                "d_fingerprint": d_fingerprint,
+                "d_node_id": d_node_id,
+            },
+        )
+
+    def _log_enriched_slice(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        *,
+        memory_slice: dict[str, Any],
+    ) -> None:
+        if not self._chat_debug.enabled:
+            return
+        self._chat_debug.log_audit(
+            raw_chat_id=req.chat_id,
+            event="memory.runtime_decision",
+            request_id=request_id,
+            topic="slice_tiered_enrich",
+            service="memory.query_context",
+            body={"memory_slice": audit_jsonable(dict(memory_slice))},
         )
 
     def _grow_pag_for_query(
@@ -370,7 +518,11 @@ class AgentMemoryWorker:
                 goal=goal,
                 explicit_paths=explicit_paths,
                 namespace=req.namespace or self._cfg.namespace,
-                graph_trace_hook=self._graph_trace_hook(req),
+                graph_trace_hook=self._graph_trace_hook(
+                    req,
+                    request_id=request_id,
+                    service="memory.query_context",
+                ),
             )
         except Exception as exc:  # noqa: BLE001
             self._append_journal(
@@ -386,6 +538,7 @@ class AgentMemoryWorker:
                     event="memory.runtime_decision",
                     request_id=request_id,
                     topic="query_driven_pag_growth",
+                    service="memory.query_context",
                     body={
                         "input_explicit_paths": list(explicit_paths),
                         "error": f"{type(exc).__name__}:{exc}",
@@ -398,6 +551,7 @@ class AgentMemoryWorker:
                 event="memory.runtime_decision",
                 request_id=request_id,
                 topic="query_driven_pag_growth",
+                service="memory.query_context",
                 body={
                     "input_explicit_paths": list(explicit_paths),
                     "result": {
@@ -514,10 +668,19 @@ class AgentMemoryWorker:
         request_id: str,
     ) -> Mapping[str, Any]:
         """`memory.file_changed` — B fingerprint + semantic C remap (G12.7)."""
+        if self._chat_debug.enabled:
+            self._chat_debug.log_audit(
+                raw_chat_id=req.chat_id,
+                event="memory.request",
+                request_id=request_id,
+                topic="file_changed",
+                service="memory.file_changed",
+                body={"envelope": req.to_dict()},
+            )
         pl: Mapping[str, Any] = req.payload
         project_root = str(pl.get("project_root", "") or "").strip()
         if not project_root:
-            return make_response_envelope(
+            out = make_response_envelope(
                 request=req,
                 ok=False,
                 payload={},
@@ -526,6 +689,13 @@ class AgentMemoryWorker:
                     "message": "project_root required",
                 },
             ).to_dict()
+            self._log_handle_error(
+                req,
+                request_id=request_id,
+                service="memory.file_changed",
+                out=out,
+            )
+            return out
         raw_ch: Any = pl.get("changes", [])
         rels: list[str] = []
         if isinstance(raw_ch, list):
@@ -535,11 +705,21 @@ class AgentMemoryWorker:
                     if rp:
                         rels.append(rp)
         if not rels:
-            return make_response_envelope(
+            ok0 = make_response_envelope(
                 request=req,
                 ok=True,
                 payload={"remapped": []},
             ).to_dict()
+            if self._chat_debug.enabled:
+                self._chat_debug.log_audit(
+                    raw_chat_id=req.chat_id,
+                    event="memory.response",
+                    request_id=request_id,
+                    topic="to_agent_work",
+                    service="memory.file_changed",
+                    body={"response": dict(ok0)},
+                )
+            return ok0
         self._append_journal(
             req=req,
             event_name="memory.file_changed.received",
@@ -556,7 +736,11 @@ class AgentMemoryWorker:
             namespace=ns,
             project_root=Path(project_root).expanduser().resolve(),
             relative_paths=tuple(rels),
-            graph_trace_hook=self._graph_trace_hook(req),
+            graph_trace_hook=self._graph_trace_hook(
+                req,
+                request_id=request_id,
+                service="memory.file_changed",
+            ),
         )
         out_pl = {
             "remapped": [r.path for r in res],
@@ -576,12 +760,22 @@ class AgentMemoryWorker:
             request_id=request_id,
             payload=out_pl,
         )
-        return make_response_envelope(
+        ok_out = make_response_envelope(
             request=req,
             ok=True,
             payload=out_pl,
             error=None,
         ).to_dict()
+        if self._chat_debug.enabled:
+            self._chat_debug.log_audit(
+                raw_chat_id=req.chat_id,
+                event="memory.response",
+                request_id=request_id,
+                topic="to_agent_work",
+                service="memory.file_changed",
+                body={"response": dict(ok_out)},
+            )
+        return ok_out
 
     def _handle_change_feedback(
         self,
@@ -591,10 +785,25 @@ class AgentMemoryWorker:
     ) -> Mapping[str, Any]:
         """`memory.change_feedback` — AgentWork post-change (G13.3, D13.3)."""
         pl: Mapping[str, Any] = req.payload
+        cb_in: str | None = str(
+            pl.get("change_batch_id", "")
+            or pl.get("changeBatchId", "")
+            or "",
+        ).strip() or None
+        if self._chat_debug.enabled:
+            self._chat_debug.log_audit(
+                raw_chat_id=req.chat_id,
+                event="memory.request",
+                request_id=request_id,
+                topic="change_feedback",
+                service="memory.change_feedback",
+                change_batch_id=cb_in,
+                body={"envelope": req.to_dict()},
+            )
         try:
             fb = AgentWorkChangeFeedback.from_payload(dict(pl))
         except ValueError as exc:
-            return make_response_envelope(
+            out = make_response_envelope(
                 request=req,
                 ok=False,
                 payload={},
@@ -603,6 +812,21 @@ class AgentMemoryWorker:
                     "message": str(exc),
                 },
             ).to_dict()
+            bad_cb = str(
+                pl.get("change_batch_id", "")
+                or pl.get("changeBatchId", "")
+                or "",
+            ).strip() or None
+            self._log_handle_error(
+                req,
+                request_id=request_id,
+                service="memory.change_feedback",
+                out=out,
+                change_batch_id=bad_cb,
+            )
+            return out
+
+        batch_key = str(fb.change_batch_id or "").strip() or None
 
         def jappend(
             event_name: str,
@@ -617,6 +841,19 @@ class AgentMemoryWorker:
                 request_id=request_id,
                 payload=dict(payload or {}),
             )
+            if self._chat_debug.enabled:
+                self._chat_debug.log_audit(
+                    raw_chat_id=req.chat_id,
+                    event="memory.journal_mirror",
+                    request_id=request_id,
+                    topic=event_name,
+                    service="memory.change_feedback",
+                    change_batch_id=batch_key,
+                    body={
+                        "summary": summary,
+                        "payload": audit_jsonable(dict(payload or {})),
+                    },
+                )
 
         svc = MemoryChangeUpdateService(
             boundary=self._boundary,
@@ -627,12 +864,29 @@ class AgentMemoryWorker:
         )
         res = svc.apply(
             fb,
-            graph_trace_hook=self._graph_trace_hook(req),
+            graph_trace_hook=self._graph_trace_hook(
+                req,
+                request_id=request_id,
+                service="memory.change_feedback",
+                change_batch_id=batch_key,
+            ),
             chat_id=req.chat_id,
             request_id=request_id,
         )
+        if res.idempotent and self._chat_debug.enabled:
+            self._chat_debug.log_audit(
+                raw_chat_id=req.chat_id,
+                event="memory.runtime_decision",
+                request_id=request_id,
+                topic="change_feedback_idempotent",
+                service="memory.change_feedback",
+                change_batch_id=batch_key,
+                body={
+                    "previous_summary": res.previous_summary,
+                },
+            )
         if not res.ok:
-            return make_response_envelope(
+            out = make_response_envelope(
                 request=req,
                 ok=False,
                 payload={},
@@ -641,6 +895,14 @@ class AgentMemoryWorker:
                     "message": res.error or "error",
                 },
             ).to_dict()
+            self._log_handle_error(
+                req,
+                request_id=request_id,
+                service="memory.change_feedback",
+                out=out,
+                change_batch_id=batch_key,
+            )
+            return out
         dec_pl: list[dict[str, Any]] = [
             {
                 "path": d.path,
@@ -652,7 +914,7 @@ class AgentMemoryWorker:
             }
             for d in res.decisions
         ]
-        return make_response_envelope(
+        ok_out = make_response_envelope(
             request=req,
             ok=True,
             payload={
@@ -662,6 +924,17 @@ class AgentMemoryWorker:
             },
             error=None,
         ).to_dict()
+        if self._chat_debug.enabled:
+            self._chat_debug.log_audit(
+                raw_chat_id=req.chat_id,
+                event="memory.response",
+                request_id=request_id,
+                topic="to_agent_work",
+                service="memory.change_feedback",
+                change_batch_id=batch_key,
+                body={"response": dict(ok_out)},
+            )
+        return ok_out
 
     def _fallback_slice(
         self,
@@ -698,13 +971,21 @@ class AgentMemoryWorker:
         }
 
     def handle(self, req: RuntimeRequestEnvelope) -> Mapping[str, Any]:
+        rid0 = str(req.message_id or "")
         if req.type != "service.request":
-            return make_response_envelope(
+            out = make_response_envelope(
                 request=req,
                 ok=False,
                 payload={},
                 error={"code": "unsupported", "message": req.type},
             ).to_dict()
+            self._log_handle_error(
+                req,
+                request_id=rid0,
+                service="dispatch",
+                out=out,
+            )
+            return out
         service = str(req.payload.get("service", "") or "")
         if service == "memory.file_changed":
             rfc = str(req.payload.get("request_id", "") or "") or str(
@@ -717,12 +998,21 @@ class AgentMemoryWorker:
             )
             return self._handle_change_feedback(req, request_id=rfc2)
         if service and service != "memory.query_context":
-            return make_response_envelope(
+            out = make_response_envelope(
                 request=req,
                 ok=False,
                 payload={},
                 error={"code": "unknown_service", "message": service},
             ).to_dict()
+            self._log_handle_error(
+                req,
+                request_id=str(
+                    req.payload.get("request_id", "") or req.message_id,
+                ),
+                service=service,
+                out=out,
+            )
+            return out
         request_id = str(req.payload.get("request_id", "") or req.message_id)
         goal = str(req.payload.get("goal", "") or "")
         if not goal.strip():
@@ -762,6 +1052,7 @@ class AgentMemoryWorker:
                     "reason": "forbidden_artifact_or_cache_path",
                 },
             )
+            self._log_path_boundary(req, request_id, path=want_path)
             explicit_paths = []
         self._log_query_context_incoming(
             req,
@@ -790,6 +1081,7 @@ class AgentMemoryWorker:
         pipeline_partial = pr.partial
         pipeline_decision = pr.decision_summary
         pipeline_next = pr.recommended_next_step
+        used_fb = False
         if memory_slice is None:
             memory_slice = self._fallback_slice(
                 namespace=req.namespace or self._cfg.namespace,
@@ -798,6 +1090,7 @@ class AgentMemoryWorker:
                 query_kind=query_kind,
                 level=level,
             )
+            used_fb = True
         elif not str(memory_slice.get("injected_text") or "").strip():
             memory_slice = self._fallback_slice(
                 namespace=req.namespace or self._cfg.namespace,
@@ -806,6 +1099,13 @@ class AgentMemoryWorker:
                 query_kind=query_kind,
                 level=level,
             )
+            used_fb = True
+        self._log_pipeline_slice(
+            req,
+            request_id,
+            after_pipeline=dict(memory_slice),
+            used_fallback=used_fb,
+        )
         if not want_path:
             targets = memory_slice.get("target_file_paths")
             if isinstance(targets, list) and targets:
@@ -845,7 +1145,11 @@ class AgentMemoryWorker:
                 namespace=p_ns,
                 goal=goal,
                 node_ids=list(memory_slice.get("node_ids") or ()),
-                graph_trace_hook=self._graph_trace_hook(req),
+                graph_trace_hook=self._graph_trace_hook(
+                    req,
+                    request_id=request_id,
+                    service="memory.query_context",
+                ),
             )
             d_gate = str(d_out.gate)
             d_rsn = str(d_out.reason)
@@ -859,9 +1163,22 @@ class AgentMemoryWorker:
                 "reason": d_rsn,
                 "d_fingerprint": d_out.d_fingerprint,
             }
+            self._log_d_policy(
+                req,
+                request_id,
+                gate=d_gate,
+                reason=d_rsn,
+                d_fingerprint=str(d_out.d_fingerprint or ""),
+                d_node_id=d_out.d_node_id,
+            )
         enrich_memory_slice_tiered(
             memory_slice,
             namespace=str(req.namespace or self._cfg.namespace),
+        )
+        self._log_enriched_slice(
+            req,
+            request_id,
+            memory_slice=dict(memory_slice),
         )
         memory_slice["partial"] = bool(
             memory_slice.get("partial", False) or pipeline_partial,

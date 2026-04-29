@@ -296,7 +296,11 @@ class AgentMemoryQueryPipeline:
         if c_ups or link_claims_list:
             store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
             write = PagGraphWriteService(store)
-            hook = self._w._graph_trace_hook(req)  # noqa: SLF001
+            hook = self._w._graph_trace_hook(  # noqa: SLF001
+                req,
+                request_id=request_id,
+                service="memory.query_context",
+            )
             with store.graph_trace(hook):
                 for c in c_ups:
                     if not isinstance(c, dict):

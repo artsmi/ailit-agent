@@ -147,6 +147,11 @@ def _jsonable(x: Any) -> Any:  # noqa: ANN401
     return str(x)
 
 
+def audit_jsonable(x: Any) -> Any:  # noqa: ANN401
+    """Сериализация значений для audit-блоков (PAG graph, вложенные DTO)."""
+    return _jsonable(x)
+
+
 def chat_request_to_log_dict(req: ChatRequest) -> dict[str, Any]:
     return {
         "model": req.model,
@@ -245,19 +250,35 @@ class AgentMemoryChatDebugLog:
         request_id: str,
         topic: str,
         body: Mapping[str, Any],
+        service: str | None = None,
+        change_batch_id: str | None = None,
     ) -> None:
         """Семантическое событие аудита (вход, рантайм, ответ work)."""
         if not self.enabled:
             return
+        corr: dict[str, Any] = {"request_id": request_id}
+        if service is not None and str(service).strip():
+            corr["service"] = str(service).strip()
+        if change_batch_id is not None and str(change_batch_id).strip():
+            corr["change_batch_id"] = str(change_batch_id).strip()
         record: dict[str, Any] = {
             "event": event,
             "request_id": request_id,
             "topic": topic,
+            "correlation": corr,
             **dict(body),
         }
+        h_svc = f"  service={corr.get('service', '')}" if corr.get(
+            "service",
+        ) else ""
+        h_b = (
+            f"  change_batch_id={corr['change_batch_id']}"
+            if corr.get("change_batch_id")
+            else ""
+        )
         header: str = (
             f"{_now_local_iso()}  event={event}  "
-            f"request_id={request_id}  topic={topic}"
+            f"request_id={request_id}  topic={topic}{h_svc}{h_b}"
         )
         self._write_pretty_block(raw_chat_id, header, record)
 
@@ -270,21 +291,35 @@ class AgentMemoryChatDebugLog:
         request: ChatRequest,
         response: NormalizedChatResponse | None,
         error: str | None = None,
+        service: str | None = None,
+        change_batch_id: str | None = None,
     ) -> None:
         if not self.enabled:
             return
+        corr: dict[str, Any] = {"request_id": request_id}
+        if service is not None and str(service).strip():
+            corr["service"] = str(service).strip()
+        if change_batch_id is not None and str(change_batch_id).strip():
+            corr["change_batch_id"] = str(change_batch_id).strip()
         record: dict[str, Any] = {
             "event": "llm",
             "request_id": request_id,
             "phase": phase,
+            "correlation": corr,
             "request": chat_request_to_log_dict(request),
         }
         if error is not None:
             record["error"] = error
         if response is not None:
             record["response"] = chat_response_to_log_dict(response)
+        h_svc = f"  service={corr['service']}" if corr.get("service") else ""
+        h_b = (
+            f"  change_batch_id={corr['change_batch_id']}"
+            if corr.get("change_batch_id")
+            else ""
+        )
         header: str = (
             f"{_now_local_iso()}  event=llm  "
-            f"request_id={request_id}  topic={phase}"
+            f"request_id={request_id}  topic={phase}{h_svc}{h_b}"
         )
         self._write_pretty_block(raw_chat_id, header, record)
