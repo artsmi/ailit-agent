@@ -35,6 +35,9 @@ if TYPE_CHECKING:
         AgentMemoryWorker,
     )
 
+# G14R.6: C/B LLM — `agent_core.runtime.agent_memory_summary_service` (D14R.4);
+# не `agent_core.legacy` C extraction.
+
 # G13 JSON key split: substring only in legacy-adapter block (W14R comment).
 _LEGACY_REQUESTED_READS_KEY: Final[str] = "requested" + "_reads"
 

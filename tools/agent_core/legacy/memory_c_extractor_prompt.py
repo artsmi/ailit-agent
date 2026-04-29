@@ -1,16 +1,18 @@
-"""LLM-extractor prompt для C-нод: G13.4, D13.5, JSON-only, bounded."""
+"""
+LLM-extractor prompt для C-нод (G13.4, D13.5). G14R.6: quarantine.
+"""
 
 from __future__ import annotations
 
 import json
 from typing import Any, Mapping, Sequence
 
-from agent_core.runtime.memory_llm_optimization_policy import (
-    MemoryLlmOptimizationPolicy,
-)
-from agent_core.runtime.semantic_c_extraction import (
+from agent_core.legacy.semantic_c_extraction import (
     C_NODE_FULL_B_MAX_CHARS,
     clamp_b_text_for_policy,
+)
+from agent_core.runtime.memory_llm_optimization_policy import (
+    MemoryLlmOptimizationPolicy,
 )
 
 EXTRACTOR_SYSTEM_PROMPT: str = "\n".join(

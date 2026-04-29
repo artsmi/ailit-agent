@@ -10,7 +10,7 @@ from agent_core.runtime.agent_memory_contracts import (
     MemoryLineHintV1,
     MemorySemanticLocatorV1,
 )
-from agent_core.runtime.memory_c_extractor_prompt import (
+from agent_core.legacy.memory_c_extractor_prompt import (
     MemoryExtractorPromptBuilder,
 )
 from agent_core.runtime.memory_c_remap import (
@@ -22,7 +22,7 @@ from agent_core.runtime.memory_c_remap import (
 from agent_core.runtime.memory_llm_optimization_policy import (
     MemoryLlmOptimizationPolicy,
 )
-from agent_core.runtime.semantic_c_extraction import (
+from agent_core.legacy.semantic_c_extraction import (
     C_NODE_EXCERPT_MAX_CHARS,
     C_NODE_FULL_B_MAX_CHARS,
     SemanticCNodeCandidate,

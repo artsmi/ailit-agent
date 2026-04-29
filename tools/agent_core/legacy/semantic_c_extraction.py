@@ -1,4 +1,6 @@
-"""Каноническая схема извлечения C-нод (G13.4, D13.6, D13.5)."""
+"""
+Каноническое извлечение C-нод (G13.4, D13.6, D13.5). G14R.6: quarantine.
+"""
 
 from __future__ import annotations
 
@@ -12,14 +14,14 @@ from agent_core.runtime.agent_memory_contracts import (
     MemoryLineHintV1,
     MemorySemanticLocatorV1,
 )
+from agent_core.runtime.memory_c_size_limits import (
+    C_NODE_EXCERPT_MAX_CHARS,
+    C_NODE_FULL_B_MAX_CHARS,
+    C_NODE_REMAP_MAX_EXCERPT_CHARS,
+)
 from agent_core.runtime.memory_llm_optimization_policy import (
     MemoryLlmOptimizationPolicy,
 )
-
-# G13.4: caps = MemoryLlmSubConfig / policy defaults.
-C_NODE_FULL_B_MAX_CHARS: Final[int] = 32_768
-C_NODE_EXCERPT_MAX_CHARS: Final[int] = 24_000
-C_NODE_REMAP_MAX_EXCERPT_CHARS: Final[int] = 32_000
 
 
 @dataclass(frozen=True, slots=True)

@@ -25,8 +25,8 @@ from agent_core.runtime.memory_c_segmentation import FingerprintService
 from agent_core.runtime.memory_llm_optimization_policy import (
     MemoryLlmOptimizationPolicy,
 )
+from agent_core.runtime.memory_c_size_limits import C_NODE_FULL_B_MAX_CHARS
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
-from agent_core.runtime.semantic_c_extraction import C_NODE_FULL_B_MAX_CHARS
 
 _RE_FULL_FILE_CONF: Final[float] = 0.86
 _SEM_WINDOW_CONF: Final[float] = 0.88
