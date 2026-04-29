@@ -190,19 +190,87 @@ function shouldApplyTraceDelta(
   return namespaces.has(d.namespace);
 }
 
-function applyDeltasInRange(
-  mergedIn: MemoryGraphData,
-  revsIn: RevRec,
+/**
+ * Для **первой** PAG-дельты по namespace в [from, to] (с учётом фильтра) — `rev` первой дельты.
+ */
+function firstPagDeltaRevInRangeByNamespace(
+  rows: readonly Record<string, unknown>[],
+  from: number,
+  toInclusive: number,
+  namespaces: Readonly<Set<string>>
+): Readonly<Record<string, number>> {
+  const firstRevByNamespace: RevRec = {};
+  for (let i: number = from; i <= toInclusive; i += 1) {
+    const row: Record<string, unknown> = rows[i]! as Record<string, unknown>;
+    const d: ReturnType<typeof parsePagGraphTraceDelta> = parsePagGraphTraceDelta(row);
+    if (d === null) {
+      continue;
+    }
+    if (!shouldApplyTraceDelta(d, namespaces)) {
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(firstRevByNamespace, d.namespace)) {
+      continue;
+    }
+    firstRevByNamespace[d.namespace] = d.rev;
+  }
+  return firstRevByNamespace;
+}
+
+/**
+ * «Catch-up» после `pag-slice` + полная история trace, начиная с `rev:1`: `graph_rev` из БД (116) и
+ * дельта 1 вместе давали ожидание 117, не 1 (см. applyPagGraphTraceDelta). Если **первая** дельта
+ * **не** с 1, следы strict от среза: пропуск (rev 3 при 1) — предупреждение.
+ */
+function buildRevsInForDeltas(
+  revsFromSlice: RevRec,
   rows: readonly Record<string, unknown>[],
   from: number,
   toInclusive: number,
   namespaces: Readonly<Set<string>>,
-  prevWarnings: readonly string[]
+  useInitialTraceCatchup: boolean
+): RevRec {
+  const out: RevRec = { ...revsFromSlice };
+  if (!useInitialTraceCatchup) {
+    return out;
+  }
+  const firstRevs: Readonly<Record<string, number>> = firstPagDeltaRevInRangeByNamespace(
+    rows,
+    from,
+    toInclusive,
+    namespaces
+  );
+  for (const [ns, firstRev] of Object.entries(firstRevs)) {
+    const sliceRev: number = revsFromSlice[ns] ?? 0;
+    if (firstRev === 1 && sliceRev > 0) {
+      out[ns] = 0;
+    }
+  }
+  return out;
+}
+
+function applyDeltasInRange(
+  mergedIn: MemoryGraphData,
+  revsFromSlice: RevRec,
+  rows: readonly Record<string, unknown>[],
+  from: number,
+  toInclusive: number,
+  namespaces: Readonly<Set<string>>,
+  prevWarnings: readonly string[],
+  useInitialTraceCatchup: boolean
 ): { readonly merged: MemoryGraphData; readonly revs: RevRec; readonly warnings: readonly string[] } {
+  const revsIn: RevRec = buildRevsInForDeltas(
+    revsFromSlice,
+    rows,
+    from,
+    toInclusive,
+    namespaces,
+    useInitialTraceCatchup
+  );
   let merged: MemoryGraphData = mergedIn;
   const revs: RevRec = { ...revsIn };
   const wlist: string[] = [...prevWarnings];
-  for (let i: number = from; i <= toInclusive; i++) {
+  for (let i: number = from; i <= toInclusive; i += 1) {
     const row: Record<string, unknown> = rows[i]! as Record<string, unknown>;
     const d: ReturnType<typeof parsePagGraphTraceDelta> = parsePagGraphTraceDelta(row);
     if (d === null) {
@@ -242,8 +310,8 @@ export class PagGraphSessionTraceMerge {
   }
 
   /**
-   * Сразу после `loadFull`: replay всех существующих trace-rows на merged из БД (идемпотентно по merge),
-   * затем highlight с последней строки.
+   * Сразу после `loadFull`: реплей существующих trace-rows на merged из БД (идемпотентно по merge),
+   * затем highlight с последней строки. Rev catch-up: см. `buildRevsInForDeltas` + `useInitialTraceCatchup`.
    */
   static afterFullLoad(
     merged0: MemoryGraphData,
@@ -262,7 +330,7 @@ export class PagGraphSessionTraceMerge {
       readonly merged: MemoryGraphData;
       readonly revs: RevRec;
       readonly warnings: readonly string[];
-    } = applyDeltasInRange(merged0, revs0, rows, 0, lastRow, ns, []);
+    } = applyDeltasInRange(merged0, revs0, rows, 0, lastRow, ns, [], true);
     const m1: MemoryGraphData = this.applyHighlightFromLastRow(ap.merged, rows, defaultNamespace);
     return buildSnapshotFromReconcile(m1, ap.revs, lastRow, ap.warnings, "ready", null);
   }
@@ -286,6 +354,7 @@ export class PagGraphSessionTraceMerge {
       // Нет новых trace-строк: дельты уже в merged; повтор highlight не делаем (стабильность).
       return cur;
     }
+    const useInitialTraceCatchup: boolean = cur.lastAppliedTraceIndex === -1 && start === 0;
     const ap: {
       readonly merged: MemoryGraphData;
       readonly revs: RevRec;
@@ -297,7 +366,8 @@ export class PagGraphSessionTraceMerge {
       start,
       end,
       ns,
-      cur.warnings
+      cur.warnings,
+      useInitialTraceCatchup
     );
     const m1: MemoryGraphData = this.applyHighlightFromLastRow(ap.merged, rows, defaultNamespace);
     return buildSnapshotFromReconcile(m1, ap.revs, end, ap.warnings, "ready", null);

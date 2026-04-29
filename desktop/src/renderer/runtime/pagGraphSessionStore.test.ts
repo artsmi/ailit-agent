@@ -167,4 +167,105 @@ describe("pagGraphSessionStore", () => {
     const hasW: boolean = nxt.warnings.some((s: string) => s.includes("graph rev") || s.includes("несоответств"));
     expect(hasW).toBe(true);
   });
+
+  it("initialTraceCatchupWhenGraphRevFromSliceExceedsFirstTraceRev1", () => {
+    const ns: string = "ns-catchup-116";
+    const base: ReturnType<typeof createEmptyPagGraphSessionSnapshot> = {
+      ...createEmptyPagGraphSessionSnapshot({ loadState: "ready" }),
+      merged: {
+        nodes: [
+          nodeFromPag({ node_id: "A:1", level: "A", path: ".", title: "p", namespace: ns })!
+        ],
+        links: []
+      },
+      graphRevByNamespace: { [ns]: 116 },
+      lastAppliedTraceIndex: -1
+    };
+    const rows: Record<string, unknown>[] = [];
+    for (let r: number = 1; r <= 3; r += 1) {
+      rows.push(
+        rowPagNodeUpsert(ns, r, {
+          node_id: `B:n${String(r)}.py`,
+          level: "B",
+          path: `n${String(r)}.py`,
+          title: "f",
+          kind: "file"
+        })
+      );
+    }
+    const nxt: ReturnType<typeof PagGraphSessionTraceMerge.applyIncremental> =
+      PagGraphSessionTraceMerge.applyIncremental(base, rows, [ns], ns);
+    const hasRevWarn: boolean = nxt.warnings.some(
+      (s: string) => s.includes("graph rev") || s.includes("несоответств")
+    );
+    expect(hasRevWarn).toBe(false);
+    expect(nxt.graphRevByNamespace[ns]).toBe(3);
+  });
+
+  it("multiNamespacePreservesSliceGraphRevForNamespaceWithoutDeltas", () => {
+    const n1: string = "ns-a-slice";
+    const n2: string = "ns-b-slice";
+    const base: ReturnType<typeof createEmptyPagGraphSessionSnapshot> = {
+      ...createEmptyPagGraphSessionSnapshot({ loadState: "ready" }),
+      merged: { nodes: [], links: [] },
+      graphRevByNamespace: { [n1]: 2, [n2]: 50 },
+      lastAppliedTraceIndex: -1
+    };
+    const rows: Record<string, unknown>[] = [
+      rowPagNodeUpsert(n1, 1, {
+        node_id: "B:a.py",
+        level: "B",
+        path: "a.py",
+        title: "a",
+        kind: "file"
+      }),
+      rowPagNodeUpsert(n1, 2, {
+        node_id: "B:b.py",
+        level: "B",
+        path: "b.py",
+        title: "b",
+        kind: "file"
+      })
+    ];
+    const nxt: ReturnType<typeof PagGraphSessionTraceMerge.applyIncremental> = PagGraphSessionTraceMerge.applyIncremental(
+      base,
+      rows,
+      [n1, n2],
+      n1
+    );
+    expect(nxt.graphRevByNamespace[n1]).toBe(2);
+    expect(nxt.graphRevByNamespace[n2]).toBe(50);
+  });
+
+  it("afterFullLoadUsesInitialTraceCatchupWhenFirstDeltaRev1AndSliceGraphRev", () => {
+    const ns: string = "ns-afl";
+    const rows: Record<string, unknown>[] = [];
+    for (let r: number = 1; r <= 3; r += 1) {
+      rows.push(
+        rowPagNodeUpsert(ns, r, {
+          node_id: `B:n${String(r)}.py`,
+          level: "B",
+          path: `n${String(r)}.py`,
+          title: "f",
+          kind: "file"
+        })
+      );
+    }
+    const merged: MemoryGraphData = {
+      nodes: [nodeFromPag({ node_id: "A:1", level: "A", path: ".", title: "p", namespace: ns })!],
+      links: []
+    };
+    const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> = PagGraphSessionTraceMerge.afterFullLoad(
+      merged,
+      { [ns]: 3 },
+      rows,
+      [ns],
+      ns
+    );
+    const hasRevWarn: boolean = snap.warnings.some(
+      (s: string) => s.includes("graph rev") || s.includes("несоответств")
+    );
+    expect(hasRevWarn).toBe(false);
+    expect(snap.graphRevByNamespace[ns]).toBe(3);
+  });
 });
