@@ -4,14 +4,19 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, TYPE_CHECKING, Final, Mapping, Sequence
 
 from agent_core.models import ChatMessage, ChatRequest, MessageRole
 from agent_core.providers.protocol import ChatProvider
 from agent_core.runtime.agent_memory_runtime_contract import (
     AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
+    AgentMemoryCommandName,
     W14CommandParseError,
     parse_memory_query_pipeline_llm_text,
+)
+from agent_core.runtime.agent_memory_result_assembly import (
+    FinishDecisionResultAssembler,
 )
 from agent_core.runtime.agent_memory_chat_log import (
     MEMORY_AUDIT_A1_POLICY_LLM_OFF,
@@ -81,6 +86,8 @@ class AgentMemoryQueryPipelineResult:
     created_edge_ids: list[str]
     used_llm: bool
     llm_disabled_fallback: bool
+    am_v1_explicit_results: list[dict[str, Any]] | None = None
+    am_v1_status: str | None = None
 
 
 class AgentMemoryQueryPipeline:
@@ -292,6 +299,19 @@ class AgentMemoryQueryPipeline:
                 command_id=str(plan_obj.get("command_id", "") or ""),
                 status=str(plan_obj.get("status", "") or ""),
             )
+            if str(plan_obj.get("command", "") or "").strip() == (
+                AgentMemoryCommandName.FINISH_DECISION.value
+            ):
+                return self._finish_decision_result(
+                    plan_obj=plan_obj,
+                    request_id=request_id,
+                    project_root=project_root,
+                    goal=goal,
+                    query_kind=query_kind,
+                    level=level,
+                    nspace=nspace,
+                    partial_plan=partial_plan,
+                )
         c_ups: Any = plan_obj.get("c_upserts", [])
         if not isinstance(c_ups, list):
             c_ups = []
@@ -453,6 +473,98 @@ class AgentMemoryQueryPipeline:
                 llm_disabled_fallback=False,
             )
         return None
+
+    def _finish_decision_result(
+        self,
+        *,
+        plan_obj: dict[str, Any],
+        request_id: str,
+        project_root: str,
+        goal: str,
+        query_kind: str,
+        level: str,
+        nspace: str,
+        partial_plan: bool,
+    ) -> AgentMemoryQueryPipelineResult:
+        """
+        G14R.7: ``finish_decision`` -> ``agent_memory_result`` (§1.3).
+        """
+        pld: Any = plan_obj.get("payload", {})
+        if not isinstance(pld, dict):
+            pld = {}
+        selected: Any = pld.get("selected_results", [])
+        if not isinstance(selected, list):
+            selected = []
+        store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
+        root = Path(str(project_root or "").strip()).expanduser().resolve()
+        asm = FinishDecisionResultAssembler(
+            project_root=root,
+            namespace=nspace,
+            store=store,
+        )
+        results, path_rejects = asm.assemble_finish_decision_results(
+            selected,
+        )
+        pr_flags = bool(partial_plan) or bool(path_rejects)
+        inner = str(pld.get("status", "complete") or "complete")
+        if inner not in ("complete", "partial", "blocked"):
+            inner = "complete"
+        if path_rejects and not results:
+            inner = "blocked"
+        elif path_rejects and results:
+            if inner == "complete":
+                inner = "partial"
+        elif not results and not selected:
+            inner = "blocked"
+        dsum = str(plan_obj.get("decision_summary", "") or "")[:1_200]
+        rns = str(
+            pld.get("recommended_next_step", "")
+            or plan_obj.get("recommended_next_step", "")
+            or "",
+        )[:500]
+        if not dsum.strip():
+            dsum = "finish_decision"
+        node_ids: list[str] = []
+        for row in results:
+            cid = row.get("c_node_id")
+            if cid:
+                node_ids.append(str(cid))
+        tfp = sorted(
+            {str(r.get("path", "") or "") for r in results if r.get("path")},
+        )
+        part_flag = pr_flags or (inner in ("partial", "blocked"))
+        stl = "w14_finish_assembly" if results else "w14_finish_empty"
+        rsn = "w14_finish_decision" if results else "w14_finish_no_evidence"
+        mem_sl: dict[str, Any] = {
+            "kind": "memory_slice",
+            "schema": "memory.slice.v1",
+            "level": level,
+            "node_ids": node_ids,
+            "edge_ids": [],
+            "injected_text": "",
+            "estimated_tokens": 0,
+            "staleness": stl,
+            "reason": rsn,
+            "target_file_paths": tfp,
+            "partial": part_flag,
+        }
+        if str(goal or "").strip():
+            mem_sl["query_subgoal"] = str(goal)[:200]
+        if str(query_kind or "").strip():
+            mem_sl["query_kind"] = str(query_kind)[:120]
+        return AgentMemoryQueryPipelineResult(
+            memory_slice=mem_sl,
+            partial=bool(mem_sl.get("partial", False)),
+            decision_summary=dsum,
+            recommended_next_step=rns
+            or ("refine subgoal" if inner == "blocked" else ""),
+            created_node_ids=[],
+            created_edge_ids=[],
+            used_llm=True,
+            llm_disabled_fallback=False,
+            am_v1_explicit_results=results,
+            am_v1_status=inner,
+        )
 
     def _w14_command_output_rejected_partial(
         self,

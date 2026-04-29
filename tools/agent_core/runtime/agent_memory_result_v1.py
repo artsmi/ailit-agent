@@ -37,13 +37,19 @@ def build_agent_memory_result_v1(
     partial: bool,
     decision_summary: str,
     recommended_next_step: str,
+    explicit_results: list[dict[str, Any]] | None = None,
+    explicit_status: str | None = None,
 ) -> dict[str, Any]:
     """Собрать объект `agent_memory_result.v1` (§1.3) из текущего среза.
 
     W14G14R.0: минимальная мапа без полного B/C state machine; поле обязательно
     в ответе рядом с memory_slice.
+
+    G14R.7: если задан ``explicit_results`` (в т.ч. пустой список), контракт
+    берётся из ``finish_decision`` / сборщика, а не из грубой проекции
+    ``injected_text`` в ``c_summary``.
     """
-    st = str(status or "").strip() or (
+    st = str(explicit_status or status or "").strip() or (
         "partial" if partial else "complete"
     )
     if st not in ("complete", "partial", "blocked"):
@@ -59,7 +65,9 @@ def build_agent_memory_result_v1(
             tfp = [str(x) for x in tfr if str(x).strip()]
 
     results: list[dict[str, Any]] = []
-    if nids or tfp or (
+    if explicit_results is not None:
+        results = list(explicit_results)
+    elif nids or tfp or (
         memory_slice
         and str(memory_slice.get("injected_text") or "").strip()
     ):
@@ -88,6 +96,9 @@ def build_agent_memory_result_v1(
                     "reason": "compat_projection_from_memory_slice",
                 },
             )
+    pr_extra: list[str] = []
+    if explicit_results is not None and not results:
+        pr_extra.append("finish_decision_no_valid_results")
     return {
         "schema_version": AGENT_MEMORY_RESULT_V1,
         "query_id": str(query_id or "").strip() or "mem-unknown",
@@ -101,7 +112,8 @@ def build_agent_memory_result_v1(
             "steps_executed": 1,
             "final_step": "finish",
             "partial_reasons": (
-                ["query_pipeline_partial"] if partial else []
+                (["query_pipeline_partial"] if partial else [])
+                + pr_extra
             ),
         },
     }

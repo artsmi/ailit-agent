@@ -141,6 +141,44 @@ class AgentMemoryWorker:
             expires_at="2099-01-01T00:00:00Z",
         )
 
+    def _grants_for_am_read_lines(
+        self,
+        req: RuntimeRequestEnvelope,
+        results: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """
+        G14R.7: гранты по read_lines-диапазонам, не full-file (A14R.8).
+        """
+        out: list[dict[str, Any]] = []
+        for r in results:
+            if str(r.get("kind", "") or "") != "read_lines":
+                continue
+            rpath = str(r.get("path", "") or "").strip()
+            if not rpath:
+                continue
+            segs = r.get("read_lines")
+            if not isinstance(segs, list):
+                continue
+            for seg in segs:
+                if not isinstance(seg, dict):
+                    continue
+                try:
+                    sl = int(seg.get("start_line", 0) or 0)
+                    el = int(seg.get("end_line", 0) or 0)
+                except (TypeError, ValueError):
+                    continue
+                if sl < 1 or el < sl:
+                    continue
+                out.append(
+                    self._issue_grant(
+                        rpath,
+                        chat_id=req.chat_id,
+                        start_line=sl,
+                        end_line=el,
+                    ).to_dict(),
+                )
+        return out
+
     def _graph_trace_hook(
         self,
         req: RuntimeRequestEnvelope,
@@ -1230,8 +1268,11 @@ class AgentMemoryWorker:
             query_kind=query_kind,
             level=level,
         )
+        w14_finish: bool = pr.am_v1_explicit_results is not None
         memory_slice = pr.memory_slice
         pipeline_partial = pr.partial
+        if w14_finish and (pr.am_v1_status in ("partial", "blocked")):
+            pipeline_partial = True
         pipeline_decision = pr.decision_summary
         pipeline_next = pr.recommended_next_step
         used_fb = False
@@ -1244,7 +1285,10 @@ class AgentMemoryWorker:
                 level=level,
             )
             used_fb = True
-        elif not str(memory_slice.get("injected_text") or "").strip():
+        elif (
+            not str(memory_slice.get("injected_text") or "").strip()
+            and not w14_finish
+        ):
             memory_slice = self._fallback_slice(
                 namespace=req.namespace or self._cfg.namespace,
                 path=want_path,
@@ -1263,8 +1307,13 @@ class AgentMemoryWorker:
             targets = memory_slice.get("target_file_paths")
             if isinstance(targets, list) and targets:
                 want_path = str(targets[0] or "")
-        grants = []
-        if want_path:
+        grants: list[dict[str, Any]] = []
+        if w14_finish:
+            grants = self._grants_for_am_read_lines(
+                req,
+                list(pr.am_v1_explicit_results or ()),
+            )
+        elif want_path:
             grant = self._issue_grant(
                 want_path,
                 chat_id=req.chat_id,
@@ -1272,7 +1321,11 @@ class AgentMemoryWorker:
                 end_line=200,
             )
             grants.append(grant.to_dict())
-        if not want_path and not memory_slice.get("injected_text"):
+        if (
+            not want_path
+            and not str(memory_slice.get("injected_text") or "").strip()
+            and not w14_finish
+        ):
             err_out = make_response_envelope(
                 request=req,
                 ok=False,
@@ -1395,6 +1448,8 @@ class AgentMemoryWorker:
             partial=final_partial,
             decision_summary=decision_summary,
             recommended_next_step=recommended_next_step,
+            explicit_results=pr.am_v1_explicit_results,
+            explicit_status=pr.am_v1_status,
         )
         ok_out = make_response_envelope(
             request=req,

@@ -12,7 +12,9 @@ _TMP_PREFIX: Final[str] = ".ailit_atomic_"
 
 
 def work_roots() -> tuple[Path, ...]:
-    """Корни проекта: JSON-массив в AILIT_WORK_ROOTS или один AILIT_WORK_ROOT."""
+    """
+    Корни: JSON AILIT_WORK_ROOTS или один AILIT_WORK_ROOT.
+    """
     raw = os.environ.get("AILIT_WORK_ROOTS", "").strip()
     if raw:
         try:
@@ -34,6 +36,26 @@ def work_roots() -> tuple[Path, ...]:
 def primary_work_root() -> Path:
     """Первый корень (относительные пути read_file/list_dir — под ним)."""
     return work_roots()[0]
+
+
+def validate_agent_memory_relative_path(raw: str) -> str | None:
+    """
+    W14 (G14R.7, A14R.9): relpath без parent segments и абсолюта.
+
+    Возвращает нормализованный relpath или None.
+    """
+    s = (raw or "").strip()
+    if not s:
+        return None
+    if s.startswith(("/", "\\")) or (len(s) > 1 and s[1] == ":"):
+        return None
+    posix_parts = Path(s).as_posix().split("/")
+    if ".." in posix_parts:
+        return None
+    norm = Path(s).as_posix()
+    if not norm or norm == ".":
+        return "."
+    return norm
 
 
 def resolve_absolute_file_under_work_roots(file_path: str) -> tuple[Path, str]:
@@ -61,8 +83,13 @@ def resolve_absolute_file_under_work_roots(file_path: str) -> tuple[Path, str]:
     raise ValueError(msg)
 
 
-def atomic_replace_text_file(path: Path, content: str, *, encoding: str = "utf-8") -> None:
-    """Атомарно записать текст: tmp в каталоге назначения + os.replace."""
+def atomic_replace_text_file(
+    path: Path,
+    content: str,
+    *,
+    encoding: str = "utf-8",
+) -> None:
+    """Атомарно записать: tmp в каталоге + os.replace."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(
         prefix=_TMP_PREFIX,
