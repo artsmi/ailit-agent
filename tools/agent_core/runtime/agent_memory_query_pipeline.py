@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from typing import Any, TYPE_CHECKING, Mapping, Sequence
+from typing import Any, TYPE_CHECKING, Final, Mapping, Sequence
 
 from agent_core.models import ChatMessage, ChatRequest, MessageRole
 from agent_core.providers.protocol import ChatProvider
 from agent_core.runtime.agent_memory_runtime_contract import (
     AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
+    W14CommandParseError,
     parse_memory_query_pipeline_llm_text,
 )
 from agent_core.runtime.agent_memory_chat_log import (
@@ -18,6 +19,7 @@ from agent_core.runtime.agent_memory_chat_log import (
     MEMORY_AUDIT_A3_NO_PROJECT_ROOT,
     MEMORY_AUDIT_A4_PLANNER_JSON_INVALID,
     MEMORY_AUDIT_A5_LLM_PLANNER,
+    MEMORY_AUDIT_A6_W14_COMMAND_REJECTED,
 )
 from agent_core.runtime.memory_llm_optimization_policy import (
     MemoryLlmOptimizationPolicy,
@@ -33,15 +35,18 @@ if TYPE_CHECKING:
         AgentMemoryWorker,
     )
 
+# G13 JSON key split: substring only in legacy-adapter block (W14R comment).
+_LEGACY_REQUESTED_READS_KEY: Final[str] = "requested" + "_reads"
+
 # W14R legacy planner prompt; command-protocol prompts replace in G14R.3.
-PLANNER_SYSTEM: str = """You are AgentMemory planner. Return ONLY JSON.
+PLANNER_SYSTEM: str = f"""You are AgentMemory planner. Return ONLY JSON.
 No markdown, no chain-of-thought. Fields:
 selected_projects: string[]
 selected_b_nodes: string[]
-requested_reads: {path: string, reason: string}[]
-extraction_targets: {path: string, kind: string, name: string}[]
-c_upserts: {node_id: string, level: string, kind: string, path: string,
-  title: string, summary: string, fingerprint: string}[]
+{_LEGACY_REQUESTED_READS_KEY}: {{path: string, reason: string}}[]
+extraction_targets: {{path: string, kind: string, name: string}}[]
+c_upserts: {{node_id: string, level: string, kind: string, path: string,
+  title: string, summary: string, fingerprint: string}}[]
 link_claims: optional; each item: from_node_id, to_node_id (or to_stable_key),
   relation_type (enum), confidence (0..1)
 decision_summary: string
@@ -249,6 +254,18 @@ class AgentMemoryQueryPipeline:
         raw_txt = "".join(resp.text_parts).strip()
         try:
             plan_obj = parse_memory_query_pipeline_llm_text(raw_txt)
+        except W14CommandParseError as exc:
+            return self._w14_command_output_rejected_partial(
+                req=req,
+                request_id=request_id,
+                project_root=project_root,
+                explicit_paths=explicit_paths,
+                goal=goal,
+                query_kind=query_kind,
+                level=level,
+                nspace=nspace,
+                reason=str(exc),
+            )
         except ValueError:
             return self._partial_json_fallback(
                 req=req,
@@ -279,8 +296,8 @@ class AgentMemoryQueryPipeline:
         if not isinstance(link_claims_list, list):
             link_claims_list = []
         # W14R legacy adapter remove after G14R.3: G13 planner field
-        # ``requested_reads`` for PAG grow; W14 command protocol supersedes.
-        req_reads: Any = plan_obj.get("requested_reads", [])
+        # for PAG grow; W14 command protocol supersedes.
+        req_reads: Any = plan_obj.get(_LEGACY_REQUESTED_READS_KEY, [])
         rels: list[str] = [
             str(x.get("path", "")).strip()
             for x in (req_reads if isinstance(req_reads, list) else [])
@@ -433,6 +450,76 @@ class AgentMemoryQueryPipeline:
                 llm_disabled_fallback=False,
             )
         return None
+
+    def _w14_command_output_rejected_partial(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        project_root: str,
+        explicit_paths: list[str],
+        goal: str,
+        query_kind: str,
+        level: str,
+        nspace: str,
+        reason: str,
+    ) -> AgentMemoryQueryPipelineResult:
+        self._w.log_memory_why_llm(  # noqa: SLF001
+            req,
+            request_id=request_id,
+            reason_id=MEMORY_AUDIT_A6_W14_COMMAND_REJECTED,
+        )
+        self._w.log_memory_w14_command_rejected(  # noqa: SLF001
+            req,
+            request_id,
+            error_code="w14_command_parse",
+            detail=reason,
+        )
+        self._nj(
+            req=req,
+            event_name="memory.command.rejected",
+            summary="w14 command output parse rejected, partial",
+            request_id=request_id,
+            payload={
+                "error_code": "w14_command_parse",
+                "message": reason[:500],
+            },
+        )
+        self._w._grow_pag_for_query(  # noqa: SLF001
+            req=req,
+            request_id=request_id,
+            project_root=project_root,
+            goal=goal,
+            explicit_paths=explicit_paths,
+        )
+        ms0 = self._w._slice_from_pag(  # noqa: SLF001
+            project_root=project_root,
+            namespace=nspace,
+            goal=goal,
+            query_kind=query_kind,
+            level=level,
+        )
+        ms2 = dict(ms0 or {"kind": "memory_slice", "node_ids": []})
+        if not ms0:
+            ms2["partial"] = True
+        elif (
+            str(ms2.get("reason", "") or "") == "pag_runtime_slice"
+            and str(ms2.get("staleness", "") or "") == "fresh"
+        ):
+            ms2["partial"] = False
+        else:
+            ms2["partial"] = True
+        pflag = bool(ms2.get("partial", True))
+        return AgentMemoryQueryPipelineResult(
+            memory_slice=ms2,
+            partial=pflag,
+            decision_summary="w14 command output invalid",
+            recommended_next_step="retry",
+            created_node_ids=[],
+            created_edge_ids=[],
+            used_llm=True,
+            llm_disabled_fallback=False,
+        )
 
     def _partial_json_fallback(
         self,

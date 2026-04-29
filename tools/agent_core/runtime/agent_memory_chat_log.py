@@ -41,6 +41,7 @@ MEMORY_AUDIT_A2_MECHANICAL_SLICE: Final[str] = "A2"
 MEMORY_AUDIT_A3_NO_PROJECT_ROOT: Final[str] = "A3"
 MEMORY_AUDIT_A4_PLANNER_JSON_INVALID: Final[str] = "A4"
 MEMORY_AUDIT_A5_LLM_PLANNER: Final[str] = "A5"
+MEMORY_AUDIT_A6_W14_COMMAND_REJECTED: Final[str] = "A6"
 MEMORY_AUDIT_WHY: Final[dict[str, str]] = {
     MEMORY_AUDIT_A1_POLICY_LLM_OFF: (
         "Memory LLM policy disabled: heuristic PAG only, no provider call"
@@ -56,6 +57,10 @@ MEMORY_AUDIT_WHY: Final[dict[str, str]] = {
     ),
     MEMORY_AUDIT_A5_LLM_PLANNER: (
         "Invoke memory planner LLM (requested_reads, c_upserts plan)"
+    ),
+    MEMORY_AUDIT_A6_W14_COMMAND_REJECTED: (
+        "W14 agent_memory_command_output.v1 rejected "
+        "(strict JSON/schema)"
     ),
 }
 

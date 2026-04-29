@@ -385,6 +385,37 @@ class AgentMemoryWorker:
             },
         )
 
+    def log_memory_w14_command_rejected(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        *,
+        error_code: str,
+        detail: str = "",
+        command_id: str = "",
+        service: str = "memory.query_context",
+        change_batch_id: str | None = None,
+    ) -> None:
+        """
+        C14R.11: отклонение W14 envelope (без сырого ответа LLM).
+        """
+        if not self._chat_debug.enabled:
+            return
+        self._chat_debug.log_audit(
+            raw_chat_id=req.chat_id,
+            event="memory.chat_debug.command",
+            request_id=request_id,
+            topic="w14_command_rejected",
+            service=service,
+            change_batch_id=change_batch_id,
+            body={
+                "error_code": str(error_code)[:200],
+                "command_id": str(command_id)[:200],
+                "detail": str(detail)[:500],
+                "redaction": "compact_no_raw_prompt",
+            },
+        )
+
     def log_memory_graph_write(
         self,
         req: RuntimeRequestEnvelope,
