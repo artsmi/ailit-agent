@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TYPE_CHECKING, Final, Mapping, Sequence
@@ -241,6 +242,22 @@ class AgentMemoryQueryPipeline:
             phase="planner",
             model_override=self._policy.model or "mock-memory",
         )
+        pl_prompt_id: str = str(uuid.uuid4())
+        pl_command_trace: str = str(uuid.uuid4())
+        qid_log = str(
+            (req.payload.get("query_id", "") or "") or f"mem-{request_id}",
+        ).strip() or f"mem-{request_id}"
+        user_pl_chars = len(_json_dumps(pl_user))
+        self._w.log_memory_w14_command_requested(  # noqa: SLF001
+            req,
+            request_id,
+            prompt_id=pl_prompt_id,
+            command_id=pl_command_trace,
+            query_id=qid_log,
+            input_message_count=len(c_req.messages),
+            input_user_payload_chars=user_pl_chars,
+            model=str(c_req.model or "mock-memory"),
+        )
         try:
             resp = self._prov.complete(c_req)
         except Exception as exc:  # noqa: BLE001
@@ -275,6 +292,8 @@ class AgentMemoryQueryPipeline:
                 level=level,
                 nspace=nspace,
                 reason=str(exc),
+                prompt_id=pl_prompt_id,
+                command_id=pl_command_trace,
             )
         except ValueError:
             return self._partial_json_fallback(
@@ -292,12 +311,23 @@ class AgentMemoryQueryPipeline:
             str(plan_obj.get("schema_version", "") or "").strip()
             == AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
         ):
+            pld0: Any = plan_obj.get("payload", {})
+            pld_ct = 0
+            if isinstance(pld0, dict):
+                ar0 = pld0.get("actions")
+                if isinstance(ar0, list):
+                    pld_ct = len(ar0)
+                elif isinstance(pld0.get("selected_results"), list):
+                    pld_ct = len(pld0.get("selected_results", []))
             self._w.log_memory_w14_command_compact(  # noqa: SLF001
                 req,
                 request_id,
                 command=str(plan_obj.get("command", "") or ""),
                 command_id=str(plan_obj.get("command_id", "") or ""),
                 status=str(plan_obj.get("status", "") or ""),
+                prompt_id=pl_prompt_id,
+                schema_version=str(plan_obj.get("schema_version", "") or ""),
+                result_counts={"payload_items": pld_ct} if pld_ct else None,
             )
             if str(plan_obj.get("command", "") or "").strip() == (
                 AgentMemoryCommandName.FINISH_DECISION.value
@@ -578,6 +608,8 @@ class AgentMemoryQueryPipeline:
         level: str,
         nspace: str,
         reason: str,
+        prompt_id: str,
+        command_id: str,
     ) -> AgentMemoryQueryPipelineResult:
         self._w.log_memory_why_llm(  # noqa: SLF001
             req,
@@ -589,16 +621,8 @@ class AgentMemoryQueryPipeline:
             request_id,
             error_code="w14_command_parse",
             detail=reason,
-        )
-        self._nj(
-            req=req,
-            event_name="memory.command.rejected",
-            summary="w14 command output parse rejected, partial",
-            request_id=request_id,
-            payload={
-                "error_code": "w14_command_parse",
-                "message": reason[:500],
-            },
+            command_id=command_id,
+            prompt_id=prompt_id,
         )
         self._w._grow_pag_for_query(  # noqa: SLF001
             req=req,

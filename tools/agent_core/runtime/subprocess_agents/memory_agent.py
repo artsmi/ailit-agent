@@ -393,6 +393,53 @@ class AgentMemoryWorker:
             },
         )
 
+    def log_memory_w14_command_requested(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        *,
+        prompt_id: str,
+        command_id: str,
+        query_id: str,
+        input_message_count: int,
+        input_user_payload_chars: int,
+        model: str,
+        phase: str = "planner",
+        service: str = "memory.query_context",
+        change_batch_id: str | None = None,
+    ) -> None:
+        """
+        C14R.11 / G14R.9: ``memory.command.requested`` + chat debug,
+        без raw prompt.
+        """
+        pld: dict[str, Any] = {
+            "command": phase,
+            "command_id": str(command_id)[:200],
+            "query_id": str(query_id)[:200],
+            "prompt_id": str(prompt_id)[:200],
+            "input_message_count": int(input_message_count),
+            "input_user_payload_chars": int(input_user_payload_chars),
+            "model": str(model)[:200],
+        }
+        self._append_journal(
+            req=req,
+            event_name="memory.command.requested",
+            summary="llm command round: requested",
+            request_id=request_id,
+            payload=pld,
+        )
+        if not self._chat_debug.enabled:
+            return
+        self._chat_debug.log_audit(
+            raw_chat_id=req.chat_id,
+            event="memory.chat_debug.command",
+            request_id=request_id,
+            topic="memory.command.requested",
+            service=service,
+            change_batch_id=change_batch_id,
+            body={**pld, "redaction": "compact_no_raw_prompt"},
+        )
+
     def log_memory_w14_command_compact(
         self,
         req: RuntimeRequestEnvelope,
@@ -401,28 +448,46 @@ class AgentMemoryWorker:
         command: str,
         command_id: str,
         status: str,
+        prompt_id: str = "",
+        schema_version: str = "",
+        result_counts: Mapping[str, int] | None = None,
         service: str = "memory.query_context",
         change_batch_id: str | None = None,
     ) -> None:
         """
-        C14R.11: compact command event (без raw prompt), topic
-        ``memory.chat_debug.command``.
+        C14R.11: ``memory.command.parsed`` + chat ``memory.chat_debug.command``
+        (без raw prompt), тот же ``command_id`` что в JSON от LLM.
         """
+        pld: dict[str, Any] = {
+            "command": str(command)[:200],
+            "command_id": str(command_id)[:200],
+            "status": str(status)[:64],
+        }
+        if str(prompt_id or "").strip():
+            pld["prompt_id"] = str(prompt_id)[:200]
+        if str(schema_version or "").strip():
+            pld["schema_version"] = str(schema_version)[:80]
+        if result_counts is not None:
+            pld["result_counts"] = {
+                str(k): int(v) for k, v in result_counts.items()
+            }
+        self._append_journal(
+            req=req,
+            event_name="memory.command.parsed",
+            summary="w14 command output parsed",
+            request_id=request_id,
+            payload=dict(pld),
+        )
         if not self._chat_debug.enabled:
             return
         self._chat_debug.log_audit(
             raw_chat_id=req.chat_id,
             event="memory.chat_debug.command",
             request_id=request_id,
-            topic="w14_command_envelope",
+            topic="memory.command.parsed",
             service=service,
             change_batch_id=change_batch_id,
-            body={
-                "command": str(command)[:200],
-                "command_id": str(command_id)[:200],
-                "status": str(status)[:64],
-                "redaction": "compact_no_raw_prompt",
-            },
+            body={**pld, "redaction": "compact_no_raw_prompt"},
         )
 
     def log_memory_w14_command_rejected(
@@ -433,27 +498,39 @@ class AgentMemoryWorker:
         error_code: str,
         detail: str = "",
         command_id: str = "",
+        prompt_id: str = "",
         service: str = "memory.query_context",
         change_batch_id: str | None = None,
     ) -> None:
         """
-        C14R.11: отклонение W14 envelope (без сырого ответа LLM).
+        C14R.11 / G14R.9: ``memory.command.rejected`` + chat
+        (без сырого ответа LLM); тот же ``command_id`` в journal и chat_logs.
         """
+        pld: dict[str, Any] = {
+            "error_code": str(error_code)[:200],
+            "command_id": str(command_id)[:200],
+        }
+        if str(prompt_id or "").strip():
+            pld["prompt_id"] = str(prompt_id)[:200]
+        if str(detail or "").strip():
+            pld["detail"] = str(detail)[:500]
+        self._append_journal(
+            req=req,
+            event_name="memory.command.rejected",
+            summary="w14 command output rejected",
+            request_id=request_id,
+            payload=pld,
+        )
         if not self._chat_debug.enabled:
             return
         self._chat_debug.log_audit(
             raw_chat_id=req.chat_id,
             event="memory.chat_debug.command",
             request_id=request_id,
-            topic="w14_command_rejected",
+            topic="memory.command.rejected",
             service=service,
             change_batch_id=change_batch_id,
-            body={
-                "error_code": str(error_code)[:200],
-                "command_id": str(command_id)[:200],
-                "detail": str(detail)[:500],
-                "redaction": "compact_no_raw_prompt",
-            },
+            body={**pld, "redaction": "compact_no_raw_prompt"},
         )
 
     def log_memory_graph_write(
