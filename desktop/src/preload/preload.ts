@@ -108,6 +108,9 @@ const api: DesktopApi = {
     readonly limit?: number;
   }): Promise<MemoryJournalReadResult> {
     return (await ipcRenderer.invoke("ailit:memoryJournalRead", params)) as MemoryJournalReadResult;
+  },
+  async homeDir(): Promise<string> {
+    return String(await ipcRenderer.invoke("ailit:homeDir"));
   }
 };
 

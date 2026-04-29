@@ -63,6 +63,8 @@ export type DesktopSessionValue = {
   readonly lastAgentPair: LastAgentPairV1 | null;
   readonly setLastAgentPair: (pair: LastAgentPairV1 | null) => void;
   readonly connection: ConnState;
+  /** Домашний каталог (пути вне runtime_dir, например ~/.ailit/agent-memory/chat_logs). */
+  readonly homeDir: string | null;
   readonly runtimeDir: string | null;
   readonly supervisorSummary: string | null;
   readonly brokerEndpoint: string | null;
@@ -205,6 +207,7 @@ function validateSessions(
 export function DesktopSessionProvider({ children }: { readonly children: React.ReactNode }): React.JSX.Element {
   const [ui, setUi] = React.useState<PersistedUiStateV1>(loadPersistedUi);
   const [connection, setConnection] = React.useState<ConnState>("idle");
+  const [homeDir, setHomeDir] = React.useState<string | null>(null);
   const [runtimeDir, setRuntimeDir] = React.useState<string | null>(null);
   const [supervisorSummary, setSupervisorSummary] = React.useState<string | null>(null);
   const [brokerEndpoint, setBrokerEndpoint] = React.useState<string | null>(null);
@@ -629,6 +632,17 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   }, [loadProjects, refreshStatus]);
 
   React.useEffect(() => {
+    void (async () => {
+      try {
+        const h: string = await window.ailitDesktop.homeDir();
+        setHomeDir(h);
+      } catch {
+        setHomeDir(null);
+      }
+    })();
+  }, []);
+
+  React.useEffect(() => {
     if (registry.length > 0 && registryWasEmpty.current) {
       registryWasEmpty.current = false;
     }
@@ -986,6 +1000,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     lastAgentPair: ui.lastAgentPair,
     setLastAgentPair,
     connection,
+    homeDir,
     runtimeDir,
     supervisorSummary,
     brokerEndpoint,

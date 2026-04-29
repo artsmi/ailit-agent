@@ -174,7 +174,26 @@ class AgentMemoryQueryPipeline:
             phase="planner",
             model_override=self._policy.model or "mock-memory",
         )
-        resp = self._prov.complete(c_req)
+        try:
+            resp = self._prov.complete(c_req)
+        except Exception as exc:  # noqa: BLE001
+            self._w.log_memory_llm_verbose(  # noqa: SLF001
+                req,
+                request_id,
+                "planner",
+                c_req,
+                None,
+                exc,
+            )
+            raise
+        self._w.log_memory_llm_verbose(  # noqa: SLF001
+            req,
+            request_id,
+            "planner",
+            c_req,
+            resp,
+            None,
+        )
         raw_txt = "".join(resp.text_parts).strip()
         try:
             plan_obj = parse_memory_json_with_retry(raw_txt)

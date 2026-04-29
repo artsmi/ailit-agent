@@ -198,5 +198,7 @@ export type DesktopApi = {
     readonly chatId: string;
     readonly limit?: number;
   }) => Promise<MemoryJournalReadResult>;
+  /** Домашний каталог (для путей ~/.ailit/…, в т.ч. agent-memory chat_logs). */
+  readonly homeDir: () => Promise<string>;
 };
 

@@ -1,6 +1,11 @@
 import React from "react";
 
-import { desktopDiagnosticLogRelativePath, joinPosixPath, traceJsonlRelativePath } from "@shared/tracePaths";
+import {
+  agentMemoryChatLogAbsolutePath,
+  desktopDiagnosticLogRelativePath,
+  joinPosixPath,
+  traceJsonlRelativePath
+} from "@shared/tracePaths";
 import type { ProjectRegistryEntry } from "@shared/ipc";
 import { CandyMaterialIcon } from "../../shell/CandyMaterialIcon";
 
@@ -11,6 +16,8 @@ type ChatAnalyticsAsideProps = {
   readonly connectionLabel: string;
   /** Каталог runtime (supervisor / trace). */
   readonly runtimeDir: string | null;
+  /** Домашний каталог (для ~/.ailit/agent-memory/chat_logs/…). */
+  readonly homeDir: string | null;
   /** Идентификатор чата (файл trace-*.jsonl). */
   readonly chatId: string;
 };
@@ -29,6 +36,8 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
       ? joinPosixPath(p.runtimeDir, desktopDiagnosticLogRelativePath(p.chatId))
       : null;
   const supSock: string | null = p.runtimeDir ? joinPosixPath(p.runtimeDir, "supervisor.sock") : null;
+  const agentMemLog: string | null =
+    p.homeDir && p.chatId ? agentMemoryChatLogAbsolutePath(p.homeDir, p.chatId) : null;
   return (
     <aside className="candyChatAside" aria-label="Аналитика контекста">
       <div className="candyChatAsideHead">
@@ -64,7 +73,8 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
         <div className="candyChatAsideSection">
           <h3 className="candyChatAsideH3">Диагностика (файлы сессии)</h3>
           <p className="candyChatAsideDesc">
-            По этим путям — durable trace, журнал десктоп-UI (порядок/проекция событий), сокет supervisor.
+            По этим путям — durable trace, журнал десктоп-UI (порядок/проекция событий), сокет supervisor, лог
+            AgentMemory (при memory.debug.verbose=1).
           </p>
           {p.runtimeDir ? (
             <ul className="candyChatAsidePathList">
@@ -94,6 +104,14 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
           ) : (
             <p className="candyChatAsideDesc">runtime_dir ещё не известен — дождитесь подключения supervisor.</p>
           )}
+          {agentMemLog ? (
+            <ul className="candyChatAsidePathList">
+              <li>
+                <span className="candyChatAsidePathKey">agent_memory (LLM, ~/.ailit)</span>
+                <code className="candyChatAsidePathVal">{agentMemLog}</code>
+              </li>
+            </ul>
+          ) : null}
         </div>
       </div>
     </aside>

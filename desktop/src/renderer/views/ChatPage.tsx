@@ -529,6 +529,7 @@ export function ChatPage(): React.JSX.Element {
           <ChatAnalyticsAside
             chatId={s.chatId}
             connectionLabel={connectionLabel(s.connection)}
+            homeDir={s.homeDir}
             onClose={() => setAside(false)}
             registry={s.registry}
             runtimeDir={s.runtimeDir}

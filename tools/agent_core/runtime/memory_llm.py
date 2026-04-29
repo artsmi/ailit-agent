@@ -21,6 +21,7 @@ from agent_core.runtime.agent_memory_config import (
 from agent_core.runtime.memory_llm_optimization_policy import (
     MemoryLlmOptimizationPolicy,
 )
+from agent_core.runtime.agent_memory_chat_log import AgentMemoryChatDebugLog
 from agent_core.runtime.memory_journal import (
     MemoryJournalRow,
     MemoryJournalStore,
@@ -111,9 +112,10 @@ def parse_memory_llm_decision(
     rns: str = str(d.get("recommended_next_step", "") or "")
     if len(rns) > lim.max_decision_chars:
         rns = rns[: lim.max_decision_chars] + "…"
-    sel: tuple[str, ...] = _str_list(d.get("selected_nodes"))[: max(0, lim.max_selected_b)]
+    sel = _str_list(d.get("selected_nodes"))[: max(0, lim.max_selected_b)]
+    sel_t: tuple[str, ...] = sel
     return MemoryLLMDecision(
-        selected_nodes=sel,
+        selected_nodes=sel_t,
         candidate_nodes=_str_list(d.get("candidate_nodes")),
         next_action=next_act,
         decision_summary=summ,
@@ -134,6 +136,7 @@ class AgentMemoryLLMLoop:
         journal: MemoryJournalStore,
         am_yaml_limits: MemoryLlmSubConfig | None = None,
         optimization: MemoryLlmOptimizationPolicy | None = None,
+        debug_log: AgentMemoryChatDebugLog | None = None,
     ) -> None:
         self._provider = provider
         self._config = config
@@ -145,6 +148,7 @@ class AgentMemoryLLMLoop:
                 load_or_create_agent_memory_config().memory.llm
             )
         self._opt = optimization or MemoryLlmOptimizationPolicy.default()
+        self._debug_log = debug_log
 
     def run(
         self,
@@ -176,6 +180,8 @@ class AgentMemoryLLMLoop:
                     level=level,
                     goal=goal,
                     selected_nodes=selected,
+                    chat_id=chat_id,
+                    request_id=request_id,
                 )
             except Exception as exc:  # noqa: BLE001
                 decision = MemoryLLMDecision(
@@ -228,6 +234,8 @@ class AgentMemoryLLMLoop:
         level: str,
         goal: str,
         selected_nodes: Sequence[str],
+        chat_id: str,
+        request_id: str,
     ) -> MemoryLLMDecision:
         user = {
             "pass_level": level,
@@ -263,7 +271,28 @@ class AgentMemoryLLMLoop:
             phase="planner",
             model_override=self._config.model,
         )
-        resp = self._provider.complete(req)
+        try:
+            resp = self._provider.complete(req)
+        except Exception as exc:  # noqa: BLE001
+            if self._debug_log is not None:
+                self._debug_log.log_llm(
+                    raw_chat_id=chat_id,
+                    request_id=request_id,
+                    phase=f"memory_loop.{level}",
+                    request=req,
+                    response=None,
+                    error=f"{type(exc).__name__}:{exc}",
+                )
+            raise
+        if self._debug_log is not None:
+            self._debug_log.log_llm(
+                raw_chat_id=chat_id,
+                request_id=request_id,
+                phase=f"memory_loop.{level}",
+                request=req,
+                response=resp,
+                error=None,
+            )
         text = "".join(resp.text_parts).strip()
         decision = parse_memory_llm_decision(
             text,

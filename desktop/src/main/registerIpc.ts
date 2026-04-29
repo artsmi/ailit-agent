@@ -26,6 +26,7 @@ function broadcastTraceRow(chatId: string, row: Record<string, unknown>): void {
 
 export function registerIpcHandlers(): void {
   ipcMain.handle("ailit:ping", async () => "pong");
+  ipcMain.handle("ailit:homeDir", async () => os.homedir());
 
   ipcMain.handle("ailit:supervisorStatus", async () => {
     const runtimeDir: string = defaultRuntimeDir();

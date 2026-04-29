@@ -53,6 +53,13 @@ class ArtifactsSubConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryDebugSubConfig:
+    """Отладка: полные LLM-логи в ~/.ailit/agent-memory/chat_logs/."""
+
+    verbose: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class MemoryYamlRoot:
     """Корневой объект `memory:` в config.yaml."""
 
@@ -60,6 +67,7 @@ class MemoryYamlRoot:
     llm_optimization: MemoryLlmOptimizationPolicy
     d_policy: DPolicySubConfig
     artifacts: ArtifactsSubConfig
+    debug: MemoryDebugSubConfig
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +80,7 @@ class AgentMemoryFileConfig:
             llm_optimization=MemoryLlmOptimizationPolicy.default(),
             d_policy=DPolicySubConfig(),
             artifacts=ArtifactsSubConfig(),
+            debug=MemoryDebugSubConfig(),
         )
     )
 
@@ -132,6 +141,9 @@ class AgentMemoryFileConfig:
                     "allow_explicit_artifact_content": (
                         m.artifacts.allow_explicit_artifact_content
                     ),
+                },
+                "debug": {
+                    "verbose": m.debug.verbose,
                 },
             }
         }
@@ -194,6 +206,14 @@ class AgentMemoryFileConfig:
         llm_opt = MemoryLlmOptimizationPolicy.from_memory_llm_mapping(
             dict(llm) if isinstance(llm, Mapping) else {},
         )
+        dbg: Any = mem.get("debug", {})
+        verbose_i = 0
+        if isinstance(dbg, Mapping):
+            try:
+                verbose_i = int(dbg.get("verbose", 0))
+            except (TypeError, ValueError):
+                verbose_i = 0
+        verbose_i = 1 if verbose_i == 1 else 0
         return cls(
             memory=MemoryYamlRoot(
                 llm=MemoryLlmSubConfig(
@@ -218,6 +238,7 @@ class AgentMemoryFileConfig:
                         a_d["allow_explicit_artifact_content"]
                     )
                 ),
+                debug=MemoryDebugSubConfig(verbose=verbose_i),
             )
         )
 

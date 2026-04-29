@@ -14,11 +14,13 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
+from agent_core.models import ChatRequest, NormalizedChatResponse
 from agent_core.runtime.agent_memory_config import (
     SourceBoundaryFilter,
     build_compact_query_journal,
     load_or_create_agent_memory_config,
 )
+from agent_core.runtime.agent_memory_chat_log import AgentMemoryChatDebugLog
 from agent_core.runtime.d_creation_policy import (
     DCreationPolicy,
     enrich_memory_slice_tiered,
@@ -73,6 +75,7 @@ class AgentMemoryWorker:
         self._cfg = cfg
         self._journal = MemoryJournalStore()
         self._am_file = load_or_create_agent_memory_config()
+        self._chat_debug = AgentMemoryChatDebugLog(self._am_file)
         self._boundary = SourceBoundaryFilter(self._am_file.memory.artifacts)
         self._change_idempotency = ChangeFeedbackIdempotencyStore()
         self._growth = QueryDrivenPagGrowth(
@@ -185,6 +188,28 @@ class AgentMemoryWorker:
             )
         except Exception:
             return
+
+    def log_memory_llm_verbose(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        phase: str,
+        c_req: ChatRequest,
+        resp: NormalizedChatResponse | None,
+        exc: BaseException | None = None,
+    ) -> None:
+        """`memory.debug.verbose=1` — полные LLM-запрос/ответ в chat_logs."""
+        err: str | None = None
+        if exc is not None:
+            err = f"{type(exc).__name__}:{exc}"
+        self._chat_debug.log_llm(
+            raw_chat_id=req.chat_id,
+            request_id=request_id,
+            phase=phase,
+            request=c_req,
+            response=resp,
+            error=err,
+        )
 
     def _grow_pag_for_query(
         self,

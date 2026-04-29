@@ -29,3 +29,12 @@ export function joinPosixPath(base: string, ...parts: string[]): string {
   const b: string = parts.map((p) => p.replace(/^[/\\]+|[/\\]+$/g, "")).filter(Boolean).join("/");
   return b ? `${a}/${b}` : a;
 }
+
+/** `~/.ailit/agent-memory/chat_logs/<safe_chat>.log` (home — абсолютный путь). */
+export function agentMemoryChatLogFileName(chatId: string): string {
+  return `${safeChatIdForTraceFile(chatId)}.log`;
+}
+
+export function agentMemoryChatLogAbsolutePath(homeDir: string, chatId: string): string {
+  return joinPosixPath(homeDir, ".ailit", "agent-memory", "chat_logs", agentMemoryChatLogFileName(chatId));
+}
