@@ -84,6 +84,21 @@
 
 **Anti-pattern:** `read_files` с `paths: ["<namespace>"]` — **validation error**; не передавать в `select_paths` как file.
 
+#### 3.3.1 Справочник команд (что пишет LLM → что делает рантайм)
+
+Один элемент `commands[]` = **одна** команда. Поле `reason` — **для людей/логов**; **исполнение** определяется **только** `op` + `params`.
+
+| `op` | Смысл для планнера (человекочитаемо) | Что делает runtime (детерминировано) | Минимальный пример (фрагмент JSON) |
+|------|--------------------------------------|--------------------------------------|-------------------------------------|
+| `repo_inventory` | «Сходить по дереву **файлов** от `project_root` вниз, до капа `max_files`, **не** путая корень с namespace.» | Ограниченный `os.walk` (с игнором из `_IGNORE_DIRS` в `memory_growth.py`), для каждого увиденного пути: индексация в PAG (`PagIndexer` / `QueryDrivenPagGrowth`): как минимум A-проект и B-файл + **containment**-связи, согласованные с `tools/agent_core/memory/pag_indexer.py` / `PagGraphWriteService` в G14.2. | `"op": "repo_inventory", "params": { "max_files": 2000 }, "reason": "Перечислить файлы репозитория в пределах лимита."` |
+| `read_files` | «**Убедиться**, что перечисленные пути **как файлы** учтены в PAG (и **цепочка** от A до листа — см. C14.8) и **проиндексированы/прочитаны** для среза.» | Валидация relpath (не `..`, не `namespace`); **обязателен** C14.8; затем `sync`/`index` путей как сейчас G13. | `"op": "read_files", "params": { "paths": ["a/b/toggle.c"] }, "reason": "..."` |
+| `use_graph_as_is` | «**Не** ходить на диск; взять текущий PAG.» | Только построение slice / digest без `grow`. | `"op": "use_graph_as_is", "params": {}, "reason": "Контекст уже в графе."` |
+| `noop` | «**Остановить** цепочку команд.» (MVP: **только** одна команда в `commands`.) | Дальше по массиву `commands` **не** идти. | `"op": "noop", "params": { "stop": true }, "reason": "Достаточно кэша."` |
+
+**Расширение (целевое, G14.2+ / отдельный sub-этап, не путать с «второй фразой планнера» D14.3):** `c_segment_for_paths` — params `paths: string[]`, «для заданных relpath **запустить** G13-контур C-сегментации (механический / LLM chunk), пока **не** второй **планнер**». Имя и **ровно** один путь в код (например `agent_memory_query_pipeline` → `MemoryExploration` / `memory_c_segmentation.py`) **фиксируются** в G14.2. До введения `c_segment_for_paths` в whitelist **полное** «дерево до C» **не** считается закрытым в §6.2.
+
+**C14.8 (materialize path / ancestry):** для каждого `relpath` в `read_files` runtime **idempotent**: до записи/индекса B-**файла** `path` **обязан** существовать **согласованный** с PAG G13 **кусок** от A до файла: как минимум `A:project` **--contains-->** `B:<path>`. Если **в** целевой схеме PAG (см. `plan/13` / `pag_indexer`) **предусмотрены** узлы **для** каталогов, **G14.2** **обязан** при отсутствии предков создать **и** B-dir / synthetic nodes с **явными** рёбрами containment; если в текущей схеме **только** B-**файл** с `path="a/b/toggle.c"`, **достаточно** одного B-узла + ребра от A, **при** том что **текстовый** path **отражает** `a/`, `b/`. **Выбор** варианта — **one** (зафиксировать в G14.2 + тест), **запрещена** ситуация B-листа **без** пути в графе от A.
+
 ### 3.4 C14.4: Config (source of truth)
 
 | Ключ | Где | Default | Правило |
@@ -106,6 +121,8 @@
 | `planner_command_plan_parsed` | JSON прошёл схему v1 | `schema_version`, `op[]` order, `partial` |
 | `planner_command_rejected` | `op` не в whitelist / params invalid | `op`, `id`, `error_code` (enum) |
 | `planner_path_heuristic_fallback` | (уже есть) | Должно **реже** срабатывать; payload дополнить `replaced_by: "repo_inventory"` при успешной замене |
+| `inventory_cap_hit` | `repo_inventory` остановлен по `max_files` (G14.2) | `max_files`, `files_seen`, `truncated: true` |
+| `c_segmentation_incomplete` (или согласованное имя, D14.3b) | C не применён ко **всем** целевым файлам | `target_paths_count`, `segmented_count` |
 | `memory.index.*` | как сейчас | + `last_command_id` (optional) |
 
 **Запрещено** в payload: full system prompt, chain-of-thought, содержимое всех прочитанных файлов.
@@ -116,7 +133,9 @@
 |----|--------|
 | **D14.1** | Фолбэк при невалидном JSON/схеме: **сохраняем** текущий поведение G13 (`_partial_json_fallback`, A4) **один релиз**; в логе `planner_schema_fallback=true`. |
 | **D14.2** | **Coexist (рекомендовано для G14.2):** планнер **одновременно** может не слать `commands`; тогда `requested_reads` обрабатывается как **legacy** с **явным** `legacy_mode=true` в ответе. После 1 релиза **удалить** `requested_reads` из `PLANNER_SYSTEM` (отдельная задача G14.3). **Альтернатива (строже):** `replace` — в первом PR только `commands`, legacy поля игнорировать. **Выбрать одно в начале G14.2, зафиксировать в коммите.** |
-| **D14.3** | `partial=true` **не** порождает автоматического **второго** HTTP вызова LLM в MVP; second round — G14.5+ **или** вне scope. |
+| **D14.3** | Один **HTTP-вызов** **планнера** (одна фаза `planner` / один completion с JSON) на `memory.query_context` в MVP, если иное **не** закреплено конфигом W14+2. |
+| **D14.3a** | **Не** путать планнера с **C-сегментацией** (G13). После исполнения `commands` **разрешён** (и **должен** быть **предусмотрен** в §6.2) **детерминированный** внутренний цикл: *рубеж планнера* → *исполнение op* → *фаза C* (другой промпт/другой `phase` в журнале, **не** новый `topic=planner` как второй free-form JSON-ответ). `partial` на выходе планнера ≠ «не начинать C»; `partial` = «не весь объём цели закрыт» (например, cap `repo_inventory` или C не для всех файлов). |
+| **D14.3b** | Если **один** `memory.query_context` **не** завершает C для **всех** файлов в лимитах — итоговый `memory_slice` + журнал: `c_segmentation_incomplete: true` (имя **зафиксировать** в C14.6 при G14.2). |
 
 ---
 
@@ -125,7 +144,7 @@
 | ID | Этап (обязан закрыть) |
 |----|------------------------|
 | A14.1 – A14.5 | G14.1 (аудит зафиксирован в реализации якорями) |
-| C14.1 – C14.6, D14.1 – D14.3 | G14.2, G14.3, G14.4 |
+| C14.1 – C14.8, D14.1 – D14.3b | G14.2, G14.3, G14.4 |
 | Anti-pattern «namespace as path» | G14.2 (тест ломается) |
 | DoC / smoke | G14.6 |
 
@@ -154,6 +173,7 @@
   - `test_repo_inventory_respects_max_files`  
   - `test_read_files_rejects_parent_paths_and_namespace`  
   - `test_planner_rejects_unknown_op`  
+  - `test_read_files_ensures_c14_8_ancestry_chain` (идемпотентное A→…→B для вложенного relpay)  
 - **Статичные проверки:** `flake8` на изменённых файлах; `rg "requested_reads" agent_memory_query_pipeline.py` — при D14.2=coexist: ≥1; при replace: 0 **после** G14.3.  
 
 ### G14.3 — Промпт LLM: только v1, примеры few-shot, строгий `response_format` где доступно
@@ -190,8 +210,8 @@
 
 - `project_root` — **единственный** корень ФС; любой `path` в `read_files` — **relpath** в стиле POSIX (сегменты `/`, **без** ведущего `/`, **без** `..` — C14.3). Пример глубины 3 от корня: `src/lib/toggle.c` **не** `.../project/src/...` абсолютный.  
 - **User JSON** в планнер: `{"goal": "<фраза>", "namespace": "<...>", "explicit_paths": []}` **или** список relpath, если UI/AgentWork их уже знал. Подставлять **строку namespace** в `explicit_paths` как путь **запрещено** (A14.1).  
-- Один **HTTP-раунд** планнера (D14.3), если иное не введено отдельным релизом.  
-- Ниже **ожидаемый** (не единственно допустимый) JSON: модель **может** переупорядочить `commands`, при сохранении whitelist-семантики.
+- **Планнёр** (внешний LLM-вызов с `PLANNER_SYSTEM`) — **один** на запрос (D14.3). **После** ответа JSON и исполнения `op` **отдельно** разрешена **фаза C** (другой LLM-вход / механика G13) — D14.3a; **не** считать «вторым планнёром».  
+- Ниже **ожидаемый** (не единственно допустимый) JSON планнера: модель **может** переупорядочить `commands`, **если** направлено рёбрами зависимостей (нельзя `read_files` до `repo_inventory`, **если** **требуется** сначала **узнать** список путей — **кроме** заранее заданного `explicit_paths` от AgentWork).
 
 **Общие шаги 1–2 (политика + LLM-запрос) для §6.1–6.3:**  
 `MemoryLlmOptimizationPolicy` при `enabled=True` → причина A5; `messages[0]=system` (C14.1, новый `PLANNER_SYSTEM`), `messages[1].role=user` = user JSON как выше.
@@ -234,21 +254,39 @@
 4. Slice: `build_slice_for_goal` / D-tier, как W13.  
 5. **Событие** `planner_path_heuristic_fallback` — **ожидается НЕ** сгенерироваться. Если README отсутствует, `read_files` помечается `partial` или `planner_command_rejected` на путь, **а не** тихий fallback на `README` из `entrypoint`.
 
-**Шаг 5 — фоллёк, если в репо нет README (иллюстративно):** модель может (`partial: true`, `recommended_next_step` заполнен) вернуть `read_files` с существующим `pyproject.toml` или `package.json` — **MVP** не требует второго HTTP; пользователь/AgentWork видит partial slice. **D14.3** явно: второй LLM-раунд не обязателен.
+**Шаг 5 — фоллёк, если в репо нет README (иллюстративно):** модель может (`partial: true`, `recommended_next_step` заполнен) вернуть `read_files` с существующим `pyproject.toml` или `package.json` — **MVP** не требует **второго** вызова **планнёра**; пользователь/AgentWork видит partial slice. (Фаза C, если нужна, — D14.3a; это **не** «второй планнёр».)
 
 **Контраст с «сломанным» сценарием (A14.1):** старый план: `requested_reads: [{"path":"_…namespace…"}]` → `non_matching_explicit` → `entrypoint` → README. Новый: **невалидный** relpath в `read_files` **не** маскируется под **inventory**; inventory — **только** `op=repo_inventory`.
 
 ### 6.2 «Изучи данный репозиторий, посмотри каждый файл и построй дерево памяти»
 
-**Вход:** `goal` — фраза выше (смысл: **полный** охват и **PAG-дерево** под проект). `query_kind=task`, задан `project_root`. Смысл «дерево» в G14: **как минимум** A + **B-узлы** для обнаруженных файлов и **containment**-рёбра (как W13); **C-слой** (через segmenter/LLM) **не** обязан в одном рауннде — если в продукте нужен «каждый C» для каждого файла, это **отдельный** `op` или follow-up (вне C14.3 v1) и тогда `partial: true` с **явным** `decision_summary`.
+**Целевой смысл:** **полное** «дерево» в смысле ПРОД-контракта W13/W14 = **(1)** A/B-оболочка + **(2)** **C** (фрагменты) **по каждому уместному файлу** **в** пределах cap и **бюджета** сегментации, **не** обязательно «одним JSON ответа планнера».
 
-**Ожидаемая логика планнера:**
+**Вход:** `goal` — фраза выше, `query_kind=task`, задан `project_root` и `namespace` (только id, **не** путь в ФС).
 
-- Первой командой **обязательно** `repo_inventory` с `max_files: <N>`, где `N = min(planner.max_inventory_files, cfg)` (C14.4) — **единственный** поддерживаемый в v1 способ «пройти репозиторий» **детерминированно** без псевдопутей.  
-- Если `N` **меньше** числа файлов в рабочем дереве: `partial: true`, `decision_summary` + `recommended_next_step` (например, уточнить include/exclude, поднять кап **только** через конфиг — не через выдуманные пути).  
-- После успешного inventory A/B-дерево **уже** отражает **все** увиденные **файлы** (в пределах капа). Дополнительный `read_files` по **всем** путям в одном JSON **не** требуется для «каркаса»; при необходимости текста в срез — **ограниченный** набор (README + entrypoints) **или** расширение контракта (батч-лимит) в G14.2.
+#### 6.2.1 Сквозной путь: LLM-планнёр → runtime (op) → C **без** второго «того же» планнера
 
-**Ожидаемый валидный JSON (MVP, акцент на «дерево» = A/B + inventory):**
+| Шаг | Кто | Что происходит |
+|-----|-----|----------------|
+| 1 | **LLM (планнёр)**, 1× HTTP | Возвращает JSON C14.1. Типовой **набор** `commands` для «всё дерево»:**сначала** `repo_inventory` (с `max_files` = cap из C14.4), **затем** (например) `read_files` для entrypoints. Если `c_segment_for_paths` **уже** в whitelist: третьей командой `c_segment_for_paths` с `paths` = список relpath из **результата** инвентаризации, **усечённый** батч-лимиту. **Пока** `c_segment_for_paths` **не** в whitelist, планнёр ставит `partial: true` / честный `decision_summary` (A/B готово, C в пост-фазе G14) **или** полагается на **встроенную** пост-фазу G13 сразу после `commands` (доработка `AgentMemoryQueryPipeline`, G14.2). |
+| 2 | **Runtime: dispatch** | Порядок: `repo_inventory` → A/B, рёбра; `read_files` где уместно; C14.8. |
+| 3 | **Runtime: фаза C** (D14.3a) | **Не** второй **планнёр**, а G13-контур: либо `c_segment_for_paths` из того же JSON, либо `AgentMemoryQueryPipeline` после `commands` зовёт сегментацию по всем проиндексированным relpath в `cfg` (см. `tools/agent_core/runtime/memory_c_segmentation.py`). Один **выбранный** механизм в G14.2. **Журнал:** `phase=memory.c_segment` (или согласованный аналог), **не** `planner` повторно. |
+| 4 | **Срез** | `build_slice_for_goal` / D-tier, как W13. Если C **не** для **всех** файлов → D14.3b + `partial: true` на **ответ** `memory.query_context`. |
+
+**Mermaid (упрощённо, для чтения):**
+
+```mermaid
+flowchart TD
+  U[User goal: полное дерево] --> P[LLM планнёр: JSON commands]
+  P --> R1[repo_inventory]
+  R1 --> R2[read_files entrypoints?]
+  R2 --> Cseg[Фаза C: сегментация G13]
+  Cseg --> S[Memory slice to AgentWork]
+```
+
+**Нельзя** считать сценарий 6.2 **закрытым** только A/B из одного `repo_inventory` **без** (а) явно оговорённого **и** реализованного шага 3 **или** (b) `partial: true` с честной причиной (в релизе **ещё** нет C-пост-фазы / `c_segment_for_paths`).
+
+**Пример JSON планнёра (только фаза 1 шага 1; фаза C — шаг 3 выше):**
 
 ```json
 {
@@ -258,38 +296,67 @@
       "id": "1",
       "op": "repo_inventory",
       "params": { "max_files": 2000 },
-      "reason": "Построить полный кузов дерева: перечислить файлы в пределах лимита и согласовать PAG A→B; без namespace как псевдопути."
+      "reason": "Список всех файлов (до cap) — основа A/B-дерева."
     },
     {
       "id": "2",
       "op": "read_files",
       "params": { "paths": ["README.md"] },
-      "reason": "Добавить текстовый контекст в срез для формулировки отчёта; остальные B уже присутствуют как узлы-заглушки до C."
+      "reason": "Entrypoint for narrative; остальные файлы — после индексации, для C в фазе 3."
     }
   ],
   "link_claims": [],
-  "decision_summary": "Инвентаризация до cap для дерева A/B; README для narrative. Если файлов > cap, partial и нужен сдвиг лимита в конфиге.",
+  "decision_summary": "A/B: repo_inventory. C-для-всех: см. G14.2+ и фазу C (D14.3a) или partial.",
+  "partial": true,
+  "recommended_next_step": "Сегментация C по списку проиндексированных файлов (внутренний цикл, не повтор планнера)."
+}
+```
+
+(Если в релизе **уже** `c_segment_for_paths` и хватили cap/бюджет C, `partial` **может** быть `false`.)
+
+**Аудит cap:** `repo_inventory` **срез** по `max_files` — отдельное событие **«inventory_cap_hit»** (имя **уточнить** в C14.6, G14.2); **без** подмены `planner_path_heuristic_fallback` как **успеха** цели.
+
+**Против A14.1:** `read_files.paths: ["<namespace>"]` **и** **пропуск** C при цели **«**каждый файл**»** — **недопустимо** без `partial: true` и **формулировки** в `decision_summary`.
+
+### 6.3 «о чем файл toggle.c» (relpath с тремя сегментами, пример `a/b/toggle.c`)
+
+**Контекст:** файл по пути `a/b/toggle.c` (лесенка: `a` → `b` → `toggle.c`). **Что такое** `repo_inventory` — **§3.3.1** (таблица: **смысл** / **runtime** / **пример**).
+
+**Инвариант (A и B):** до/вместе с `read_files` выполняется **C14.8**: от `A:project` к целевому **листу** (файл) существует **согласованная** цепь **containment**; узлы `a/`, `b/`, если **по** схеме PAG нужны отдельно (либо B-dir, либо **один** B-файл с `path="a/b/toggle.c"`) — **создаёт рантайм** в G14.2 **идемпотентно**. **Запрещён** B-файл «в пустоте» без пути **к** A.
+
+**Сценарий A** — relpath уже в `explicit_paths: ["a/b/toggle.c"]` (AgentWork передал).  
+- **План (типовой):** сначала **опционально** `repo_inventory` (средний/полный cap) — **если** нужно **освежить** / **обнаружить** префикс; **иначе** достаточно одного `read_files` с `a/b/toggle.c`. Далее: смысловой ответ «**о чем** файл» требует **C** — либо команда `c_segment_for_paths` (когда в whitelist), либо **встроенная** фаза C после `commands` (D14.3a) **для** этого relpay.  
+- **Runtime (по шагам):** (1) `repo_inventory` **если** в плане, (2) `read_files` + C14.8, (3) фаза C (G13).
+
+**Сценарий B** — в запросе **только** имя `toggle.c`, **один** кандидат `a/b/toggle.c` в репо.  
+- **Зачем** `repo_inventory`: обойти дерево файлов под `project_root` (до `max_files`), получить список relpath; по нему модель в том же JSON (или эвристика) находит единственный путь к `toggle.c`. **Без** этого шага планнёр **не должен** «угадывать» `a/b/…`.  
+- **План (один ответ планнёра),** пример:  
+
+```json
+{
+  "schema_version": "agent_memory_planner.v1",
+  "commands": [
+    {
+      "id": "1",
+      "op": "repo_inventory",
+      "params": { "max_files": 2000 },
+      "reason": "Пользователь назвал имя файла; найти единственный relpay toggle.c (например a/b/toggle.c) в дереве."
+    },
+    {
+      "id": "2",
+      "op": "read_files",
+      "params": { "paths": ["a/b/toggle.c"] },
+      "reason": "После инвентаризации: целевой relpay (когда **однозначен**), материализация цепи C14.8 и сегментация."
+    }
+  ],
+  "link_claims": [],
+  "decision_summary": "B: find path; C14.8 + C для одного файла (фаза C по D14.3a).",
   "partial": false,
   "recommended_next_step": ""
 }
 ```
 
-**Runtime (детерминированно):**  
-`repo_inventory` **не** сокращается эвристикой `entrypoint` при невалидных explicit: каркас строится **из** walk. Затем `read_files` как в §6.1. Если `partial: true` из-за cap — `planner_path_heuristic_fallback` **не** считается успокоением; **отдельное** audit-событие *«hit inventory cap»* (имя фиксировать в G14.2 в C14.6).  
-
-**Против соглашения:** нельзя трактовать «посмотри каждый файл» как `read_files.paths: ["<namespace>"]` или один выдуманный путь (A14.1).
-
-### 6.3 «о чем файл toggle.c» (файл на 3 уровня от `project_root`)
-
-**Контекст:** **фиктивно** `toggle.c` лежит в `a/b/toggle.c` (три сегмента: `a`, `b`, `toggle.c`) — **relpath** от `project_root`, не «три уровня вверх от .git» и т.д.
-
-**Сценарий A — relpath уже в контексте (AgentWork передал):**  
-`explicit_paths: ["a/b/toggle.c"]` (или в goal + парсер — **вне** C14, но **итог** тот же). Планнер **должен** сослаться на **тот же** relpath в `read_files`, **не** на `toggle.c` в корне и **не** на glob.
-
-**Сценарий B — в запросе только имя, путь User не знал (один кандидат):**  
-Сначала `repo_inventory` (с узким `max_files` если контракт расширят префиксом — **иначе** полный cap), затем модель (или post-step **не-LLM**) **выбирает** unique `a/b/toggle.c` и формирует `read_files`. В **одном** рауннде v1: допустим JSON с **двумя** командами, где второй `read_files` **после** inventory исполняется с путями, **согласованными** с результатом walk (требует **связывания** выхода inventory с планнера — **implementation anchor** G14.2: либо планнер перечисляет relpath из рассуждения **после** согласованного **внутреннего** списка, либо runtime **подставляет** matchees — **нужно выбрать одно в D14.2+ и не смешивать**). **Минимум для плана:** явно `read_files` с `paths: ["a/b/toggle.c"]` если кандидат **один** после **ручного** / **тестового** сценария.
-
-**Ожидаемый JSON (сценарий A, один кандидат, один раунн):**
+**Сценарий A** (альтернатива, если **не** нужен полный inventory):  
 
 ```json
 {
@@ -299,19 +366,19 @@
       "id": "1",
       "op": "read_files",
       "params": { "paths": ["a/b/toggle.c"] },
-      "reason": "Пользователь спрашивает смысл конкретного файла; relpath от project_root, три уровня: a/b/toggle.c."
+      "reason": "Relpath задан; построить цепь C14.8, проиндексировать, далее фаза C (G13)."
     }
   ],
   "link_claims": [],
-  "decision_summary": "Сфокусироваться на одном исходнике, без обхода всего репозитория.",
+  "decision_summary": "Путь известен; A→…→B без отдельного full-repo inventory.",
   "partial": false,
   "recommended_next_step": ""
 }
 ```
 
-**Runtime:** `PATH_SEL_EXPLICIT` для `a/b/toggle.c` при существовании файла. Если путь **не** существует: `planner_command_rejected` / `partial`, **без** подстановки `README` через `entrypoint`. **Запрещён** путь `toggle.c` без префикса, если **фактический** файл только в `a/b/`.  
+**Неоднозначность** (два `toggle.c`): `partial: true`, нужен полный relpath; без гадания **какой** из файлов и без `read_files` с **невалидным** path.
 
-**Сценарий неоднозначности (два `toggle.c` в репо):** v1: `partial: true`, `decision_summary` = «нужен полный relpath», `recommended_next_step` = вопрос пользователю/AgentWork; **без** выбора «наугад» левого файла.
+**Runtime:** C14.8. Если `a/b/toggle.c` **не** существует — отказ / `partial`, **без** **entrypoint**-fallback на `README.md`.
 
 ---
 
@@ -343,6 +410,7 @@ G14.1 (текст/контракт)  →  G14.2 (код)  →  G14.3 (промп
 |------|------------|
 | 2026-04-29 | Первичная публикация: C14, D14, G14.1–G14.6, пример «О чем данный репозиторий», аудит A14.* |
 | 2026-04-29 | Раздел 6: введение + §6.1/6.2/6.3 (полное дерево A/B + cap, `toggle.c` с relpath `a/b/toggle.c`, неоднозначности). |
+| 2026-04-29 | C14.3.1 справочник `op`, C14.8 materialize path, D14.3a/b; §6.2 сквозной планнёр→op→C; §6.3 C14.8, сценарии A/B, `repo_inventory` для поиска имени. |
 
 ---
 
