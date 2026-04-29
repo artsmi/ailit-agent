@@ -15,6 +15,7 @@ from agent_core.runtime.agent_memory_runtime_contract import (
     W14CommandParseError,
     assert_runtime_state_transition,
     parse_memory_query_pipeline_llm_text,
+    parse_memory_query_pipeline_llm_text_result,
     parse_w14_command_output_text_strict,
 )
 
@@ -81,6 +82,26 @@ def test_valid_w14_parsed_from_pipeline_parser() -> None:
     d = parse_memory_query_pipeline_llm_text(t)
     assert d["command"] == "plan_traversal"
     assert d["schema_version"] == AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
+
+
+def test_w14_schema_version_mismatch_can_be_canonicalized() -> None:
+    """W14-like JSON with only wrong schema_version is canonicalized."""
+    o = json.loads(_minimal_w14_envelope())
+    o["schema_version"] = "1.0"
+    res = parse_memory_query_pipeline_llm_text_result(json.dumps(o))
+    assert res.normalized is True
+    assert res.from_schema_version == "1.0"
+    assert res.obj["schema_version"] == AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
+
+
+def test_w14_schema_version_canonicalization_requires_exact_rest_shape(
+) -> None:
+    """schema_version is the only field runtime may repair locally."""
+    o = json.loads(_minimal_w14_envelope())
+    o["schema_version"] = "1.0"
+    o["extra"] = "nope"
+    with pytest.raises(W14CommandParseError, match="not agent_memory"):
+        parse_memory_query_pipeline_llm_text_result(json.dumps(o))
 
 
 def test_legacy_planner_allows_json_extract() -> None:

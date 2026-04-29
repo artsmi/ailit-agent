@@ -25,8 +25,8 @@ def _first_c_path_from_nodes(
     if target_paths:
         t0 = str(target_paths[0] or "").strip()
         if t0:
-            return t0, node_ids[0] if node_ids else None
-    return ".", node_ids[0] if node_ids else None
+            return t0, None
+    return ".", None
 
 
 def build_agent_memory_result_v1(

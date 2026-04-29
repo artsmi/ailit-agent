@@ -19,6 +19,9 @@ from agent_core.models import (
     NormalizedChatResponse,
     NormalizedUsage,
 )
+from agent_core.runtime.agent_memory_result_v1 import (
+    build_agent_memory_result_v1,
+)
 from agent_core.runtime.models import RuntimeIdentity, make_request_envelope
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.runtime.subprocess_agents.memory_agent import (
@@ -52,6 +55,35 @@ class _OneShotProvider:
                 total_tokens=2,
             ),
             provider_metadata={"mock": "g14r11"},
+            raw_debug_payload=None,
+        )
+
+    def stream(self, request: ChatRequest) -> None:
+        raise NotImplementedError
+
+
+class _SeqProvider:
+    def __init__(self, bodies: list[str]) -> None:
+        self._bodies = list(bodies)
+        self.calls: list[ChatRequest] = []
+
+    @property
+    def provider_id(self) -> str:
+        return "g14r11-seq"
+
+    def complete(self, request: ChatRequest) -> NormalizedChatResponse:
+        self.calls.append(request)
+        body = self._bodies.pop(0) if self._bodies else "not json"
+        return NormalizedChatResponse(
+            text_parts=(body,),
+            tool_calls=(),
+            finish_reason=FinishReason.STOP,
+            usage=NormalizedUsage(
+                input_tokens=1,
+                output_tokens=1,
+                total_tokens=2,
+            ),
+            provider_metadata={"mock": "g14r11-seq"},
             raw_debug_payload=None,
         )
 
@@ -102,6 +134,31 @@ def _w14_finish(
         "decision_summary": "d",
         "violations": [],
     }
+    return json.dumps(o, ensure_ascii=False)
+
+
+def _w14_plan(
+    *,
+    schema_version: str = "agent_memory_command_output.v1",
+    extra: bool = False,
+) -> str:
+    o: dict[str, object] = {
+        "schema_version": schema_version,
+        "command": "plan_traversal",
+        "command_id": "pt-g14r11",
+        "status": "ok",
+        "payload": {
+            "actions": [
+                {"action": "list_children", "path": "."},
+            ],
+            "is_final": False,
+            "final_answer_basis": None,
+        },
+        "decision_summary": "plan",
+        "violations": [],
+    }
+    if extra:
+        o["extra"] = "bad"
     return json.dumps(o, ensure_ascii=False)
 
 
@@ -238,6 +295,185 @@ def test_query_context_runtime_happy_path_file_question(
     r2: object = amr2.get("results")
     assert isinstance(r2, list) and r2
     assert r2[0].get("path") == "a.py"
+
+
+def test_w14_invalid_json_does_not_grow_pag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bad planner JSON must not write A/B/C/D nodes in W14 strict path."""
+    db = tmp_path / "invalid-json.sqlite3"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    (tmp_path / "g.py").write_text(
+        "def g() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    prov = _OneShotProvider("not json")
+    worker = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-g14r11",
+            broker_id="b1",
+            namespace="ns-g14r11",
+        ),
+    )
+    monkeypatch.setattr(worker, "_provider", prov, raising=False)
+    out = worker.handle(
+        _env(
+            tmp_path,
+            goal="изучи g.py",
+            path="g.py",
+        ),
+    )
+    assert out.get("ok") is True
+    store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
+    assert store.list_nodes(namespace="ns-g14r11") == []
+
+
+def test_w14_command_rejected_does_not_grow_pag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """W14 envelope inside markdown/prose is rejected without PAG writes."""
+    db = tmp_path / "rejected-command.sqlite3"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    (tmp_path / "g.py").write_text(
+        "def g() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    body = {
+        "schema_version": "agent_memory_command_output.v1",
+        "command": "plan_traversal",
+        "command_id": "pt-bad",
+        "status": "ok",
+        "payload": {"actions": []},
+        "decision_summary": "d",
+        "violations": [],
+    }
+    prov = _OneShotProvider(f"```json\n{json.dumps(body)}\n```")
+    worker = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-g14r11",
+            broker_id="b1",
+            namespace="ns-g14r11",
+        ),
+    )
+    monkeypatch.setattr(worker, "_provider", prov, raising=False)
+    out = worker.handle(
+        _env(
+            tmp_path,
+            goal="изучи g.py",
+            path="g.py",
+        ),
+    )
+    assert out.get("ok") is True
+    store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
+    assert store.list_nodes(namespace="ns-g14r11") == []
+
+
+def test_w14_schema_repair_retry_accepts_fixed_envelope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-canonical schema error gets one repair retry and then continues."""
+    db = tmp_path / "repair-ok.sqlite3"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    (tmp_path / "g.py").write_text(
+        "def g() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    prov = _SeqProvider(
+        [
+            _w14_plan(schema_version="1.0", extra=True),
+            _w14_plan(),
+        ],
+    )
+    worker = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-g14r11",
+            broker_id="b1",
+            namespace="ns-g14r11",
+        ),
+    )
+    monkeypatch.setattr(worker, "_provider", prov, raising=False)
+    out = worker.handle(
+        _env(
+            tmp_path,
+            goal="изучи g.py",
+            path="g.py",
+        ),
+    )
+    assert out.get("ok") is True
+    assert len(prov.calls) == 2
+    pl = out.get("payload")
+    assert isinstance(pl, dict)
+    assert pl.get("decision_summary") == "plan"
+
+
+def test_w14_schema_repair_failure_returns_empty_results(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Failed repair gives partial W14 contract failure without PAG writes."""
+    db = tmp_path / "repair-fail.sqlite3"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    (tmp_path / "g.py").write_text(
+        "def g() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    prov = _SeqProvider(
+        [
+            _w14_plan(schema_version="1.0", extra=True),
+            _w14_plan(schema_version="1.0", extra=True),
+        ],
+    )
+    worker = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-g14r11",
+            broker_id="b1",
+            namespace="ns-g14r11",
+        ),
+    )
+    monkeypatch.setattr(worker, "_provider", prov, raising=False)
+    out = worker.handle(
+        _env(
+            tmp_path,
+            goal="изучи g.py",
+            path="g.py",
+        ),
+    )
+    assert out.get("ok") is True
+    assert len(prov.calls) == 2
+    pl = out.get("payload")
+    assert isinstance(pl, dict)
+    ms = pl.get("memory_slice")
+    assert isinstance(ms, dict)
+    assert ms.get("reason") == "w14_command_output_invalid"
+    assert ms.get("w14_contract_failure") is True
+    assert ms.get("reason") not in ("no_pag_slice", "path_hint_fallback")
+    amr = pl.get("agent_memory_result")
+    assert isinstance(amr, dict)
+    assert amr.get("results") == []
+    store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
+    assert store.list_nodes(namespace="ns-g14r11") == []
+
+
+def test_agent_memory_result_does_not_project_a_or_b_as_c_summary() -> None:
+    """Compatibility projection must not turn A/B node ids into C summaries."""
+    amr = build_agent_memory_result_v1(
+        query_id="q",
+        status="partial",
+        memory_slice={
+            "kind": "memory_slice",
+            "node_ids": ["A:repo", "B:file.py"],
+            "target_file_paths": [],
+            "injected_text": "fallback text",
+            "reason": "fallback",
+        },
+        partial=True,
+        decision_summary="d",
+        recommended_next_step="n",
+    )
+    assert amr["results"] == []
 
 
 def test_query_context_runtime_partial_when_budget_exhausted(

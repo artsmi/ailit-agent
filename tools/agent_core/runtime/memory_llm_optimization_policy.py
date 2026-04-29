@@ -1,4 +1,4 @@
-"""MemoryLlmOptimizationPolicy (G13.2, D13.5): caps, thinking off, JSON-only."""
+"""MemoryLlmOptimizationPolicy: caps, thinking off, JSON-only."""
 
 from __future__ import annotations
 
@@ -95,18 +95,24 @@ class MemoryLlmOptimizationPolicy:
     ) -> MemoryLlmOptimizationPolicy:
         d = dict(raw)
         th: MutableMapping[str, Any] = (
-            dict(d["thresholds"]) if isinstance(d.get("thresholds"), Mapping) else {}
+            dict(d["thresholds"])
+            if isinstance(d.get("thresholds"), Mapping)
+            else {}
         )
         th_mech = th.get("mechanical_accept", 0.85)
         th_amb = th.get("ambiguous_min", 0.5)
         think: MutableMapping[str, Any] = (
-            dict(d["thinking"]) if isinstance(d.get("thinking"), Mapping) else {}
+            dict(d["thinking"])
+            if isinstance(d.get("thinking"), Mapping)
+            else {}
         )
         pl: MutableMapping[str, Any] = (
             dict(d["planner"]) if isinstance(d.get("planner"), Mapping) else {}
         )
         ex: MutableMapping[str, Any] = (
-            dict(d["extractor"]) if isinstance(d.get("extractor"), Mapping) else {}
+            dict(d["extractor"])
+            if isinstance(d.get("extractor"), Mapping)
+            else {}
         )
         rm: MutableMapping[str, Any] = (
             dict(d["remap"]) if isinstance(d.get("remap"), Mapping) else {}
@@ -122,8 +128,14 @@ class MemoryLlmOptimizationPolicy:
             thinking_enabled=_b(think.get("enabled"), False),
             thinking_allow_for_remap=_b(think.get("allow_for_remap"), False),
             thinking_effort=str(think.get("effort", "none") or "none"),
-            planner_max_input_chars=max(400, _i(pl.get("max_input_chars"), 12_000)),
-            planner_max_output_tokens=max(32, _i(pl.get("max_output_tokens"), 512)),
+            planner_max_input_chars=max(
+                400,
+                _i(pl.get("max_input_chars"), 12_000),
+            ),
+            planner_max_output_tokens=max(
+                32,
+                _i(pl.get("max_output_tokens"), 512),
+            ),
             planner_max_candidates=max(1, _i(pl.get("max_candidates"), 24)),
             extractor_max_excerpt_chars=max(
                 400,
@@ -134,8 +146,14 @@ class MemoryLlmOptimizationPolicy:
                 _i(ex.get("max_output_tokens"), 1200),
             ),
             extractor_max_candidates=max(1, _i(ex.get("max_candidates"), 12)),
-            remap_max_excerpt_chars=max(400, _i(rm.get("max_excerpt_chars"), 32_000)),
-            remap_max_output_tokens=max(32, _i(rm.get("max_output_tokens"), 1200)),
+            remap_max_excerpt_chars=max(
+                400,
+                _i(rm.get("max_excerpt_chars"), 32_000),
+            ),
+            remap_max_output_tokens=max(
+                32,
+                _i(rm.get("max_output_tokens"), 1200),
+            ),
             remap_max_candidates=max(1, _i(rm.get("max_candidates"), 8)),
             threshold_mechanical_accept=_f(th_mech, 0.85),
             threshold_ambiguous_min=_f(th_amb, 0.5),
@@ -159,7 +177,7 @@ class MemoryLlmOptimizationPolicy:
         phase: MemoryLlmPhase,
         model_override: str | None = None,
     ) -> ChatRequest:
-        """Capped tokens, ``temperature`` из policy, thinking off by default."""
+        """Apply token caps, policy temperature and no-thinking defaults."""
         m = model_override if model_override is not None else self.model
         model = str(m or "").strip() or request.model
         max_tok = self.max_output_tokens_for_phase(phase)
@@ -173,6 +191,8 @@ class MemoryLlmOptimizationPolicy:
             },
             "response_format": "json_schema" if self.strict_json else "json",
         }
+        if self.strict_json:
+            ex["response_format"] = {"type": "json_object"}
         return replace(
             request,
             model=model,

@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
+import httpx
+
 from agent_core.capabilities import Capability
 from agent_core.models import (
     ChatMessage,
@@ -86,6 +88,20 @@ class CapturingScriptedProvider(ScriptedProvider):
         yield from super().stream(request)
 
 
+class ReadTimeoutOnceProvider(ScriptedProvider):
+    """Stream provider that times out once before any delta."""
+
+    def __init__(self, response: NormalizedChatResponse) -> None:
+        super().__init__([response], stream=True)
+        self.stream_calls: int = 0
+
+    def stream(self, request: object) -> Iterator[StreamEvent]:
+        self.stream_calls += 1
+        if self.stream_calls == 1:
+            raise httpx.ReadTimeout("The read operation timed out")
+        yield from super().stream(request)
+
+
 def test_loop_injects_pag_slice_when_available(
     tmp_path: object,
     monkeypatch: object,
@@ -137,6 +153,31 @@ def test_loop_injects_pag_slice_when_available(
     assert "agent_memory.requested" in types
     assert "agent_memory.responded" in types
     assert "agent_work.pag_slice_used" in types
+
+
+def test_session_retries_read_timeout_once_before_stream_delta() -> None:
+    """ReadTimeout before stream output is retried once and then succeeds."""
+    r1 = NormalizedChatResponse(
+        text_parts=("ok",),
+        tool_calls=(),
+        finish_reason=FinishReason.STOP,
+        usage=NormalizedUsage(1, 1, 2, usage_missing=False),
+        provider_metadata={},
+    )
+    prov = ReadTimeoutOnceProvider(r1)
+    runner = SessionRunner(prov, default_builtin_registry())
+    out = runner.run(
+        [ChatMessage(MessageRole.USER, "hello")],
+        ApprovalSession(),
+        SessionSettings(model="m", use_stream=True, max_turns=1),
+    )
+    assert out.state is SessionState.FINISHED
+    assert prov.stream_calls == 2
+    retry_events = [
+        e for e in out.events if e.get("event_type") == "model.retry"
+    ]
+    assert len(retry_events) == 1
+    assert retry_events[0]["error_class"] == "timeout"
 
 
 def test_loop_pag_sync_after_write_file(

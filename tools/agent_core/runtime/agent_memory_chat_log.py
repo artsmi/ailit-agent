@@ -53,7 +53,7 @@ MEMORY_AUDIT_WHY: Final[dict[str, str]] = {
         "Empty project_root: cannot run planner, heuristic fallback"
     ),
     MEMORY_AUDIT_A4_PLANNER_JSON_INVALID: (
-        "Planner response not valid JSON after parse attempts: grow + partial"
+        "Planner response not valid JSON: partial without PAG writes"
     ),
     MEMORY_AUDIT_A5_LLM_PLANNER: (
         "Invoke AgentMemory W14 LLM (plan_traversal, finish_decision)"

@@ -1419,6 +1419,10 @@ class AgentMemoryWorker:
         )
         w14_finish: bool = pr.am_v1_explicit_results is not None
         memory_slice = pr.memory_slice
+        w14_contract_failure = bool(
+            isinstance(memory_slice, dict)
+            and memory_slice.get("w14_contract_failure"),
+        )
         pipeline_partial = pr.partial
         if w14_finish and (pr.am_v1_status in ("partial", "blocked")):
             pipeline_partial = True
@@ -1443,6 +1447,7 @@ class AgentMemoryWorker:
         elif (
             not str(memory_slice.get("injected_text") or "").strip()
             and not w14_finish
+            and not w14_contract_failure
         ):
             memory_slice = self._fallback_slice(
                 namespace=req.namespace or self._cfg.namespace,
@@ -1480,6 +1485,7 @@ class AgentMemoryWorker:
             not want_path
             and not str(memory_slice.get("injected_text") or "").strip()
             and not w14_finish
+            and not w14_contract_failure
         ):
             err_out = make_response_envelope(
                 request=req,

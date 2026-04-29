@@ -12,6 +12,8 @@ import re
 from threading import Event
 from typing import Any, Sequence
 
+import httpx
+
 from agent_core.models import (
     ChatMessage,
     ChatRequest,
@@ -93,6 +95,15 @@ from agent_core.tool_runtime.read_file_envelope import (
 from agent_core.tool_runtime.registry import ToolRegistry
 from agent_core.tool_runtime.workdir_paths import work_root
 from agent_core.transport.errors import TransportHttpError
+
+
+def _is_read_timeout(exc: BaseException) -> bool:
+    """Return True for provider read timeouts across httpx/httpcore layers."""
+    if isinstance(exc, httpx.ReadTimeout):
+        return True
+    name = type(exc).__name__
+    text = str(exc).lower()
+    return name == "ReadTimeout" or "read operation timed out" in text
 
 
 def _default_suppress_tools_after_write_file() -> bool:
@@ -845,41 +856,68 @@ class SessionRunner:
             stream=settings.use_stream,
         )
         if settings.use_stream:
-            inc = stream_incremental_for_provider(self._provider)
-            inc.reset()
-            stream_events = self._provider.stream(req)
-            for ev in stream_events:
-                if cancel is not None and cancel.is_set():
-                    self._emit(
-                        events,
-                        "session.cancelled",
-                        {"phase": "model_stream"},
-                        diag_sink,
-                        event_sink,
-                    )
-                    raise RuntimeError("cancelled")
-                if isinstance(ev, StreamTextDelta):
-                    if ev.channel == "reasoning":
-                        ev_name = "assistant.thinking"
-                    else:
-                        ev_name = "assistant.delta"
-                    em = inc.consume(ev.channel, ev.text)
-                    if em is not None:
-                        pl: dict[str, Any] = {
-                            "text": em.text,
-                            "text_mode": em.text_mode,
-                        }
+            attempts = 0
+            while True:
+                emitted_delta = False
+                inc = stream_incremental_for_provider(self._provider)
+                inc.reset()
+                try:
+                    stream_events = self._provider.stream(req)
+                    for ev in stream_events:
+                        if cancel is not None and cancel.is_set():
+                            self._emit(
+                                events,
+                                "session.cancelled",
+                                {"phase": "model_stream"},
+                                diag_sink,
+                                event_sink,
+                            )
+                            raise RuntimeError("cancelled")
+                        if isinstance(ev, StreamTextDelta):
+                            if ev.channel == "reasoning":
+                                ev_name = "assistant.thinking"
+                            else:
+                                ev_name = "assistant.delta"
+                            em = inc.consume(ev.channel, ev.text)
+                            if em is not None:
+                                pl: dict[str, Any] = {
+                                    "text": em.text,
+                                    "text_mode": em.text_mode,
+                                }
+                                self._emit(
+                                    events,
+                                    ev_name,
+                                    pl,
+                                    diag_sink,
+                                    event_sink,
+                                )
+                                emitted_delta = True
+                        if isinstance(ev, StreamDone):
+                            return ev.response
+                    msg = "stream ended without StreamDone"
+                    raise ValueError(msg)
+                except Exception as exc:  # noqa: BLE001
+                    if (
+                        _is_read_timeout(exc)
+                        and not emitted_delta
+                        and attempts < 1
+                    ):
+                        attempts += 1
                         self._emit(
                             events,
-                            ev_name,
-                            pl,
+                            "model.retry",
+                            {
+                                "error_class": "timeout",
+                                "reason": f"{type(exc).__name__}:{exc}",
+                                "attempt": attempts,
+                                "max_attempts": 1,
+                                **request_meta,
+                            },
                             diag_sink,
                             event_sink,
                         )
-                if isinstance(ev, StreamDone):
-                    return ev.response
-            msg = "stream ended without StreamDone"
-            raise ValueError(msg)
+                        continue
+                    raise
         if cancel is not None and cancel.is_set():
             self._emit(
                 events,
@@ -889,7 +927,28 @@ class SessionRunner:
                 event_sink,
             )
             raise RuntimeError("cancelled")
-        return self._provider.complete(req)
+        attempts = 0
+        while True:
+            try:
+                return self._provider.complete(req)
+            except Exception as exc:  # noqa: BLE001
+                if _is_read_timeout(exc) and attempts < 1:
+                    attempts += 1
+                    self._emit(
+                        events,
+                        "model.retry",
+                        {
+                            "error_class": "timeout",
+                            "reason": f"{type(exc).__name__}:{exc}",
+                            "attempt": attempts,
+                            "max_attempts": 1,
+                            **request_meta,
+                        },
+                        diag_sink,
+                        event_sink,
+                    )
+                    continue
+                raise
 
     def _finalize_after_turn_cap(
         self,
@@ -945,10 +1004,13 @@ class SessionRunner:
             )
         except Exception as exc:  # noqa: BLE001
             err_reason = f"{type(exc).__name__}:{exc}"
+            extra: dict[str, object] = {}
+            if _is_read_timeout(exc):
+                extra["error_class"] = "timeout"
             self._emit(
                 events,
                 "model.error",
-                {"reason": err_reason, "phase": "cap_finalize"},
+                {"reason": err_reason, "phase": "cap_finalize", **extra},
                 diag_sink,
                 event_sink,
             )
@@ -2964,6 +3026,8 @@ class SessionRunner:
             except Exception as exc:  # noqa: BLE001
                 err_reason = f"{type(exc).__name__}:{exc}"
                 extra: dict[str, object] = {}
+                if _is_read_timeout(exc):
+                    extra["error_class"] = "timeout"
                 if isinstance(exc, TransportHttpError):
                     if exc.status_code is not None:
                         extra["status_code"] = exc.status_code

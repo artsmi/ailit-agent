@@ -37,3 +37,16 @@ def test_orphan_tool_message_dropped() -> None:
         ChatRequest(messages=(tool,), model="m"),
     )
     assert body["messages"] == []
+
+
+def test_openai_request_includes_memory_response_format() -> None:
+    """AgentMemory JSON mode must reach OpenAI-compatible request body."""
+    msg = ChatMessage(role=MessageRole.USER, content="return json")
+    body = build_openai_chat_completion_body(
+        ChatRequest(
+            messages=(msg,),
+            model="m",
+            extra={"memory_llm": {"response_format": "json_schema"}},
+        ),
+    )
+    assert body["response_format"] == {"type": "json_object"}

@@ -76,6 +76,27 @@ def _tool_to_openai_dict(tool: ToolDefinition) -> dict[str, Any]:
     }
 
 
+def _response_format_from_extra(extra: Any) -> dict[str, Any] | None:
+    """Return OpenAI-compatible response_format from request extra."""
+    if not isinstance(extra, dict):
+        return None
+    direct = extra.get("response_format")
+    if isinstance(direct, dict):
+        fmt = str(direct.get("type", "") or "").strip()
+        return dict(direct) if fmt else None
+    memory_llm = extra.get("memory_llm")
+    if not isinstance(memory_llm, dict):
+        return None
+    nested = memory_llm.get("openai_response_format")
+    if isinstance(nested, dict):
+        fmt = str(nested.get("type", "") or "").strip()
+        return dict(nested) if fmt else None
+    mode = str(memory_llm.get("response_format", "") or "").strip()
+    if mode in ("json_schema", "json_object"):
+        return {"type": "json_object"}
+    return None
+
+
 def build_openai_chat_completion_body(request: ChatRequest) -> dict[str, Any]:
     """Построить JSON-тело для POST /v1/chat/completions."""
     sanitized = _sanitize_tool_messages(tuple(request.messages))
@@ -96,4 +117,7 @@ def build_openai_chat_completion_body(request: ChatRequest) -> dict[str, Any]:
             fn = item.get("function")
             if isinstance(fn, dict):
                 fn["strict"] = True
+    response_format = _response_format_from_extra(request.extra)
+    if response_format is not None:
+        body["response_format"] = response_format
     return body

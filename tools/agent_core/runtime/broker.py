@@ -281,7 +281,11 @@ class AgentBroker:
                 "--namespace",
                 self._cfg.namespace,
             ]
-            self._agents["AgentMemory"] = _AgentProcess("AgentMemory", cmd)
+            self._agents["AgentMemory"] = _AgentProcess(
+                "AgentMemory",
+                cmd,
+                on_outbound_event=self.append_trace,
+            )
 
     def spawn_dummy(self) -> None:
         """Поднять internal AgentDummy (tests)."""

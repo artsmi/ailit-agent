@@ -14,8 +14,9 @@ from agent_core.providers.protocol import ChatProvider
 from agent_core.runtime.agent_memory_runtime_contract import (
     AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
     AgentMemoryCommandName,
+    W14CommandParseResult,
     W14CommandParseError,
-    parse_memory_query_pipeline_llm_text,
+    parse_memory_query_pipeline_llm_text_result,
 )
 from agent_core.runtime.agent_memory_result_assembly import (
     FinishDecisionResultAssembler,
@@ -283,23 +284,33 @@ class AgentMemoryQueryPipeline:
         )
         raw_txt = "".join(resp.text_parts).strip()
         try:
-            plan_obj = parse_memory_query_pipeline_llm_text(raw_txt)
+            plan_result = parse_memory_query_pipeline_llm_text_result(raw_txt)
         except W14CommandParseError as exc:
-            return self._w14_command_output_rejected_partial(
+            repaired = self._repair_w14_command_output(
                 req=req,
                 request_id=request_id,
-                qid_log=qid_log,
-                w14_next_step_id=_w14_next_step_id,
-                project_root=project_root,
-                explicit_paths=explicit_paths,
-                goal=goal,
-                query_kind=query_kind,
-                level=level,
-                nspace=nspace,
-                reason=str(exc),
-                prompt_id=pl_prompt_id,
-                command_id=pl_command_trace,
+                original_text=raw_txt,
+                validation_error=str(exc),
+                base_request=c_req,
             )
+            if repaired is not None:
+                plan_result = repaired
+            else:
+                return self._w14_command_output_rejected_partial(
+                    req=req,
+                    request_id=request_id,
+                    qid_log=qid_log,
+                    w14_next_step_id=_w14_next_step_id,
+                    project_root=project_root,
+                    explicit_paths=explicit_paths,
+                    goal=goal,
+                    query_kind=query_kind,
+                    level=level,
+                    nspace=nspace,
+                    reason=str(exc),
+                    prompt_id=pl_prompt_id,
+                    command_id=pl_command_trace,
+                )
         except ValueError:
             return self._partial_json_fallback(
                 req=req,
@@ -311,6 +322,27 @@ class AgentMemoryQueryPipeline:
                 level=level,
                 nspace=nspace,
             )
+        else:
+            if plan_result.normalized:
+                self._nj(
+                    req=req,
+                    event_name="memory.command.normalized",
+                    summary="w14 command schema_version canonicalized",
+                    request_id=request_id,
+                    payload={
+                        "from_schema_version": plan_result.from_schema_version,
+                        "to_schema_version": (
+                            AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
+                        ),
+                        "command": str(
+                            plan_result.obj.get("command", "") or "",
+                        )[:200],
+                        "command_id": str(
+                            plan_result.obj.get("command_id", "") or "",
+                        )[:200],
+                    },
+                )
+        plan_obj = plan_result.obj
         partial_plan = bool(plan_obj.get("partial", False))
         if (
             str(plan_obj.get("schema_version", "") or "").strip()
@@ -386,6 +418,85 @@ class AgentMemoryQueryPipeline:
             level=level,
             nspace=nspace,
         )
+
+    def _repair_w14_command_output(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        original_text: str,
+        validation_error: str,
+        base_request: ChatRequest,
+    ) -> W14CommandParseResult | None:
+        if not self._should_repair_w14_error(validation_error):
+            return None
+        repair_user = {
+            "validation_error": str(validation_error)[:1_000],
+            "previous_response": str(original_text or "")[:4_000],
+            "required_schema_version": AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
+            "instruction": (
+                "Return only a JSON object that validates as "
+                "agent_memory_command_output.v1. Do not add prose."
+            ),
+        }
+        repair_req = self._policy.apply_chat_request(
+            ChatRequest(
+                messages=(
+                    ChatMessage(
+                        role=MessageRole.SYSTEM,
+                        content=(
+                            "Исправь JSON ответа AgentMemory. Верни только "
+                            "валидный agent_memory_command_output.v1 JSON. "
+                            "Не меняй смысл команды без необходимости."
+                        ),
+                    ),
+                    ChatMessage(
+                        role=MessageRole.USER,
+                        content=_json_dumps(repair_user),
+                    ),
+                ),
+                model=base_request.model,
+                temperature=0.0,
+                max_tokens=base_request.max_tokens,
+                stream=False,
+            ),
+            phase="planner",
+            model_override=self._policy.model or base_request.model,
+        )
+        try:
+            resp = self._prov.complete(repair_req)
+        except Exception as exc:  # noqa: BLE001
+            self._w.log_memory_llm_verbose(  # noqa: SLF001
+                req,
+                request_id,
+                "planner_repair",
+                repair_req,
+                None,
+                exc,
+            )
+            return None
+        self._w.log_memory_llm_verbose(  # noqa: SLF001
+            req,
+            request_id,
+            "planner_repair",
+            repair_req,
+            resp,
+            None,
+        )
+        raw = "".join(resp.text_parts).strip()
+        try:
+            return parse_memory_query_pipeline_llm_text_result(raw)
+        except (W14CommandParseError, ValueError):
+            return None
+
+    @staticmethod
+    def _should_repair_w14_error(reason: str) -> bool:
+        low = str(reason or "").lower()
+        if "must be only json" in low:
+            return False
+        if "invalid json" in low:
+            return False
+        return True
 
     def _try_mechanical_slice(
         self,
@@ -646,36 +757,23 @@ class AgentMemoryQueryPipeline:
             query_id=qid_log,
             counters={"w14_command_reject": 1},
         )
-        self._w._grow_pag_for_query(  # noqa: SLF001
-            req=req,
-            request_id=request_id,
-            project_root=project_root,
-            goal=goal,
-            explicit_paths=explicit_paths,
-        )
-        ms0 = self._w._slice_from_pag(  # noqa: SLF001
-            project_root=project_root,
-            namespace=nspace,
-            goal=goal,
-            query_kind=query_kind,
-            level=level,
-        )
-        ms2 = dict(ms0 or {"kind": "memory_slice", "node_ids": []})
-        if not ms0:
-            ms2["partial"] = True
-        elif (
-            str(ms2.get("reason", "") or "") == "pag_runtime_slice"
-            and str(ms2.get("staleness", "") or "") == "fresh"
-        ):
-            ms2["partial"] = False
-        else:
-            ms2["partial"] = True
-        pflag = bool(ms2.get("partial", True))
         return AgentMemoryQueryPipelineResult(
-            memory_slice=ms2,
-            partial=pflag,
-            decision_summary="w14 command output invalid",
-            recommended_next_step="retry",
+            memory_slice={
+                "kind": "memory_slice",
+                "schema": "memory.slice.v1",
+                "level": level,
+                "node_ids": [],
+                "edge_ids": [],
+                "injected_text": "",
+                "estimated_tokens": 0,
+                "staleness": "w14_command_rejected",
+                "reason": "w14_command_output_invalid",
+                "partial": True,
+                "w14_contract_failure": True,
+            },
+            partial=True,
+            decision_summary=f"w14 command output invalid: {reason}"[:1_200],
+            recommended_next_step="fix_memory_llm_json",
             created_node_ids=[],
             created_edge_ids=[],
             used_llm=True,
@@ -705,36 +803,23 @@ class AgentMemoryQueryPipeline:
             summary="invalid planner json, partial",
             request_id=request_id,
         )
-        self._w._grow_pag_for_query(  # noqa: SLF001
-            req=req,
-            request_id=request_id,
-            project_root=project_root,
-            goal=goal,
-            explicit_paths=explicit_paths,
-        )
-        ms0 = self._w._slice_from_pag(  # noqa: SLF001
-            project_root=project_root,
-            namespace=nspace,
-            goal=goal,
-            query_kind=query_kind,
-            level=level,
-        )
-        ms2 = dict(ms0 or {"kind": "memory_slice", "node_ids": []})
-        if not ms0:
-            ms2["partial"] = True
-        elif (
-            str(ms2.get("reason", "") or "") == "pag_runtime_slice"
-            and str(ms2.get("staleness", "") or "") == "fresh"
-        ):
-            ms2["partial"] = False
-        else:
-            ms2["partial"] = True
-        pflag = bool(ms2.get("partial", True))
         return AgentMemoryQueryPipelineResult(
-            memory_slice=ms2,
-            partial=pflag,
+            memory_slice={
+                "kind": "memory_slice",
+                "schema": "memory.slice.v1",
+                "level": level,
+                "node_ids": [],
+                "edge_ids": [],
+                "injected_text": "",
+                "estimated_tokens": 0,
+                "staleness": "w14_invalid_json",
+                "reason": "w14_invalid_json",
+                "partial": True,
+                "w14_contract_failure": True,
+            },
+            partial=True,
             decision_summary="invalid json",
-            recommended_next_step="retry",
+            recommended_next_step="fix_memory_llm_json",
             created_node_ids=[],
             created_edge_ids=[],
             used_llm=True,

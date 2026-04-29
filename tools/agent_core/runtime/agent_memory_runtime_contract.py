@@ -40,6 +40,15 @@ class W14CommandParseError(ValueError):
     """Невалидный JSON, prose вокруг JSON, лишние поля (strict W14)."""
 
 
+@dataclass(frozen=True, slots=True)
+class W14CommandParseResult:
+    """Parsed W14/legacy planner output plus canonicalization metadata."""
+
+    obj: dict[str, Any]
+    normalized: bool = False
+    from_schema_version: str = ""
+
+
 class UnknownRuntimeStateError(ValueError):
     """state не из контракта C14R.8."""
 
@@ -233,6 +242,81 @@ def _is_w14_command_envelope_object(obj: Any) -> bool:
     )
 
 
+def _is_w14_like_command_object(obj: Any) -> bool:
+    """Return true for JSON that intends to be a W14 command envelope."""
+    if not isinstance(obj, dict):
+        return False
+    return "schema_version" in obj or "command" in obj
+
+
+def _validate_plan_traversal_payload(payload: Mapping[str, Any]) -> None:
+    actions = payload.get("actions", [])
+    if not isinstance(actions, list):
+        raise W14CommandParseError("payload.actions must be an array")
+    allowed = {
+        "list_children",
+        "get_b_summary",
+        "get_c_content",
+        "decompose_b_to_c",
+        "summarize_b",
+        "finish",
+    }
+    for idx, item in enumerate(actions):
+        if not isinstance(item, dict):
+            raise W14CommandParseError(
+                f"payload.actions[{idx}] must be an object",
+            )
+        action = str(item.get("action", "") or "").strip()
+        if action not in allowed:
+            raise W14CommandParseError(
+                f"payload.actions[{idx}].action invalid: {action!r}",
+            )
+        if "path" in item and not isinstance(item.get("path"), str):
+            raise W14CommandParseError(
+                f"payload.actions[{idx}].path must be a string",
+            )
+    if "is_final" in payload and not isinstance(payload.get("is_final"), bool):
+        raise W14CommandParseError("payload.is_final must be a boolean")
+    fab = payload.get("final_answer_basis")
+    if fab is not None and not isinstance(fab, str):
+        raise W14CommandParseError(
+            "payload.final_answer_basis must be a string or null",
+        )
+
+
+def _validate_finish_decision_payload(payload: Mapping[str, Any]) -> None:
+    selected = payload.get("selected_results", [])
+    if not isinstance(selected, list):
+        raise W14CommandParseError(
+            "payload.selected_results must be an array",
+        )
+    status = payload.get("status")
+    if status is not None and str(status) not in (
+        "complete",
+        "partial",
+        "blocked",
+    ):
+        raise W14CommandParseError("payload.status invalid")
+    for idx, item in enumerate(selected):
+        if not isinstance(item, dict):
+            raise W14CommandParseError(
+                f"payload.selected_results[{idx}] must be an object",
+            )
+    for key in ("decision_summary", "recommended_next_step"):
+        if key in payload and not isinstance(payload.get(key), str):
+            raise W14CommandParseError(f"payload.{key} must be a string")
+
+
+def _validate_command_payload(
+    command: str,
+    payload: Mapping[str, Any],
+) -> None:
+    if command == AgentMemoryCommandName.PLAN_TRAVERSAL.value:
+        _validate_plan_traversal_payload(payload)
+    elif command == AgentMemoryCommandName.FINISH_DECISION.value:
+        _validate_finish_decision_payload(payload)
+
+
 def validate_w14_command_envelope_object(
     obj: Mapping[str, Any],
 ) -> dict[str, Any]:
@@ -255,9 +339,13 @@ def validate_w14_command_envelope_object(
             raise W14CommandParseError(f"missing_field: {k}")
     cmd = str(obj.get("command", "") or "")
     AgentMemoryCommandRegistry.resolve(cmd)
+    for k in ("command", "command_id", "status"):
+        if not isinstance(obj.get(k), str):
+            raise W14CommandParseError(f"{k} must be a string")
     p = obj.get("payload", {})
     if not isinstance(p, dict):
         raise W14CommandParseError("payload must be an object")
+    _validate_command_payload(cmd, p)
     dsum: Any = obj.get("decision_summary")
     if not isinstance(dsum, str):
         raise W14CommandParseError("decision_summary must be a string")
@@ -265,6 +353,31 @@ def validate_w14_command_envelope_object(
     if not isinstance(vio, list):
         raise W14CommandParseError("violations must be an array")
     return {str(x): y for x, y in obj.items()}
+
+
+def validate_or_canonicalize_w14_command_envelope_object(
+    obj: Mapping[str, Any],
+) -> W14CommandParseResult:
+    """Validate W14 envelope, allowing only schema_version canonicalization."""
+    try:
+        return W14CommandParseResult(
+            obj=validate_w14_command_envelope_object(obj),
+        )
+    except W14CommandParseError as first_err:
+        raw_schema = obj.get("schema_version")
+        if raw_schema == AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA:
+            raise
+        candidate: dict[str, Any] = {str(x): y for x, y in obj.items()}
+        candidate["schema_version"] = AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
+        try:
+            parsed = validate_w14_command_envelope_object(candidate)
+        except W14CommandParseError:
+            raise first_err
+        return W14CommandParseResult(
+            obj=parsed,
+            normalized=True,
+            from_schema_version=str(raw_schema or ""),
+        )
 
 
 def _json_extract_object(text: str) -> str | None:
@@ -283,9 +396,9 @@ def _json_extract_object(text: str) -> str | None:
     return None
 
 
-def parse_memory_query_pipeline_llm_text(
+def parse_memory_query_pipeline_llm_text_result(
     text: str,
-) -> dict[str, Any]:
+) -> W14CommandParseResult:
     """
     Парсинг ответа memory planner/LLM для `AgentMemoryQueryPipeline`.
 
@@ -310,17 +423,24 @@ def parse_memory_query_pipeline_llm_text(
             ) from exc1
         if not isinstance(o2, dict):
             raise ValueError("memory json must be an object")
-        if _is_w14_command_envelope_object(o2):
+        if _is_w14_like_command_object(o2):
             raise W14CommandParseError(
                 "w14 command output must be only JSON, no prose or "
                 "extracted substrings",
             )
-        return o2
+        return W14CommandParseResult(obj=o2)
     if not isinstance(o, dict):
         raise ValueError("memory json must be an object")
-    if _is_w14_command_envelope_object(o):
-        return validate_w14_command_envelope_object(o)
-    return o
+    if _is_w14_like_command_object(o):
+        return validate_or_canonicalize_w14_command_envelope_object(o)
+    return W14CommandParseResult(obj=o)
+
+
+def parse_memory_query_pipeline_llm_text(
+    text: str,
+) -> dict[str, Any]:
+    """Return parsed planner object, preserving the historical API."""
+    return parse_memory_query_pipeline_llm_text_result(text).obj
 
 
 def parse_w14_command_output_text_strict(

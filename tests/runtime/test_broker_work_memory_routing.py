@@ -6,6 +6,7 @@ import socket
 import time
 from pathlib import Path
 
+import agent_core.runtime.broker as broker_mod
 from agent_core.runtime.broker import BrokerConfig, run_broker_server
 from agent_core.runtime.models import CONTRACT_VERSION
 from agent_core.runtime.paths import RuntimePaths
@@ -65,6 +66,74 @@ def _mk_env(
     }
 
 
+def test_broker_forwards_agent_memory_pag_events(
+    tmp_path: Path,
+    monkeypatch: object,
+) -> None:
+    """AgentMemory stdout topic.publish events are appended to broker trace."""
+    paths = RuntimePaths(runtime_dir=tmp_path / "rt")
+    trace_path = paths.runtime_dir / "trace" / "trace-chat-mem.jsonl"
+    captured: dict[str, object] = {}
+
+    class FakeAgentProcess:
+        def __init__(
+            self,
+            name: str,
+            cmd: list[str],
+            *,
+            on_outbound_event: object | None = None,
+        ) -> None:
+            captured["name"] = name
+            captured["cmd"] = cmd
+            captured["on_outbound_event"] = on_outbound_event
+
+    monkeypatch.setattr(broker_mod, "_AgentProcess", FakeAgentProcess)
+    broker = broker_mod.AgentBroker(
+        BrokerConfig(
+            runtime_dir=paths.runtime_dir,
+            socket_path=paths.broker_socket(chat_id="chat-mem"),
+            chat_id="chat-mem",
+            namespace="ns",
+            project_root=str(tmp_path),
+            trace_store_path=trace_path,
+        ),
+    )
+    broker.spawn_memory()
+    cb = captured.get("on_outbound_event")
+    assert callable(cb)
+    cb(
+        {
+            "contract_version": CONTRACT_VERSION,
+            "runtime_id": "rt-1",
+            "chat_id": "chat-mem",
+            "broker_id": "broker-chat-mem",
+            "trace_id": "tr",
+            "message_id": "pag-1",
+            "parent_message_id": "m0",
+            "goal_id": "g",
+            "namespace": "ns",
+            "from_agent": "AgentMemory:global",
+            "to_agent": None,
+            "created_at": "2026-04-29T00:00:00Z",
+            "type": "topic.publish",
+            "payload": {
+                "type": "topic.publish",
+                "topic": "chat",
+                "event_name": "pag.node.upsert",
+                "payload": {
+                    "kind": "pag.node.upsert",
+                    "namespace": "ns",
+                    "rev": 1,
+                    "node": {"node_id": "C:a.py#x", "level": "C"},
+                },
+            },
+        },
+    )
+    lines = trace_path.read_text(encoding="utf-8").splitlines()
+    rows = [json.loads(x) for x in lines]
+    assert rows[-1]["payload"]["event_name"] == "pag.node.upsert"
+
+
 def test_broker_routes_memory_service_and_work_action(tmp_path: Path) -> None:
     runtime_dir = tmp_path / "rt"
     paths = RuntimePaths(runtime_dir=runtime_dir)
@@ -106,7 +175,7 @@ def test_broker_routes_memory_service_and_work_action(tmp_path: Path) -> None:
         assert "grants" in mem_resp["payload"]
         mem_payload = mem_resp["payload"]
         assert isinstance(mem_payload, dict)
-        # G13.2: mock LLM JSON невалиден → partial может быть True до recovery среза.
+        # G13.2: invalid mock LLM JSON may return partial before recovery.
         assert isinstance(mem_payload.get("partial"), bool)
         assert mem_payload["project_refs"]
         assert mem_payload["recommended_next_step"]
