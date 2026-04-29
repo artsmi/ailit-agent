@@ -11,6 +11,13 @@ from agent_core.providers.protocol import ChatProvider
 from agent_core.runtime.agent_memory_config import (
     parse_memory_json_with_retry,
 )
+from agent_core.runtime.agent_memory_chat_log import (
+    MEMORY_AUDIT_A1_POLICY_LLM_OFF,
+    MEMORY_AUDIT_A2_MECHANICAL_SLICE,
+    MEMORY_AUDIT_A3_NO_PROJECT_ROOT,
+    MEMORY_AUDIT_A4_PLANNER_JSON_INVALID,
+    MEMORY_AUDIT_A5_LLM_PLANNER,
+)
 from agent_core.runtime.memory_llm_optimization_policy import (
     MemoryLlmOptimizationPolicy,
 )
@@ -109,6 +116,12 @@ class AgentMemoryQueryPipeline:
     ) -> AgentMemoryQueryPipelineResult:
         nspace = str(req.namespace or self._w._cfg.namespace)  # noqa: SLF001
         if not self._policy.enabled:
+            self._w.log_memory_why_llm(  # noqa: SLF001
+                req,
+                request_id=request_id,
+                reason_id=MEMORY_AUDIT_A1_POLICY_LLM_OFF,
+                checklist={"memory_llm_optimization_enabled": False},
+            )
             return self._fallback_without_llm(
                 req=req,
                 request_id=request_id,
@@ -128,6 +141,21 @@ class AgentMemoryQueryPipeline:
             explicit_paths=explicit_paths,
         )
         if mech is not None:
+            ms = mech.memory_slice
+            self._w.log_memory_why_llm(  # noqa: SLF001
+                req,
+                request_id=request_id,
+                reason_id=MEMORY_AUDIT_A2_MECHANICAL_SLICE,
+                checklist={
+                    "mechanical_slice_eligible": bool(
+                        explicit_paths and str(goal or "").strip(),
+                    ),
+                },
+                extra={
+                    "slice_reason": str(ms.get("reason", "") or ""),
+                    "staleness": str(ms.get("staleness", "") or ""),
+                },
+            )
             self._nj(
                 req=req,
                 event_name="memory.explore.cache_hit",
@@ -136,6 +164,12 @@ class AgentMemoryQueryPipeline:
             )
             return mech
         if not str(project_root or "").strip():
+            self._w.log_memory_why_llm(  # noqa: SLF001
+                req,
+                request_id=request_id,
+                reason_id=MEMORY_AUDIT_A3_NO_PROJECT_ROOT,
+                checklist={"project_root": ""},
+            )
             return self._fallback_without_llm(
                 req=req,
                 request_id=request_id,
@@ -154,6 +188,22 @@ class AgentMemoryQueryPipeline:
             "namespace": nspace,
             "explicit_paths": explicit_paths,
         }
+        self._w.log_memory_why_llm(  # noqa: SLF001
+            req,
+            request_id=request_id,
+            reason_id=MEMORY_AUDIT_A5_LLM_PLANNER,
+            checklist={
+                "llm_optimization_enabled": True,
+                "mechanical_slice_eligible": bool(
+                    explicit_paths and str(goal or "").strip(),
+                ),
+                "mechanical_slice_hit": False,
+                "project_root_non_empty": bool(
+                    str(project_root or "").strip(),
+                ),
+            },
+            extra={"planner_user_json": pl_user},
+        )
         c_req = self._policy.apply_chat_request(
             ChatRequest(
                 messages=(
@@ -222,6 +272,13 @@ class AgentMemoryQueryPipeline:
             if isinstance(x, dict)
         ]
         rels = [p for p in rels if p] or list(explicit_paths)
+        self._w.log_memory_planner_parsed(  # noqa: SLF001
+            req,
+            request_id,
+            plan=plan_obj,
+            paths_for_grow=list(rels),
+            grow_will_run=bool(rels),
+        )
         if rels:
             self._w._grow_pag_for_query(  # noqa: SLF001
                 req=req,
@@ -231,6 +288,11 @@ class AgentMemoryQueryPipeline:
                 explicit_paths=rels,
             )
         created: list[str] = []
+        vclaims_for_log: list[dict[str, Any]] = [
+            x
+            for x in link_claims_list
+            if isinstance(x, dict)
+        ]
         if c_ups or link_claims_list:
             store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
             write = PagGraphWriteService(store)
@@ -263,18 +325,19 @@ class AgentMemoryQueryPipeline:
                         staleness_state="fresh",
                     )
                     created.append(node_id)
-                vclaims: list[dict[str, Any]] = [
-                    x
-                    for x in link_claims_list
-                    if isinstance(x, dict)
-                ]
-                if vclaims:
+                if vclaims_for_log:
                     resolver = LinkClaimResolver()
                     _ = resolver.apply_link_claims(
                         write,
                         namespace=nspace,
-                        claims=vclaims,
+                        claims=vclaims_for_log,
                     )
+        self._w.log_memory_graph_write(  # noqa: SLF001
+            req,
+            request_id,
+            created_node_ids=list(created),
+            link_claims_count=len(vclaims_for_log),
+        )
         memory_slice = self._w._slice_from_pag(  # noqa: SLF001
             project_root=project_root,
             namespace=nspace,
@@ -364,6 +427,11 @@ class AgentMemoryQueryPipeline:
         level: str,
         nspace: str,
     ) -> AgentMemoryQueryPipelineResult:
+        self._w.log_memory_why_llm(  # noqa: SLF001
+            req,
+            request_id=request_id,
+            reason_id=MEMORY_AUDIT_A4_PLANNER_JSON_INVALID,
+        )
         self._nj(
             req=req,
             event_name="memory.partial",

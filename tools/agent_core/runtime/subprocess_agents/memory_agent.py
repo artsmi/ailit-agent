@@ -25,7 +25,10 @@ from agent_core.runtime.agent_memory_ailit_config import (
     load_merged_ailit_config_for_memory,
     resolve_memory_llm_optimization,
 )
-from agent_core.runtime.agent_memory_chat_log import AgentMemoryChatDebugLog
+from agent_core.runtime.agent_memory_chat_log import (
+    AgentMemoryChatDebugLog,
+    MEMORY_AUDIT_WHY,
+)
 from agent_core.runtime.d_creation_policy import (
     DCreationPolicy,
     enrich_memory_slice_tiered,
@@ -41,7 +44,10 @@ from agent_core.runtime.agent_memory_query_pipeline import (
     AgentMemoryQueryPipeline,
 )
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
-from agent_core.runtime.memory_growth import QueryDrivenPagGrowth
+from agent_core.runtime.memory_growth import (
+    QueryDrivenGrowthResult,
+    QueryDrivenPagGrowth,
+)
 from agent_core.runtime.memory_change_update_service import (
     ChangeFeedbackIdempotencyStore,
     MemoryChangeUpdateService,
@@ -224,6 +230,129 @@ class AgentMemoryWorker:
             error=err,
         )
 
+    def log_memory_why_llm(
+        self,
+        req: RuntimeRequestEnvelope,
+        *,
+        request_id: str,
+        reason_id: str,
+        checklist: Mapping[str, Any] | None = None,
+        extra: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Аудит: стабильный reason_id (whitelist) + опциональный чеклист."""
+        if not self._chat_debug.enabled:
+            return
+        body: dict[str, Any] = {
+            "reason_id": reason_id,
+            "explanation": MEMORY_AUDIT_WHY.get(
+                reason_id,
+                "(unknown reason_id)",
+            ),
+        }
+        if checklist is not None:
+            body["checklist"] = dict(checklist)
+        if extra is not None:
+            body["details"] = dict(extra)
+        self._chat_debug.log_audit(
+            raw_chat_id=req.chat_id,
+            event="memory.why_llm",
+            request_id=request_id,
+            topic="llm_decision",
+            body=body,
+        )
+
+    def log_memory_planner_parsed(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        *,
+        plan: Mapping[str, Any],
+        paths_for_grow: list[str],
+        grow_will_run: bool,
+    ) -> None:
+        """Сырой план панера + пути для query-driven grow."""
+        if not self._chat_debug.enabled:
+            return
+        self._chat_debug.log_audit(
+            raw_chat_id=req.chat_id,
+            event="memory.runtime_decision",
+            request_id=request_id,
+            topic="planner_parsed",
+            body={
+                "plan": dict(plan),
+                "paths_for_grow": list(paths_for_grow),
+                "grow_will_run": grow_will_run,
+            },
+        )
+
+    def log_memory_graph_write(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        *,
+        created_node_ids: list[str],
+        link_claims_count: int,
+    ) -> None:
+        """Результат upsert C-нод и link claims от планера."""
+        if not self._chat_debug.enabled:
+            return
+        self._chat_debug.log_audit(
+            raw_chat_id=req.chat_id,
+            event="memory.runtime_decision",
+            request_id=request_id,
+            topic="c_upserts_and_links",
+            body={
+                "created_node_ids": list(created_node_ids),
+                "link_claims_submitted": int(link_claims_count),
+            },
+        )
+
+    def _log_query_context_incoming(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        *,
+        goal: str,
+        query_kind: str,
+        level: str,
+        project_root: str,
+        explicit_paths: list[str],
+    ) -> None:
+        if not self._chat_debug.enabled:
+            return
+        self._chat_debug.log_audit(
+            raw_chat_id=req.chat_id,
+            event="memory.request",
+            request_id=request_id,
+            topic="query_context",
+            body={
+                "envelope": req.to_dict(),
+                "derived": {
+                    "goal": goal,
+                    "query_kind": query_kind,
+                    "level": level,
+                    "project_root": project_root,
+                    "explicit_paths": list(explicit_paths),
+                },
+            },
+        )
+
+    def _log_query_context_outgoing(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        out: Mapping[str, Any],
+    ) -> None:
+        if not self._chat_debug.enabled:
+            return
+        self._chat_debug.log_audit(
+            raw_chat_id=req.chat_id,
+            event="memory.response",
+            request_id=request_id,
+            topic="to_agent_work",
+            body={"response": dict(out)},
+        )
+
     def _grow_pag_for_query(
         self,
         *,
@@ -232,9 +361,9 @@ class AgentMemoryWorker:
         project_root: str,
         goal: str,
         explicit_paths: list[str],
-    ) -> None:
+    ) -> QueryDrivenGrowthResult | None:
         if not project_root.strip():
-            return
+            return None
         try:
             res = self._growth.grow(
                 project_root=Path(project_root).expanduser().resolve(),
@@ -251,7 +380,35 @@ class AgentMemoryWorker:
                 request_id=request_id,
                 payload={"error": f"{type(exc).__name__}:{exc}"},
             )
-            return
+            if self._chat_debug.enabled:
+                self._chat_debug.log_audit(
+                    raw_chat_id=req.chat_id,
+                    event="memory.runtime_decision",
+                    request_id=request_id,
+                    topic="query_driven_pag_growth",
+                    body={
+                        "input_explicit_paths": list(explicit_paths),
+                        "error": f"{type(exc).__name__}:{exc}",
+                    },
+                )
+            return None
+        if self._chat_debug.enabled:
+            self._chat_debug.log_audit(
+                raw_chat_id=req.chat_id,
+                event="memory.runtime_decision",
+                request_id=request_id,
+                topic="query_driven_pag_growth",
+                body={
+                    "input_explicit_paths": list(explicit_paths),
+                    "result": {
+                        "namespace": res.namespace,
+                        "selected_paths": list(res.selected_paths),
+                        "node_ids": list(res.node_ids),
+                        "partial": res.partial,
+                        "reason": res.reason,
+                    },
+                },
+            )
         if res.partial:
             self._append_journal(
                 req=req,
@@ -263,7 +420,7 @@ class AgentMemoryWorker:
                     "selected_paths": list(res.selected_paths),
                 },
             )
-            return
+            return res
         for node_id in res.node_ids:
             self._append_journal(
                 req=req,
@@ -277,6 +434,7 @@ class AgentMemoryWorker:
                     "reason": res.reason,
                 },
             )
+        return res
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:
@@ -605,6 +763,15 @@ class AgentMemoryWorker:
                 },
             )
             explicit_paths = []
+        self._log_query_context_incoming(
+            req,
+            request_id,
+            goal=goal,
+            query_kind=query_kind,
+            level=level,
+            project_root=project_root,
+            explicit_paths=explicit_paths,
+        )
         pl = AgentMemoryQueryPipeline(
             self,
             self._memory_llm_policy,
@@ -653,7 +820,7 @@ class AgentMemoryWorker:
             )
             grants.append(grant.to_dict())
         if not want_path and not memory_slice.get("injected_text"):
-            return make_response_envelope(
+            err_out = make_response_envelope(
                 request=req,
                 ok=False,
                 payload={},
@@ -662,6 +829,8 @@ class AgentMemoryWorker:
                     "message": "no PAG slice or path hint available",
                 },
             ).to_dict()
+            self._log_query_context_outgoing(req, request_id, err_out)
+            return err_out
         d_gate: str = ""
         d_rsn: str = ""
         if (
@@ -743,7 +912,7 @@ class AgentMemoryWorker:
                 "compact": cj.to_payload(),
             },
         )
-        return make_response_envelope(
+        ok_out = make_response_envelope(
             request=req,
             ok=True,
             payload={
@@ -756,6 +925,8 @@ class AgentMemoryWorker:
             },
             error=None,
         ).to_dict()
+        self._log_query_context_outgoing(req, request_id, ok_out)
+        return ok_out
 
 
 def _parse_args(argv: list[str]) -> argparse.Namespace:

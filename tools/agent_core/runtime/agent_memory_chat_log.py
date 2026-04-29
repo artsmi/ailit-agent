@@ -1,6 +1,7 @@
 """
 Логи отладки AgentMemory: ~/.ailit/agent-memory/chat_logs/<chat_id>.log
-при memory.debug.verbose = 1. Строка = системное время + JSON-событие.
+при memory.debug.verbose = 1. Записи: блоки с разделителем, JSON с indent=2
+(чтение сырого лога — один файл, вся аналитика + LLM).
 """
 
 from __future__ import annotations
@@ -33,6 +34,30 @@ _SAFE_RE: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9_-]")
 
 # Единая блокировка append в процессе AgentMemory (последовательная запись).
 _write_lock: threading.Lock = threading.Lock()
+
+# Стабильные ID для сценария «зачем вызван / не вызван LLM» (whitelist).
+MEMORY_AUDIT_A1_POLICY_LLM_OFF: Final[str] = "A1"
+MEMORY_AUDIT_A2_MECHANICAL_SLICE: Final[str] = "A2"
+MEMORY_AUDIT_A3_NO_PROJECT_ROOT: Final[str] = "A3"
+MEMORY_AUDIT_A4_PLANNER_JSON_INVALID: Final[str] = "A4"
+MEMORY_AUDIT_A5_LLM_PLANNER: Final[str] = "A5"
+MEMORY_AUDIT_WHY: Final[dict[str, str]] = {
+    MEMORY_AUDIT_A1_POLICY_LLM_OFF: (
+        "Memory LLM policy disabled: heuristic PAG only, no provider call"
+    ),
+    MEMORY_AUDIT_A2_MECHANICAL_SLICE: (
+        "Mechanical PAG slice cache hit: fresh slice without LLM"
+    ),
+    MEMORY_AUDIT_A3_NO_PROJECT_ROOT: (
+        "Empty project_root: cannot run planner, heuristic fallback"
+    ),
+    MEMORY_AUDIT_A4_PLANNER_JSON_INVALID: (
+        "Planner response not valid JSON after parse attempts: grow + partial"
+    ),
+    MEMORY_AUDIT_A5_LLM_PLANNER: (
+        "Invoke memory planner LLM (requested_reads, c_upserts plan)"
+    ),
+}
 
 
 def safe_chat_id_for_log_file(raw_chat_id: str) -> str:
@@ -167,10 +192,13 @@ def chat_response_to_log_dict(resp: NormalizedChatResponse) -> dict[str, Any]:
     }
 
 
+_AUDIT_SEP: Final[str] = "=" * 80
+
+
 class AgentMemoryChatDebugLog:
     """
     Пишет append-only в `log_file_path_for_chat(chat_id)` при verbose=1.
-    Все записи в одной строке: `ISO-время {"event":…}`.
+    Каждое событие — блок: разделитель, строка-заголовок, JSON с отступом.
     """
 
     def __init__(self, file_cfg: AgentMemoryFileConfig) -> None:
@@ -181,22 +209,57 @@ class AgentMemoryChatDebugLog:
         v: int = int(self._file_cfg.memory.debug.verbose)
         return v == 1
 
-    def _append(
+    @staticmethod
+    def _dumps_pretty(data: Mapping[str, Any]) -> str:
+        return json.dumps(
+            dict(data),
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=False,
+        )
+
+    def _write_pretty_block(
         self,
         raw_chat_id: str,
-        event: str,
-        data: dict[str, Any],
+        header_line: str,
+        record: dict[str, Any],
     ) -> None:
         if not self.enabled:
             return
         p: Path = log_file_path_for_chat(raw_chat_id)
         p.parent.mkdir(parents=True, exist_ok=True)
-        rec: dict[str, Any] = {"event": event, **data}
-        j = json.dumps(rec, ensure_ascii=False, separators=(",", ":"))
-        line: str = f"{_now_local_iso()} {j}"
+        text: str = (
+            f"{_AUDIT_SEP}\n"
+            f"{header_line}\n"
+            f"{self._dumps_pretty(record)}\n"
+        )
         with _write_lock:
             with p.open("a", encoding="utf-8") as f:
-                f.write(line + "\n")
+                f.write(text + "\n")
+
+    def log_audit(
+        self,
+        *,
+        raw_chat_id: str,
+        event: str,
+        request_id: str,
+        topic: str,
+        body: Mapping[str, Any],
+    ) -> None:
+        """Семантическое событие аудита (вход, рантайм, ответ work)."""
+        if not self.enabled:
+            return
+        record: dict[str, Any] = {
+            "event": event,
+            "request_id": request_id,
+            "topic": topic,
+            **dict(body),
+        }
+        header: str = (
+            f"{_now_local_iso()}  event={event}  "
+            f"request_id={request_id}  topic={topic}"
+        )
+        self._write_pretty_block(raw_chat_id, header, record)
 
     def log_llm(
         self,
@@ -210,13 +273,18 @@ class AgentMemoryChatDebugLog:
     ) -> None:
         if not self.enabled:
             return
-        payload: dict[str, Any] = {
+        record: dict[str, Any] = {
+            "event": "llm",
             "request_id": request_id,
             "phase": phase,
             "request": chat_request_to_log_dict(request),
         }
         if error is not None:
-            payload["error"] = error
+            record["error"] = error
         if response is not None:
-            payload["response"] = chat_response_to_log_dict(response)
-        self._append(raw_chat_id, "llm", payload)
+            record["response"] = chat_response_to_log_dict(response)
+        header: str = (
+            f"{_now_local_iso()}  event=llm  "
+            f"request_id={request_id}  topic={phase}"
+        )
+        self._write_pretty_block(raw_chat_id, header, record)
