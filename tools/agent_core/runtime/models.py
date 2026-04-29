@@ -554,3 +554,150 @@ def ensure_json_list(value: Any) -> Sequence[Any]:
         code="invalid_shape",
         message="expected list payload",
     )
+
+
+AGENT_WORK_MEMORY_QUERY_V1: str = "agent_work_memory_query.v1"
+
+_EXPECTED_RESULT_KINDS: frozenset[str] = frozenset(
+    {
+        "c_summary",
+        "read_lines",
+        "b_path",
+        "mixed",
+    },
+)
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryQueryStopConditionV1:
+    """stop_condition в agent_work_memory_query.v1 (C14R.1)."""
+
+    max_runtime_steps: int
+    max_llm_commands: int
+    must_finish_explicitly: bool
+
+
+@dataclass(frozen=True, slots=True)
+class AgentWorkMemoryQueryV1:
+    """Вход AgentWork → AgentMemory (C14R.1, schema_version v1)."""
+
+    user_turn_id: str
+    query_id: str
+    subgoal: str
+    expected_result_kind: str
+    project_root: str
+    namespace: str
+    known_paths: tuple[str, ...]
+    known_node_ids: tuple[str, ...]
+    stop_condition: MemoryQueryStopConditionV1
+
+
+def is_agent_work_memory_query_v1_payload(
+    payload: Mapping[str, Any],
+) -> bool:
+    """True, если клиент заявил schema_version agent_work_memory_query.v1."""
+    return str(payload.get("schema_version") or "").strip() == (
+        AGENT_WORK_MEMORY_QUERY_V1
+    )
+
+
+def parse_agent_work_memory_query_v1(
+    payload: Mapping[str, Any],
+) -> AgentWorkMemoryQueryV1:
+    """
+    Разобрать и валидировать agent_work_memory_query.v1.
+
+    Raises:
+        RuntimeProtocolError: invalid_memory_query_envelope
+    """
+    if not is_agent_work_memory_query_v1_payload(payload):
+        raise RuntimeProtocolError(
+            code="invalid_memory_query_envelope",
+            message="schema_version must be agent_work_memory_query.v1",
+        )
+    subgoal = str(payload.get("subgoal", "") or "").strip()
+    if not subgoal:
+        raise RuntimeProtocolError(
+            code="invalid_memory_query_envelope",
+            message="subgoal is required for agent_work_memory_query.v1",
+        )
+    user_turn_id = str(payload.get("user_turn_id", "") or "").strip()
+    query_id = str(payload.get("query_id", "") or "").strip()
+    if not user_turn_id or not query_id:
+        raise RuntimeProtocolError(
+            code="invalid_memory_query_envelope",
+            message="user_turn_id and query_id are required",
+        )
+    project_root = str(payload.get("project_root", "") or "").strip()
+    if not project_root:
+        raise RuntimeProtocolError(
+            code="invalid_memory_query_envelope",
+            message="project_root is required for agent_work_memory_query.v1",
+        )
+    namespace = str(payload.get("namespace", "") or "").strip()
+    if not namespace:
+        raise RuntimeProtocolError(
+            code="invalid_memory_query_envelope",
+            message="namespace is required for agent_work_memory_query.v1",
+        )
+    erk = str(payload.get("expected_result_kind", "") or "").strip()
+    if erk not in _EXPECTED_RESULT_KINDS:
+        raise RuntimeProtocolError(
+            code="invalid_memory_query_envelope",
+            message="expected_result_kind is not a known kind",
+        )
+    raw_kp: Any = payload.get("known_paths", [])
+    known_paths: list[str] = []
+    if isinstance(raw_kp, list):
+        known_paths = [str(p).strip() for p in raw_kp if str(p).strip()]
+    raw_kn: Any = payload.get("known_node_ids", [])
+    known_node_ids: list[str] = []
+    if isinstance(raw_kn, list):
+        known_node_ids = [str(p).strip() for p in raw_kn if str(p).strip()]
+    sc_raw: Any = payload.get("stop_condition")
+    if not isinstance(sc_raw, dict):
+        raise RuntimeProtocolError(
+            code="invalid_memory_query_envelope",
+            message="stop_condition must be an object",
+        )
+    mrs: Any = sc_raw.get("max_runtime_steps")
+    mll: Any = sc_raw.get("max_llm_commands")
+    mfe: Any = sc_raw.get("must_finish_explicitly")
+    if not isinstance(mfe, bool):
+        raise RuntimeProtocolError(
+            code="invalid_memory_query_envelope",
+            message="stop_condition.must_finish_explicitly must be bool",
+        )
+    if not isinstance(mrs, int) or not isinstance(mll, int):
+        raise RuntimeProtocolError(
+            code="invalid_memory_query_envelope",
+            message=(
+                "stop_condition max_runtime_steps/max_llm_commands "
+                "must be int"
+            ),
+        )
+    stop = MemoryQueryStopConditionV1(
+        max_runtime_steps=int(mrs),
+        max_llm_commands=int(mll),
+        must_finish_explicitly=bool(mfe),
+    )
+    return AgentWorkMemoryQueryV1(
+        user_turn_id=user_turn_id,
+        query_id=query_id,
+        subgoal=subgoal,
+        expected_result_kind=erk,
+        project_root=project_root,
+        namespace=namespace,
+        known_paths=tuple(known_paths),
+        known_node_ids=tuple(known_node_ids),
+        stop_condition=stop,
+    )
+
+
+def try_parse_agent_work_memory_query_v1(
+    payload: Mapping[str, Any],
+) -> AgentWorkMemoryQueryV1 | None:
+    """Вернуть v1 DTO или None, если схема не заявлена (legacy path)."""
+    if not is_agent_work_memory_query_v1_payload(payload):
+        return None
+    return parse_agent_work_memory_query_v1(payload)

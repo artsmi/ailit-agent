@@ -62,12 +62,16 @@ from agent_core.runtime.agent_work_change_feedback import (
 from agent_core.runtime.agent_memory_result_v1 import (
     build_agent_memory_result_v1,
 )
+from agent_core.runtime.errors import RuntimeProtocolError
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
+    AgentWorkMemoryQueryV1,
     MemoryGrant,
     MemoryGrantRange,
     RuntimeRequestEnvelope,
+    is_agent_work_memory_query_v1_payload,
     make_response_envelope,
+    parse_agent_work_memory_query_v1,
 )
 from agent_core.runtime.w14_clean_replacement import (
     W14_CLEAN_REPLACEMENT_REQUESTED_READS_IN_CLIENT_PAYLOAD_REJECTED,
@@ -1072,15 +1076,43 @@ class AgentMemoryWorker:
                     out=out,
                 )
                 return out
-        goal = str(req.payload.get("goal", "") or "")
-        if not goal.strip():
-            goal = str(req.payload.get("need", "") or "")
+        v1q: AgentWorkMemoryQueryV1 | None = None
+        if is_agent_work_memory_query_v1_payload(req.payload):
+            try:
+                v1q = parse_agent_work_memory_query_v1(req.payload)
+            except RuntimeProtocolError as e:
+                err_pl = make_response_envelope(
+                    request=req,
+                    ok=False,
+                    payload={},
+                    error={
+                        "code": "invalid_memory_query_envelope",
+                        "message": str(e.message),
+                    },
+                ).to_dict()
+                self._log_handle_error(
+                    req,
+                    request_id=request_id,
+                    service="memory.query_context",
+                    out=err_pl,
+                )
+                return err_pl
+            goal = v1q.subgoal
+        else:
+            goal = str(req.payload.get("goal", "") or "")
+            if not goal.strip():
+                goal = str(req.payload.get("need", "") or "")
         query_kind = str(req.payload.get("query_kind", "") or "task")
         level = str(req.payload.get("level", "") or "B").strip() or "B"
         project_root = str(req.payload.get("project_root", "") or "")
+        if v1q is not None:
+            project_root = v1q.project_root
         want_path = str(req.payload.get("path", "") or "")
         if not want_path:
             want_path = str(req.payload.get("hint_path", "") or "")
+        if v1q is not None and not str(want_path or "").strip():
+            if v1q.known_paths:
+                want_path = str(v1q.known_paths[0])
         workspace_projects = req.payload.get("workspace_projects")
         self._append_journal(
             req=req,
@@ -1288,7 +1320,11 @@ class AgentMemoryWorker:
             },
         )
         qid_payload = str(req.payload.get("query_id", "") or "").strip()
-        am_query_id: str = qid_payload or f"mem-{request_id}"
+        am_query_id: str = (
+            v1q.query_id
+            if v1q is not None
+            else (qid_payload or f"mem-{request_id}")
+        )
         agent_mem_res = build_agent_memory_result_v1(
             query_id=am_query_id,
             status=("partial" if final_partial else "complete"),

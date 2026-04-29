@@ -69,6 +69,9 @@ def _default_ailit_config() -> dict[str, Any]:
                 "kb_fetch": 30,
                 "kb_write_fact": 10,
             },
+            "runtime": {
+                "max_memory_queries_per_user_turn": 6,
+            },
         },
         "agent": {
             "tool_exposure": "full",

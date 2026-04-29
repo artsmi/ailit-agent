@@ -1,0 +1,208 @@
+"""G14R.1: политика memory query AgentWork (C14R.1, plan/14 W14 G14R.1)."""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass, field
+from typing import Any
+
+import pytest
+
+from agent_core.runtime.errors import RuntimeProtocolError
+from agent_core.runtime.models import (
+    AGENT_WORK_MEMORY_QUERY_V1,
+    parse_agent_work_memory_query_v1,
+)
+from agent_core.runtime.agent_memory_ailit_config import (
+    max_memory_queries_per_user_turn,
+)
+from ailit.merged_config import load_merged_ailit_config
+
+
+@dataclass
+class _StubBroker:
+    available: bool = True
+    response: dict[str, Any] = field(
+        default_factory=lambda: {
+            "ok": True,
+            "payload": {
+                "memory_slice": {
+                    "injected_text": "slice ok",
+                    "node_ids": [],
+                    "edge_ids": [],
+                    "level": "B",
+                    "reason": "t",
+                    "staleness": "fresh",
+                },
+            },
+        },
+    )
+
+    def request(
+        self,
+        *,
+        identity: Any = None,
+        parent_message_id: str = "",
+        to_agent: str = "",
+        payload: Any = None,
+    ) -> dict[str, Any]:
+        return self.response
+
+
+def _identity(ns: str = "ns1") -> Any:
+    from agent_core.runtime.models import RuntimeIdentity
+
+    return RuntimeIdentity(
+        runtime_id="r1",
+        chat_id="c1",
+        broker_id="b1",
+        trace_id="t1",
+        goal_id="g1",
+        namespace=ns,
+    )
+
+
+def _workspace(tmp_path: Any) -> Any:
+    from agent_core.runtime.subprocess_agents import work_agent as _wa
+
+    Ws = _wa._Workspace  # noqa: SLF001
+    return Ws(
+        namespace="n",
+        project_root=tmp_path,
+        project_roots=(),
+    )
+
+
+def test_memory_query_requires_subgoal_and_stop_condition() -> None:
+    """C14R.1: v1 без subgoal или с неверным stop_condition — ошибка."""
+    with pytest.raises(RuntimeProtocolError) as e:
+        parse_agent_work_memory_query_v1(
+            {
+                "schema_version": AGENT_WORK_MEMORY_QUERY_V1,
+                "user_turn_id": "a",
+                "query_id": "b",
+                "subgoal": "",
+                "expected_result_kind": "mixed",
+                "project_root": "/tmp",
+                "namespace": "n",
+            },
+        )
+    assert e.value.code == "invalid_memory_query_envelope"
+    with pytest.raises(RuntimeProtocolError) as e2:
+        parse_agent_work_memory_query_v1(
+            {
+                "schema_version": AGENT_WORK_MEMORY_QUERY_V1,
+                "user_turn_id": "a",
+                "query_id": "b",
+                "subgoal": "g",
+                "expected_result_kind": "mixed",
+                "project_root": "/tmp",
+                "namespace": "n",
+                "stop_condition": {"max_runtime_steps": 1},
+            },
+        )
+    assert e2.value.code == "invalid_memory_query_envelope"
+
+
+def test_agentwork_can_issue_multiple_memory_queries_for_one_turn() -> None:
+    """C14R.1: одна user-turn — несколько query_id (два валидных v1)."""
+    ut = "ut-test"
+    base: dict[str, Any] = {
+        "schema_version": AGENT_WORK_MEMORY_QUERY_V1,
+        "user_turn_id": ut,
+        "subgoal": "g",
+        "expected_result_kind": "mixed",
+        "project_root": "/tmp",
+        "namespace": "n",
+        "known_paths": [],
+        "known_node_ids": [],
+        "stop_condition": {
+            "max_runtime_steps": 12,
+            "max_llm_commands": 20,
+            "must_finish_explicitly": True,
+        },
+    }
+    a = parse_agent_work_memory_query_v1({**base, "query_id": f"mq-{ut}-1"})
+    b = parse_agent_work_memory_query_v1({**base, "query_id": f"mq-{ut}-2"})
+    assert a.user_turn_id == b.user_turn_id
+    assert a.query_id != b.query_id
+
+
+def test_agentwork_memory_query_loop_stops_at_config_cap(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    """C14R.10: при cap=1 второй _request_memory_slice сразу бюджет."""
+    from agent_core.runtime.subprocess_agents import work_agent as wa
+    import agent_core.runtime.subprocess_agents.work_agent as wam
+
+    _RTE = wam._RuntimeEventEmitter  # noqa: SLF001
+    _WCS = wam._WorkChatSession  # noqa: SLF001
+
+    monkeypatch.setattr(
+        wa,
+        "load_merged_ailit_config_for_memory",
+        lambda: {
+            "memory": {"runtime": {"max_memory_queries_per_user_turn": 1}},
+        },
+    )
+    stub = _StubBroker()
+    monkeypatch.setattr(
+        wa,
+        "_BrokerServiceClient",
+        lambda p: stub,
+    )
+
+    sess = _WCS()
+    sess._user_turn_id = f"ut-{uuid.uuid4().hex[:8]}"
+    sess._memory_queries_in_turn = 0
+    em = _RTE(
+        identity=_identity(),
+        parent_message_id="p1",
+    )
+
+    class _Cfg:
+        broker_socket_path: str = "/x"
+
+    class _Wpr:
+        _cfg = _Cfg()
+
+    wproxy = _Wpr()
+    m1 = sess._request_memory_slice(  # noqa: SLF001
+        text="hello",
+        workspace=_workspace(tmp_path),
+        emitter=em,
+        identity=_identity(),
+        parent_message_id="p1",
+        worker=wproxy,
+    )
+    assert m1 is not None
+    assert sess._memory_queries_in_turn == 1
+    events2: list[str] = []
+
+    def _epublish(*, event_type: str, payload: Any) -> None:
+        events2.append(str(event_type))
+
+    em2 = _RTE(identity=_identity(), parent_message_id="p1")
+    em2.publish = _epublish  # type: ignore[assignment,method-assign]
+    m2 = sess._request_memory_slice(
+        text="second",
+        workspace=_workspace(tmp_path),
+        emitter=em2,
+        identity=_identity(),
+        parent_message_id="p1",
+        worker=wproxy,
+    )
+    assert m2 is None
+    assert "memory.query.budget_exceeded" in events2
+
+
+def test_merged_config_has_max_memory_queries() -> None:
+    """Статпроверка: ключ default в merged ailit (C14R.10)."""
+    m = load_merged_ailit_config(None)
+    n = max_memory_queries_per_user_turn(m)
+    assert n >= 1
+    m2: dict[str, Any] = {
+        "memory": {"runtime": {"max_memory_queries_per_user_turn": 3}},
+    }
+    assert max_memory_queries_per_user_turn(m2) == 3

@@ -41,7 +41,12 @@ from agent_core.session.repo_context import (
     detect_repo_context,
     namespace_for_repo,
 )
+from agent_core.runtime.agent_memory_ailit_config import (
+    load_merged_ailit_config_for_memory,
+    max_memory_queries_per_user_turn,
+)
 from agent_core.runtime.models import (
+    AGENT_WORK_MEMORY_QUERY_V1,
     CONTRACT_VERSION,
     RuntimeRequestEnvelope,
     RuntimeIdentity,
@@ -279,6 +284,8 @@ class _WorkChatSession:
         ]
         self._user_turns: int = 0
         self._restored_d_node_ids: set[str] = set()
+        self._user_turn_id: str = ""
+        self._memory_queries_in_turn: int = 0
 
     @staticmethod
     def _memory_slice_message(
@@ -326,12 +333,43 @@ class _WorkChatSession:
                 },
             )
             return None
-        payload = {
+        try:
+            merged_mem = load_merged_ailit_config_for_memory()
+        except Exception:  # noqa: BLE001
+            merged_mem = {}
+        mem_cap = max_memory_queries_per_user_turn(merged_mem)
+        if self._memory_queries_in_turn >= mem_cap:
+            emitter.publish(
+                event_type="memory.query.budget_exceeded",
+                payload={
+                    "code": "too_many_memory_queries",
+                    "cap": int(mem_cap),
+                    "user_turn_id": self._user_turn_id,
+                },
+            )
+            return None
+        ns = str(identity.namespace or "").strip() or "default"
+        next_idx = int(self._memory_queries_in_turn) + 1
+        qid = f"mq-{self._user_turn_id}-{next_idx}"
+        root = str(workspace.project_root.resolve())
+        payload: dict[str, Any] = {
             "service": "memory.query_context",
-            "goal": text,
+            "schema_version": AGENT_WORK_MEMORY_QUERY_V1,
+            "user_turn_id": self._user_turn_id,
+            "query_id": qid,
+            "subgoal": text,
+            "expected_result_kind": "mixed",
             "query_kind": "task",
             "level": "B",
-            "project_root": str(workspace.project_root.resolve()),
+            "project_root": root,
+            "namespace": ns,
+            "known_paths": [],
+            "known_node_ids": [],
+            "stop_condition": {
+                "max_runtime_steps": 12,
+                "max_llm_commands": 20,
+                "must_finish_explicitly": True,
+            },
         }
         try:
             resp = client.request(
@@ -401,6 +439,7 @@ class _WorkChatSession:
                 response_payload=pl,
             ),
         )
+        self._memory_queries_in_turn += 1
         return msg
 
     @staticmethod
@@ -525,6 +564,8 @@ class _WorkChatSession:
     ) -> Mapping[str, Any]:
         self._messages.append(ChatMessage(role=MessageRole.USER, content=text))
         self._user_turns += 1
+        self._user_turn_id = f"ut-{uuid.uuid4().hex[:20]}"
+        self._memory_queries_in_turn = 0
         if self._user_turns == 1:
             try:
                 cfg = AgentRunProviderConfigBuilder().build(

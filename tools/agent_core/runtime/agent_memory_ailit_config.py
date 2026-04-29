@@ -30,6 +30,22 @@ def load_merged_ailit_config_for_memory() -> dict[str, Any]:
     return dict(raw)
 
 
+def max_memory_queries_per_user_turn(merged: Mapping[str, Any]) -> int:
+    """C14R.10: cap на число memory.query_context на user turn (default 6)."""
+    mem: Any = merged.get("memory")
+    if not isinstance(mem, dict):
+        return 6
+    rt: Any = mem.get("runtime")
+    if not isinstance(rt, dict):
+        return 6
+    raw: Any = rt.get("max_memory_queries_per_user_turn", 6)
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return 6
+    return max(1, min(n, 1_000))
+
+
 def _str_lower(x: object) -> str:
     return str(x or "").strip().lower()
 
