@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# Полный сброс данных ailit (PAG/KB/journal/trace/логи/state) с сохранением конфигурации.
+# Сохраняется: AILIT_CONFIG_DIR или ~/.ailit/config/, ~/.ailit/config.yaml,
+# ~/.ailit/projects/, ~/.ailit/agent-memory/config.yaml.
+# Не трогает venv в AILIT_INSTALL_PREFIX (~/.local/share/ailit по умолчанию).
+#
+# По умолчанию удаляет Electron userData desktop (~/.config/ailit и др.).
+#   --no-desktop  — пропустить очистку каталогов desktop в ~/.config.
+# Остальные аргументы передаются в ./scripts/install (например: dev | prod).
+#
+# Переменные (как в runtime): AILIT_RUNTIME_DIR, XDG_RUNTIME_DIR, AILIT_HOME,
+# AILIT_KB_DB_PATH, AILIT_MEMORY_JOURNAL_PATH, AILIT_AGENT_MEMORY_CHAT_LOG_DIR,
+# AILIT_STATE_DIR, AILIT_CONFIG_DIR — влияют на пути до удаления.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+export PYTHONPATH="${REPO_ROOT}/tools${PYTHONPATH:+:${PYTHONPATH}}"
+
+NO_DESKTOP=0
+INSTALL_ARGS=()
+for arg in "$@"; do
+  case "${arg}" in
+    --no-desktop) NO_DESKTOP=1 ;;
+    *) INSTALL_ARGS+=("${arg}") ;;
+  esac
+done
+
+_have_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+_systemd_user_available() {
+  if ! _have_cmd systemctl; then
+    return 1
+  fi
+  if [[ -z "${XDG_RUNTIME_DIR:-}" ]]; then
+    return 1
+  fi
+  if [[ ! -S "${XDG_RUNTIME_DIR}/bus" ]]; then
+    return 1
+  fi
+  return 0
+}
+
+_stop_ailit_service() {
+  if [[ -n "${AILIT_INSTALL_NO_SYSTEMD:-}" ]]; then
+    return 0
+  fi
+  if ! _systemd_user_available; then
+    return 0
+  fi
+  systemctl --user stop ailit.service 2>/dev/null || true
+}
+
+_log() {
+  echo "[ailit/reinstall] $*"
+}
+
+_kill_desktop() {
+  # AppImage из install; dev: electron …/desktop/dist/main/main.js
+  pkill -f 'ailit-desktop\.AppImage' 2>/dev/null || true
+  pkill -f 'electron.*desktop/.*/dist/main/main\.js' 2>/dev/null || true
+  pkill -f 'electron.*desktop/dist/main/main\.js' 2>/dev/null || true
+  sleep 0.3
+}
+
+_emit_paths() {
+  cd "${REPO_ROOT}"
+  python3 - <<'PY'
+from __future__ import annotations
+
+import shlex
+
+from agent_core.memory.kb_tools import kb_tools_config_from_env
+from agent_core.runtime.agent_memory_chat_log import default_chat_logs_dir
+from agent_core.runtime.memory_journal import default_memory_journal_path
+from agent_core.runtime.paths import default_runtime_dir
+from ailit.user_paths import GlobalDirResolver
+
+r = GlobalDirResolver()
+paths = {
+    "REINSTALL_RUNTIME_DIR": str(default_runtime_dir()),
+    "REINSTALL_KB_PATH": str(kb_tools_config_from_env().db_path),
+    "REINSTALL_JOURNAL_PATH": str(default_memory_journal_path()),
+    "REINSTALL_CHAT_LOGS_DIR": str(default_chat_logs_dir()),
+    "REINSTALL_STATE_DIR": str(r.global_state_dir()),
+}
+for k, v in paths.items():
+    print(f"{k}={shlex.quote(v)}")
+PY
+}
+
+_clear_desktop_user_data() {
+  local cfg_root="${XDG_CONFIG_HOME:-${HOME}/.config}"
+  local candidates=(
+    "${cfg_root}/ailit"
+    "${cfg_root}/ailit-desktop"
+    "${cfg_root}/dev.ailit.desktop"
+  )
+  local d
+  for d in "${candidates[@]}"; do
+    if [[ -d "${d}" ]]; then
+      _log "удаление desktop userData: ${d}"
+      rm -rf "${d}"
+    fi
+  done
+}
+
+_log "repo: ${REPO_ROOT}"
+_stop_ailit_service
+_log "остановка desktop-процессов (electron / AppImage)"
+_kill_desktop
+
+_log "пути данных (как в agent_core / ailit.user_paths)"
+# shellcheck disable=SC1090
+eval "$(_emit_paths)"
+
+_log "удаление runtime_dir: ${REINSTALL_RUNTIME_DIR}"
+rm -rf "${REINSTALL_RUNTIME_DIR}"
+
+_log "удаление KB: ${REINSTALL_KB_PATH}"
+rm -f "${REINSTALL_KB_PATH}"
+
+_log "удаление журнала памяти: ${REINSTALL_JOURNAL_PATH}"
+rm -f "${REINSTALL_JOURNAL_PATH}"
+
+_log "удаление chat_logs: ${REINSTALL_CHAT_LOGS_DIR}"
+rm -rf "${REINSTALL_CHAT_LOGS_DIR}"
+
+_log "удаление state (логи, tui-sessions): ${REINSTALL_STATE_DIR}"
+rm -rf "${REINSTALL_STATE_DIR}"
+
+if [[ "${NO_DESKTOP}" -eq 0 ]]; then
+  _log "очистка каталогов Electron desktop в ~/.config (флаг --no-desktop отключает)"
+  _clear_desktop_user_data
+else
+  _log "пропуск очистки desktop (--no-desktop)"
+fi
+
+_log "очистка PAG (./scripts/pag-delete)"
+_run_pd() {
+  bash "${REPO_ROOT}/scripts/pag-delete"
+}
+_run_pd
+
+if [[ ${#INSTALL_ARGS[@]} -eq 0 ]]; then
+  _log "запуск ./scripts/install (режим по умолчанию: prod)"
+  bash "${REPO_ROOT}/scripts/install"
+else
+  _log "запуск ./scripts/install ${INSTALL_ARGS[*]}"
+  bash "${REPO_ROOT}/scripts/install" "${INSTALL_ARGS[@]}"
+fi
+
+_log "готово"
