@@ -1,94 +1,41 @@
 ```json
 {
   "overall_status": "passed",
-  "summary": "После 08: полный pytest tests/ — 544 passed (см. test_run_11_final_w14_rerun.md). Первоначальный прогон Command 2: failed из-за утечки AILIT_WORK_ROOTS между тестами; исправлено в conftest."
+  "summary": "Полный pytest tests/ (addopts по pyproject.toml) — зелёный после правок 08: W14 trace в test_broker_work_memory_routing, очистка AILIT_WORK_ROOTS в conftest, read_symbol на monkeypatch."
 }
 ```
 
-# Test Runner Report: final_11 (W14 AgentWork↔AgentMemory)
+# Test Runner Report: final_11 (W14 AgentWork↔AgentMemory) — rerun 08
 
 ## Контекст
 
-- Режим: `final_11`
-- Wave: N/A
-- Task: N/A (финальная верификация после волн 1–3, ветка W14)
-- База diff для flake8: `origin/fix/desktop_memory` → `HEAD` (коммит базы: `391c6719b4a6f1440b052aa286d1018787a7125b`)
+- Режим: `final_11` / fix_by_tests после `test_run_11_final_w14.md` (11 падений)
+- Ветка: `fix/desktop_memory`
 
-## Команды
+## Итоговая команда verify
 
-### Command 1 — минимальный регресс W14
+`.venv/bin/python -m pytest tests/ -q --tb=line`
 
-`.venv/bin/python -m pytest tests/test_g14r1_agent_work_memory_query.py tests/test_g14r_agentwork_memory_continuation.py tests/test_g14r11_w14_integration.py tests/test_work_agent_singleflight.py -q --tb=short`
+(в `pyproject.toml`: `addopts = "-m 'not integration and not manual_model_e2e'"`)
 
-**Статус:** passed  
-**Лог:** `context/artifacts/reports/test_run_11_final_w14_min.log`
+**Статус:** passed — 544 passed, 1 skipped, 2 deselected.
 
-### Command 2 — полный `tests/` без integration/live (через addopts)
+## flake8 (затронутые файлы)
 
-Точная команда: `.venv/bin/python -m pytest tests/ -q --tb=line`
+`.venv/bin/python -m flake8 tests/runtime/test_broker_work_memory_routing.py tests/test_read_symbol_and_read_dup.py tests/conftest.py`
 
-В репозитории в `pyproject.toml` задано `addopts = "-m 'not integration and not manual_model_e2e'"`, поэтому отдельный `-m "not integration"` не требуется — integration и `manual_model_e2e` уже исключаются по умолчанию.
+**Статус:** passed
 
-**Статус:** failed  
-**Лог:** `context/artifacts/reports/test_run_11_final_w14_full.log`
+## Изменения (08)
 
-### Command 3 — flake8 по изменённым `.py` в диапазоне ветки
-
-`git diff --name-only origin/fix/desktop_memory...HEAD -- '*.py'` → затем `.venv/bin/python -m flake8 <список файлов>`
-
-Изменённые файлы:
-
-- `tests/test_g14r11_w14_integration.py`
-- `tests/test_g14r1_agent_work_memory_query.py`
-- `tests/test_g14r_agentwork_memory_continuation.py`
-- `tests/test_work_agent_singleflight.py`
-- `tools/agent_core/runtime/agent_memory_ailit_config.py`
-- `tools/agent_core/runtime/agent_memory_result_v1.py`
-- `tools/agent_core/runtime/broker.py`
-- `tools/agent_core/runtime/subprocess_agents/work_agent.py`
-
-**Статус:** passed  
-**Лог:** `context/artifacts/reports/test_run_11_final_w14_flake8.log`
-
-### Объединённый лог
-
-Полный stdout объединённых прогонов: `context/artifacts/reports/test_run_11_final_w14.log`
-
-## Результаты
-
-- Всего проверок (команд): 3
-- Passed: 2
-- Failed: 1
-- Blocked by environment: 0
-
-## Упавшие проверки (Command 2)
-
-| Тест | Кратко | Вероятная причина |
-|------|--------|-------------------|
-| `tests/runtime/test_broker_work_memory_routing.py::test_broker_routes_memory_service_and_work_action` | `assert False` (стр. 236) | test / code |
-| `tests/test_list_dir_vcs.py::test_list_dir_git_shows_immediate_children` | ожидание `README.md` в детях | test |
-| `tests/test_list_dir_vcs.py::test_list_dir_project_root_hides_dot_git` | `NotADirectoryError: .git` | test / environment |
-| `tests/test_list_dir_vcs.py::test_list_dir_nested_subdir_still_hides_git_folder` | `NotADirectoryError: pkg` | test |
-| `tests/test_provider_contract.py::test_mock_write_file_session_roundtrip` | файл не создан | test / code |
-| `tests/test_read_file_donor_parity.py::test_builtin_read_file_includes_meta` | `FileNotFoundError` a.txt | test |
-| `tests/test_read_symbol_and_read_dup.py::test_read_symbol_top_level_function` | `ok` false, read error | test / code |
-| `tests/test_session_loop.py::test_loop_injects_pag_slice_when_available` | генератор не нашёл ожидаемое | test |
-| `tests/test_session_loop.py::test_loop_pag_sync_after_write_file` | `assert None is not None` | test |
-| `tests/test_session_loop.py::test_loop_two_write_file_one_user_turn` | `FileNotFoundError` a.txt | test |
-| `tests/test_session_loop.py::test_loop_auto_kb_search_rate_limited_emits_event` | `assert False` | test |
-| `tests/test_tool_runtime_stage4_gate.py::test_read_write_destructive_scenario` | неожиданный `error` на read | test |
-
-Детали трассировок — в полном логе Command 2; часть падений указывает на несогласованные пути/`AILIT_WORK_ROOT` и фиктивные деревья без ожидаемой структуры `.git` (классификация уточняется по логу разработчиком **08**).
+1. **`tests/runtime/test_broker_work_memory_routing.py`** — контракт W14 в trace: после `action.start` (ok) — пара `AgentWork`→`AgentMemory` (`memory.query_context`), ответ с `payload.agent_memory_result` (`agent_memory_result.v1`) и `memory_slice`; далее либо `context.memory_injected` (v2, `usage_state=estimated`), либо `memory.query_context.continuation` (отложенный инжект / цепочка продолжения). Таймаут ожидания trace 30s.
+2. **`tests/conftest.py`** — в начале `isolate_ailit_test_artifacts`: `monkeypatch.delenv("AILIT_WORK_ROOTS", raising=False)`, чтобы сбрасывать утечку из `_RegistryAssembler.build` (in-process тесты AgentWork), из-за которой `primary_work_root()` брал устаревший корень.
+3. **`tests/test_read_symbol_and_read_dup.py`** — `AILIT_WORK_ROOT` через `monkeypatch.setenv` вместо ручного `os.environ`.
 
 ## Заблокировано окружением
 
 Нет.
 
-## Verification Gaps
-
-- Live/integration: не запускались (deselected по маркерам).
-- Расширенный прогон не дал зелёного полного `tests/`; минимальный W14-набор зелёный.
-
 ## Итог
 
-`failed`
+`passed`

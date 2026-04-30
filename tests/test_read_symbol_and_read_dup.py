@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
+
+import pytest
 
 from ailit.token_economy_aggregates import (
     empty_cumulative,
@@ -30,37 +31,29 @@ def test_merge_fs_duplicate_stub_count() -> None:
     assert int(acc.get("fs_read_file_duplicate_calls", 0) or 0) == 1
 
 
-def test_read_symbol_top_level_function(tmp_path: Path) -> None:
+def test_read_symbol_top_level_function(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     root = tmp_path.resolve()
     p = root / "mod.py"
     p.write_text("def bar():\n    return 42\n", encoding="utf-8")
-    old = os.environ.get("AILIT_WORK_ROOT")
-    try:
-        os.environ["AILIT_WORK_ROOT"] = str(root)
-        out = builtin_read_symbol({"path": "mod.py", "symbol": "bar"})
-    finally:
-        if old is None:
-            os.environ.pop("AILIT_WORK_ROOT", None)
-        else:
-            os.environ["AILIT_WORK_ROOT"] = old
+    monkeypatch.setenv("AILIT_WORK_ROOT", str(root))
+    out = builtin_read_symbol({"path": "mod.py", "symbol": "bar"})
     data = json.loads(out)
     assert data.get("ok") is True
     assert data.get("name") == "bar"
     assert int(data.get("start_line", 0)) == 1
 
 
-def test_read_symbol_not_found(tmp_path: Path) -> None:
+def test_read_symbol_not_found(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     root = tmp_path.resolve()
     p = root / "a.py"
     p.write_text("x = 1\n", encoding="utf-8")
-    old = os.environ.get("AILIT_WORK_ROOT")
-    try:
-        os.environ["AILIT_WORK_ROOT"] = str(root)
-        out = builtin_read_symbol({"path": "a.py", "symbol": "missing_fn"})
-    finally:
-        if old is None:
-            os.environ.pop("AILIT_WORK_ROOT", None)
-        else:
-            os.environ["AILIT_WORK_ROOT"] = old
+    monkeypatch.setenv("AILIT_WORK_ROOT", str(root))
+    out = builtin_read_symbol({"path": "a.py", "symbol": "missing_fn"})
     data = json.loads(out)
     assert data.get("ok") is False
