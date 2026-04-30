@@ -14,7 +14,9 @@ from agent_core.runtime.agent_memory_result_assembly import (
     FinishDecisionResultAssembler,
 )
 from agent_core.runtime.agent_memory_result_v1 import (
+    FIX_MEMORY_LLM_JSON_STEP,
     build_agent_memory_result_v1,
+    resolve_memory_continuation_required,
 )
 from agent_core.runtime.models import (
     MemoryGrant,
@@ -242,3 +244,88 @@ def test_create_file_subgoal_may_return_b_path_without_c_content(
     assert r0["c_node_id"] is None
     assert r0["summary"] is None
     assert r0["read_lines"] == []
+
+
+def test_am_assembly_memory_continuation_required_shape() -> None:
+    """Поле ``memory_continuation_required`` добавляется только если задано."""
+    base = dict(
+        query_id="q-shape",
+        status="complete",
+        memory_slice=None,
+        partial=False,
+        decision_summary="d",
+        recommended_next_step="",
+    )
+    omit = build_agent_memory_result_v1(
+        **base,
+        memory_continuation_required=None,
+    )
+    assert "memory_continuation_required" not in omit
+    on = build_agent_memory_result_v1(
+        **base,
+        memory_continuation_required=True,
+    )
+    assert on.get("memory_continuation_required") is True
+    off = build_agent_memory_result_v1(
+        **base,
+        memory_continuation_required=False,
+    )
+    assert off.get("memory_continuation_required") is False
+
+
+def test_am_result_uc03_terminal_blocked_diagnostic_memory_continuation_not_required() -> None:  # noqa: E501
+    """UC-03: терминальные ветки не задают continuation True."""
+    assert (
+        resolve_memory_continuation_required(
+            w14_contract_failure=True,
+            pipeline_recommended_next_step="",
+            am_v1_status="partial",
+            w14_finish=True,
+            final_partial=True,
+        )
+        is None
+    )
+    assert (
+        resolve_memory_continuation_required(
+            w14_contract_failure=False,
+            pipeline_recommended_next_step=FIX_MEMORY_LLM_JSON_STEP,
+            am_v1_status="partial",
+            w14_finish=True,
+            final_partial=True,
+        )
+        is None
+    )
+    assert (
+        resolve_memory_continuation_required(
+            w14_contract_failure=False,
+            pipeline_recommended_next_step="retry",
+            am_v1_status="blocked",
+            w14_finish=True,
+            final_partial=True,
+        )
+        is None
+    )
+
+
+def test_am_result_uc04_machine_requires_second_query_sets_memory_continuation_required() -> None:  # noqa: E501
+    """UC-04: partial W14 + finish — сигнал второго запроса."""
+    assert (
+        resolve_memory_continuation_required(
+            w14_contract_failure=False,
+            pipeline_recommended_next_step="next w14 step",
+            am_v1_status="partial",
+            w14_finish=True,
+            final_partial=True,
+        )
+        is True
+    )
+    assert (
+        resolve_memory_continuation_required(
+            w14_contract_failure=False,
+            pipeline_recommended_next_step="next w14 step",
+            am_v1_status="complete",
+            w14_finish=True,
+            final_partial=True,
+        )
+        is None
+    )

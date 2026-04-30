@@ -4,8 +4,8 @@
 
 Норматив: `plan/14-agent-memory-runtime.md` (**D14R.3**, **C14R.1**, **C14R.1a**), артефакт `context/artifacts/architecture.md` (итерация по ТЗ AW↔AM).
 
-1. **Source of truth для решений AgentWork** — поле **`payload.agent_memory_result`** (`schema_version: agent_memory_result.v1`). Поле **`memory_slice`** — только compatibility projection для инжекта/UI; не определяет continuation/cap/timeout-политику.
-2. **Continuation:** при `status=partial` и сигнале продолжения (политика AW; предпочтительно машиночитаемый флаг в будущей версии схемы) в **том же** `user_turn_id` AW обязан выполнить **следующий** `memory.query_context` с **новым** `query_id`, пока не будет `complete` / `blocked` или cap `memory.runtime.max_memory_queries_per_user_turn`. Запрещено переходить к `glob_file` / `read_file` / `run_shell` как замене незавершённого memory-path.
+1. **Source of truth для решений AgentWork** — поле **`payload.agent_memory_result`** (`schema_version: agent_memory_result.v1`). В том же объекте нормативный булев сигнал **`memory_continuation_required`** (если поле отсутствует или `false`, отдельный continuation-запрос в том же turn не оправдан только этим полем — см. `context/artifacts/architecture.md` §2.3). Поле **`memory_slice`** — только compatibility projection для инжекта/UI; не определяет continuation/cap/timeout-политику вместо SoT.
+2. **Continuation gate:** политика AW читает **только** SoT: `payload.agent_memory_result.memory_continuation_required` и `status` (в т.ч. терминальные исходы UC-03). При `status=partial` и **`memory_continuation_required: true`** (выставляется AgentMemory из машинного состояния W14, не из эвристики по тексту `memory_slice`) в **том же** `user_turn_id` AW обязан выполнить **следующий** `memory.query_context` с **новым** `query_id`, пока не будет `complete` / `blocked` или cap `memory.runtime.max_memory_queries_per_user_turn`. Запрещено переходить к `glob_file` / `read_file` / `run_shell` как замене незавершённого memory-path.
 3. **Таймаут:** SLA ожидания ответа AM должно быть **согласовано** между клиентом AW (`_BrokerServiceClient`), broker (`svc_timeout` для worker AgentMemory) и `memory.runtime.agent_memory_rpc_timeout_s` в merged config; клиент не должен обрывать ожидание существенно раньше broker при целевом SLA W14 pipeline.
 4. **Timeout / late response:** ответ `runtime_timeout` или отсутствие валидного `agent_memory_result` **не** трактуется как успешное завершение memory-path. Поздний ответ с устаревшим `query_id` не должен менять состояние текущего turn детерминированно (discard / диагностика).
 
@@ -46,6 +46,12 @@
 Work публикует `context.memory_injected` **только** если ответ `ok` и в `memory_slice` поле **`injected_text`** после trim **не пустое**; иначе — `memory.actor_slice_skipped`. Следовательно, для UC 2.4 AgentMemory обязан возвращать непустой `injected_text` в успешном pathless сценарии.
 
 Проверка пустоты и ветвление событий: `_WorkChatSession._memory_slice_message`, `_request_memory_slice` — при пустом `injected_text` после успешного ответа памяти публикуется `memory.actor_slice_skipped` с `reason`/`staleness` из слайса; при непустом — `memory.actor_slice_used` и затем `context.memory_injected` с payload из `_memory_injected_payload`.
+
+### W14 planner: каноникализация envelope до repair
+
+Перед repair-LLM `AgentMemoryQueryPipeline` механически нормализует ответ планера к `agent_memory_command_output.v1` (`validate_or_canonicalize_w14_command_envelope_object` в `agent_memory_runtime_contract.py`): канонический `schema_version`, таблица легаси `status` → только `ok` \| `partial` \| `refuse`, восстановление пустого/`null` `command_id` из доверенного runtime id шага планера (trace), если он известен; иначе — явный отказ с `reason` (в т.ч. `w14_command_id_not_recoverable:no_runtime_command_id`), без маскировки под «только schema_version».
+
+Компактные события журнала AgentMemory (см. [`runtime-event-contract.md`](runtime-event-contract.md)): `memory.command.normalized` (в т.ч. `from_schema_version`, `to_schema_version`, `from_status`, `command_id_restored`), при фактическом восстановлении id — `memory.w14.command_id_restored`.
 
 ## Post-pipeline в AgentMemory (`memory.query_context`)
 

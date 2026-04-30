@@ -6,9 +6,43 @@ AgentWork — это поле; memory_slice — compatibility projection.
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from typing import Any, Final, Mapping
 
 AGENT_MEMORY_RESULT_V1: str = "agent_memory_result.v1"
+
+FIX_MEMORY_LLM_JSON_STEP: Final[str] = "fix_memory_llm_json"
+
+
+def resolve_memory_continuation_required(
+    *,
+    w14_contract_failure: bool,
+    pipeline_recommended_next_step: str,
+    am_v1_status: str | None,
+    w14_finish: bool,
+    final_partial: bool,
+) -> bool | None:
+    """Вычислить SoT-сигнал UC-04 для ``memory_continuation_required``.
+
+    UC-03 (терминальные диагностические исходы): поле не ``True`` —
+    возвращаем ``None`` (поле не попадёт в объект).
+
+    UC-04: ``True`` только при машинном ``am_v1_status == partial`` на пути
+    W14 с явным ``explicit_results`` (``w14_finish``), без контрактного
+    провала и без терминального ``recommended_next_step`` из pipeline.
+    """
+    if w14_contract_failure:
+        return None
+    rns = str(pipeline_recommended_next_step or "").strip()
+    if rns == FIX_MEMORY_LLM_JSON_STEP:
+        return None
+    st = str(am_v1_status or "").strip().lower()
+    if st == "blocked":
+        return None
+    if not final_partial or not w14_finish:
+        return None
+    if st == "partial":
+        return True
+    return None
 
 
 def _first_c_path_from_nodes(
@@ -43,8 +77,9 @@ def build_agent_memory_result_v1(
 ) -> dict[str, Any]:
     """Собрать объект `agent_memory_result.v1` (§1.3) из текущего среза.
 
-    W14G14R.0: минимальная мапа без полного B/C state machine; поле обязательно
-    в ответе рядом с memory_slice.
+    W14G14R.0: минимальная мапа без полного B/C state machine; объект рядом с
+    ``memory_slice``. Поле ``memory_continuation_required`` задаётся отдельно
+    (см. ``resolve_memory_continuation_required``).
 
     G14R.7: если задан ``explicit_results`` (в т.ч. пустой список), контракт
     берётся из ``finish_decision`` / сборщика, а не из грубой проекции

@@ -63,6 +63,7 @@ from agent_core.runtime.agent_work_change_feedback import (
 )
 from agent_core.runtime.agent_memory_result_v1 import (
     build_agent_memory_result_v1,
+    resolve_memory_continuation_required,
 )
 from agent_core.runtime.agent_memory_w14_observability import (
     count_am_v1_result_kinds,
@@ -1701,6 +1702,13 @@ class AgentMemoryWorker:
                 "compact": cj.to_payload(),
             },
         )
+        mcr = resolve_memory_continuation_required(
+            w14_contract_failure=w14_contract_failure,
+            pipeline_recommended_next_step=str(pr.recommended_next_step or ""),
+            am_v1_status=pr.am_v1_status,
+            w14_finish=w14_finish,
+            final_partial=final_partial,
+        )
         agent_mem_res = build_agent_memory_result_v1(
             query_id=am_query_id,
             status=("partial" if final_partial else "complete"),
@@ -1710,6 +1718,7 @@ class AgentMemoryWorker:
             recommended_next_step=recommended_next_step,
             explicit_results=pr.am_v1_explicit_results,
             explicit_status=pr.am_v1_status,
+            memory_continuation_required=mcr,
         )
         st_am: str = str(agent_mem_res.get("status", "") or "")
         _am_res_list: object = agent_mem_res.get("results")
