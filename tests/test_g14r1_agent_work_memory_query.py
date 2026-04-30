@@ -45,6 +45,8 @@ class _StubBroker:
         parent_message_id: str = "",
         to_agent: str = "",
         payload: Any = None,
+        timeout_s: float = 15.0,
+        **kwargs: Any,
     ) -> dict[str, Any]:
         return self.response
 
@@ -195,6 +197,145 @@ def test_agentwork_memory_query_loop_stops_at_config_cap(
     )
     assert m2 is None
     assert "memory.query.budget_exceeded" in events2
+
+
+def test_memory_query_timeout_emits_compact_event_on_socket_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    """UC-02: TimeoutError на сокете — memory.query.timeout, cap не растёт."""
+    from agent_core.runtime.subprocess_agents import work_agent as wa
+    import agent_core.runtime.subprocess_agents.work_agent as wam
+
+    monkeypatch.setattr(
+        wa,
+        "load_merged_ailit_config_for_memory",
+        lambda: {
+            "memory": {"runtime": {"agent_memory_rpc_timeout_s": 30}},
+        },
+    )
+
+    class _TimeoutClient:
+        def __init__(self, _p: str) -> None:
+            pass
+
+        @property
+        def available(self) -> bool:
+            return True
+
+        def request(self, **kwargs: Any) -> dict[str, Any]:
+            assert float(kwargs["timeout_s"]) == 30.0
+            raise TimeoutError("simulated socket wait")
+
+    monkeypatch.setattr(wa, "_BrokerServiceClient", _TimeoutClient)
+
+    _WCS = wam._WorkChatSession  # noqa: SLF001
+    _RTE = wam._RuntimeEventEmitter  # noqa: SLF001
+
+    sess = _WCS()
+    sess._user_turn_id = f"ut-{uuid.uuid4().hex[:8]}"
+    sess._memory_queries_in_turn = 0
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def _capture(*, event_type: str, payload: Any) -> None:
+        events.append((str(event_type), dict(payload)))
+
+    em = _RTE(identity=_identity(), parent_message_id="p1")
+    em.publish = _capture  # type: ignore[assignment,method-assign]
+
+    class _Cfg:
+        broker_socket_path: str = "/x"
+
+    class _Wpr:
+        _cfg = _Cfg()
+
+    m0 = sess._request_memory_slice(  # noqa: SLF001
+        text="hello",
+        workspace=_workspace(tmp_path),
+        emitter=em,
+        identity=_identity(),
+        parent_message_id="p1",
+        worker=_Wpr(),
+    )
+    assert m0 is None
+    assert sess._memory_queries_in_turn == 0
+    timeout_ev = [e for e in events if e[0] == "memory.query.timeout"]
+    assert len(timeout_ev) == 1
+    pl = timeout_ev[0][1]
+    assert pl.get("code") == "runtime_timeout"
+    assert pl.get("user_turn_id") == sess._user_turn_id
+    assert pl.get("query_id", "").startswith("mq-")
+    assert float(pl["timeout_s"]) == 30.0
+    assert not any(e[0] == "context.memory_injected" for e in events)
+
+
+def test_memory_query_timeout_emits_compact_on_rpc_runtime_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    """UC-02: ok:false + runtime_timeout от broker — тот же compact topic."""
+    from agent_core.runtime.subprocess_agents import work_agent as wa
+    import agent_core.runtime.subprocess_agents.work_agent as wam
+
+    monkeypatch.setattr(
+        wa,
+        "load_merged_ailit_config_for_memory",
+        lambda: {
+            "memory": {"runtime": {"agent_memory_rpc_timeout_s": 99}},
+        },
+    )
+
+    class _RpcTimeoutClient:
+        def __init__(self, _p: str) -> None:
+            pass
+
+        @property
+        def available(self) -> bool:
+            return True
+
+        def request(self, **kwargs: Any) -> dict[str, Any]:
+            assert float(kwargs["timeout_s"]) == 99.0
+            return {
+                "ok": False,
+                "error": {
+                    "code": "runtime_timeout",
+                    "message": "agent timeout",
+                },
+            }
+
+    monkeypatch.setattr(wa, "_BrokerServiceClient", _RpcTimeoutClient)
+
+    _WCS = wam._WorkChatSession  # noqa: SLF001
+    _RTE = wam._RuntimeEventEmitter  # noqa: SLF001
+
+    sess = _WCS()
+    sess._user_turn_id = f"ut-{uuid.uuid4().hex[:8]}"
+    sess._memory_queries_in_turn = 0
+    names: list[str] = []
+
+    def _capture(*, event_type: str, payload: Any) -> None:
+        names.append(str(event_type))
+
+    em = _RTE(identity=_identity(), parent_message_id="p1")
+    em.publish = _capture  # type: ignore[assignment,method-assign]
+
+    class _Cfg:
+        broker_socket_path: str = "/x"
+
+    class _Wpr:
+        _cfg = _Cfg()
+
+    m0 = sess._request_memory_slice(  # noqa: SLF001
+        text="hello",
+        workspace=_workspace(tmp_path),
+        emitter=em,
+        identity=_identity(),
+        parent_message_id="p1",
+        worker=_Wpr(),
+    )
+    assert m0 is None
+    assert sess._memory_queries_in_turn == 0
+    assert names == ["memory.query.timeout"]
 
 
 def test_merged_config_has_max_memory_queries() -> None:

@@ -18,7 +18,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Mapping, MutableMapping, Optional
+from typing import Any, Final, Mapping, MutableMapping, Optional
 
 from agent_core.models import ChatMessage, MessageRole
 from agent_core.providers.factory import ProviderFactory, ProviderKind
@@ -42,6 +42,7 @@ from agent_core.session.repo_context import (
     namespace_for_repo,
 )
 from agent_core.runtime.agent_memory_ailit_config import (
+    agent_memory_rpc_timeout_s,
     load_merged_ailit_config_for_memory,
     max_memory_queries_per_user_turn,
 )
@@ -93,6 +94,57 @@ class _Workspace:
     namespace: str
     project_root: Path
     project_roots: tuple[Path, ...] = field(default_factory=tuple)
+
+
+_MEMORY_RPC_FAILED_ADVISORY: str = (
+    "AgentMemory RPC failed or timed out. This turn does not have a complete "
+    "memory result. Tell the user; do not use glob_file, read_file, or "
+    "run_shell as a substitute for the missing AgentMemory result."
+)
+
+_MEMORY_CONTINUATION_CAP_ADVISORY: str = (
+    "AgentMemory returned partial with a continuation subgoal, but "
+    "max_memory_queries_per_user_turn was reached. Summarize injected memory "
+    "only; suggest continuing in a follow-up message if needed."
+)
+
+
+def _collect_refs_from_agent_memory_result(
+    amr: Mapping[str, Any],
+) -> tuple[list[str], list[str]]:
+    paths: set[str] = set()
+    nids: set[str] = set()
+    raw = amr.get("results")
+    if isinstance(raw, list):
+        for it in raw:
+            if not isinstance(it, Mapping):
+                continue
+            p = str(it.get("path") or "").strip()
+            if p:
+                paths.add(p)
+            cid = it.get("c_node_id")
+            if cid is not None and str(cid).strip():
+                nids.add(str(cid).strip())
+            nid = it.get("node_id")
+            if nid is not None and str(nid).strip():
+                nids.add(str(nid).strip())
+    return sorted(paths), sorted(nids)
+
+
+def _memory_path_should_continue(amr: Mapping[str, Any]) -> bool:
+    if str(amr.get("status") or "").strip() != "partial":
+        return False
+    rns = str(amr.get("recommended_next_step") or "").strip()
+    if not rns:
+        return False
+    low = rns.lower()
+    generic = {
+        "read selected context",
+        "provide more specific memory goal",
+    }
+    if rns in generic or low in {x.lower() for x in generic}:
+        return False
+    return True
 
 
 def _work_agent_perm_mode_enabled() -> bool:
@@ -217,6 +269,28 @@ class _RuntimeEventEmitter:
             return
         sys.stdout.write(line + "\n")
         sys.stdout.flush()
+
+
+_MEMORY_QUERY_TIMEOUT_EVENT: Final[str] = "memory.query.timeout"
+
+
+def _publish_memory_query_timeout(
+    emitter: _RuntimeEventEmitter,
+    *,
+    query_id: str,
+    user_turn_id: str,
+    timeout_s: float,
+    code: str,
+) -> None:
+    emitter.publish(
+        event_type=_MEMORY_QUERY_TIMEOUT_EVENT,
+        payload={
+            "query_id": query_id,
+            "user_turn_id": user_turn_id,
+            "timeout_s": float(timeout_s),
+            "code": str(code),
+        },
+    )
 
 
 class _BrokerServiceClient:
@@ -351,6 +425,7 @@ class _WorkChatSession:
         ns = str(identity.namespace or "").strip() or "default"
         next_idx = int(self._memory_queries_in_turn) + 1
         qid = f"mq-{self._user_turn_id}-{next_idx}"
+        rpc_to = float(agent_memory_rpc_timeout_s(merged_mem))
         root = str(workspace.project_root.resolve())
         payload: dict[str, Any] = {
             "service": "memory.query_context",
@@ -377,7 +452,17 @@ class _WorkChatSession:
                 parent_message_id=parent_message_id,
                 to_agent="AgentMemory:global",
                 payload=payload,
+                timeout_s=rpc_to,
             )
+        except TimeoutError:
+            _publish_memory_query_timeout(
+                emitter,
+                query_id=qid,
+                user_turn_id=self._user_turn_id,
+                timeout_s=rpc_to,
+                code="runtime_timeout",
+            )
+            return None
         except Exception as exc:  # noqa: BLE001
             emitter.publish(
                 event_type="memory.actor_unavailable",
@@ -389,6 +474,29 @@ class _WorkChatSession:
             )
             return None
         ok = bool(resp.get("ok", False))
+        if not ok:
+            err_raw = resp.get("error")
+            err_code = ""
+            if isinstance(err_raw, Mapping):
+                err_code = str(err_raw.get("code") or "")
+            if err_code == "runtime_timeout":
+                _publish_memory_query_timeout(
+                    emitter,
+                    query_id=qid,
+                    user_turn_id=self._user_turn_id,
+                    timeout_s=rpc_to,
+                    code="runtime_timeout",
+                )
+                return None
+            emitter.publish(
+                event_type="memory.actor_unavailable",
+                payload={
+                    "reason": "memory_query_failed",
+                    "error": resp.get("error"),
+                    "fallback": "none",
+                },
+            )
+            return None
         pl = (
             resp.get("payload")
             if isinstance(resp.get("payload"), dict)
@@ -397,7 +505,7 @@ class _WorkChatSession:
         memory_slice = (
             pl.get("memory_slice") if isinstance(pl, dict) else None
         )
-        if not ok or not isinstance(memory_slice, dict):
+        if not isinstance(memory_slice, dict):
             emitter.publish(
                 event_type="memory.actor_unavailable",
                 payload={

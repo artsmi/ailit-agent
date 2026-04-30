@@ -26,6 +26,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
+from agent_core.runtime.agent_memory_ailit_config import (
+    agent_memory_rpc_timeout_s,
+    load_merged_ailit_config_for_memory,
+)
 from agent_core.runtime.errors import RuntimeProtocolError
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
@@ -375,9 +379,19 @@ class AgentBroker:
                     },
                 )
             try:
+                if agent_type == "AgentMemory":
+                    try:
+                        _merged_am = load_merged_ailit_config_for_memory()
+                    except Exception:
+                        _merged_am = {}
+                    svc_timeout = float(
+                        agent_memory_rpc_timeout_s(_merged_am),
+                    )
+                else:
+                    svc_timeout = 15.0
                 out = agent.request(
                     req,
-                    timeout_s=15.0,
+                    timeout_s=svc_timeout,
                 )
             except TimeoutError as e:
                 return make_response_envelope(
