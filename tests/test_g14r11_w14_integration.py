@@ -21,6 +21,7 @@ from agent_core.models import (
     NormalizedUsage,
 )
 from agent_core.runtime.agent_memory_result_v1 import (
+    AGENT_MEMORY_RESULT_V1,
     build_agent_memory_result_v1,
 )
 from agent_core.runtime.agent_memory_config import (
@@ -693,6 +694,59 @@ def test_w14_all_files_processes_multiple_b_not_only_readme(
         c for c in prov.calls if "summarize_c" in c.messages[-1].content
     ]
     assert len(summarize_calls) >= 2
+
+
+def test_w14_pipeline_emits_terminal_agent_memory_result_per_query(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    D-UC3-1 / UC-03: каждый memory.query_context с W14 (plan_traversal→runtime)
+    возвращает потребляемый ``agent_memory_result.v1`` (не только slice).
+    """
+    db = tmp_path / "uc3-per-query.sqlite3"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    (tmp_path / "README.md").write_text("# Demo\n", encoding="utf-8")
+    (tmp_path / "a.py").write_text(
+        "def a() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    prov = _RuntimeProvider()
+    worker = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-g14r11",
+            broker_id="b1",
+            namespace="ns-g14r11",
+        ),
+    )
+    monkeypatch.setattr(worker, "_provider", prov, raising=False)
+    for qid in ("uc3-mem-query-1", "uc3-mem-query-2"):
+        out = worker.handle(
+            _env(
+                tmp_path,
+                goal="посмотри каждый файл репозитория",
+                path="",
+                qid=qid,
+            ),
+        )
+        assert out.get("ok") is True
+        pl: object = out.get("payload")
+        assert isinstance(pl, dict)
+        assert "memory_slice" in pl
+        amr: object = pl.get("agent_memory_result")
+        assert isinstance(amr, dict)
+        assert amr.get("schema_version") == AGENT_MEMORY_RESULT_V1
+        assert str(amr.get("query_id") or "") == qid
+        assert str(amr.get("status") or "") in (
+            "complete",
+            "partial",
+            "blocked",
+        )
+        rt: object = amr.get("runtime_trace")
+        assert isinstance(rt, dict)
+        assert rt.get("final_step") == "finish"
+        res: object = amr.get("results")
+        assert isinstance(res, list)
 
 
 def test_w14_normal_path_does_not_call_query_driven_pag_growth(
