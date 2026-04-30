@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { bNodeIdFromPath, highlightFromTraceRow } from "./pagHighlightFromTrace";
+import {
+  bNodeIdFromPath,
+  highlightFromTraceRow,
+  lastPagSearchHighlightFromTrace
+} from "./pagHighlightFromTrace";
 
 function topic(eventName: string, payload: Record<string, unknown>): Record<string, unknown> {
   return {
@@ -130,5 +134,64 @@ describe("pagHighlightFromTrace", () => {
       "ns"
     );
     expect(h).toBeNull();
+  });
+
+  it("lastPagSearchHighlightFromTrace picks last valid highlight in order", () => {
+    const rows: Record<string, unknown>[] = [
+      topic("memory.w14.graph_highlight", {
+        schema: "ailit_memory_w14_graph_highlight_v1",
+        namespace: "ns",
+        node_ids: ["B:old.py"],
+        edge_ids: [],
+        reason: "a",
+        ttl_ms: 3000
+      }),
+      topic("memory.w14.graph_highlight", {
+        schema: "ailit_memory_w14_graph_highlight_v1",
+        namespace: "ns",
+        node_ids: ["B:new.py"],
+        edge_ids: [],
+        reason: "b",
+        ttl_ms: 4000
+      })
+    ];
+    const h = lastPagSearchHighlightFromTrace(rows, "ns");
+    expect(h?.nodeIds).toEqual(["B:new.py"]);
+    expect(h?.reason).toBe("b");
+    expect(h?.ttlMs).toBe(4000);
+  });
+
+  it("lastPagSearchHighlightFromTrace ignores tail rows without highlight", () => {
+    const rows: Record<string, unknown>[] = [
+      topic("context.memory_injected", {
+        schema: "context.memory_injected.v1",
+        node_ids: ["B:keep.py"],
+        edge_ids: [],
+        reason: "inj"
+      }),
+      {
+        type: "service.request",
+        to_agent: "AgentMemory:chat-a",
+        namespace: "ns",
+        payload: { service: "memory.query_context", path: "x" }
+      }
+    ];
+    const h = lastPagSearchHighlightFromTrace(rows, "ns");
+    expect(h?.nodeIds).toContain("B:keep.py");
+  });
+
+  it("lastPagSearchHighlightFromTrace returns null when no row yields highlight", () => {
+    expect(
+      lastPagSearchHighlightFromTrace(
+        [
+          {
+            type: "service.request",
+            namespace: "ns",
+            payload: {}
+          }
+        ],
+        "ns"
+      )
+    ).toBeNull();
   });
 });

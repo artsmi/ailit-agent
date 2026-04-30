@@ -5,6 +5,10 @@ import { loadPagGraphMerged } from "./loadPagGraphMerged";
 
 import { nodeFromPag, type MemoryGraphData } from "./memoryGraphState";
 import {
+  dedupePagGraphSnapshotWarnings,
+  formatPagGraphRevMismatchWarning
+} from "./pagGraphRevWarningFormat";
+import {
   createEmptyPagGraphSessionSnapshot,
   PagGraphBySessionMap,
   PagGraphSessionFullLoad,
@@ -27,6 +31,25 @@ function rowPagNodeUpsert(
         namespace,
         rev,
         node: { ...node, namespace }
+      }
+    }
+  };
+}
+
+function rowW14GraphHighlight(namespace: string, nodeIds: readonly string[]): Record<string, unknown> {
+  return {
+    type: "topic.publish",
+    payload: {
+      type: "topic.publish",
+      topic: "chat",
+      event_name: "memory.w14.graph_highlight",
+      payload: {
+        schema: "ailit_memory_w14_graph_highlight_v1",
+        namespace,
+        node_ids: [...nodeIds],
+        edge_ids: [],
+        reason: "t",
+        ttl_ms: 3000
       }
     }
   };
@@ -168,6 +191,53 @@ describe("pagGraphSessionStore", () => {
       PagGraphSessionTraceMerge.applyIncremental(base, [badRow], [ns], ns);
     const hasW: boolean = nxt.warnings.some((s: string) => s.includes("graph rev") || s.includes("несоответств"));
     expect(hasW).toBe(true);
+    expect(nxt.warnings.some((s: string) => s.includes(`для «${ns}»`))).toBe(true);
+  });
+
+  it("dedupesDuplicateRevMismatchWarningsByNamespaceTriple", () => {
+    const ns: string = "ns-dup";
+    const a: string = formatPagGraphRevMismatchWarning(ns, 2, 3);
+    const b: string = formatPagGraphRevMismatchWarning(ns, 2, 3);
+    expect(dedupePagGraphSnapshotWarnings([a, b])).toEqual([a]);
+  });
+
+  it("afterFullLoadWithAlignedSliceClearsRevMismatchFromMisalignedIncremental", () => {
+    const ns: string = "ns-refresh-align";
+    const badRow: Record<string, unknown> = rowPagNodeUpsert(ns, 5, {
+      node_id: "B:only.py",
+      level: "B",
+      path: "only.py",
+      title: "f",
+      kind: "file"
+    });
+    const base: ReturnType<typeof createEmptyPagGraphSessionSnapshot> = {
+      ...createEmptyPagGraphSessionSnapshot({ loadState: "ready" }),
+      merged: { nodes: [], links: [] },
+      graphRevByNamespace: { [ns]: 1 },
+      lastAppliedTraceIndex: -1
+    };
+    const mis: ReturnType<typeof PagGraphSessionTraceMerge.applyIncremental> =
+      PagGraphSessionTraceMerge.applyIncremental(base, [badRow], [ns], ns);
+    expect(mis.warnings.length).toBeGreaterThan(0);
+    const merged: MemoryGraphData = {
+      nodes: [
+        nodeFromPag({ node_id: "A:1", level: "A", path: ".", title: "p", namespace: ns })!,
+        nodeFromPag({
+          node_id: "B:only.py",
+          level: "B",
+          path: "only.py",
+          title: "f",
+          namespace: ns
+        })!
+      ],
+      links: []
+    };
+    const healed: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
+      PagGraphSessionTraceMerge.afterFullLoad(merged, { [ns]: 4 }, [badRow], [ns], ns, true);
+    const revWarns: number = healed.warnings.filter(
+      (s: string) => s.includes("graph rev") || s.includes("несоответств")
+    ).length;
+    expect(revWarns).toBe(0);
   });
 
   it("initialTraceCatchupWhenGraphRevFromSliceExceedsFirstTraceRev1", () => {
@@ -440,6 +510,62 @@ describe("pagGraphSessionStore", () => {
       return;
     }
     expect(r.pagSqliteMissing).toBe(true);
+  });
+
+  it("afterFullLoadUsesLastApplicableHighlightWhenTailIsPagDeltaOnly", () => {
+    const ns: string = "ns-htail";
+    const rows: Record<string, unknown>[] = [
+      rowW14GraphHighlight(ns, ["B:hl.py"]),
+      rowPagNodeUpsert(ns, 1, {
+        node_id: "B:other.py",
+        level: "B",
+        path: "other.py",
+        title: "o",
+        kind: "file"
+      })
+    ];
+    const merged0: MemoryGraphData = { nodes: [], links: [] };
+    const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
+      PagGraphSessionTraceMerge.afterFullLoad(merged0, { [ns]: 1 }, rows, [ns], ns);
+    const ids: string[] = snap.merged.nodes.map((n) => n.id);
+    expect(ids).toContain("B:hl.py");
+    expect(ids).toContain("B:other.py");
+  });
+
+  it("incrementalWithoutNewTraceRowsReturnsCurWithoutRecompute", () => {
+    const ns: string = "ns-noinc";
+    const rows: Record<string, unknown>[] = [
+      rowPagNodeUpsert(ns, 1, {
+        node_id: "B:a.py",
+        level: "B",
+        path: "a.py",
+        title: "a",
+        kind: "file"
+      }),
+      rowPagNodeUpsert(ns, 2, {
+        node_id: "B:b.py",
+        level: "B",
+        path: "b.py",
+        title: "b",
+        kind: "file"
+      }),
+      rowPagNodeUpsert(ns, 3, {
+        node_id: "B:c.py",
+        level: "B",
+        path: "c.py",
+        title: "c",
+        kind: "file"
+      })
+    ];
+    const base: ReturnType<typeof createEmptyPagGraphSessionSnapshot> = {
+      ...createEmptyPagGraphSessionSnapshot({ loadState: "ready" }),
+      merged: { nodes: [], links: [] },
+      graphRevByNamespace: { [ns]: 0 },
+      lastAppliedTraceIndex: 2
+    };
+    const nxt: ReturnType<typeof PagGraphSessionTraceMerge.applyIncremental> =
+      PagGraphSessionTraceMerge.applyIncremental(base, rows, [ns], ns);
+    expect(nxt).toBe(base);
   });
 
   it("loadPagGraphMergedPropagatesSliceErrorCode", async () => {

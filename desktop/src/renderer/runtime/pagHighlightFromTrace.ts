@@ -1,5 +1,8 @@
 /**
  * `ailit_desktop_pag_highlight_v1` — UI highlight from Context Ledger trace.
+ *
+ * D-HI-1: один канал `PagSearchHighlightV1`; порядок по trace, побеждает **последнее**
+ * ненулевое событие после фильтра namespace (`highlightFromTraceRow` на каждой строке).
  */
 
 export type PagSearchHighlightV1 = {
@@ -142,4 +145,21 @@ export function highlightFromTraceRow(
     }
   }
   return null;
+}
+
+/**
+ * Последняя применимая подсветка по всему trace (не только по `rows[rows.length - 1]`).
+ */
+export function lastPagSearchHighlightFromTrace(
+  rows: readonly Record<string, unknown>[],
+  defaultNamespace: string
+): PagSearchHighlightV1 | null {
+  let last: PagSearchHighlightV1 | null = null;
+  for (const row of rows) {
+    const h: PagSearchHighlightV1 | null = highlightFromTraceRow(row, defaultNamespace);
+    if (h !== null) {
+      last = h;
+    }
+  }
+  return last;
 }

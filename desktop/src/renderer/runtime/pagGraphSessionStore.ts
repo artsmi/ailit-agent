@@ -2,7 +2,7 @@ import type { ProjectRegistryEntry } from "@shared/ipc";
 
 import { loadPagGraphMerged, type PagGraphSliceFn } from "./loadPagGraphMerged";
 import { MEM3D_PAG_MAX_NODES } from "./pagGraphLimits";
-import { highlightFromTraceRow } from "./pagHighlightFromTrace";
+import { lastPagSearchHighlightFromTrace } from "./pagHighlightFromTrace";
 import {
   ensureHighlightNodes,
   linkFromPag,
@@ -12,6 +12,7 @@ import {
   type MemoryGraphLink,
   type MemoryGraphNode
 } from "./memoryGraphState";
+import { dedupePagGraphSnapshotWarnings } from "./pagGraphRevWarningFormat";
 import {
   applyPagGraphTraceDelta,
   parsePagGraphTraceDelta,
@@ -333,11 +334,16 @@ function applyDeltasInRange(
       wlist.push(revWarning);
     }
   }
-  return { merged, revs, warnings: wlist };
+  return { merged, revs, warnings: dedupePagGraphSnapshotWarnings(wlist) };
 }
 
 export class PagGraphSessionTraceMerge {
-  static applyHighlightFromLastRow(
+  /**
+   * D-HI-1: `PagSearchHighlightV1` из последней **применимой** trace-строки (ledger / W14 и т.д.
+   * в `pagHighlightFromTrace`). При инкременте без новых строк highlight не пересчитывается
+   * (см. `applyIncremental`, architecture §4.3).
+   */
+  static applyHighlightFromTraceRows(
     merged: MemoryGraphData,
     rows: readonly Record<string, unknown>[],
     defaultNamespace: string
@@ -345,8 +351,10 @@ export class PagGraphSessionTraceMerge {
     if (rows.length === 0) {
       return merged;
     }
-    const last: Record<string, unknown> = rows[rows.length - 1]! as Record<string, unknown>;
-    const ev: ReturnType<typeof highlightFromTraceRow> = highlightFromTraceRow(last, defaultNamespace);
+    const ev: ReturnType<typeof lastPagSearchHighlightFromTrace> = lastPagSearchHighlightFromTrace(
+      rows,
+      defaultNamespace
+    );
     if (ev === null) {
       return merged;
     }
@@ -355,7 +363,7 @@ export class PagGraphSessionTraceMerge {
 
   /**
    * Сразу после `loadFull`: реплей существующих trace-rows на merged из БД (идемпотентно по merge),
-   * затем highlight с последней строки. Rev catch-up: см. `buildRevsInForDeltas` + `useInitialTraceCatchup`.
+   * затем highlight с последней применимой строки trace. Rev catch-up: см. `buildRevsInForDeltas` + `useInitialTraceCatchup`.
    */
   static afterFullLoad(
     merged0: MemoryGraphData,
@@ -368,7 +376,7 @@ export class PagGraphSessionTraceMerge {
     const ns: Set<string> = new Set(namespaces);
     const lastRow: number = rows.length - 1;
     if (lastRow < 0) {
-      const m1: MemoryGraphData = this.applyHighlightFromLastRow(merged0, rows, defaultNamespace);
+      const m1: MemoryGraphData = this.applyHighlightFromTraceRows(merged0, rows, defaultNamespace);
       return buildSnapshotFromReconcile(m1, revs0, -1, [], "ready", null, pagDatabasePresent);
     }
     const ap: {
@@ -376,7 +384,7 @@ export class PagGraphSessionTraceMerge {
       readonly revs: RevRec;
       readonly warnings: readonly string[];
     } = applyDeltasInRange(merged0, revs0, rows, 0, lastRow, ns, [], true);
-    const m1: MemoryGraphData = this.applyHighlightFromLastRow(ap.merged, rows, defaultNamespace);
+    const m1: MemoryGraphData = this.applyHighlightFromTraceRows(ap.merged, rows, defaultNamespace);
     return buildSnapshotFromReconcile(
       m1,
       ap.revs,
@@ -422,7 +430,7 @@ export class PagGraphSessionTraceMerge {
       cur.warnings,
       useInitialTraceCatchup
     );
-    const m1: MemoryGraphData = this.applyHighlightFromLastRow(ap.merged, rows, defaultNamespace);
+    const m1: MemoryGraphData = this.applyHighlightFromTraceRows(ap.merged, rows, defaultNamespace);
     return buildSnapshotFromReconcile(
       m1,
       ap.revs,

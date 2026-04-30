@@ -2,7 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import ForceGraph3D, { type ForceGraphMethods } from "react-force-graph-3d";
 
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
-import { highlightFromTraceRow, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
+import { lastPagSearchHighlightFromTrace, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
 import { type MemoryGraphData, type MemoryGraphLink, type MemoryGraphNode } from "../runtime/memoryGraphState";
 import { computeMemoryGraphDataKey } from "../runtime/memoryGraphDataKey";
 import {
@@ -280,8 +280,10 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     if (s.rawTraceRows.length === 0) {
       return;
     }
-    const last: Record<string, unknown> = s.rawTraceRows[s.rawTraceRows.length - 1]! as Record<string, unknown>;
-    const ev: PagSearchHighlightV1 | null = highlightFromTraceRow(last, namespaces[0] ?? "default");
+    const ev: PagSearchHighlightV1 | null = lastPagSearchHighlightFromTrace(
+      s.rawTraceRows as readonly Record<string, unknown>[],
+      namespaces[0] ?? "default"
+    );
     if (!ev) {
       return;
     }

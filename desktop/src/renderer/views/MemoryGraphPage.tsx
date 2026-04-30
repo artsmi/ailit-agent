@@ -1,6 +1,6 @@
 import React from "react";
 
-import { highlightFromTraceRow, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
+import { lastPagSearchHighlightFromTrace, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
 import { PagGraph2dListBuilder, type LevelFilter2d } from "../runtime/pagGraph2dSlice";
 import type { MemoryGraphNode } from "../runtime/memoryGraphState";
@@ -65,13 +65,10 @@ export function MemoryGraphPage(): React.JSX.Element {
     if (s.rawTraceRows.length === 0) {
       return;
     }
-    const last: Record<string, unknown> | undefined = s.rawTraceRows[s.rawTraceRows.length - 1] as
-      | Record<string, unknown>
-      | undefined;
-    if (!last) {
-      return;
-    }
-    const ev: PagSearchHighlightV1 | null = highlightFromTraceRow(last, ns0 ?? "default");
+    const ev: PagSearchHighlightV1 | null = lastPagSearchHighlightFromTrace(
+      s.rawTraceRows as readonly Record<string, unknown>[],
+      ns0 ?? "default"
+    );
     if (ev) {
       setHi({ event: ev, startedAtMs: nowMs() });
     }
