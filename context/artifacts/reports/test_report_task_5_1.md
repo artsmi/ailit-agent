@@ -15,6 +15,10 @@
 - **Ориентир после изменения caps:** полная загрузка = серия вызовов `pag-slice` через `loadPagGraphMerged` (страницы по `MEM3D_PAG_MAX_NODES` / `MEM3D_PAG_MAX_EDGES`); при 20k нод минимум одна полная страница нод + до двух страниц рёбер при 40k cap. `PAG_GRAPH_SLICE_IPC_MAX_BUFFER` (96 MiB) оставлен с запасом под крупный JSON.
 - **Контролируемая деградация:** пороги `PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD` (2k) и `PAG_3D_EXTREME_GRAPH_NODE_THRESHOLD` (12k) — меньше warmup/cooldown, реже refresh подсветки при N > 12k.
 
+## Примечания / долг
+
+- **После ручного smoke:** зафиксировать численные пороги FPS и p75 pan/zoom для выборок **10k / 15k / 20k** нод (сейчас в отчёте задан только метод измерения; целевые числа — по чеклисту и бюджетам из architecture §9 после первого профилирования на железе).
+
 ## Изменения по коду
 
 - Единые константы CLI/store: `tools/agent_core/memory/pag_slice_caps.py` (20k / 40k).
