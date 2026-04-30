@@ -2,8 +2,9 @@
 description: JSON ответа ревьюера кода 09
 alwaysApply: false
 ---
-
 # Машиночитаемый результат ревьюера кода (09)
+
+Этот файл — источник истины для JSON, который **09_code_reviewer** возвращает в начале ответа. Process-rule и примеры ревью не могут добавлять несовместимые поля или переопределять семантику схемы.
 
 ## JSON в начале ответа
 
@@ -12,6 +13,16 @@ alwaysApply: false
   "review_decision": "approved",
   "has_critical_issues": false,
   "has_important_issues": false,
+  "mandatory_constraints_satisfied": true,
+  "forbidden_substitutions_detected": [],
+  "required_live_evidence": [
+    {
+      "id": "direct_tts_asr_roundtrip",
+      "status": "passed",
+      "details": "Real runtime evidence was executed and passed"
+    }
+  ],
+  "approval_blockers": [],
   "e2e_tests_pass": true,
   "regression_tests_pass": true,
   "docs_updated": true,
@@ -22,15 +33,46 @@ alwaysApply: false
 }
 ```
 
-Допустимые значения `review_decision`: `approved` | `rework_required` | `rejected`.
+## Поля
 
-`blocked_by_environment` — строки с пояснением тестов, заблокированных окружением (не провал кода); иначе `[]`.
+- `review_decision`: `"approved"` | `"rework_required"` | `"blocked"` | `"rejected"`.
+- `has_critical_issues`: `true`, если есть хотя бы одно `BLOCKING`.
+- `has_important_issues`: `true`, если есть хотя бы одно `MAJOR`.
+- `mandatory_constraints_satisfied`: `true`, если task execution contract и non-negotiable constraints не нарушены.
+- `forbidden_substitutions_detected`: массив строк с реально найденными forbidden substitutions; иначе `[]`.
+- `required_live_evidence`: массив evidence items только для доказательств, которых касается задача или которые реально проверялись в ревью.
+- `required_live_evidence[*].id`: стабильный идентификатор gate из task execution contract или task artifact.
+- `required_live_evidence[*].status`: `"passed"` | `"blocked"` | `"failed"` | `"missing"`.
+- `required_live_evidence[*].details`: короткое объяснение: команда/артефакт, причина block/failure или что именно отсутствует.
+- `approval_blockers`: массив строк с причинами, из-за которых approval невозможен; иначе `[]`.
+- `e2e_tests_pass`: `true`, если обязательные e2e/smoke gates прошли или не применимы; `false`, если они упали, отсутствуют или обязательный статус неизвестен.
+- `regression_tests_pass`: `true`, если обязательная регрессия прошла или не применима.
+- `docs_updated`: `true`, если документация обновлена или задача не меняет документируемый контракт; `false`, если required docs отсутствуют.
+- `stubs_replaced`: `true`, если задача не требовала замену stub/hard-code или замена выполнена; `false`, если stub остаётся основным product path.
+- `blocked_by_environment`: строки с тестами/evidence, заблокированными окружением и не являющимися доказанным дефектом кода; иначе `[]`.
+- `critical_issues_count`: количество `BLOCKING`.
+- `important_issues_count`: количество `MAJOR`.
+
+## Семантика решения
+
+- `approved`: нет `BLOCKING`/`MAJOR`, `approval_blockers=[]`, mandatory constraints satisfied, forbidden substitutions не обнаружены, required live evidence для задачи `passed` или не применимо.
+- `rework_required`: есть `MAJOR` или обязательные исправления качества, но нет доказанного fatal defect.
+- `blocked`: ревью или обязательный gate заблокирован окружением/внешним условием; это не approval и не доказанный дефект кода.
+- `rejected`: есть `BLOCKING`, который делает реализацию неприемлемой.
+
+Правила согласованности:
+
+- Если `approval_blockers` не пустой, `review_decision` не может быть `"approved"`.
+- Если `forbidden_substitutions_detected` не пустой, `review_decision` должен быть `"rejected"` или `"rework_required"` по критичности task contract.
+- Если обязательное `required_live_evidence` имеет статус `"missing"`, `"failed"` или `"blocked"`, `review_decision` не может быть `"approved"`.
+- Если `critical_issues_count > 0`, `has_critical_issues=true`.
+- Если `important_issues_count > 0`, `has_important_issues=true`.
 
 ## Текстовый отчёт после JSON
 
-Шаблон разделов ревью — в [`review-code/code-reviewer-process.mdc`](../review-code/code-reviewer-process.mdc) (блок «Затем текстовый ответ»).
+Markdown-структура ревью описана в [`review-code/code-reviewer-process.mdc`](../review-code/code-reviewer-process.mdc). Текстовый отчёт должен объяснять JSON-решение и перечислять `BLOCKING`, `MAJOR`, `MINOR`.
 
 ## Участники
 
 - **Продюсер:** `09_code_reviewer`
-- **Потребители:** `08_developer`
+- **Потребители:** `01_orchestrator`, `08_developer`

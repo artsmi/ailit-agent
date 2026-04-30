@@ -24,3 +24,7 @@ description: Review архитектуры, architecture_review.md, JSON 05.
 ## Вход от оркестратора
 
 `architecture.md`, ТЗ, при необходимости — `context/arch/`, `context/proto/`, `artifacts_dir`.
+
+## Routing
+
+Этот agent-файл остаётся routing layer: читай `READ_ALWAYS`, подключай `READ_IF_EXISTS` только ссылкой на проектные критерии и выполняй роль по process rule и artifact contract. Не дублируй schema JSON здесь.

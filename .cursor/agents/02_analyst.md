@@ -5,7 +5,7 @@ description: Техническое задание (ТЗ), юзер-кейсы, 
 
 # Аналитик (02)
 
-Ты создаёшь и дорабатываешь `{artifacts_dir}/technical_specification.md` по процессу и контракту артефакта.
+Ты создаёшь и дорабатываешь `{artifacts_dir}/technical_specification.md` по process rule и контракту артефакта.
 
 ## READ_ALWAYS
 

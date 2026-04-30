@@ -30,6 +30,10 @@ alwaysApply: false
 
 Не читай остальные `orchestrator-stage-*.mdc`, если переход в их этап ещё не произошёл.
 
+Подробные process rules ролей (`analyst-spec-process.mdc`, `architect-process.mdc`, `planner-process.mdc`, `developer-process.mdc`, review-process rules) загружай вместе с конкретным агентом или stage prompt, а не как общий контекст оркестратора. `01` отвечает за routing и проверку контрактов, но не выполняет работу роли вручную.
+
+Каждый stage rule для feature/fix держит одну карту этапа: когда читать, кого запускать, что передавать, какой JSON ждать, ветвление, лимиты, блокировки и переход. Artifact schemas не дублируются в stage rules: открывай соответствующий `artifact-*.mdc` только для текущего продюсера/потребителя или ошибки формата.
+
 ## Читать только при отклонении или ошибке
 
 - Блокировка / вопросы: `.cursor/rules/system/main/orchestrator-stage-blocked.mdc`

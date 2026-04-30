@@ -19,6 +19,7 @@ alwaysApply: false
 ```
 
 `has_critical_issues` — логическое значение (`true` / `false`), без строки `true/false`.
+Этот файл — единственный источник JSON-схемы для ответа `03_tz_reviewer`; если process rule, пример или legacy-инструкция конфликтует со схемой выше, побеждает этот artifact contract.
 
 ## Структура markdown
 
@@ -28,3 +29,7 @@ alwaysApply: false
 
 - **Продюсер:** `03_tz_reviewer`
 - **Потребители:** `02_analyst` (доработка ТЗ)
+
+## Связь с process rule 03
+
+Шаблон review-файла, классификация BLOCKING/MAJOR/MINOR и примеры замечаний описаны в `main/tz-reviewer-process.mdc`. Этот файл остаётся каноном схемы JSON и пути артефакта.

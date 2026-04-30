@@ -11,7 +11,7 @@ alwaysApply: false
 
 ## JSON в начале ответа (для оркестратора)
 
-Ожидаемая форма (расширенная по сравнению с минимальной парой полей), согласована с этапом планирования:
+Ожидаемая форма:
 
 ```json
 {
@@ -24,14 +24,25 @@ alwaysApply: false
 ```
 
 - `has_critical_issues` — `true`, если план невыполним (непокрытые UC, отсутствующие/пустые описания задач и т.п.).
-- `coverage_issues` — список непокрытых или сомнительных юзер-кейсов.
-- `missing_descriptions` — задачи без корректного файла описания.
+- `comments_count` — общее количество findings в `plan_review.md`.
+- `coverage_issues` — список непокрытых или сомнительных юзер-кейсов / required live evidence.
+- `missing_descriptions` — задачи без корректного файла описания: отсутствует файл, файл пустой или имя не совпадает с планом.
 
 При необходимости допускается минимальный вариант только с `review_file` и `has_critical_issues` — оркестратор извлекает детали из markdown.
 
 ## Структура markdown
 
 Полный шаблон разделов (итоговое решение, статистика покрытия, структура плана и задач, замечания) — в [`main/plan-reviewer-process.mdc`](../main/plan-reviewer-process.mdc).
+
+Обязательные смысловые блоки:
+
+- итоговое решение: `APPROVED`, `NEEDS_FIXES` или `REJECTED`;
+- coverage summary по UC и required live evidence;
+- проверка task files;
+- проверка структуры `plan.md`, включая `task_waves`;
+- проверка структуры `tasks/task_X_Y.md`;
+- findings по `BLOCKING`, `MAJOR`, `MINOR`;
+- approval criteria.
 
 ## Участники
 

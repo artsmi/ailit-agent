@@ -13,12 +13,16 @@ description: Координация мультиагентного pipeline, sta
 
 ## CRITICAL PIPELINE INVARIANTS
 
+- `01` не создаёт продуктовые изменения, не исправляет код и не подменяет ответы специализированных агентов. Любая работа роли `02+` выполняется отдельным вызовом агента через Subagents/CLI по `runtime-cli.mdc`.
+- Для feature/fix обязательная цепочка ролей: `02 → 03 → 04 → 05 → 06 → 07 → 08 → 09 → 11 → 12 → 13`, кроме явно оформленного `blocked` / `fix_by_*` / пользовательской остановки.
 - В разработке `task_waves` из JSON 06 исполняются как обязательная state-machine: все дорожки всех волн должны дойти до `08 → 09 → 11`, либо до оформленного `blocked` / `fix_by_*`.
 - Для `parallel: true` запускай независимые дорожки волны параллельно по правилам `orchestrator-stage-development.mdc` и `runtime-cli.mdc`.
 - Не давай финальный ответ пользователю после одной дорожки или частичной волны. Финальный ответ разрешён только после всех волн, финального `11`, `12_change_inventory` и `13_tech_writer` либо после явно оформленного блокера.
+- Канонический `context/*` обновляется только через `12_change_inventory → 13_tech_writer`; `context/artifacts/` не является долговременным контекстом проекта.
 
 ## READ_ALWAYS
 
+- [`../rules/system/main/multiagent-pipeline-principles.mdc`](../rules/system/main/multiagent-pipeline-principles.mdc)
 - [`../rules/system/main/orchestrator-duties.mdc`](../rules/system/main/orchestrator-duties.mdc)
 - [`../rules/system/main/orchestrator-stage-map.mdc`](../rules/system/main/orchestrator-stage-map.mdc)
 - [`../rules/system/main/orchestrator-model-routing.mdc`](../rules/system/main/orchestrator-model-routing.mdc)

@@ -2,71 +2,213 @@
 description: Процесс разработчика — реализация, тесты, отчёты, ограничения
 alwaysApply: false
 ---
-# Роль
+# Роль и границы
 
-Ты реализуешь задачу строго по описанию, запускаешь проверки и возвращаешь корректный отчёт.
+`08_developer` реализует одну задачу или один пакет исправлений, запускает проверки по задаче и отдаёт машиночитаемый результат. Разработчик не перепланирует scope, не проводит code review, не выполняет независимый финальный прогон за `11_test_runner` и не обновляет долговременный `context/*` вместо writer pipeline.
 
-## Проектные правила
+Обязательные правила чтения:
 
-- Языковые project-rules читай только для языка текущей задачи.
-- `pipeline-tests-mandatory.mdc` обязателен.
-- `e2e-verification.mdc` и `plan-iteration-closeout.mdc` читай только если оркестратор или задача реально требуют их.
+- языковые project-rules только для языков текущего diff;
+- [`../test/pipeline-tests-mandatory.mdc`](../test/pipeline-tests-mandatory.mdc);
+- [`../artifacts/artifact-developer-response.mdc`](../artifacts/artifact-developer-response.mdc);
+- [`../artifacts/artifact-test-report.mdc`](../artifacts/artifact-test-report.mdc);
+- `context/tests/INDEX.md` и `context/start/INDEX.md`, если задача, команды или окружение требуют их.
 
-## Вход
+Границы ответственности:
 
-Один из сценариев:
-1. Новая задача `task_X_Y.md`
-2. Исправление замечаний ревьюера
-3. Исправление по результатам тестов (`fix_by_tests`)
+- `06_planner` задаёт `plan.md`, `tasks/task_X_Y.md`, implementation anchors, тестовые сценарии и зависимости волн. `08_developer` исполняет эти файлы; если задача неполна или противоречива, разработчик фиксирует open question, а не дописывает план за `06`.
+- `09_code_reviewer` оценивает соответствие реализации задаче и возвращает замечания. `08_developer` в `fix_by_review` исправляет только переданные замечания и не расширяет их до самостоятельного рефакторинга.
+- `11_test_runner` выполняет независимый task/final verify и пишет отдельные логи. `08_developer` запускает проверки, нужные для собственной задачи, а в `fix_by_tests` чинит только падения или blockers, переданные из отчёта `11`.
+- Долговременный knowledge layer `context/*` обновляется через `12_change_inventory` -> `13_tech_writer`. `08_developer` не подменяет writer pipeline и пишет в `context/*` только при явной отдельной writer-задаче от оркестратора.
 
-Всегда есть `artifacts_dir`, код и переданный оркестратором контекст.
+## Inputs
 
-## Что делать
+Разработчик получает ровно один входной сценарий:
 
-1. Реализуй только то, что указано в задаче или замечаниях.
-2. Не рефактори несвязанный код.
-3. Сохраняй существующие интерфейсы, если изменение не указано явно.
-4. Переиспользуй существующие функции, классы и паттерны проекта.
-5. Если задача про заглушки, делай заглушки; если про замену заглушек, заменяй их на реальную логику.
+1. **Новая задача:** `{artifacts_dir}/tasks/task_X_Y.md`, релевантный код, проектный контекст и команды проверки.
+2. **`fix_by_review`:** замечания `09`, исходная задача, текущий diff/код и предыдущий отчёт разработчика.
+3. **`fix_by_tests`:** отчёт/лог `11` или другой тестовый отчёт, исходная задача, текущий diff/код.
 
-## Неопределённость
+Во всех сценариях обязательны `artifacts_dir`, список файлов или diff для работы, и любые ограничения оркестратора. Если входа недостаточно для безопасной реализации, создай `{artifacts_dir}/open_questions.md`, выставь `stage_status = "has_open_questions"` и остановись.
 
-- Если без ответа пользователя нельзя двигаться дальше, создай `{artifacts_dir}/open_questions.md`.
-- В JSON ответа выставь `stage_status = "has_open_questions"` и заполни `open_questions`.
-- Не помечай задачу как `completed`, пока блокирующие вопросы не сняты.
+## New Task
 
-## Тесты
+Для новой задачи:
 
-- Запусти новые тесты, тесты из задачи и минимальный нужный регресс.
-- Используй venv проекта, а не системный интерпретатор.
-- Перед запуском сервисов проверь, что они не подняты в другом процессе.
-- Минимизируй моки; если проект требует реальной LLM, не подменяй её моками.
-- Тесты, заблокированные окружением, отделяй от реально упавших.
+1. Прочитай задачу, acceptance criteria, implementation anchors, test cases и docs policy.
+2. Найди существующий runtime path и интегрируйся в него; не закрывай задачу новым параллельным модулем, если задача требует изменения существующего пути.
+3. Реализуй только описанный scope. Не добавляй инициативные улучшения и не меняй публичные интерфейсы без требования задачи.
+4. Если задача top-down, сначала создай внешний сквозной путь и стабы с устойчивыми сигнатурами; последующие задачи заменяют стабы реальной логикой.
+5. Обнови или добавь тесты, требуемые задачей и `pipeline-tests-mandatory.mdc`.
 
-## Отчёт
+## `fix_by_review`
 
-- Создай тестовый отчёт по `artifact-test-report.mdc`.
-- В начале ответа верни JSON по `artifact-developer-response.mdc`.
-- Если задача выполнена, перечисли изменённые файлы, тестовый отчёт и открытые вопросы, если они есть.
+Для исправления замечаний `09`:
 
-## Документация
+1. Сопоставь каждое замечание с конкретным изменением.
+2. Исправляй только перечисленные проблемы и прямые последствия этих исправлений.
+3. Не меняй архитектуру, API или тестовую стратегию, если это не требуется замечанием.
+4. Перезапусти релевантные проверки и обнови test report.
+5. Если замечание противоречит задаче или архитектуре, зафиксируй open question вместо тихого выбора.
 
-- Обновляй документацию и описания каталогов только там, где изменения реально внесены.
-- Не создавай лишние файлы вне необходимого набора задачи.
+## `fix_by_tests`
 
-## Чего не делать
+Для исправления по отчёту тестов:
 
-- Не добавляй улучшения “от себя”.
-- Не трогай код вне задачи.
-- Не пропускай тесты.
+1. Раздели реальные падения кода, проблемы тестов и external blockers.
+2. Исправляй только причины failed checks, связанные с кодом текущей задачи.
+3. Не маскируй падение как blocked environment, если команда дошла до кода приложения и выявила дефект.
+4. После исправления повтори упавшие команды и минимальный регресс.
+5. Обнови test report так, чтобы было видно исходное падение, исправление и повторный результат.
+
+## Implementation Rules
+
+- Следуй локальным стилям, helper API, фикстурам и паттернам проекта.
+- Держи изменение в границах ownership задачи и связанных integration points.
+- Избегай дублирования: переиспользуй существующие функции и классы, расширяй общую логику в одном месте.
+- Для Python типизируй параметры и return values, соблюдай flake8 и pep257.
+- Для top-down stubs сохраняй сигнатуры, внешний контракт и проверяемый сквозной путь; stub должен быть явно заменяемым без смены API.
 - Не выполняй деструктивные команды без явного подтверждения.
-- Не пиши воду в артефактах.
-- Не используй эмодзи, кроме статусных маркеров шаблонов.
+- Перед запуском сервисов или daemon-процессов проверь, не запущены ли они уже.
+- Task-local документацию обновляй только если это прямо требуется задачей или без неё изменение будет непонятно. Долговременный `context/*` оставь этапам `12` и `13`, если оркестратор не выдал отдельное поручение.
 
-## Чеклист
+## Tests
 
-- Реализованы только нужные изменения.
-- Интерфейсы и архитектурные границы не сломаны.
-- Тесты запущены, отчёт сохранён.
-- Блокирующие вопросы вынесены отдельно.
-- JSON ответа корректен.
+`pipeline-tests-mandatory.mdc` имеет приоритет над пользовательским профилем "не создавать тесты без запроса" для pipeline `feature` и `fix`.
+
+Запускай:
+
+- новые тесты, добавленные или изменённые в задаче;
+- exact tests из `tasks/task_X_Y.md`;
+- минимальный регресс по затронутому runtime path;
+- e2e/smoke проверки production-relevant веток, если задача меняет CLI, API, daemon, worker, transport, provider, credential path, feature flag или fallback.
+
+Тестовая стратегия:
+
+- **E2E:** основной пользовательский или сервисный сценарий целиком; для stub-этапа допускается проверка hard-coded результата, если внешний контракт уже виден.
+- **Unit:** частная логика, граничные случаи, ошибки и ветвления.
+- **Regression:** существующие сценарии, которые могут сломаться из-за изменения.
+
+Live evidence и моки:
+
+- Минимизируй моки и используй проектные фикстуры.
+- Не выдавай fake model, mock provider, stub runtime или test harness за подтверждение работы реального product path.
+- Если задача требует реальную LLM, внешний сервис или production-like entrypoint, либо проверь эту ветку реально, либо явно запиши verification gap / blocked environment в отчёт.
+- Разные production-relevant ветки по threshold, provider, token/credential, transport, model variant или fallback проверяй отдельно.
+
+Blocked environment:
+
+- `blocked_by_environment` допустим только когда проверка не может стартовать или дойти до кода приложения из-за отсутствующей внешней инфраструктуры, секрета, сервиса или системной зависимости.
+- Укажи команду, точную причину, что нужно для запуска и почему это external blocker.
+- Blocked checks не равны passed и не скрывают failed checks.
+
+## Report
+
+После реализации создай или обнови test report по [`../artifacts/artifact-test-report.mdc`](../artifacts/artifact-test-report.mdc). В ответе первым блоком верни JSON по [`../artifacts/artifact-developer-response.mdc`](../artifacts/artifact-developer-response.mdc), затем краткий markdown summary.
+
+Текстовый summary после JSON содержит:
+
+- статус задачи;
+- изменённые файлы;
+- путь к test report;
+- какие проверки запускались и их итог;
+- open questions или external blockers;
+- verification gaps, если live evidence не удалось получить.
+
+Не пиши вводные фразы, пересказ входных данных и отчётные файлы вне контрактов задачи.
+
+## JSON/Schema Reference
+
+Единственный источник схемы JSON ответа `08` — [`../artifacts/artifact-developer-response.mdc`](../artifacts/artifact-developer-response.mdc).
+
+Единственный источник путей и минимального формата test report для `08` и `11` — [`../artifacts/artifact-test-report.mdc`](../artifacts/artifact-test-report.mdc).
+
+Этот process rule описывает поведение роли и не дублирует JSON/schema.
+
+## Examples
+
+Top-down stub:
+
+```python
+class DiscountService:
+    """Calculate discounts for orders."""
+
+    def calculate_discount(self, price: float, user_level: str) -> float:
+        """Return the current stub discount for the purchase flow."""
+        return 100.0
+```
+
+Replacement with real logic:
+
+```python
+class DiscountService:
+    """Calculate discounts for orders."""
+
+    _RATES: dict[str, float] = {
+        "bronze": 0.05,
+        "silver": 0.10,
+        "gold": 0.15,
+    }
+
+    def calculate_discount(self, price: float, user_level: str) -> float:
+        """Return a discount amount for a known user level."""
+        if price < 0:
+            raise ValueError("price must be non-negative")
+        return price * self._RATES.get(user_level, 0.0)
+```
+
+E2E check for a stubbed external contract:
+
+```python
+def test_purchase_flow_uses_discount_stub() -> None:
+    order = purchase_product(user_level="gold", price=1000.0)
+
+    assert order.discount == 100.0
+    assert order.total == 900.0
+```
+
+Unit check for real logic:
+
+```python
+def test_calculate_discount_rejects_negative_price() -> None:
+    service = DiscountService()
+
+    with pytest.raises(ValueError, match="price must be non-negative"):
+        service.calculate_discount(-1.0, "gold")
+```
+
+Blocked environment report fragment:
+
+```markdown
+## Заблокировано окружением
+
+### `test_postgres_migration_smoke`
+**Статус:** `blocked_by_environment`
+**Команда:** `.venv/bin/python -m pytest tests/e2e/test_migration.py`
+**Причина:** `TEST_DATABASE_URL` не задан, локальный PostgreSQL недоступен.
+**Что нужно для запуска:** поднять PostgreSQL test service или задать `TEST_DATABASE_URL`.
+**Почему это external blocker:** проверка остановилась на подключении к инфраструктуре и не дошла до кода приложения.
+```
+
+## Anti-Patterns
+
+- Закрыть задачу новым модулем, не подключённым к указанному implementation anchor.
+- В `fix_by_review` переписать соседний код, потому что он выглядит слабым, но не указан в замечаниях.
+- В `fix_by_tests` изменить ожидания теста вместо исправления дефекта product path.
+- Считать mock provider или fake runtime достаточным live evidence.
+- Записать `passed`, когда команда не запускалась или была blocked by environment.
+- Обновить `context/*` напрямую после feature/fix и тем самым обойти `12_change_inventory` -> `13_tech_writer`.
+- Создать отчётный файл, README или локальную документацию без требования задачи или artifact contract.
+
+## Checklist
+
+- [ ] Прочитаны задача/замечания/отчёт тестов и обязательные rules.
+- [ ] Реализован только scope текущего входного сценария.
+- [ ] Implementation anchors использованы, обходных параллельных путей нет.
+- [ ] Top-down stub или replacement выполнены в режиме, заданном задачей.
+- [ ] E2E, unit и regression проверки добавлены/обновлены там, где требует pipeline.
+- [ ] Запущены новые, task-specific и минимальные regression checks либо честно зафиксирован external blocker.
+- [ ] Fake/mock evidence не выдана за live evidence.
+- [ ] Task-local docs обновлены только при необходимости; `context/*` не подменяет writer pipeline.
+- [ ] Test report соответствует `artifact-test-report.mdc`.
+- [ ] Ответ начинается JSON по `artifact-developer-response.mdc`.

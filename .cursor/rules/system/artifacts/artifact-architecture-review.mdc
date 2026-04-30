@@ -28,3 +28,7 @@ alwaysApply: false
 
 - **Продюсер:** `05_architecture_reviewer`
 - **Потребители:** `04_architect`
+
+## Связь с process rule 05
+
+`review-arch/architecture-reviewer-process.mdc` задаёт процесс, markdown-структуру и примеры замечаний. Этот файл остаётся каноном схемы JSON и путей.

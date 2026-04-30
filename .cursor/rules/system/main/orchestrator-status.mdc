@@ -45,6 +45,10 @@ alwaysApply: false
 
 См. [`orchestrator-stage-development.mdc`](orchestrator-stage-development.mdc). Для каждой дорожки фиксируй ход 08/09/11 или блок; после барьера волны — свод и при блоке путь к сорванному `tasks/task_*.md`. Логи и отчёты `11` в `{artifacts_dir}` разводи по дорожкам (префикс или подкаталог). Финальный `11` после merge фиксируй отдельно (успех или fix_by_tests).
 
+## Knowledge refresh
+
+После успешного финального `11` фиксируй отдельные строки для `12_change_inventory` и `13_tech_writer`: запуск, результат, путь к `{artifacts_dir}/change_inventory.md`, путь к `{artifacts_dir}/tech_writer_report.md`, какие `context/*` были обновлены или почему не менялись. Без этих строк `Завершено: да` для feature/fix недействительно.
+
 ## Статусы задачи
 
 `выполнено` | `completed_with_external_blockers` | `blocked` | `failed`

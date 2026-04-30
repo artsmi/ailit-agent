@@ -12,6 +12,9 @@ alwaysApply: false
 - `context/arch/`, `context/proto/`, `context/start/`, `context/tests/`, `context/memories/` — канонические знания проекта.
 - `context/artifacts/` — временные артефакты pipeline, а не долговременная база знаний.
 - `12_change_inventory -> 13_tech_writer` — обязательный путь обновления knowledge после успешной задачи.
+- `12_change_inventory` создаёт только inventory и не пишет `context/*` или product code.
+- `13_tech_writer` единственный writer этого протокола для затронутых `context/*` и соответствующих `INDEX.md`.
+- `01_orchestrator` владеет запуском стадий, blockers и completion decision.
 - Локальный DB index, если проект его поддерживает, — производный слой ускорения и может быть пересобран из `context/*`.
 - Semantic retrieval, если проект его включает, — опциональный адаптер поверх структурного knowledge layer.
 
@@ -26,11 +29,13 @@ alwaysApply: false
 ## `KnowledgeWriteProtocol`
 
 1. После успешного review и verify оркестратор вызывает `12_change_inventory`.
-2. `12` конденсирует факты изменений в `change_inventory.md`.
+2. `12` конденсирует факты изменений в `change_inventory.md` по схеме `artifact-change-inventory.mdc`.
 3. Оркестратор передаёт `change_inventory.md` агенту `13_tech_writer`.
 4. `13` обновляет только затронутые части `context/*` и соответствующие `INDEX.md`.
 5. `13` создаёт или обновляет память итерации и `context/memories/index.md`.
 6. Если проект поддерживает локальный DB index, после обновления `context/*` выполняется selective sync затронутых knowledge entries.
+
+Для feature/fix этот протокол обязателен после успешного финального `11_test_runner`: completion без `change_inventory.md`, обновлённого `context/*` и `tech_writer_report.md` запрещён, если нет оформленного blocker. Разработчик `08` не подменяет этот путь прямым обновлением долговременного knowledge layer.
 
 ## Канонический и производный слой
 

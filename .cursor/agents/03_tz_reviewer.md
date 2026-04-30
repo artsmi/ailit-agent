@@ -20,3 +20,7 @@ description: Review ТЗ, tz_review.md, JSON 03.
 ## Вход от оркестратора
 
 `technical_specification.md`, постановка, контекст проекта, `artifacts_dir`.
+
+## Routing
+
+Этот файл — только routing layer. Читай `READ_ALWAYS`, затем выполняй роль по process rule и artifact contract; не добавляй локальные схемы или отдельный формат ответа в agent-файл.

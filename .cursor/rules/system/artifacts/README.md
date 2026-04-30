@@ -18,6 +18,8 @@
 | [artifact-developer-response.mdc](artifact-developer-response.mdc) | JSON 08, отчёты тестов | 08 | 09, оркестратор (опц.) |
 | [artifact-code-review-response.mdc](artifact-code-review-response.mdc) | JSON 09 | 09 | 08 |
 | [artifact-test-report.mdc](artifact-test-report.mdc) | отчёты прогона / пути логов | 08, 11 | 09, `fix_by_tests` |
+| [artifact-change-inventory.mdc](artifact-change-inventory.mdc) | `change_inventory.md` | 12 | 13, 01 (completion diagnostics) |
+| [artifact-tech-writer-report.mdc](artifact-tech-writer-report.mdc) | `tech_writer_report.md` | 13 | 01, selective sync step |
 
 Файл **`{artifacts_dir}/escalation_pending.md`** при эскалации к пользователю (блокирующие вопросы, конфликты, ожидание решения) описан в [`main/orchestrator-stage-blocked.mdc`](../main/orchestrator-stage-blocked.mdc) и [`main/orchestrator-duties.mdc`](../main/orchestrator-duties.mdc); отдельный `artifact-*.mdc` не используется.
 
