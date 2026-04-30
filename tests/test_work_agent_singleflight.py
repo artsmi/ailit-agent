@@ -1,4 +1,7 @@
-"""Single-flight: второй work.handle_user_prompt отклоняется, пока первый в потоке."""
+"""Single-flight: второй work.handle_user_prompt отклоняется.
+
+Пока первый в потоке.
+"""
 
 from __future__ import annotations
 
@@ -37,7 +40,9 @@ def test_second_prompt_rejected_while_first_run_in_flight(
 
     monkeypatch.setattr(_WorkChatSession, "run_user_prompt", slow_run)
 
-    w = AgentWorkWorker(WorkAgentConfig(chat_id="c1", broker_id="b1", namespace="ns"))
+    w = AgentWorkWorker(
+        WorkAgentConfig(chat_id="c1", broker_id="b1", namespace="ns"),
+    )
     root = str(tmp_path.resolve())
 
     def env(*, trace_id: str, message_id: str, prompt: str) -> Any:
