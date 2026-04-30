@@ -1,0 +1,56 @@
+---
+description: JSON ответа разработчика 08 и пути отчётов о тестах
+alwaysApply: false
+---
+
+# Машиночитаемый результат разработчика (08)
+
+## JSON в начале ответа
+
+```json
+{
+  "stage_status": "completed",
+  "completed_tasks": ["..."],
+  "tests_run": {
+    "total": 53,
+    "passed": 52,
+    "failed": 0,
+    "blocked_by_environment": 1
+  },
+  "docs_updated": true,
+  "blocked_items": [
+    {
+      "type": "environment",
+      "description": "test_integration_xyz — отсутствует тестовая база данных; код готов"
+    }
+  ],
+  "modified_files": ["src/example.py"],
+  "open_questions": []
+}
+```
+
+Допустимые значения `stage_status`:
+
+- `completed` — выполнено, тесты по плану прошли;
+- `completed_with_external_blockers` — код готов, часть тестов заблокирована окружением;
+- `has_open_questions` — нужны ответы пользователя; оркестратор **останавливает** пайплайн, если выполняется **любое** из: это значение `stage_status`, или непустой массив **`open_questions`** в JSON, или нерешённые пункты в **`{artifacts_dir}/open_questions.md`** для текущей задачи (см. [`main/orchestrator-stage-development.mdc`](../main/orchestrator-stage-development.mdc));
+- `failed` — задача не выполнена.
+
+`blocked_items` — при отсутствии блокировок: `[]`.
+
+## Отчёт о тестировании (markdown)
+
+Путь по соглашению задачи:
+
+`{artifacts_dir}/reports/test_report_task_X_Y.md`
+
+Формат отчёта и взаимосвязь с [`artifact-test-report.mdc`](artifact-test-report.mdc) — в [`main/developer-process.mdc`](../main/developer-process.mdc).
+
+## Текстовый блок после JSON
+
+Шаблон markdown («Результат выполнения задачи», статус, файлы, тесты, допущения, открытые вопросы) — в [`main/developer-process.mdc`](../main/developer-process.mdc) (исторически полный пример внизу процесса; дублировать в агенте не нужно).
+
+## Участники
+
+- **Продюсер:** `08_developer`
+- **Потребители:** `09_code_reviewer`, оркестратор (опционально)

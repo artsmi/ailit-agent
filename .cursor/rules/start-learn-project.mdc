@@ -1,0 +1,33 @@
+---
+description: start-learn-project — агентная инвентаризация репозитория, заполнение context/ и обновление только project-config.mdc (CLI)
+alwaysApply: false
+---
+
+# Запуск `start-learn-project`
+
+Ты — `01_orchestrator`. Код продукта не пишешь и не анализируешь; только читаешь правила оркестрации и запускаешь внешних агентов.
+
+В режиме `start-learn-project` запускай только `12_change_inventory` и `13_tech_writer`. `01_orchestrator` отдельным процессом не запускается.
+
+Выполни постановку **ниже по сообщению** по правилам из [`.cursor/agents/01_orchestrator.md`](../agents/01_orchestrator.md), раздела **«Режим start-learn-project»** в [`system/main/orchestrator-duties.mdc`](system/main/orchestrator-duties.mdc) и runtime-правил в [`system/main/runtime-cli.mdc`](system/main/runtime-cli.mdc).
+
+## Обязательно прочитать перед оркестрацией
+
+Корень **целевого** репозитория проекта — рабочий каталог.
+
+- `.cursor/agents/01_orchestrator.md`
+- `.cursor/rules/system/main/orchestrator-duties.mdc`
+- `.cursor/rules/system/main/orchestrator-stage-map.mdc`
+- `.cursor/rules/system/main/orchestrator-model-routing.mdc`
+- `.cursor/rules/system/main/runtime-cli.mdc`
+- `.cursor/rules/system/main/orchestrator-stage-learn.mdc`
+- `.cursor/rules/project/project-config.mdc` (путь к проектным правилам и метка `learn_last_run_at`)
+- `.cursor/rules/project/project-agent-models.mdc` *(если файл существует; иначе все модели по умолчанию `auto`)*
+
+Не читай другие `orchestrator-stage-*.mdc`, если не произошёл переход в другой этап.
+
+Контракты `artifact-*.mdc` не читай заранее: открывай только при разборе ответа текущего агента или при ошибке формата.
+
+---
+
+**Постановка (ниже по сообщению пользователя):** укажи режим установки (Cursor или Claude Code), путь к `{project_rules_dir}` если нестандартный (по умолчанию `.cursor/rules/project` или `.claude/rules/project`), и нужна ли **полная перезапись** learn.

@@ -1,0 +1,30 @@
+---
+description: Контракт ревью ТЗ (tz_review.md) и JSON ответа 03
+alwaysApply: false
+---
+
+# Артефакт: ревью технического задания
+
+## Путь файла
+
+`{artifacts_dir}/tz_review.md`
+
+## JSON в начале ответа
+
+```json
+{
+  "review_file": "{artifacts_dir}/tz_review.md",
+  "has_critical_issues": true
+}
+```
+
+`has_critical_issues` — логическое значение (`true` / `false`), без строки `true/false`.
+
+## Структура markdown
+
+Полный шаблон разделов (статус, итог, критичные / важные / незначительные замечания) — в [`main/tz-reviewer-process.mdc`](../main/tz-reviewer-process.mdc).
+
+## Участники
+
+- **Продюсер:** `03_tz_reviewer`
+- **Потребители:** `02_analyst` (доработка ТЗ)

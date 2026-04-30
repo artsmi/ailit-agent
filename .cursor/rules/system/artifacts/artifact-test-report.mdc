@@ -1,0 +1,25 @@
+---
+description: Формат отчётов о прогоне тестов (разработчик 08 и агент 11)
+alwaysApply: false
+---
+
+# Артефакт: отчёт о тестировании
+
+## Пути
+
+- По задаче (после работы **08**): `{artifacts_dir}/reports/test_report_task_X_Y.md`
+- После прогона **11** (пайплайн): `{artifacts_dir}/test_report.md` и/или лог `{artifacts_dir}/test_run_<timestamp>.log` / `last_test_log.txt`
+
+## Содержание (минимум)
+
+- Статус: passed / failed (или эквивалент)
+- Команда прогона
+- Список упавших тестов и краткая ошибка
+- Для e2e: указание путей к `tests/tmp/core.log`, `tests/tmp/ui.log` при необходимости
+
+Детали сценария **11** — [`.cursor/agents/11_test_runner.md`](../../agents/11_test_runner.md) и [`test/pipeline-test-failure.mdc`](../test/pipeline-test-failure.mdc).
+
+## Участники
+
+- **Продюсеры:** `08_developer`, `11_test_runner`
+- **Потребители:** `09_code_reviewer`, стадия `fix_by_tests` / **08**

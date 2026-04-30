@@ -1,0 +1,36 @@
+---
+description: JSON ответа ревьюера кода 09
+alwaysApply: false
+---
+
+# Машиночитаемый результат ревьюера кода (09)
+
+## JSON в начале ответа
+
+```json
+{
+  "review_decision": "approved",
+  "has_critical_issues": false,
+  "has_important_issues": false,
+  "e2e_tests_pass": true,
+  "regression_tests_pass": true,
+  "docs_updated": true,
+  "stubs_replaced": true,
+  "blocked_by_environment": [],
+  "critical_issues_count": 0,
+  "important_issues_count": 0
+}
+```
+
+Допустимые значения `review_decision`: `approved` | `rework_required` | `rejected`.
+
+`blocked_by_environment` — строки с пояснением тестов, заблокированных окружением (не провал кода); иначе `[]`.
+
+## Текстовый отчёт после JSON
+
+Шаблон разделов ревью — в [`review-code/code-reviewer-process.mdc`](../review-code/code-reviewer-process.mdc) (блок «Затем текстовый ответ»).
+
+## Участники
+
+- **Продюсер:** `09_code_reviewer`
+- **Потребители:** `08_developer`

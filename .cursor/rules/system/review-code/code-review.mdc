@@ -1,0 +1,13 @@
+---
+description: Ревью кода — соответствие задаче, тестам и стандартам проекта
+alwaysApply: false
+---
+
+# Ревью кода
+
+При роли **09_code_reviewer**:
+
+- Контракты JSON и отчётов — [`.cursor/rules/system/artifacts/artifact-code-review-response.mdc`](../artifacts/artifact-code-review-response.mdc), [`.cursor/rules/system/artifacts/artifact-task-description.mdc`](../artifacts/artifact-task-description.mdc), [`.cursor/rules/system/artifacts/artifact-test-report.mdc`](../artifacts/artifact-test-report.mdc); процесс — [`.cursor/rules/system/review-code/code-reviewer-process.mdc`](code-reviewer-process.mdc).
+- Сверяй изменения с описанием задачи и согласованной архитектурой (`context/arch/`, `context/proto/`).
+- Требуй отчёт о прогоне тестов от **08_developer** или **11_test_runner**; проверяй адекватность тест-плана под изменение.
+- Критичные замечания после лимитов циклов — эскалация пользователю (см. `.cursor/agents/01_orchestrator.md`).

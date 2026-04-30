@@ -1,0 +1,39 @@
+---
+description: Контракт plan_review.md и JSON ревьюера плана 07
+alwaysApply: false
+---
+
+# Артефакт: ревью плана
+
+## Путь файла
+
+`{artifacts_dir}/plan_review.md`
+
+## JSON в начале ответа (для оркестратора)
+
+Ожидаемая форма (расширенная по сравнению с минимальной парой полей), согласована с этапом планирования:
+
+```json
+{
+  "review_file": "{artifacts_dir}/plan_review.md",
+  "has_critical_issues": false,
+  "comments_count": 0,
+  "coverage_issues": [],
+  "missing_descriptions": []
+}
+```
+
+- `has_critical_issues` — `true`, если план невыполним (непокрытые UC, отсутствующие/пустые описания задач и т.п.).
+- `coverage_issues` — список непокрытых или сомнительных юзер-кейсов.
+- `missing_descriptions` — задачи без корректного файла описания.
+
+При необходимости допускается минимальный вариант только с `review_file` и `has_critical_issues` — оркестратор извлекает детали из markdown.
+
+## Структура markdown
+
+Полный шаблон разделов (итоговое решение, статистика покрытия, структура плана и задач, замечания) — в [`main/plan-reviewer-process.mdc`](../main/plan-reviewer-process.mdc).
+
+## Участники
+
+- **Продюсер:** `07_plan_reviewer`
+- **Потребители:** `06_planner` (доработка), оркестратор

@@ -1,0 +1,12 @@
+---
+description: Напоминание о верификации — детали команд и путей в context/tests/ и context/start/
+alwaysApply: false
+---
+
+# Верификация и e2e
+
+Конкретные команды (`make …`, `npm test`, контейнеры), матрица покрытия, каталоги логов и диагностика при падениях задаются в **проектных** правилах.
+
+Перед планированием или прогоном открой [`../../../../context/tests/INDEX.md`](../../../../context/tests/INDEX.md) и [`../../../../context/start/INDEX.md`](../../../../context/start/INDEX.md).
+
+Инвариант ядра: тесты в сценариях **feature**/**fix** обязательны — см. [`pipeline-tests-mandatory.mdc`](pipeline-tests-mandatory.mdc).

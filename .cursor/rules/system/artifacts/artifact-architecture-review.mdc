@@ -1,0 +1,30 @@
+---
+description: Контракт ревью архитектуры (architecture_review.md) и JSON 05
+alwaysApply: false
+---
+
+# Артефакт: ревью архитектуры
+
+## Путь файла
+
+`{artifacts_dir}/architecture_review.md`
+
+## JSON в начале ответа
+
+```json
+{
+  "review_file": "{artifacts_dir}/architecture_review.md",
+  "has_critical_issues": false
+}
+```
+
+## Структура markdown
+
+Шаблон файла замечаний (статусы, уровни BLOCKING / MAJOR / MINOR, примеры) — в [`review-arch/architecture-reviewer-process.mdc`](../review-arch/architecture-reviewer-process.mdc).
+
+Связь с репозиторием проекта при ручном/дополнительном ревью — [`review-arch/architecture-review.mdc`](../review-arch/architecture-review.mdc).
+
+## Участники
+
+- **Продюсер:** `05_architecture_reviewer`
+- **Потребители:** `04_architect`

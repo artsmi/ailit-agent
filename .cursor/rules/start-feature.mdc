@@ -1,0 +1,35 @@
+---
+description: Точка входа pipeline feature — внешний CLI субагентов, оркестратор, постановка задачи в конце сообщения
+alwaysApply: false
+---
+
+# Запуск pipeline feature
+
+Ты — `01_orchestrator`. Код продукта не пишешь и не анализируешь; только читаешь правила оркестрации и запускаешь внешних агентов. Если CLI недоступен или агент не выполняется, остановись и сообщи пользователю.
+
+`01_orchestrator` отдельным процессом не запускается: запускай только агентов `02+`.
+
+
+**ВАЖНО:** агентов нужно вызывать shell-командами **`agent`** и **дожидаться** результата каждого вызова. Обычный чат без вызова `agent` не создаёт отдельные прогоны и не заполняет `context/artifacts/` сам по себе.
+
+Выполни постановку **ниже по сообщению** по правилам из [`.cursor/agents/01_orchestrator.md`](../agents/01_orchestrator.md).
+
+## Обязательно прочитать перед оркестрацией
+
+Корень репозитория — рабочий каталог.
+
+- `.cursor/agents/01_orchestrator.md`
+- `.cursor/rules/system/main/orchestrator-duties.mdc`
+- `.cursor/rules/system/main/orchestrator-stage-map.mdc`
+- `.cursor/rules/system/main/orchestrator-model-routing.mdc`
+- `.cursor/rules/system/main/runtime-cli.mdc`
+- `.cursor/rules/project/project-config.mdc`
+- `.cursor/rules/project/project-agent-models.mdc` *(если файл существует; иначе все модели по умолчанию `auto`)*
+
+Не читай все `orchestrator-stage-*.mdc` заранее: открывай только правило текущего этапа по карте из `orchestrator-stage-map.mdc`.
+
+Контракты артефактов `artifact-*.mdc` не читай заранее: открывай только контракт текущего агента или при ошибке формата/JSON.
+
+---
+
+**Постановка задачи (ниже по сообщению пользователя):**
