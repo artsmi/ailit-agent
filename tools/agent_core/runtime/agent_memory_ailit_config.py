@@ -46,6 +46,22 @@ def max_memory_queries_per_user_turn(merged: Mapping[str, Any]) -> int:
     return max(1, min(n, 1_000))
 
 
+def agent_memory_rpc_timeout_s(merged: Mapping[str, Any]) -> float:
+    """Таймаут Unix-RPC AgentWork→AgentMemory (сек); W14 SLA, default 120."""
+    mem: Any = merged.get("memory")
+    if not isinstance(mem, dict):
+        return 120.0
+    rt: Any = mem.get("runtime")
+    if not isinstance(rt, dict):
+        return 120.0
+    raw: Any = rt.get("agent_memory_rpc_timeout_s", 120)
+    try:
+        t = float(raw)
+    except (TypeError, ValueError):
+        return 120.0
+    return max(5.0, min(t, 3_600.0))
+
+
 def _str_lower(x: object) -> str:
     return str(x or "").strip().lower()
 
