@@ -722,6 +722,16 @@ class _WorkChatSession:
                     else (),
                 ),
             ]
+        amr_raw = response_payload.get("agent_memory_result")
+        amr_ds = ""
+        amr_rns = ""
+        if isinstance(amr_raw, Mapping):
+            amr_ds = str(amr_raw.get("decision_summary") or "").strip()
+            amr_rns = str(amr_raw.get("recommended_next_step") or "").strip()
+        top_ds = str(response_payload.get("decision_summary") or "").strip()
+        top_rns = str(
+            response_payload.get("recommended_next_step") or "",
+        ).strip()
         return memory_injected_v2_payload(
             chat_id=identity.chat_id,
             turn_id=parent_message_id,
@@ -730,13 +740,9 @@ class _WorkChatSession:
             estimated_tokens=int(memory_slice.get("estimated_tokens") or 0),
             prompt_section="memory",
             decision_summary=str(
-                response_payload.get("decision_summary")
-                or memory_slice.get("reason")
-                or "",
+                top_ds or amr_ds or memory_slice.get("reason") or "",
             ),
-            recommended_next_step=str(
-                response_payload.get("recommended_next_step") or "",
-            ),
+            recommended_next_step=str(top_rns or amr_rns or ""),
         )
 
     def _restore_d_context(

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Mapping
 
 import pytest
 
 from agent_core.runtime.agent_memory_result_v1 import (
     build_agent_memory_result_v1,
 )
+from agent_core.tool_runtime.registry import ToolRegistry
 
 
 def _identity(ns: str = "ns1") -> Any:
@@ -119,6 +120,23 @@ def test_uc01_partial_continuation_two_memory_queries_before_tools(
 
     monkeypatch.setattr(wa, "_BrokerServiceClient", _SeqClient)
 
+    def _registry_build_forbidden(
+        self: Any,
+        *,
+        project_root: Any,
+        project_roots: Any | None = None,
+    ) -> Any:
+        raise AssertionError(
+            "UC-01: glob_file/read_file/run_shell registry must not be "
+            "assembled during _request_memory_slice (memory-path only).",
+        )
+
+    monkeypatch.setattr(
+        wam._RegistryAssembler,
+        "build",
+        _registry_build_forbidden,
+    )
+
     _WCS = wam._WorkChatSession  # noqa: SLF001
     _RTE = wam._RuntimeEventEmitter  # noqa: SLF001
 
@@ -161,6 +179,9 @@ def test_uc01_partial_continuation_two_memory_queries_before_tools(
     assert cont[0][1].get("next_query_id") == mem_svc[1]["query_id"]
     inj = [t for t in trace if t[0] == "context.memory_injected"]
     assert len(inj) == 1
+    inj_pl = inj[0][1]
+    assert inj_pl.get("decision_summary") == "ok"
+    assert inj_pl.get("recommended_next_step") == ""
 
 
 def test_uc01_a2_partial_without_continuation_no_second_query_required(
@@ -307,6 +328,46 @@ def test_uc01_two_memory_queries_before_orchestrator_run(
 
     monkeypatch.setattr(wa, "_BrokerServiceClient", _SeqClient)
 
+    _SUBSTITUTE_TOOLS = ("glob_file", "read_file", "run_shell")
+    _orig_reg_build = wam._RegistryAssembler.build
+    _mem_at_registry_build: list[int] = []
+
+    def _reg_build_track(
+        self: Any,
+        *,
+        project_root: Any,
+        project_roots: Any | None = None,
+    ) -> Any:
+        assert mem_n["v"] >= 2, (
+            "UC-01: memory.query_context must complete (>=2 RPCs) before "
+            "tool registry (glob_file/read_file/run_shell) is assembled."
+        )
+        _mem_at_registry_build.append(int(mem_n["v"]))
+        reg = _orig_reg_build(
+            self,
+            project_root=project_root,
+            project_roots=project_roots,
+        )
+
+        def _wrap_handler(name: str, inner: Any) -> Any:
+            def _h(args: Mapping[str, Any]) -> str:
+                assert mem_n["v"] >= 2, (
+                    f"UC-01: {name} must not run before memory-path complete "
+                    f"(memory RPC count={mem_n['v']})."
+                )
+                return inner(args)
+
+            return _h
+
+        handlers = dict(reg.handlers)
+        for tn in _SUBSTITUTE_TOOLS:
+            if tn in handlers:
+                handlers[tn] = _wrap_handler(tn, handlers[tn])
+
+        return ToolRegistry(specs=dict(reg.specs), handlers=handlers)
+
+    monkeypatch.setattr(wam._RegistryAssembler, "build", _reg_build_track)
+
     orch = wam.WorkTaskOrchestrator
     orig_run = orch.run
 
@@ -337,3 +398,4 @@ def test_uc01_two_memory_queries_before_orchestrator_run(
         identity=_identity(ns="ns"),
         worker=worker,
     )
+    assert _mem_at_registry_build == [2]
