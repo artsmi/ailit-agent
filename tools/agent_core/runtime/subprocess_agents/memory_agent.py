@@ -1508,8 +1508,13 @@ class AgentMemoryWorker:
                 memory_slice.get("injected_text") or "",
             ).strip()
             need_fb = no_inj and not w14_finish
-            w14_path_fb = w14_contract_failure and bool(
-                str(want_path or "").strip(),
+            w14_cmd_out_invalid = str(
+                memory_slice.get("reason") or "",
+            ) == "w14_command_output_invalid"
+            w14_path_fb = (
+                w14_contract_failure
+                and bool(str(want_path or "").strip())
+                and not w14_cmd_out_invalid
             )
             if need_fb and (not w14_contract_failure or w14_path_fb):
                 memory_slice = self._fallback_slice(
