@@ -21,8 +21,20 @@ export type MemoryGraphDataKeySnap = {
 };
 
 /**
+ * Фаза загрузки для ключа remount: `idle`/`loading`/`ready` не различаются (задача 3.1),
+ * чтобы refresh PAG не дергал `ForceGraph3D` при том же `graphRevByNamespace` / `pd`.
+ */
+export type MemoryGraphDataKeyLoadPhase = "error" | "live";
+
+export function graphLoadPhaseForDataKey(
+  loadState: MemoryGraphDataKeySnap["loadState"]
+): MemoryGraphDataKeyLoadPhase {
+  return loadState === "error" ? "error" : "live";
+}
+
+/**
  * Ключ `ForceGraph3D` (remount / WebGL) — **не** включает `merged.nodes.length`.
- * См. `architecture.md` §2.3, задача 1.3.
+ * Сегмент фазы — `live`/`error` (не сырой `loadState`), см. задачу 3.1.
  */
 export function computeMemoryGraphDataKey(p: {
   readonly activeSessionId: string;
@@ -32,8 +44,8 @@ export function computeMemoryGraphDataKey(p: {
   if (p.snap == null) {
     return `${p.activeSessionId}-none-pdx-`;
   }
-  const st: string = p.snap.loadState;
+  const phase: MemoryGraphDataKeyLoadPhase = graphLoadPhaseForDataKey(p.snap.loadState);
   const pd: string = p.snap.pagDatabasePresent ? "1" : "0";
   const rev: string = formatGraphRevByNamespaceKey(p.snap.graphRevByNamespace);
-  return `${p.activeSessionId}-${st}-pd${pd}-${rev}`;
+  return `${p.activeSessionId}-${phase}-pd${pd}-${rev}`;
 }

@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { computeMemoryGraphDataKey, type MemoryGraphDataKeySnap } from "./memoryGraphDataKey";
+import {
+  computeMemoryGraphDataKey,
+  graphLoadPhaseForDataKey,
+  type MemoryGraphDataKeySnap
+} from "./memoryGraphDataKey";
 
 function snapBase(): MemoryGraphDataKeySnap {
   return {
@@ -21,16 +25,41 @@ describe("memoryGraphDataKey (2.3 / задача 1.3, вариант A)", () => 
     expect(k).not.toMatch(/n\d+/);
   });
 
-  it("меняется при смене loadState (hard error и т.п.)", () => {
-    const a: string = computeMemoryGraphDataKey({
+  it("меняется только при error vs live (ready/loading/idle дают одну фазу)", () => {
+    const liveKey: string = computeMemoryGraphDataKey({
       activeSessionId: "x",
       snap: { ...snapBase(), loadState: "ready" }
     });
-    const b: string = computeMemoryGraphDataKey({
+    expect(computeMemoryGraphDataKey({
+      activeSessionId: "x",
+      snap: { ...snapBase(), loadState: "loading" }
+    })).toBe(liveKey);
+    expect(computeMemoryGraphDataKey({
+      activeSessionId: "x",
+      snap: { ...snapBase(), loadState: "idle" }
+    })).toBe(liveKey);
+    const errKey: string = computeMemoryGraphDataKey({
       activeSessionId: "x",
       snap: { ...snapBase(), loadState: "error" }
     });
-    expect(a).not.toBe(b);
+    expect(errKey).not.toBe(liveKey);
+    expect(graphLoadPhaseForDataKey("ready")).toBe("live");
+    expect(graphLoadPhaseForDataKey("error")).toBe("error");
+  });
+
+  it("3.1: второй запрос (loading→ready) при том же rev и pd — тот же ключ, без n{count}", () => {
+    const s: MemoryGraphDataKeySnap = {
+      loadState: "ready",
+      pagDatabasePresent: true,
+      graphRevByNamespace: { "ns-a": 7, "ns-b": 2 }
+    };
+    const kReady: string = computeMemoryGraphDataKey({ activeSessionId: "ses-2", snap: s });
+    const kLoading: string = computeMemoryGraphDataKey({
+      activeSessionId: "ses-2",
+      snap: { ...s, loadState: "loading" }
+    });
+    expect(kLoading).toBe(kReady);
+    expect(kReady).not.toMatch(/n\d+/);
   });
 
   it("меняется при смене graphRevByNamespace", () => {

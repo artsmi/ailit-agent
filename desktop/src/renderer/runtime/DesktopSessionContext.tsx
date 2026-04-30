@@ -921,10 +921,23 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     }
     const sliceFn: typeof window.ailitDesktop.pagGraphSlice = slice as typeof window.ailitDesktop.pagGraphSlice;
     let cancelled: boolean = false;
-    setPagGraphBySession((prev) => ({
-      ...prev,
-      [sessionId]: createEmptyPagGraphSessionSnapshot({ loadState: "loading" })
-    }));
+    setPagGraphBySession((prev) => {
+      const cur: PagGraphSessionSnapshot | undefined = prev[sessionId];
+      if (cur != null) {
+        return {
+          ...prev,
+          [sessionId]: {
+            ...cur,
+            loadState: "loading",
+            loadError: null
+          }
+        };
+      }
+      return {
+        ...prev,
+        [sessionId]: createEmptyPagGraphSessionSnapshot({ loadState: "loading" })
+      };
+    });
     void (async () => {
       const r: Awaited<ReturnType<typeof PagGraphSessionFullLoad.run>> = await PagGraphSessionFullLoad.run(
         (p) => sliceFn(p),

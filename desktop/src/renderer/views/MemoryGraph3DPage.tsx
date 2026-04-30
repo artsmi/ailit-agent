@@ -4,7 +4,10 @@ import ForceGraph3D, { type ForceGraphMethods } from "react-force-graph-3d";
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
 import { lastPagSearchHighlightFromTrace, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
 import { type MemoryGraphData, type MemoryGraphLink, type MemoryGraphNode } from "../runtime/memoryGraphState";
-import { computeMemoryGraphDataKey } from "../runtime/memoryGraphDataKey";
+import {
+  computeMemoryGraphDataKey,
+  formatGraphRevByNamespaceKey
+} from "../runtime/memoryGraphDataKey";
 import {
   MEM3D_PAG_MAX_NODES,
   PAG_3D_HEAVY_HIGHLIGHT_LINK_PARTICLES,
@@ -114,6 +117,8 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
   });
   const snap: ReturnType<typeof useDesktopSession>["pagGraph"]["activeSnapshot"] = s.pagGraph.activeSnapshot;
   const graph: MemoryGraphData = snap?.merged ?? { nodes: [], links: [] };
+  const graphRevSig: string =
+    snap == null ? "" : formatGraphRevByNamespaceKey(snap.graphRevByNamespace);
   const graphDataKey: string = useMemo((): string => {
     return computeMemoryGraphDataKey({
       activeSessionId: s.activeSessionId,
@@ -126,7 +131,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
               graphRevByNamespace: snap.graphRevByNamespace
             }
     });
-  }, [s.activeSessionId, snap]);
+  }, [s.activeSessionId, snap == null, snap?.loadState, snap?.pagDatabasePresent, graphRevSig]);
 
   const namespaces: readonly string[] = useMemo((): readonly string[] => {
     const ids: readonly string[] =
