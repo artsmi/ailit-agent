@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Алиас к scripts/pag-delete (очистка содержимого PAG, файл SQLite сохраняется).
+set -euo pipefail
+exec "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/pag-delete" "$@"

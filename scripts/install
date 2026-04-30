@@ -9,6 +9,9 @@
 # Переменные:
 #   AILIT_INSTALL_NO_SHIM=1     — не создавать симлинк ~/.local/bin/ailit
 #   AILIT_INSTALL_PREFIX        — корень для prod venv (по умолчанию ~/.local/share/ailit)
+#
+# Сброс содержимого PAG (SQLite ~/.ailit/pag/store.sqlite3 по умолчанию), файл сохраняется:
+#   ./scripts/pag-delete   или   ./scripts/page_delete
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
