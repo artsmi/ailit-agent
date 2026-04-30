@@ -27,5 +27,12 @@
   --font-title: 1.05rem;
   --font-small: 0.7rem;
   --radius-lg: 1.1rem;
+
+  /* 3D memory graph — синхрон с `runtime/memoryGraph3DLineStyle.ts` */
+  --mem3d-link-width-default: 1;
+  --mem3d-link-width-hot-selected-cap: 5.5;
+
+  /* Рёбра: candy pink без hex в `MemoryGraph3DPage.tsx` */
+  --mem3d-link-edge-default: color-mix(in srgb, var(--candy-accent) 24%, transparent);
 }
 

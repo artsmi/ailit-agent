@@ -11,9 +11,20 @@ import {
 } from "../runtime/memoryGraphDataKey";
 import {
   MEM3D_PAG_MAX_NODES,
+  PAG_3D_HEAVY_DEFAULT_LINK_PARTICLES,
   PAG_3D_HEAVY_HIGHLIGHT_LINK_PARTICLES,
   PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD
 } from "../runtime/pagGraphLimits";
+import {
+  MEM3D_LINK_PARTICLE_WIDTH_HOT,
+  mem3dLinkWidth
+} from "../runtime/memoryGraph3DLineStyle";
+import {
+  MEM3D_LINK_EDGE_FALLBACK,
+  mem3dHotLinkRgba,
+  resolveMem3dLinkEdgeColors,
+  type Mem3dLinkEdgeResolved
+} from "../runtime/memoryGraph3DResolvedColors";
 
 type HighlightState = PagSearchHighlightV1 & {
   readonly startedAtMs: number;
@@ -52,7 +63,6 @@ function coordinateOrZero(value: number | undefined): number {
 
 /** G16.3: brand-adjacent hot (ярче base levelColor). */
 const MEM3D_HOT_NODE: string = "#ff1493";
-const MEM3D_HOT_LINK_BASE: string = "255, 20, 147";
 
 function levelColor(level: "A" | "B" | "C" | "D"): string {
   if (level === "A") {
@@ -116,6 +126,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     w: 800,
     h: 560
   });
+  const [edgeColors, setEdgeColors] = useState<Mem3dLinkEdgeResolved>(MEM3D_LINK_EDGE_FALLBACK);
   const snap: ReturnType<typeof useDesktopSession>["pagGraph"]["activeSnapshot"] = s.pagGraph.activeSnapshot;
   const graph: MemoryGraphData = snap?.merged ?? { nodes: [], links: [] };
   const graphRevSig: string =
@@ -253,6 +264,14 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       ro.disconnect();
     };
   }, []);
+
+  useLayoutEffect((): void => {
+    const host: HTMLDivElement | null = hostRef.current;
+    if (!host) {
+      return;
+    }
+    setEdgeColors(resolveMem3dLinkEdgeColors(host));
+  }, [graphDataKey, viewSize.w, viewSize.h]);
 
   /** G16.4: PAG/resize — явный refresh WebGL при открытой панели и появившихся нодах. */
   useLayoutEffect((): void => {
@@ -518,7 +537,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
                 const h: HighlightState | null = highlightRef.current;
                 const hot: boolean =
                   h !== null && linkIsHighlightHot(link, h, alive);
-                return hot ? 2.1 + glow * 4.8 : 0.8;
+                return mem3dLinkWidth(hot, glow);
               }}
               linkColor={(l: unknown) => {
                 const link: MemoryGraphLink = l as MemoryGraphLink;
@@ -527,8 +546,8 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
                 const hot: boolean =
                   h !== null && linkIsHighlightHot(link, h, alive);
                 return hot
-                  ? `rgba(${MEM3D_HOT_LINK_BASE}, ${0.5 + glow * 0.45})`
-                  : "rgba(20, 20, 30, 0.12)";
+                  ? mem3dHotLinkRgba(edgeColors.hotRgbTriplet, glow)
+                  : edgeColors.defaultCssColor;
               }}
               linkDirectionalParticles={(l: unknown) => {
                 const link: MemoryGraphLink = l as MemoryGraphLink;
@@ -537,7 +556,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
                 const hot: boolean =
                   h !== null && linkIsHighlightHot(link, h, alive);
                 if (!hot) {
-                  return 0;
+                  return heavyGraph ? PAG_3D_HEAVY_DEFAULT_LINK_PARTICLES : 0;
                 }
                 return heavyGraph
                   ? PAG_3D_HEAVY_HIGHLIGHT_LINK_PARTICLES
@@ -549,7 +568,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
                 const h: HighlightState | null = highlightRef.current;
                 const hot: boolean =
                   h !== null && linkIsHighlightHot(link, h, alive);
-                return hot ? 2.5 : 0;
+                return hot ? MEM3D_LINK_PARTICLE_WIDTH_HOT : 0;
               }}
               onEngineStop={() => {
                 if (initialFitDoneRef.current) {

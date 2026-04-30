@@ -100,7 +100,7 @@ function mergeNodePreservingCoords(
     }
     const pv: number | undefined = prev[k] as number | undefined;
     if (typeof pv === "number" && Number.isFinite(pv)) {
-      (merged as Record<string, number | undefined>)[k] = pv;
+      (merged as unknown as Record<string, number | undefined>)[k] = pv;
     }
   }
   return merged;

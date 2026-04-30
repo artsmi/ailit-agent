@@ -15,6 +15,11 @@ export const PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD: number = 2_000;
 export const PAG_3D_HEAVY_HIGHLIGHT_LINK_PARTICLES: number = 1;
 
 /**
+ * Тяжёлый граф: политика частиц на неспеленных рёбрах (0 — дёшево; не «молча» без константы).
+ */
+export const PAG_3D_HEAVY_DEFAULT_LINK_PARTICLES: number = 0;
+
+/**
  * Размер одной «страницы» 2D-списка (пагинация UI, не глобальный cap).
  * Глобальные cap — {@link MEM3D_PAG_MAX_NODES} / {@link MEM3D_PAG_MAX_EDGES}.
  */
