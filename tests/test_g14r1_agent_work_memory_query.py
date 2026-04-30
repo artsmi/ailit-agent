@@ -16,7 +16,32 @@ from agent_core.runtime.models import (
 from agent_core.runtime.agent_memory_ailit_config import (
     max_memory_queries_per_user_turn,
 )
+from agent_core.runtime.agent_memory_result_v1 import (
+    build_agent_memory_result_v1,
+)
 from ailit.merged_config import load_merged_ailit_config
+
+
+def _default_ok_memory_payload() -> dict[str, Any]:
+    mslice = {
+        "injected_text": "slice ok",
+        "node_ids": [],
+        "edge_ids": [],
+        "level": "B",
+        "reason": "t",
+        "staleness": "fresh",
+    }
+    return {
+        "memory_slice": mslice,
+        "agent_memory_result": build_agent_memory_result_v1(
+            query_id="stub-q",
+            status="complete",
+            memory_slice=mslice,
+            partial=False,
+            decision_summary="ok",
+            recommended_next_step="",
+        ),
+    }
 
 
 @dataclass
@@ -25,16 +50,7 @@ class _StubBroker:
     response: dict[str, Any] = field(
         default_factory=lambda: {
             "ok": True,
-            "payload": {
-                "memory_slice": {
-                    "injected_text": "slice ok",
-                    "node_ids": [],
-                    "edge_ids": [],
-                    "level": "B",
-                    "reason": "t",
-                    "staleness": "fresh",
-                },
-            },
+            "payload": _default_ok_memory_payload(),
         },
     )
 

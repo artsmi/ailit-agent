@@ -39,6 +39,7 @@ def build_agent_memory_result_v1(
     recommended_next_step: str,
     explicit_results: list[dict[str, Any]] | None = None,
     explicit_status: str | None = None,
+    memory_continuation_required: bool | None = None,
 ) -> dict[str, Any]:
     """Собрать объект `agent_memory_result.v1` (§1.3) из текущего среза.
 
@@ -48,6 +49,9 @@ def build_agent_memory_result_v1(
     G14R.7: если задан ``explicit_results`` (в т.ч. пустой список), контракт
     берётся из ``finish_decision`` / сборщика, а не из грубой проекции
     ``injected_text`` в ``c_summary``.
+
+    ``memory_continuation_required``: если не ``None``, добавляет поле в
+    объект (машиночитаемый continuation для AgentWork, W14).
     """
     st = str(explicit_status or status or "").strip() or (
         "partial" if partial else "complete"
@@ -99,7 +103,7 @@ def build_agent_memory_result_v1(
     pr_extra: list[str] = []
     if explicit_results is not None and not results:
         pr_extra.append("finish_decision_no_valid_results")
-    return {
+    out: dict[str, Any] = {
         "schema_version": AGENT_MEMORY_RESULT_V1,
         "query_id": str(query_id or "").strip() or "mem-unknown",
         "status": st,
@@ -117,3 +121,8 @@ def build_agent_memory_result_v1(
             ),
         },
     }
+    if memory_continuation_required is not None:
+        out["memory_continuation_required"] = bool(
+            memory_continuation_required,
+        )
+    return out

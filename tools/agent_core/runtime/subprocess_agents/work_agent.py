@@ -18,7 +18,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final, Mapping, MutableMapping, Optional
+from typing import Any, Final, Literal, Mapping, MutableMapping, Optional
 
 from agent_core.models import ChatMessage, MessageRole
 from agent_core.providers.factory import ProviderFactory, ProviderKind
@@ -131,9 +131,26 @@ def _collect_refs_from_agent_memory_result(
     return sorted(paths), sorted(nids)
 
 
-def _memory_path_should_continue(amr: Mapping[str, Any]) -> bool:
-    if str(amr.get("status") or "").strip() != "partial":
+def _partial_reasons_signal_continuation(amr: Mapping[str, Any]) -> bool:
+    rt = amr.get("runtime_trace")
+    if not isinstance(rt, Mapping):
         return False
+    pr = rt.get("partial_reasons")
+    if not isinstance(pr, list):
+        return False
+    for item in pr:
+        if "continuation" in str(item).lower():
+            return True
+    return False
+
+
+def _memory_path_should_continue(amr: Mapping[str, Any]) -> bool:
+    if str(amr.get("status") or "").strip().lower() != "partial":
+        return False
+    if amr.get("memory_continuation_required") is True:
+        return True
+    if _partial_reasons_signal_continuation(amr):
+        return True
     rns = str(amr.get("recommended_next_step") or "").strip()
     if not rns:
         return False
@@ -145,6 +162,54 @@ def _memory_path_should_continue(amr: Mapping[str, Any]) -> bool:
     if rns in generic or low in {x.lower() for x in generic}:
         return False
     return True
+
+
+@dataclass(frozen=True, slots=True)
+class _AgentMemoryPathSoT:
+    """Распарсенный SoT memory-path из payload ответа broker."""
+
+    agent_memory_result: Mapping[str, Any]
+    memory_slice: dict[str, Any] | None
+
+
+class _AgentMemoryPathSoTParser:
+    """Извлечь ``agent_memory_result`` и ``memory_slice`` из payload."""
+
+    @staticmethod
+    def parse_payload(
+        payload: Mapping[str, Any],
+    ) -> _AgentMemoryPathSoT | None:
+        raw = payload.get("agent_memory_result")
+        if not isinstance(raw, Mapping):
+            return None
+        ms = payload.get("memory_slice")
+        ms_d = ms if isinstance(ms, dict) else None
+        return _AgentMemoryPathSoT(
+            agent_memory_result=raw,
+            memory_slice=ms_d,
+        )
+
+
+class _MemoryPathTurnClassifier:
+    """Классификация исхода одного ответа AM по SoT (W14)."""
+
+    @staticmethod
+    def outcome_kind(
+        sot: _AgentMemoryPathSoT,
+    ) -> Literal["continue", "finish_inject", "finish_silent"]:
+        amr = sot.agent_memory_result
+        st = str(amr.get("status") or "").strip().lower()
+        if st == "blocked":
+            return "finish_silent"
+        if st == "complete":
+            return "finish_inject"
+        if st == "partial":
+            if _memory_path_should_continue(amr):
+                return "continue"
+            return "finish_inject"
+        if st:
+            return "finish_inject"
+        return "finish_silent"
 
 
 def _work_agent_perm_mode_enabled() -> bool:
@@ -272,6 +337,9 @@ class _RuntimeEventEmitter:
 
 
 _MEMORY_QUERY_TIMEOUT_EVENT: Final[str] = "memory.query.timeout"
+_MEMORY_QUERY_CONTINUATION_EVENT: Final[str] = (
+    "memory.query_context.continuation"
+)
 
 
 def _publish_memory_query_timeout(
@@ -394,7 +462,10 @@ class _WorkChatSession:
         parent_message_id: str,
         worker: "AgentWorkWorker",
     ) -> ChatMessage | None:
-        """Запросить prompt-ready slice у AgentMemory через broker."""
+        """Запросить slice у AgentMemory.
+
+        SoT решений — ``payload.agent_memory_result`` (W14).
+        """
         client = _BrokerServiceClient(  # noqa: SLF001
             worker._cfg.broker_socket_path,
         )
@@ -412,74 +483,54 @@ class _WorkChatSession:
         except Exception:  # noqa: BLE001
             merged_mem = {}
         mem_cap = max_memory_queries_per_user_turn(merged_mem)
-        if self._memory_queries_in_turn >= mem_cap:
-            emitter.publish(
-                event_type="memory.query.budget_exceeded",
-                payload={
-                    "code": "too_many_memory_queries",
-                    "cap": int(mem_cap),
-                    "user_turn_id": self._user_turn_id,
-                },
-            )
-            return None
         ns = str(identity.namespace or "").strip() or "default"
-        next_idx = int(self._memory_queries_in_turn) + 1
-        qid = f"mq-{self._user_turn_id}-{next_idx}"
         rpc_to = float(agent_memory_rpc_timeout_s(merged_mem))
         root = str(workspace.project_root.resolve())
-        payload: dict[str, Any] = {
-            "service": "memory.query_context",
-            "schema_version": AGENT_WORK_MEMORY_QUERY_V1,
-            "user_turn_id": self._user_turn_id,
-            "query_id": qid,
-            "subgoal": text,
-            "expected_result_kind": "mixed",
-            "query_kind": "task",
-            "level": "B",
-            "project_root": root,
-            "namespace": ns,
-            "known_paths": [],
-            "known_node_ids": [],
-            "stop_condition": {
-                "max_runtime_steps": 12,
-                "max_llm_commands": 20,
-                "must_finish_explicitly": True,
-            },
-        }
-        try:
-            resp = client.request(
-                identity=identity,
-                parent_message_id=parent_message_id,
-                to_agent="AgentMemory:global",
-                payload=payload,
-                timeout_s=rpc_to,
-            )
-        except TimeoutError:
-            _publish_memory_query_timeout(
-                emitter,
-                query_id=qid,
-                user_turn_id=self._user_turn_id,
-                timeout_s=rpc_to,
-                code="runtime_timeout",
-            )
-            return None
-        except Exception as exc:  # noqa: BLE001
-            emitter.publish(
-                event_type="memory.actor_unavailable",
-                payload={
-                    "reason": "broker_request_failed",
-                    "error": str(exc),
-                    "fallback": "none",
+        known_paths: list[str] = []
+        known_node_ids: list[str] = []
+        subgoal = (text or "").strip() or "task"
+
+        while True:
+            if self._memory_queries_in_turn >= mem_cap:
+                emitter.publish(
+                    event_type="memory.query.budget_exceeded",
+                    payload={
+                        "code": "too_many_memory_queries",
+                        "cap": int(mem_cap),
+                        "user_turn_id": self._user_turn_id,
+                    },
+                )
+                return None
+            next_idx = int(self._memory_queries_in_turn) + 1
+            qid = f"mq-{self._user_turn_id}-{next_idx}"
+            payload: dict[str, Any] = {
+                "service": "memory.query_context",
+                "schema_version": AGENT_WORK_MEMORY_QUERY_V1,
+                "user_turn_id": self._user_turn_id,
+                "query_id": qid,
+                "subgoal": subgoal,
+                "expected_result_kind": "mixed",
+                "query_kind": "task",
+                "level": "B",
+                "project_root": root,
+                "namespace": ns,
+                "known_paths": list(known_paths),
+                "known_node_ids": list(known_node_ids),
+                "stop_condition": {
+                    "max_runtime_steps": 12,
+                    "max_llm_commands": 20,
+                    "must_finish_explicitly": True,
                 },
-            )
-            return None
-        ok = bool(resp.get("ok", False))
-        if not ok:
-            err_raw = resp.get("error")
-            err_code = ""
-            if isinstance(err_raw, Mapping):
-                err_code = str(err_raw.get("code") or "")
-            if err_code == "runtime_timeout":
+            }
+            try:
+                resp = client.request(
+                    identity=identity,
+                    parent_message_id=parent_message_id,
+                    to_agent="AgentMemory:global",
+                    payload=payload,
+                    timeout_s=rpc_to,
+                )
+            except TimeoutError:
                 _publish_memory_query_timeout(
                     emitter,
                     query_id=qid,
@@ -488,67 +539,131 @@ class _WorkChatSession:
                     code="runtime_timeout",
                 )
                 return None
+            except Exception as exc:  # noqa: BLE001
+                emitter.publish(
+                    event_type="memory.actor_unavailable",
+                    payload={
+                        "reason": "broker_request_failed",
+                        "error": str(exc),
+                        "fallback": "none",
+                    },
+                )
+                return None
+            ok = bool(resp.get("ok", False))
+            if not ok:
+                err_raw = resp.get("error")
+                err_code = ""
+                if isinstance(err_raw, Mapping):
+                    err_code = str(err_raw.get("code") or "")
+                if err_code == "runtime_timeout":
+                    _publish_memory_query_timeout(
+                        emitter,
+                        query_id=qid,
+                        user_turn_id=self._user_turn_id,
+                        timeout_s=rpc_to,
+                        code="runtime_timeout",
+                    )
+                    return None
+                emitter.publish(
+                    event_type="memory.actor_unavailable",
+                    payload={
+                        "reason": "memory_query_failed",
+                        "error": resp.get("error"),
+                        "fallback": "none",
+                    },
+                )
+                return None
+            pl_any = resp.get("payload")
+            pl = pl_any if isinstance(pl_any, dict) else {}
+            sot = _AgentMemoryPathSoTParser.parse_payload(pl)
+            if sot is None:
+                emitter.publish(
+                    event_type="memory.actor_unavailable",
+                    payload={
+                        "reason": "agent_memory_result_missing",
+                        "fallback": "none",
+                    },
+                )
+                return None
+            outcome = _MemoryPathTurnClassifier.outcome_kind(sot)
+            self._memory_queries_in_turn += 1
+
+            if outcome == "continue":
+                next_qid = (
+                    f"mq-{self._user_turn_id}-"
+                    f"{int(self._memory_queries_in_turn) + 1}"
+                )
+                emitter.publish(
+                    event_type=_MEMORY_QUERY_CONTINUATION_EVENT,
+                    payload={
+                        "user_turn_id": self._user_turn_id,
+                        "previous_query_id": qid,
+                        "next_query_id": next_qid,
+                        "reason": "continuation",
+                    },
+                )
+                p2, n2 = _collect_refs_from_agent_memory_result(
+                    sot.agent_memory_result,
+                )
+                known_paths = sorted(set(known_paths) | set(p2))
+                known_node_ids = sorted(set(known_node_ids) | set(n2))
+                rns = str(
+                    sot.agent_memory_result.get("recommended_next_step")
+                    or "",
+                ).strip()
+                if rns:
+                    subgoal = rns
+                continue
+
+            if outcome == "finish_silent":
+                return None
+
+            memory_slice = sot.memory_slice
+            if not isinstance(memory_slice, dict):
+                emitter.publish(
+                    event_type="memory.actor_unavailable",
+                    payload={
+                        "reason": "memory_query_failed",
+                        "error": resp.get("error"),
+                        "fallback": "none",
+                    },
+                )
+                return None
+            msg = self._memory_slice_message(memory_slice)
+            if msg is None:
+                emitter.publish(
+                    event_type="memory.actor_slice_skipped",
+                    payload={
+                        "reason": str(memory_slice.get("reason") or ""),
+                        "staleness": str(
+                            memory_slice.get("staleness") or "",
+                        ),
+                    },
+                )
+                return None
             emitter.publish(
-                event_type="memory.actor_unavailable",
+                event_type="memory.actor_slice_used",
                 payload={
-                    "reason": "memory_query_failed",
-                    "error": resp.get("error"),
-                    "fallback": "none",
-                },
-            )
-            return None
-        pl = (
-            resp.get("payload")
-            if isinstance(resp.get("payload"), dict)
-            else {}
-        )
-        memory_slice = (
-            pl.get("memory_slice") if isinstance(pl, dict) else None
-        )
-        if not isinstance(memory_slice, dict):
-            emitter.publish(
-                event_type="memory.actor_unavailable",
-                payload={
-                    "reason": "memory_query_failed",
-                    "error": resp.get("error"),
-                    "fallback": "none",
-                },
-            )
-            return None
-        msg = self._memory_slice_message(memory_slice)
-        if msg is None:
-            emitter.publish(
-                event_type="memory.actor_slice_skipped",
-                payload={
-                    "reason": str(memory_slice.get("reason") or ""),
+                    "level": str(memory_slice.get("level") or ""),
+                    "node_ids": list(memory_slice.get("node_ids") or []),
+                    "edge_ids": list(memory_slice.get("edge_ids") or []),
+                    "estimated_tokens": int(
+                        memory_slice.get("estimated_tokens") or 0,
+                    ),
                     "staleness": str(memory_slice.get("staleness") or ""),
+                    "reason": str(memory_slice.get("reason") or ""),
                 },
             )
-            return None
-        emitter.publish(
-            event_type="memory.actor_slice_used",
-            payload={
-                "level": str(memory_slice.get("level") or ""),
-                "node_ids": list(memory_slice.get("node_ids") or []),
-                "edge_ids": list(memory_slice.get("edge_ids") or []),
-                "estimated_tokens": int(
-                    memory_slice.get("estimated_tokens") or 0,
+            emitter.publish(
+                event_type="context.memory_injected",
+                payload=self._memory_injected_payload(
+                    identity=identity,
+                    parent_message_id=parent_message_id,
+                    memory_slice=memory_slice,
+                    response_payload=pl,
                 ),
-                "staleness": str(memory_slice.get("staleness") or ""),
-                "reason": str(memory_slice.get("reason") or ""),
-            },
-        )
-        emitter.publish(
-            event_type="context.memory_injected",
-            payload=self._memory_injected_payload(
-                identity=identity,
-                parent_message_id=parent_message_id,
-                memory_slice=memory_slice,
-                response_payload=pl,
-            ),
-        )
-        self._memory_queries_in_turn += 1
-        return msg
+            )
+            return msg
 
     @staticmethod
     def _memory_injected_payload(
