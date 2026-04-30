@@ -7,9 +7,13 @@ import time
 from pathlib import Path
 
 import agent_core.runtime.broker as broker_mod
+from agent_core.runtime.agent_memory_result_v1 import AGENT_MEMORY_RESULT_V1
 from agent_core.runtime.broker import BrokerConfig, run_broker_server
 from agent_core.runtime.models import CONTRACT_VERSION
 from agent_core.runtime.paths import RuntimePaths
+
+_MEMORY_CONTINUATION_EVENT: str = "memory.query_context.continuation"
+_MEMORY_INJECTED_EVENT: str = "context.memory_injected"
 
 
 def _run_broker(cfg_dict: dict[str, str]) -> None:
@@ -38,6 +42,115 @@ def _send_once(sock_path: Path, obj: dict[str, object]) -> dict[str, object]:
             sock.close()
         except OSError:
             pass
+
+
+def _trace_rows(trace_path: Path) -> list[dict[str, object]]:
+    if not trace_path.exists():
+        return []
+    out: list[dict[str, object]] = []
+    for line in trace_path.read_text(encoding="utf-8").splitlines():
+        raw = line.strip()
+        if not raw:
+            continue
+        obj = json.loads(raw)
+        if isinstance(obj, dict):
+            out.append(obj)
+    return out
+
+
+def _w14_trace_contract_ok(
+    rows: list[dict[str, object]],
+    *,
+    chat_id: str,
+) -> bool:
+    """W14: AW→AM, ответ с agent_memory_result; inject или continuation."""
+    aw = f"AgentWork:{chat_id}"
+    am = "AgentMemory:global"
+    action_ok_idx: int | None = None
+    for i, row in enumerate(rows):
+        if (
+            row.get("type") == "action.start"
+            and row.get("ok") is True
+            and row.get("from_agent") == aw
+        ):
+            action_ok_idx = i
+            break
+    if action_ok_idx is None:
+        return False
+    req_idx: int | None = None
+    for i in range(action_ok_idx + 1, len(rows)):
+        row = rows[i]
+        pl = row.get("payload")
+        if not isinstance(pl, dict):
+            continue
+        if (
+            row.get("type") == "service.request"
+            and row.get("from_agent") == aw
+            and row.get("to_agent") == am
+            and pl.get("service") == "memory.query_context"
+        ):
+            req_idx = i
+            break
+    if req_idx is None:
+        return False
+    resp_idx: int | None = None
+    for i in range(req_idx + 1, len(rows)):
+        row = rows[i]
+        if row.get("ok") is not True:
+            continue
+        if row.get("from_agent") != am or row.get("to_agent") != aw:
+            continue
+        pl = row.get("payload")
+        if not isinstance(pl, dict):
+            continue
+        amr = pl.get("agent_memory_result")
+        if not isinstance(amr, dict):
+            continue
+        if amr.get("schema_version") != AGENT_MEMORY_RESULT_V1:
+            continue
+        if not isinstance(pl.get("memory_slice"), dict):
+            continue
+        resp_idx = i
+        break
+    if resp_idx is None:
+        return False
+    start = resp_idx + 1
+    tail = rows[start:]
+    has_inject = any(
+        r.get("type") == "topic.publish"
+        and r.get("from_agent") == aw
+        and isinstance(r.get("payload"), dict)
+        and r["payload"].get("event_name") == _MEMORY_INJECTED_EVENT
+        for r in tail
+    )
+    has_continuation = any(
+        r.get("type") == "topic.publish"
+        and r.get("from_agent") == aw
+        and isinstance(r.get("payload"), dict)
+        and r["payload"].get("event_name") == _MEMORY_CONTINUATION_EVENT
+        for r in tail
+    )
+    if has_inject:
+        inj = next(
+            r
+            for r in tail
+            if r.get("type") == "topic.publish"
+            and r.get("from_agent") == aw
+            and isinstance(r.get("payload"), dict)
+            and r["payload"].get("event_name") == _MEMORY_INJECTED_EVENT
+        )
+        inner = inj.get("payload")
+        if not isinstance(inner, dict):
+            return False
+        body = inner.get("payload")
+        if not isinstance(body, dict):
+            return False
+        if body.get("schema") != "context.memory_injected.v2":
+            return False
+        if body.get("usage_state") != "estimated":
+            return False
+        return True
+    return has_continuation
 
 
 def _mk_env(
@@ -198,42 +311,17 @@ def test_broker_routes_memory_service_and_work_action(tmp_path: Path) -> None:
         assert "action_id" in work_resp["payload"]
 
         assert trace_path.exists()
-        deadline2 = time.time() + 5.0
-        seen_memory_pair = False
-        while time.time() < deadline2 and not seen_memory_pair:
-            rows = trace_path.read_text(encoding="utf-8").splitlines()
-            decoded = [json.loads(r) for r in rows if r.strip()]
-            seen_memory_pair = any(
-                row.get("type") == "service.request"
-                and row.get("from_agent") == "AgentWork:chat-a"
-                and row.get("to_agent") == "AgentMemory:global"
-                and row.get("payload", {}).get("service")
-                == "memory.query_context"
-                for row in decoded
-            ) and any(
-                row.get("type") == "service.request"
-                and row.get("from_agent") == "AgentMemory:global"
-                and row.get("to_agent") == "AgentWork:chat-a"
-                and row.get("ok") is True
-                and isinstance(row.get("payload"), dict)
-                and isinstance(row["payload"].get("memory_slice"), dict)
-                for row in decoded
-            ) and any(
-                row.get("type") == "topic.publish"
-                and row.get("from_agent") == "AgentWork:chat-a"
-                and row.get("payload", {}).get("event_name")
-                == "context.memory_injected"
-                and isinstance(
-                    row.get("payload", {}).get("payload"),
-                    dict,
-                )
-                and row["payload"]["payload"].get("usage_state")
-                == "estimated"
-                for row in decoded
+        deadline2 = time.time() + 30.0
+        seen_w14 = False
+        while time.time() < deadline2 and not seen_w14:
+            decoded = _trace_rows(trace_path)
+            seen_w14 = _w14_trace_contract_ok(
+                decoded,
+                chat_id="chat-a",
             )
-            if not seen_memory_pair:
+            if not seen_w14:
                 time.sleep(0.05)
-        assert seen_memory_pair
+        assert seen_w14
     finally:
         p.terminate()
         p.join(timeout=2.0)

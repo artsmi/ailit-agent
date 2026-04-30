@@ -39,6 +39,8 @@ def isolate_ailit_test_artifacts(
     Каталог: ``tmp_path / ailit_test_isolation / …``. Тесты могут
     переопределить переменные через ``monkeypatch`` сильнее, чем autouse.
     """
+    monkeypatch.delenv("AILIT_WORK_ROOTS", raising=False)
+
     base = tmp_path / "ailit_test_isolation"
     home = base / "home"
     home.mkdir(parents=True)
@@ -63,6 +65,11 @@ def isolate_ailit_test_artifacts(
     monkeypatch.setenv("AILIT_MEMORY_JOURNAL_PATH", str(journal))
     monkeypatch.setenv("AILIT_CONFIG_DIR", str(cfg_dir))
     monkeypatch.setenv("AILIT_STATE_DIR", str(state_dir))
+    # ``primary_work_root()`` prefers ``AILIT_WORK_ROOTS`` (JSON) over
+    # ``AILIT_WORK_ROOT``. AgentWork registry setup sets WORK_ROOTS in-process;
+    # clear stale values so the next test does not read another test's roots.
+    monkeypatch.delenv("AILIT_WORK_ROOTS", raising=False)
+    monkeypatch.delenv("AILIT_KB_NAMESPACE", raising=False)
     monkeypatch.setenv("AILIT_WORK_ROOT", str(work))
     # Чтобы `multiprocessing` (spawn) и `subprocess` видели пакеты из `tools/`.
     tools_s = str(_TOOLS)
