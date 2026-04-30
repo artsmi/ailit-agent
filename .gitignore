@@ -33,3 +33,5 @@ desktop/dist-app/
 # Артефакты pipeline (оркестратор, субагенты) — локальные, каталог в репозитории
 context/artifacts/*
 !context/artifacts/.gitkeep
+# Отчёты прогонов (pytest, 11_test_runner) — только локально, не коммитить
+context/artifacts/reports/
