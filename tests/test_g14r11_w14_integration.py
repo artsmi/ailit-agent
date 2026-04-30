@@ -7,6 +7,7 @@ G14R.11: интеграция query_context, отказ от G13 planner JSON, s
 from __future__ import annotations
 
 import json
+from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,7 @@ from agent_core.runtime.agent_memory_config import (
     load_or_create_agent_memory_config,
 )
 from agent_core.runtime.models import RuntimeIdentity, make_request_envelope
+from agent_core.runtime.pag_graph_trace import MEMORY_W14_GRAPH_HIGHLIGHT_EVENT
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
@@ -564,6 +566,85 @@ def test_agent_memory_result_does_not_project_a_or_b_as_c_summary() -> None:
         recommended_next_step="n",
     )
     assert amr["results"] == []
+
+
+def _install_stdout_line_capture(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    lines: list[str] = []
+    buf = StringIO()
+
+    def _write(s: str) -> int:
+        buf.write(s)
+        if s.endswith("\n"):
+            line = s[:-1].strip()
+            if line:
+                lines.append(line)
+        return len(s)
+
+    monkeypatch.setattr("sys.stdout.write", _write)
+    monkeypatch.setattr("sys.stdout.flush", lambda: None)
+    return lines
+
+
+def _topic_event_names_from_stdout_lines(lines: list[str]) -> list[str]:
+    out: list[str] = []
+    for raw in lines:
+        try:
+            row = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        inner = row.get("payload")
+        if not isinstance(inner, dict) or inner.get("type") != "topic.publish":
+            continue
+        en = inner.get("event_name")
+        if isinstance(en, str):
+            out.append(en)
+    return out
+
+
+def test_w14_plan_traversal_pag_trace_before_single_graph_highlight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """1.2: pag.* в stdout до одного memory.w14.graph_highlight за turn."""
+    db = tmp_path / "trace-order.sqlite3"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    (tmp_path / "README.md").write_text("# Demo\n", encoding="utf-8")
+    (tmp_path / "a.py").write_text(
+        "def a() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "b.py").write_text(
+        "def b() -> int:\n    return 2\n",
+        encoding="utf-8",
+    )
+    cap_lines = _install_stdout_line_capture(monkeypatch)
+    prov = _RuntimeProvider()
+    worker = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-g14r11",
+            broker_id="b1",
+            namespace="ns-g14r11",
+        ),
+    )
+    monkeypatch.setattr(worker, "_provider", prov, raising=False)
+    out = worker.handle(
+        _env(
+            tmp_path,
+            goal="посмотри каждый файл репозитория",
+            path="",
+        ),
+    )
+    assert out.get("ok") is True
+    events = _topic_event_names_from_stdout_lines(cap_lines)
+    hl_idx = [
+        i
+        for i, e in enumerate(events)
+        if e == MEMORY_W14_GRAPH_HIGHLIGHT_EVENT
+    ]
+    assert len(hl_idx) == 1
+    pag_idx = [i for i, e in enumerate(events) if e.startswith("pag.")]
+    assert pag_idx
+    assert max(pag_idx) < hl_idx[0]
 
 
 def test_w14_all_files_processes_multiple_b_not_only_readme(

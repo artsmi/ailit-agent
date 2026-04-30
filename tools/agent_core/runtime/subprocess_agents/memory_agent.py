@@ -279,7 +279,9 @@ class AgentMemoryWorker:
         """
         D16.1: durable trace for Desktop 3D; merged node_ids per W14 step.
         """
-        if not (node_ids or edge_ids):
+        n_ids = [str(x) for x in (node_ids or []) if str(x).strip()]
+        e_ids = [str(x) for x in (edge_ids or []) if str(x).strip()]
+        if not n_ids and not e_ids:
             return
         rsn = (reason or "memory.w14.graph_highlight")[:256]
         pl: dict[str, Any] = {
@@ -288,8 +290,8 @@ class AgentMemoryWorker:
             "query_id": str(query_id)[:200],
             "w14_command": str(w14_command)[:64],
             "w14_command_id": str(w14_command_id)[:200],
-            "node_ids": [str(x) for x in node_ids if str(x).strip()],
-            "edge_ids": [str(x) for x in edge_ids if str(x).strip()],
+            "node_ids": n_ids,
+            "edge_ids": e_ids,
             "reason": rsn,
             "ttl_ms": int(ttl_ms),
         }
@@ -1629,6 +1631,19 @@ class AgentMemoryWorker:
                 reason=d_rsn,
                 d_fingerprint=str(d_out.d_fingerprint or ""),
                 d_node_id=d_out.d_node_id,
+            )
+        _gh_def = pr.w14_graph_highlight_deferred
+        if _gh_def is not None:
+            self.emit_w14_graph_highlight(
+                req,
+                request_id=_gh_def.request_id,
+                namespace=_gh_def.namespace,
+                query_id=_gh_def.query_id,
+                w14_command=_gh_def.w14_command,
+                w14_command_id=_gh_def.w14_command_id,
+                node_ids=list(_gh_def.node_ids),
+                edge_ids=list(_gh_def.edge_ids),
+                reason=_gh_def.reason,
             )
         enrich_memory_slice_tiered(
             memory_slice,

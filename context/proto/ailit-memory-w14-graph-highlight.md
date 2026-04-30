@@ -2,7 +2,7 @@
 
 ## Участники
 
-- **Продюсер:** Python agent memory runtime — `AgentMemoryQueryPipeline` вызывает `W14GraphHighlightPathBuilder` и затем `emit_w14_graph_highlight` (реализация в `subprocess_agents/memory_agent.py`).
+- **Продюсер:** `AgentMemoryQueryPipeline` строит путь через `W14GraphHighlightPathBuilder` и передаёт payload в worker как **`w14_graph_highlight_deferred`**; **`AgentMemoryWorker`** вызывает `emit_w14_graph_highlight` после PAG-записей запроса (включая D-digest), реализация emit в `subprocess_agents/memory_agent.py`.
 - **Схема / поля:** **`ailit_memory_w14_graph_highlight_v1` — поля в задаче 1.2 не менялись.** `node_ids` / `edge_ids` заполняются детерминированно по правилам M1 (см. `context/arch/w14-graph-highlight-m1.md` и `tools/agent_core/runtime/w14_graph_highlight_path.py`).
 
 ## D16.1: пустой highlight
@@ -16,5 +16,5 @@
 ## Точки в коде (канон)
 
 - `tools/agent_core/runtime/w14_graph_highlight_path.py` — M1.
-- `tools/agent_core/runtime/agent_memory_query_pipeline.py` — эмиты.
+- `tools/agent_core/runtime/agent_memory_query_pipeline.py` — deferred payload.
 - `tools/agent_core/runtime/subprocess_agents/memory_agent.py` — `emit_w14_graph_highlight` (guard на пустые id).

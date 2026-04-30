@@ -2,7 +2,7 @@
 
 ## Назначение
 
-Перед эмитом события `memory.w14.graph_highlight` (схема `ailit_memory_w14_graph_highlight_v1` **без изменения полей**) **детерминированно** строятся `node_ids` / `edge_ids` по графу PAG. Единая логика — в **`W14GraphHighlightPathBuilder`**; `AgentMemoryQueryPipeline` **не** дублирует эвристики, а вызывает builder в четырёх местах и передаёт результат в `emit_w14_graph_highlight`.
+Перед эмитом события `memory.w14.graph_highlight` (схема `ailit_memory_w14_graph_highlight_v1` **без изменения полей**) **детерминированно** строятся `node_ids` / `edge_ids` по графу PAG. Единая логика — в **`W14GraphHighlightPathBuilder`**; `AgentMemoryQueryPipeline` вызывает builder (`union_to_ends`) в конце `finish_decision` и `plan_traversal` runtime, кладёт результат в **`W14DeferredGraphHighlight`** на `AgentMemoryQueryPipelineResult`; фактический **`emit_w14_graph_highlight`** выполняет **`AgentMemoryWorker`** после записей PAG этого запроса (включая D-digest), чтобы в trace сначала шли `pag.*`, затем одна строка highlight.
 
 **Главный модуль:** `tools/agent_core/runtime/w14_graph_highlight_path.py` (подробный приоритет шагов M1 — в docstring модуля, здесь кратко).
 
@@ -16,8 +16,8 @@
 
 ## Интеграция в pipeline
 
-- **`agent_memory_query_pipeline.py`:** четыре вызова builder (`path_to_end` / `union_to_ends`) + `emit_w14_graph_highlight` (см. артефакты задачи 1.2 / `change_inventory` для номеров строк).
-- **`subprocess_agents/memory_agent.py` — `emit_w14_graph_highlight`:** при пустых `node_ids` **и** `edge_ids` — **return** (D16.1: пустой payload **не** попадает в journal/trace).
+- **`agent_memory_query_pipeline.py`:** два вызова `union_to_ends` → `w14_graph_highlight_deferred`; W14 runtime-запись PAG под **`store.graph_trace`** до выхода из контекста (materialize, indexer, summarize C/B).
+- **`subprocess_agents/memory_agent.py`:** после `maybe_upsert_query_digest` — `emit_w14_graph_highlight` по deferred; при пустых id после trim — **return** (D16.1).
 
 ## Типы
 

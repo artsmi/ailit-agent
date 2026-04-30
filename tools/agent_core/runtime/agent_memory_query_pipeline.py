@@ -119,6 +119,20 @@ class W14RuntimeLimits:
 
 
 @dataclass(frozen=True, slots=True)
+class W14DeferredGraphHighlight:
+    """Отложенный emit graph_highlight после PAG (включая D-digest)."""
+
+    request_id: str
+    namespace: str
+    query_id: str
+    w14_command: str
+    w14_command_id: str
+    node_ids: tuple[str, ...]
+    edge_ids: tuple[str, ...]
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class AgentMemoryQueryPipelineResult:
     """Результат pipeline (ответ memory.query_context)."""
 
@@ -132,6 +146,7 @@ class AgentMemoryQueryPipelineResult:
     llm_disabled_fallback: bool
     am_v1_explicit_results: list[dict[str, Any]] | None = None
     am_v1_status: str | None = None
+    w14_graph_highlight_deferred: W14DeferredGraphHighlight | None = None
 
 
 class AgentMemoryQueryPipeline:
@@ -689,17 +704,18 @@ class AgentMemoryQueryPipeline:
             nspace,
             [str(x) for x in _fnids if str(x).strip()],
         )
-        self._w.emit_w14_graph_highlight(
-            req,
-            request_id=request_id,
-            namespace=nspace,
-            query_id=qid_log,
-            w14_command=AgentMemoryCommandName.FINISH_DECISION.value,
-            w14_command_id=_cmd_id,
-            node_ids=_w14_hl.node_ids,
-            edge_ids=_w14_hl.edge_ids,
-            reason=str(dsum)[:256],
-        )
+        _gh_def: W14DeferredGraphHighlight | None = None
+        if _w14_hl.node_ids or _w14_hl.edge_ids:
+            _gh_def = W14DeferredGraphHighlight(
+                request_id=request_id,
+                namespace=nspace,
+                query_id=qid_log,
+                w14_command=AgentMemoryCommandName.FINISH_DECISION.value,
+                w14_command_id=_cmd_id,
+                node_ids=tuple(_w14_hl.node_ids),
+                edge_ids=tuple(_w14_hl.edge_ids),
+                reason=str(dsum)[:256],
+            )
         return AgentMemoryQueryPipelineResult(
             memory_slice=mem_sl,
             partial=bool(mem_sl.get("partial", False)),
@@ -712,6 +728,7 @@ class AgentMemoryQueryPipeline:
             llm_disabled_fallback=False,
             am_v1_explicit_results=results,
             am_v1_status=inner,
+            w14_graph_highlight_deferred=_gh_def,
         )
 
     def _w14_intermediate_command_result(
@@ -811,48 +828,48 @@ class AgentMemoryQueryPipeline:
                 project_root=root,
                 changed_paths=selected_b,
             )
-        for rel in selected_b:
-            b_nid = _b_node_id(str(rel))
-            self._w._append_journal(  # noqa: SLF001
-                req=req,
-                event_name="memory.index.node_updated",
-                summary="query-driven PAG node updated",
-                request_id=request_id,
-                node_ids=[b_nid],
-                payload={
-                    "namespace": nspace,
-                    "selected_paths": [str(rel)],
-                    "reason": "w14_materialize_b",
-                },
+            for rel in selected_b:
+                b_nid = _b_node_id(str(rel))
+                self._w._append_journal(  # noqa: SLF001
+                    req=req,
+                    event_name="memory.index.node_updated",
+                    summary="query-driven PAG node updated",
+                    request_id=request_id,
+                    node_ids=[b_nid],
+                    payload={
+                        "namespace": nspace,
+                        "selected_paths": [str(rel)],
+                        "reason": "w14_materialize_b",
+                    },
+                )
+            c_nodes = self._c_nodes_for_b_paths(
+                store=store,
+                namespace=nspace,
+                paths=selected_b,
+                limits=limits,
             )
-        c_nodes = self._c_nodes_for_b_paths(
-            store=store,
-            namespace=nspace,
-            paths=selected_b,
-            limits=limits,
-        )
-        svc = AgentMemorySummaryService(PagGraphWriteService(store))
-        summarized_c = self._summarize_c_nodes(
-            req=req,
-            request_id=request_id,
-            qid_log=qid_log,
-            svc=svc,
-            namespace=nspace,
-            root=root,
-            c_nodes=c_nodes,
-            goal=goal,
-            limits=limits,
-        )
-        summarized_b = self._summarize_b_nodes(
-            req=req,
-            request_id=request_id,
-            qid_log=qid_log,
-            svc=svc,
-            namespace=nspace,
-            paths=selected_b,
-            goal=goal,
-            limits=limits,
-        )
+            svc = AgentMemorySummaryService(PagGraphWriteService(store))
+            summarized_c = self._summarize_c_nodes(
+                req=req,
+                request_id=request_id,
+                qid_log=qid_log,
+                svc=svc,
+                namespace=nspace,
+                root=root,
+                c_nodes=c_nodes,
+                goal=goal,
+                limits=limits,
+            )
+            summarized_b = self._summarize_b_nodes(
+                req=req,
+                request_id=request_id,
+                qid_log=qid_log,
+                svc=svc,
+                namespace=nspace,
+                paths=selected_b,
+                goal=goal,
+                limits=limits,
+            )
         candidates = self._candidate_results_from_c_nodes(summarized_c)
         status, explicit_results = self._finish_from_candidates(
             req=req,
@@ -930,17 +947,18 @@ class AgentMemoryQueryPipeline:
         _w14_hl = W14GraphHighlightPathBuilder.union_to_ends(
             store, nspace, _hl_ends
         )
-        self._w.emit_w14_graph_highlight(
-            req,
-            request_id=request_id,
-            namespace=nspace,
-            query_id=qid_log,
-            w14_command=_pt_cmd,
-            w14_command_id=_pt_cid,
-            node_ids=_w14_hl.node_ids,
-            edge_ids=_w14_hl.edge_ids,
-            reason=str(dsum)[:256],
-        )
+        _gh_def2: W14DeferredGraphHighlight | None = None
+        if _w14_hl.node_ids or _w14_hl.edge_ids:
+            _gh_def2 = W14DeferredGraphHighlight(
+                request_id=request_id,
+                namespace=nspace,
+                query_id=qid_log,
+                w14_command=_pt_cmd,
+                w14_command_id=_pt_cid,
+                node_ids=tuple(_w14_hl.node_ids),
+                edge_ids=tuple(_w14_hl.edge_ids),
+                reason=str(dsum)[:256],
+            )
         return AgentMemoryQueryPipelineResult(
             memory_slice=ms2,
             partial=status != "complete",
@@ -952,6 +970,7 @@ class AgentMemoryQueryPipeline:
             llm_disabled_fallback=False,
             am_v1_explicit_results=explicit_results,
             am_v1_status=status,
+            w14_graph_highlight_deferred=_gh_def2,
         )
 
     def _select_b_paths_for_w14(
@@ -1220,21 +1239,6 @@ class AgentMemoryQueryPipeline:
                 )
             except Exception:  # noqa: BLE001
                 pass
-            else:
-                _c_hl = W14GraphHighlightPathBuilder.path_to_end(
-                    svc.store, namespace, str(c_input.c_node_id),
-                )
-                self._w.emit_w14_graph_highlight(
-                    req,
-                    request_id=request_id,
-                    namespace=namespace,
-                    query_id=qid_log,
-                    w14_command=AgentMemoryCommandName.SUMMARIZE_C.value,
-                    w14_command_id=_sc_cid,
-                    node_ids=_c_hl.node_ids,
-                    edge_ids=_c_hl.edge_ids,
-                    reason="summarize_c",
-                )
             refreshed = svc.store.fetch_node(
                 namespace=namespace,
                 node_id=node.node_id,
@@ -1305,21 +1309,6 @@ class AgentMemoryQueryPipeline:
                 )
             except Exception:  # noqa: BLE001
                 pass
-            else:
-                _b_hl = W14GraphHighlightPathBuilder.path_to_end(
-                    svc.store, namespace, b_id,
-                )
-                self._w.emit_w14_graph_highlight(
-                    req,
-                    request_id=request_id,
-                    namespace=namespace,
-                    query_id=qid_log,
-                    w14_command=AgentMemoryCommandName.SUMMARIZE_B.value,
-                    w14_command_id=_sb_cid,
-                    node_ids=_b_hl.node_ids,
-                    edge_ids=_b_hl.edge_ids,
-                    reason="summarize_b",
-                )
             refreshed = svc.store.fetch_node(namespace=namespace, node_id=b_id)
             if refreshed is not None:
                 out.append(refreshed)
