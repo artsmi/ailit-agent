@@ -5,8 +5,16 @@ import { loadPagGraphMerged } from "./loadPagGraphMerged";
 
 import { nodeFromPag, type MemoryGraphData } from "./memoryGraphState";
 import {
+  buildPagGraphRevReconciledTraceRow,
+  buildPagSnapshotRefreshedTraceRow,
+  extractCompactPagEventPayload
+} from "./pagGraphObservabilityCompact";
+import {
+  collapsePagGraphRevMismatchWarningsToLatestPerNamespace,
   dedupePagGraphSnapshotWarnings,
-  formatPagGraphRevMismatchWarning
+  formatPagGraphRevMismatchWarning,
+  reconcileStalePagGraphRevMismatchWarnings,
+  tryParsePagGraphRevMismatchDedupeKey
 } from "./pagGraphRevWarningFormat";
 import {
   createEmptyPagGraphSessionSnapshot,
@@ -532,6 +540,29 @@ describe("pagGraphSessionStore", () => {
     expect(ids).toContain("B:other.py");
   });
 
+  it("incrementalWithoutNewTraceRowsPreservesMergedHighlightNodes", () => {
+    const ns: string = "ns-hi-preserve";
+    const rows: Record<string, unknown>[] = [
+      rowW14GraphHighlight(ns, ["B:hl.py"]),
+      rowPagNodeUpsert(ns, 1, {
+        node_id: "B:a.py",
+        level: "B",
+        path: "a.py",
+        title: "a",
+        kind: "file"
+      })
+    ];
+    const merged0: MemoryGraphData = { nodes: [], links: [] };
+    const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
+      PagGraphSessionTraceMerge.afterFullLoad(merged0, { [ns]: 1 }, rows, [ns], ns);
+    expect(snap.merged.nodes.map((n) => n.id)).toContain("B:hl.py");
+    expect(snap.lastAppliedTraceIndex).toBe(1);
+    const nxt: ReturnType<typeof PagGraphSessionTraceMerge.applyIncremental> =
+      PagGraphSessionTraceMerge.applyIncremental(snap, rows, [ns], ns);
+    expect(nxt).toBe(snap);
+    expect(nxt.merged.nodes.map((n) => n.id)).toContain("B:hl.py");
+  });
+
   it("incrementalWithoutNewTraceRowsReturnsCurWithoutRecompute", () => {
     const ns: string = "ns-noinc";
     const rows: Record<string, unknown>[] = [
@@ -566,6 +597,172 @@ describe("pagGraphSessionStore", () => {
     const nxt: ReturnType<typeof PagGraphSessionTraceMerge.applyIncremental> =
       PagGraphSessionTraceMerge.applyIncremental(base, rows, [ns], ns);
     expect(nxt).toBe(base);
+  });
+
+  it("uc03RefreshClearsStickyRevMismatchInSnapshotModel", () => {
+    const ns: string = "ns-uc03-sticky";
+    const badRow: Record<string, unknown> = rowPagNodeUpsert(ns, 9, {
+      node_id: "B:x.py",
+      level: "B",
+      path: "x.py",
+      title: "x",
+      kind: "file"
+    });
+    const base: ReturnType<typeof createEmptyPagGraphSessionSnapshot> = {
+      ...createEmptyPagGraphSessionSnapshot({ loadState: "ready" }),
+      merged: { nodes: [], links: [] },
+      graphRevByNamespace: { [ns]: 1 },
+      lastAppliedTraceIndex: -1
+    };
+    const withWarn: ReturnType<typeof PagGraphSessionTraceMerge.applyIncremental> =
+      PagGraphSessionTraceMerge.applyIncremental(base, [badRow], [ns], ns);
+    expect(
+      withWarn.warnings.some((s: string) => s.includes("graph rev") || s.includes("несоответств"))
+    ).toBe(true);
+    const mergedDb: MemoryGraphData = {
+      nodes: [
+        nodeFromPag({ node_id: "A:1", level: "A", path: ".", title: "p", namespace: ns })!,
+        nodeFromPag({
+          node_id: "B:x.py",
+          level: "B",
+          path: "x.py",
+          title: "x",
+          namespace: ns
+        })!
+      ],
+      links: []
+    };
+    const refreshed: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
+      PagGraphSessionTraceMerge.afterFullLoad(mergedDb, { [ns]: 8 }, [badRow], [ns], ns, true);
+    expect(
+      refreshed.warnings.some((s: string) => s.includes("graph rev") || s.includes("несоответств"))
+    ).toBe(false);
+  });
+
+  it("h1RepeatedReplayAfterFullLoadDoesNotAccumulateRevMismatchWarnings", () => {
+    const ns: string = "ns-h1-replay";
+    const rows: Record<string, unknown>[] = [
+      rowPagNodeUpsert(ns, 1, {
+        node_id: "B:a.py",
+        level: "B",
+        path: "a.py",
+        title: "a",
+        kind: "file"
+      }),
+      rowPagNodeUpsert(ns, 2, {
+        node_id: "B:b.py",
+        level: "B",
+        path: "b.py",
+        title: "b",
+        kind: "file"
+      })
+    ];
+    const merged: MemoryGraphData = {
+      nodes: [nodeFromPag({ node_id: "A:1", level: "A", path: ".", title: "p", namespace: ns })!],
+      links: []
+    };
+    for (let cycle: number = 0; cycle < 4; cycle += 1) {
+      const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
+        PagGraphSessionTraceMerge.afterFullLoad(merged, { [ns]: 2 }, rows, [ns], ns, true);
+      const nRev: number = snap.warnings.filter(
+        (s: string) => tryParsePagGraphRevMismatchDedupeKey(s) !== null
+      ).length;
+      expect(nRev).toBe(0);
+    }
+  });
+
+  it("h2TwentyAlignedIncrementsYieldAtMostOneRevMismatchWarning", () => {
+    const ns: string = "ns-h2-align";
+    let snap: ReturnType<typeof createEmptyPagGraphSessionSnapshot> = {
+      ...createEmptyPagGraphSessionSnapshot({ loadState: "ready" }),
+      merged: { nodes: [], links: [] },
+      graphRevByNamespace: { [ns]: 0 },
+      lastAppliedTraceIndex: -1
+    };
+    for (let i: number = 0; i < 20; i += 1) {
+      const row: Record<string, unknown> = rowPagNodeUpsert(ns, i + 1, {
+        node_id: `B:n${String(i)}.py`,
+        level: "B",
+        path: `n${String(i)}.py`,
+        title: "f",
+        kind: "file"
+      });
+      snap = PagGraphSessionTraceMerge.applyIncremental(snap, [row], [ns], ns);
+    }
+    const revMismatch: number = snap.warnings.filter(
+      (s: string) => tryParsePagGraphRevMismatchDedupeKey(s) !== null
+    ).length;
+    expect(revMismatch).toBeLessThanOrEqual(1);
+  });
+
+  it("h2CollapsesMultipleDistinctRevMismatchWarningsPerNamespaceToLatest", () => {
+    const ns: string = "ns-h2-collapse";
+    const w1: string = formatPagGraphRevMismatchWarning(ns, 2, 5);
+    const w2: string = formatPagGraphRevMismatchWarning(ns, 6, 9);
+    const collapsed: readonly string[] = collapsePagGraphRevMismatchWarningsToLatestPerNamespace([w1, w2]);
+    expect(collapsed).toHaveLength(1);
+    expect(collapsed[0]).toBe(w2);
+  });
+
+  it("reconcileStaleRemovesRevMismatchWhenGraphRevAbsorbedTraceRev", () => {
+    const ns: string = "ns-reconcile-stale";
+    const w: string = formatPagGraphRevMismatchWarning(ns, 2, 5);
+    const cleaned: readonly string[] = reconcileStalePagGraphRevMismatchWarnings(
+      [w],
+      { [ns]: 5 },
+      new Set([ns])
+    );
+    expect(cleaned).toHaveLength(0);
+  });
+
+  it("compactPagGraphObservabilityPayloadsHaveRequiredKeysAndNoForbiddenFields", () => {
+    const forbidden: readonly string[] = [
+      "raw_prompt",
+      "user_prompt",
+      "prompt",
+      "chain_of_thought",
+      "cot",
+      "api_key",
+      "token",
+      "secret"
+    ];
+    const rRec: Record<string, unknown> = buildPagGraphRevReconciledTraceRow({
+      chatId: "chat-a",
+      sessionId: "sess-a",
+      namespace: "ns-x",
+      graph_rev_before: 1,
+      graph_rev_after: 2,
+      reason_code: "post_trace"
+    });
+    const plRec: Readonly<Record<string, unknown>> | null = extractCompactPagEventPayload(rRec);
+    expect(plRec).not.toBeNull();
+    expect(plRec!["session_id"]).toBe("sess-a");
+    expect(plRec!["namespace"]).toBe("ns-x");
+    expect(plRec!["graph_rev_after"]).toBe(2);
+    expect(plRec!["reason_code"]).toBe("post_trace");
+    for (const k of Object.keys(plRec!)) {
+      expect(forbidden.includes(k.toLowerCase())).toBe(false);
+    }
+    const rSnap: Record<string, unknown> = buildPagSnapshotRefreshedTraceRow({
+      chatId: "chat-a",
+      sessionId: "sess-a",
+      namespaces: ["n1", "n2"],
+      graphRevByNamespace: { n1: 3, n2: 7 },
+      reason_code: "post_refresh"
+    });
+    const plSnap: Readonly<Record<string, unknown>> | null = extractCompactPagEventPayload(rSnap);
+    expect(plSnap).not.toBeNull();
+    expect(plSnap!["session_id"]).toBe("sess-a");
+    expect(plSnap!["namespaces"]).toEqual(["n1", "n2"]);
+    expect(plSnap!["graph_rev_after"]).toBe(7);
+    expect(plSnap!["reason_code"]).toBe("post_refresh");
+    for (const k of Object.keys(plSnap!)) {
+      expect(forbidden.includes(k.toLowerCase())).toBe(false);
+    }
+    const sRec: string = JSON.stringify(rRec);
+    const sSnap: string = JSON.stringify(rSnap);
+    expect(sRec.includes("pag_graph_rev_reconciled")).toBe(true);
+    expect(sSnap.includes("pag_snapshot_refreshed")).toBe(true);
   });
 
   it("loadPagGraphMergedPropagatesSliceErrorCode", async () => {

@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   bNodeIdFromPath,
   highlightFromTraceRow,
-  lastPagSearchHighlightFromTrace
+  lastPagSearchHighlightFromTrace,
+  lastPagSearchHighlightFromTraceAfterMerge
 } from "./pagHighlightFromTrace";
 
 function topic(eventName: string, payload: Record<string, unknown>): Record<string, unknown> {
@@ -193,5 +194,69 @@ describe("pagHighlightFromTrace", () => {
         "ns"
       )
     ).toBeNull();
+  });
+
+  it("lastPagSearchHighlightFromTraceAfterMerge keeps previous when trace tail has no new rows", () => {
+    const rows: Record<string, unknown>[] = [
+      topic("memory.w14.graph_highlight", {
+        schema: "ailit_memory_w14_graph_highlight_v1",
+        namespace: "ns",
+        node_ids: ["B:stable.py"],
+        edge_ids: [],
+        reason: "w14",
+        ttl_ms: 3000
+      }),
+      {
+        type: "service.request",
+        to_agent: "AgentMemory:chat-a",
+        namespace: "ns",
+        payload: { service: "memory.query_context", path: "x" }
+      }
+    ];
+    const prev = lastPagSearchHighlightFromTrace(rows, "ns");
+    expect(prev?.nodeIds).toContain("B:stable.py");
+    const lastConsumed: number = rows.length - 1;
+    const again = lastPagSearchHighlightFromTraceAfterMerge(rows, "ns", prev, lastConsumed);
+    expect(again?.nodeIds).toEqual(prev?.nodeIds);
+  });
+
+  it("lastPagSearchHighlightFromTraceAfterMerge falls back to full trace when previous is null", () => {
+    const rows: Record<string, unknown>[] = [
+      topic("memory.w14.graph_highlight", {
+        schema: "ailit_memory_w14_graph_highlight_v1",
+        namespace: "ns",
+        node_ids: ["B:fallback.py"],
+        edge_ids: [],
+        reason: "w14",
+        ttl_ms: 3000
+      })
+    ];
+    const h = lastPagSearchHighlightFromTraceAfterMerge(rows, "ns", null, rows.length - 1);
+    expect(h?.nodeIds).toEqual(["B:fallback.py"]);
+  });
+
+  it("lastPagSearchHighlightFromTraceAfterMerge uses full trace when new rows were appended", () => {
+    const rows: Record<string, unknown>[] = [
+      topic("memory.w14.graph_highlight", {
+        schema: "ailit_memory_w14_graph_highlight_v1",
+        namespace: "ns",
+        node_ids: ["B:first.py"],
+        edge_ids: [],
+        reason: "a",
+        ttl_ms: 3000
+      }),
+      topic("memory.w14.graph_highlight", {
+        schema: "ailit_memory_w14_graph_highlight_v1",
+        namespace: "ns",
+        node_ids: ["B:second.py"],
+        edge_ids: [],
+        reason: "b",
+        ttl_ms: 4000
+      })
+    ];
+    const prev = lastPagSearchHighlightFromTrace(rows.slice(0, 1), "ns");
+    expect(prev?.nodeIds).toEqual(["B:first.py"]);
+    const h = lastPagSearchHighlightFromTraceAfterMerge(rows, "ns", prev, 0);
+    expect(h?.nodeIds).toEqual(["B:second.py"]);
   });
 });

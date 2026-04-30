@@ -2,7 +2,10 @@ import type { ProjectRegistryEntry } from "@shared/ipc";
 
 import { loadPagGraphMerged, type PagGraphSliceFn } from "./loadPagGraphMerged";
 import { MEM3D_PAG_MAX_NODES } from "./pagGraphLimits";
-import { lastPagSearchHighlightFromTrace } from "./pagHighlightFromTrace";
+import {
+  lastPagSearchHighlightFromTrace,
+  lastPagSearchHighlightFromTraceAfterMerge
+} from "./pagHighlightFromTrace";
 import {
   ensureHighlightNodes,
   linkFromPag,
@@ -12,7 +15,17 @@ import {
   type MemoryGraphLink,
   type MemoryGraphNode
 } from "./memoryGraphState";
-import { dedupePagGraphSnapshotWarnings } from "./pagGraphRevWarningFormat";
+import {
+  buildPagGraphRevReconciledTraceRow,
+  buildPagSnapshotRefreshedTraceRow,
+  type PagGraphRevReconciledReasonCode,
+  type PagSnapshotRefreshedReasonCode
+} from "./pagGraphObservabilityCompact";
+import {
+  collapsePagGraphRevMismatchWarningsToLatestPerNamespace,
+  dedupePagGraphSnapshotWarnings,
+  reconcileStalePagGraphRevMismatchWarnings
+} from "./pagGraphRevWarningFormat";
 import {
   applyPagGraphTraceDelta,
   parsePagGraphTraceDelta,
@@ -45,6 +58,21 @@ export type PagGraphSessionSnapshot = {
   readonly pagDatabasePresent: boolean;
   readonly loadState: "idle" | "loading" | "ready" | "error";
   readonly loadError: string | null;
+};
+
+/** Опциональные хуки compact observability (D-PROD-1); без IPC в unit-тестах store. */
+export type PagGraphTraceMergeEmitHooks = {
+  readonly chatId: string;
+  readonly sessionId: string;
+  readonly graphRevBeforeByNamespace: Readonly<Record<string, number>>;
+  readonly defaultNamespace: string;
+  readonly emitTraceRow?: (row: Record<string, unknown>) => void;
+  /** Идемпотентность §9: последний emit `graph_rev_after` per `sessionId+namespace`. */
+  readonly reconciledEmitRevByNs?: Map<string, number>;
+  readonly fullLoad?: {
+    readonly kind: "user_refresh" | "poll_retry" | "initial_load";
+    readonly namespaces: readonly string[];
+  };
 };
 
 export function createEmptyPagGraphSessionSnapshot(
@@ -303,7 +331,12 @@ function applyDeltasInRange(
   namespaces: Readonly<Set<string>>,
   prevWarnings: readonly string[],
   useInitialTraceCatchup: boolean
-): { readonly merged: MemoryGraphData; readonly revs: RevRec; readonly warnings: readonly string[] } {
+): {
+  readonly merged: MemoryGraphData;
+  readonly revs: RevRec;
+  readonly warnings: readonly string[];
+  readonly namespacesDeltaTouched: ReadonlySet<string>;
+} {
   const revsIn: RevRec = buildRevsInForDeltas(
     revsFromSlice,
     rows,
@@ -314,7 +347,13 @@ function applyDeltasInRange(
   );
   let merged: MemoryGraphData = mergedIn;
   const revs: RevRec = { ...revsIn };
-  const wlist: string[] = [...prevWarnings];
+  const baseWarnings: readonly string[] = reconcileStalePagGraphRevMismatchWarnings(
+    prevWarnings,
+    revsFromSlice,
+    namespaces
+  );
+  const wlist: string[] = [...baseWarnings];
+  const namespacesDeltaTouched: Set<string> = new Set();
   for (let i: number = from; i <= toInclusive; i += 1) {
     const row: Record<string, unknown> = rows[i]! as Record<string, unknown>;
     const d: ReturnType<typeof parsePagGraphTraceDelta> = parsePagGraphTraceDelta(row);
@@ -324,6 +363,7 @@ function applyDeltasInRange(
     if (!shouldApplyTraceDelta(d, namespaces)) {
       continue;
     }
+    namespacesDeltaTouched.add(d.namespace);
     const o: RevRec = {};
     const { data, revWarning } = applyPagGraphTraceDelta(merged, d, revs, o);
     merged = data;
@@ -334,7 +374,99 @@ function applyDeltasInRange(
       wlist.push(revWarning);
     }
   }
-  return { merged, revs, warnings: dedupePagGraphSnapshotWarnings(wlist) };
+  const deduped: readonly string[] = dedupePagGraphSnapshotWarnings(wlist);
+  const collapsed: readonly string[] = collapsePagGraphRevMismatchWarningsToLatestPerNamespace(deduped);
+  return { merged, revs, warnings: collapsed, namespacesDeltaTouched };
+}
+
+function emitKeyReconciled(sessionId: string, namespace: string): string {
+  return `${sessionId}\u001f${namespace}`;
+}
+
+function shouldEmitPagGraphRevReconciled(
+  map: Map<string, number> | undefined,
+  sessionId: string,
+  namespace: string,
+  graphRevAfter: number
+): boolean {
+  if (!map) {
+    return true;
+  }
+  const k: string = emitKeyReconciled(sessionId, namespace);
+  if (map.get(k) === graphRevAfter) {
+    return false;
+  }
+  map.set(k, graphRevAfter);
+  return true;
+}
+
+function emitPagGraphObservability(params: {
+  readonly hooks: PagGraphTraceMergeEmitHooks | undefined;
+  readonly namespaces: readonly string[];
+  readonly graphRevAfterByNs: Readonly<RevRec>;
+  readonly namespacesDeltaTouched: ReadonlySet<string>;
+  readonly isAfterFullLoad: boolean;
+}): void {
+  const h: PagGraphTraceMergeEmitHooks | undefined = params.hooks;
+  if (h == null || typeof h.emitTraceRow !== "function") {
+    return;
+  }
+  const before: Readonly<Record<string, number>> = h.graphRevBeforeByNamespace;
+  if (params.isAfterFullLoad && h.fullLoad != null) {
+    const nsList: readonly string[] = h.fullLoad.namespaces;
+    if (nsList.length > 0) {
+      let snapReason: PagSnapshotRefreshedReasonCode;
+      if (h.fullLoad.kind === "user_refresh") {
+        snapReason = "user_refresh";
+      } else if (h.fullLoad.kind === "poll_retry") {
+        snapReason = "poll_retry";
+      } else {
+        snapReason = "initial_load";
+      }
+      h.emitTraceRow(
+        buildPagSnapshotRefreshedTraceRow({
+          chatId: h.chatId,
+          sessionId: h.sessionId,
+          namespaces: nsList,
+          graphRevByNamespace: params.graphRevAfterByNs,
+          reason_code: snapReason
+        })
+      );
+    }
+  }
+  for (const ns of params.namespaces) {
+    const after: number | undefined = params.graphRevAfterByNs[ns];
+    if (after === undefined) {
+      continue;
+    }
+    if (!shouldEmitPagGraphRevReconciled(h.reconciledEmitRevByNs, h.sessionId, ns, after)) {
+      continue;
+    }
+    const hasBefore: boolean = Object.prototype.hasOwnProperty.call(before, ns);
+    const graphRevBefore: number | null = hasBefore ? before[ns]! : null;
+    let reasonCode: PagGraphRevReconciledReasonCode;
+    if (h.fullLoad?.kind === "user_refresh") {
+      reasonCode = "user_refresh";
+    } else if (h.fullLoad?.kind === "poll_retry") {
+      reasonCode = "poll_retry";
+    } else if (params.namespacesDeltaTouched.has(ns)) {
+      reasonCode = "post_trace";
+    } else if (params.isAfterFullLoad) {
+      reasonCode = "post_slice";
+    } else {
+      reasonCode = "debounce_merge";
+    }
+    h.emitTraceRow(
+      buildPagGraphRevReconciledTraceRow({
+        chatId: h.chatId,
+        sessionId: h.sessionId,
+        namespace: ns,
+        graph_rev_before: graphRevBefore,
+        graph_rev_after: after,
+        reason_code: reasonCode
+      })
+    );
+  }
 }
 
 export class PagGraphSessionTraceMerge {
@@ -346,14 +478,24 @@ export class PagGraphSessionTraceMerge {
   static applyHighlightFromTraceRows(
     merged: MemoryGraphData,
     rows: readonly Record<string, unknown>[],
-    defaultNamespace: string
+    defaultNamespace: string,
+    lastConsumedTraceIndex: number = -1
   ): MemoryGraphData {
     if (rows.length === 0) {
       return merged;
     }
-    const ev: ReturnType<typeof lastPagSearchHighlightFromTrace> = lastPagSearchHighlightFromTrace(
+    const previous: ReturnType<typeof lastPagSearchHighlightFromTrace> | null =
+      lastConsumedTraceIndex < 0
+        ? null
+        : lastPagSearchHighlightFromTrace(
+            rows.slice(0, lastConsumedTraceIndex + 1),
+            defaultNamespace
+          );
+    const ev: ReturnType<typeof lastPagSearchHighlightFromTrace> = lastPagSearchHighlightFromTraceAfterMerge(
       rows,
-      defaultNamespace
+      defaultNamespace,
+      previous,
+      lastConsumedTraceIndex
     );
     if (ev === null) {
       return merged;
@@ -371,21 +513,39 @@ export class PagGraphSessionTraceMerge {
     rows: readonly Record<string, unknown>[],
     namespaces: readonly string[],
     defaultNamespace: string,
-    pagDatabasePresent: boolean = true
+    pagDatabasePresent: boolean = true,
+    hooks?: PagGraphTraceMergeEmitHooks
   ): PagGraphSessionSnapshot {
     const ns: Set<string> = new Set(namespaces);
     const lastRow: number = rows.length - 1;
     if (lastRow < 0) {
       const m1: MemoryGraphData = this.applyHighlightFromTraceRows(merged0, rows, defaultNamespace);
-      return buildSnapshotFromReconcile(m1, revs0, -1, [], "ready", null, pagDatabasePresent);
+      const snap0: PagGraphSessionSnapshot = buildSnapshotFromReconcile(
+        m1,
+        revs0,
+        -1,
+        [],
+        "ready",
+        null,
+        pagDatabasePresent
+      );
+      emitPagGraphObservability({
+        hooks,
+        namespaces,
+        graphRevAfterByNs: revs0,
+        namespacesDeltaTouched: new Set(),
+        isAfterFullLoad: true
+      });
+      return snap0;
     }
     const ap: {
       readonly merged: MemoryGraphData;
       readonly revs: RevRec;
       readonly warnings: readonly string[];
+      readonly namespacesDeltaTouched: ReadonlySet<string>;
     } = applyDeltasInRange(merged0, revs0, rows, 0, lastRow, ns, [], true);
     const m1: MemoryGraphData = this.applyHighlightFromTraceRows(ap.merged, rows, defaultNamespace);
-    return buildSnapshotFromReconcile(
+    const snap: PagGraphSessionSnapshot = buildSnapshotFromReconcile(
       m1,
       ap.revs,
       lastRow,
@@ -394,6 +554,14 @@ export class PagGraphSessionTraceMerge {
       null,
       pagDatabasePresent
     );
+    emitPagGraphObservability({
+      hooks,
+      namespaces,
+      graphRevAfterByNs: ap.revs,
+      namespacesDeltaTouched: ap.namespacesDeltaTouched,
+      isAfterFullLoad: true
+    });
+    return snap;
   }
 
   /**
@@ -403,7 +571,8 @@ export class PagGraphSessionTraceMerge {
     cur: PagGraphSessionSnapshot,
     rows: readonly Record<string, unknown>[],
     namespaces: readonly string[],
-    defaultNamespace: string
+    defaultNamespace: string,
+    hooks?: PagGraphTraceMergeEmitHooks
   ): PagGraphSessionSnapshot {
     const start: number = cur.lastAppliedTraceIndex + 1;
     if (rows.length === 0) {
@@ -420,6 +589,7 @@ export class PagGraphSessionTraceMerge {
       readonly merged: MemoryGraphData;
       readonly revs: RevRec;
       readonly warnings: readonly string[];
+      readonly namespacesDeltaTouched: ReadonlySet<string>;
     } = applyDeltasInRange(
       cur.merged,
       { ...cur.graphRevByNamespace } as RevRec,
@@ -430,8 +600,13 @@ export class PagGraphSessionTraceMerge {
       cur.warnings,
       useInitialTraceCatchup
     );
-    const m1: MemoryGraphData = this.applyHighlightFromTraceRows(ap.merged, rows, defaultNamespace);
-    return buildSnapshotFromReconcile(
+    const m1: MemoryGraphData = this.applyHighlightFromTraceRows(
+      ap.merged,
+      rows,
+      defaultNamespace,
+      cur.lastAppliedTraceIndex
+    );
+    const nxt: PagGraphSessionSnapshot = buildSnapshotFromReconcile(
       m1,
       ap.revs,
       end,
@@ -440,6 +615,14 @@ export class PagGraphSessionTraceMerge {
       null,
       cur.pagDatabasePresent
     );
+    emitPagGraphObservability({
+      hooks,
+      namespaces,
+      graphRevAfterByNs: ap.revs,
+      namespacesDeltaTouched: ap.namespacesDeltaTouched,
+      isAfterFullLoad: false
+    });
+    return nxt;
   }
 }
 

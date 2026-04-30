@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MEM3D_LINK_PARTICLE_WIDTH_HOT,
+  MEM3D_LINK_PARTICLE_WIDTH_NEURON,
   MEM3D_LINK_WIDTH_DEFAULT,
   MEM3D_LINK_WIDTH_HOT_SELECTED_MAX,
   MEM3D_LINK_WIDTH_THICKNESS_K,
+  mem3dColdLinkDirectionalParticles,
   mem3dLinkWidth
 } from "./memoryGraph3DLineStyle";
 
@@ -18,5 +21,12 @@ describe("memoryGraph3DLineStyle (D-VIS-1)", () => {
     expect(mem3dLinkWidth(true, 1)).toBeLessThanOrEqual(
       MEM3D_LINK_WIDTH_THICKNESS_K * MEM3D_LINK_WIDTH_DEFAULT
     );
+  });
+
+  it("UC-07: baseline толще прежнего единичного и «нейрон» уже hot-частицы", () => {
+    expect(MEM3D_LINK_WIDTH_DEFAULT).toBeGreaterThan(1);
+    expect(MEM3D_LINK_PARTICLE_WIDTH_NEURON).toBeLessThan(MEM3D_LINK_PARTICLE_WIDTH_HOT);
+    expect(mem3dColdLinkDirectionalParticles(false)).toBe(1);
+    expect(mem3dColdLinkDirectionalParticles(true)).toBe(0);
   });
 });

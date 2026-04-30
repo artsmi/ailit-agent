@@ -138,3 +138,17 @@ def test_w14_path_empty_end_does_not_represent_emit_payload(
     pth = W14GraphHighlightPathBuilder.path_to_end(store, "n", "")
     assert pth.node_ids == []
     assert pth.edge_ids == []
+
+
+def test_python_forbids_pag_graph_rev_reconciled_literal() -> None:
+    """4_2: Python trace sources must not mention pag_graph_rev_reconciled."""
+    root = Path(__file__).resolve().parents[2]
+    paths = (
+        root / "tools/agent_core/runtime/subprocess_agents/memory_agent.py",
+        root / "tools/agent_core/runtime/pag_graph_trace.py",
+    )
+    needle = "pag_graph_rev_reconciled"
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        msg = f"{path} must not contain {needle!r}"
+        assert needle not in text, msg

@@ -163,3 +163,24 @@ export function lastPagSearchHighlightFromTrace(
   }
   return last;
 }
+
+/**
+ * UC-02 A2 + D-HI-1: если индекс последней trace-строки не вырос относительно
+ * `lastConsumedRowIndex`, не пересчитываем подсветку в «пустое» — удерживаем `previous`.
+ * При росте trace — последнее ненулевое по полному trace (как `lastPagSearchHighlightFromTrace`).
+ */
+export function lastPagSearchHighlightFromTraceAfterMerge(
+  rows: readonly Record<string, unknown>[],
+  defaultNamespace: string,
+  previous: PagSearchHighlightV1 | null,
+  lastConsumedRowIndex: number
+): PagSearchHighlightV1 | null {
+  const lastIndex: number = rows.length - 1;
+  if (lastIndex < 0) {
+    return previous;
+  }
+  if (lastIndex <= lastConsumedRowIndex) {
+    return previous ?? lastPagSearchHighlightFromTrace(rows, defaultNamespace);
+  }
+  return lastPagSearchHighlightFromTrace(rows, defaultNamespace);
+}

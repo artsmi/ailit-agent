@@ -18,36 +18,35 @@
 | Путь / команда | Содержание |
 |----------------|------------|
 | `tests/runtime/test_w14_graph_highlight_path.py` | M1: upwalk, BFS tie-break, union без дублирования нод. |
-| `tests/runtime/test_pag_graph_trace_w14_highlight.py` | Trace/shape W14 row, путь не «один лист» только, пустой `end` не даёт пустой payload в эмите. |
-| `pytest tests/runtime/test_w14_graph_highlight_path.py tests/runtime/test_pag_graph_trace_w14_highlight.py -q` | Статус по `context/artifacts/reports/test_report_pipeline_task_1_2.md` (6 passed, итог pipeline 1.2). |
+| `tests/runtime/test_pag_graph_trace_w14_highlight.py` | Trace/shape W14 row, путь не «один лист» только, пустой `end` не даёт пустой payload в эмите; **`test_python_forbids_pag_graph_rev_reconciled_literal`** — в `memory_agent.py` и `pag_graph_trace.py` нет строки `pag_graph_rev_reconciled` (**D-PROD-1**, dual-write с renderer запрещён). |
+| `pytest tests/runtime/test_w14_graph_highlight_path.py tests/runtime/test_pag_graph_trace_w14_highlight.py -q` | Gate W14 для итерации Memory 3D: **7** тестов (M1 + trace + запрет literal в Python); исторический отчёт 1.2 — `context/artifacts/reports/test_report_pipeline_task_1_2.md` (6 passed). |
 
 **Flake8:** `w14_graph_highlight_path.py`, `agent_memory_query_pipeline.py`, оба тест-файла (см. тот же отчёт).
 
 ## Desktop (Vitest)
 
-| Область | Путь / команда |
-|---------|----------------|
-| PAG session store, `pagDatabasePresent`, full load | `desktop/src/renderer/runtime/pagGraphSessionStore.test.ts` |
-| Прогон | `cd desktop && npm test` (или сузить до файла) |
+### Финальный Vitest gate — ТЗ §5.0 (Definition of Done)
 
-### Memory 3D / PAG / trace / 3D визуал (Vitest) — волны W1–W5, финальный gate **11**
+**UC-03 и UC-06 не считаются закрытыми без обязательных автотестов из ТЗ** (цитата §5.0): для UC-03 — сценарий store / Refresh / Н1–Н2; для UC-06 — Vitest на отсутствие recall-текста в `MemoryGraph3DPage` и тест проекции фазы чата (ротация / синий токен). Финальный gate в `context/tests/INDEX.md` **расширяется** в той же итерации, без отсылки к «решению владельца» как к барьеру.
 
-**Канон прогона:** `context/artifacts/reports/test_run_11_final.md` (**passed**, 2026-04-30): **9 test files**, 48 tests; логи `context/artifacts/test_run_11_final_vitest.log` / `test_run_11_final_pytest.log`.
+**Канон прогона (Wave 5, task 4_1):** **12 test files**, **80 tests** — см. `context/artifacts/reports/test_report_task_4_1.md`.
 
 | Путь | Содержание |
 |------|------------|
-| `desktop/src/renderer/runtime/memoryGraphDataKey.test.ts` | Ключ `computeMemoryGraphDataKey` без `n{nodes.length}`; смена при `loadState`, `graphRevByNamespace`, `pagDatabasePresent` (1.3 / 3.1). |
+| `desktop/src/renderer/runtime/memoryGraphDataKey.test.ts` | Ключ `computeMemoryGraphDataKey` без `n{nodes.length}`; смена при `loadState`, `graphRevByNamespace`, `pagDatabasePresent`. |
 | `desktop/src/renderer/runtime/memoryGraphState.test.ts` | `mergeNodePreservingCoords` / `mergeMemoryGraph`, trace-delta + merge без сброса координат. |
-| `desktop/src/renderer/runtime/pagGraphSessionStore.test.ts` | Store: full load, `pagDatabasePresent`, дедуп `warnings` по rev, интеграция с `pagGraphRevWarningFormat`. |
+| `desktop/src/renderer/runtime/pagGraphSessionStore.test.ts` | UC-03: store, full load, `pagDatabasePresent`, дедуп `warnings` по rev, интеграция с `pagGraphRevWarningFormat`, Refresh / Н1–Н2. |
 | `desktop/src/renderer/runtime/pagGraphTraceDeltas.test.ts` | Парсинг/применение дельт trace; тексты рассинхрона rev (`formatPagGraphRevMismatchWarning`). |
-| `desktop/src/renderer/runtime/pagHighlightFromTrace.test.ts` | D-HI-1: highlight из trace → `PagSearchHighlightV1`. |
+| `desktop/src/renderer/runtime/pagHighlightFromTrace.test.ts` | D-HI-1: highlight из trace → `PagSearchHighlightV1` (расширенные сценарии §4). |
 | `desktop/src/renderer/runtime/loadPagGraphMerged.test.ts` | Слияние merged при caps/лимитах. |
-| `desktop/src/renderer/runtime/memoryGraphForceGraphProjection.test.ts` | UC-04 A + D-TRACE-CONN-1: фильтр рёбер, `ensureTraceConnectivity`, пачка merge→проекция (wave 3, task 2_2). |
-| `desktop/src/renderer/runtime/memoryGraph3DResolvedColors.test.ts` | Токены/цвета рёбер (task 4.1). |
-| `desktop/src/renderer/runtime/memoryGraph3DLineStyle.test.ts` | Политика линий/частиц рёбер (task 4.1). |
-| `desktop/src/renderer/runtime/pagGraphLimits.test.ts` | D-SCL-1: caps 20k нод / 40k рёбер, согласование с Python `pag_slice_caps` (task 5.1). |
+| `desktop/src/renderer/runtime/memoryGraphForceGraphProjection.test.ts` | UC-04 / task 2_2: фильтр рёбер, `ensureTraceConnectivity`, merge→проекция. |
+| `desktop/src/renderer/runtime/memoryGraph3DResolvedColors.test.ts` | Токены/цвета рёбер 3D. |
+| `desktop/src/renderer/runtime/memoryGraph3DLineStyle.test.ts` | Политика линий/частиц рёбер (ТЗ §4). |
+| `desktop/src/renderer/runtime/pagGraphLimits.test.ts` | D-SCL-1: caps 20k нод / 40k рёбер, согласование с Python `pag_slice_caps`. |
+| `desktop/src/renderer/runtime/chatTraceAmPhase.test.ts` | UC-06: проекция фазы Agent Memory — ротация фраз, токен синего, без дублирования логики broker (task 3_1 / 3_2). |
+| `desktop/src/renderer/views/MemoryGraph3DPage.test.tsx` | UC-06: в DOM под корнем 3D-панели нет recall-whitelist и `BROKER_MEMORY_RECALL_UI_LABEL` (task 3_1). |
 
-**Команда (как в gate 11):**
+**Команда (полный gate §5.0):**
 
 ```bash
 cd desktop && npx vitest run \
@@ -60,9 +59,11 @@ cd desktop && npx vitest run \
   src/renderer/runtime/memoryGraphForceGraphProjection.test.ts \
   src/renderer/runtime/memoryGraph3DResolvedColors.test.ts \
   src/renderer/runtime/memoryGraph3DLineStyle.test.ts \
-  src/renderer/runtime/pagGraphLimits.test.ts
+  src/renderer/runtime/pagGraphLimits.test.ts \
+  src/renderer/runtime/chatTraceAmPhase.test.ts \
+  src/renderer/views/MemoryGraph3DPage.test.tsx
 ```
 
 **Связь с Python:** `tests/test_pag_slice_caps_alignment.py` — выравнивание чисел с `tools/agent_core/memory/pag_slice_caps.py` и `desktop/.../pagGraphLimits.ts`. W14 / broker UC 2.4 — строки выше в разделе pytest.
 
-**Примечание:** `chatTraceAmPhase.test.ts` (task 3.2, индикатор «вспоминает») в список финального **11** не входил; при доработке 3.x можно расширить gate отдельной постановкой. Полный `npm test` desktop может задевать тесты вне этого набора (см. исторические отчёты 08/09).
+Другие Vitest-файлы в пакете `desktop` (ledger, shell, state и т.д.) **не входят** в этот gate; при изменении контрактов §5.0 gate расширяют осознанно и обновляют эту таблицу и команду.

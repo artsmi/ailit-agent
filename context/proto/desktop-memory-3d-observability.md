@@ -4,7 +4,7 @@
 
 Канонические **имена событий** и **schema-like** правила для §3.2 ТЗ (`context/artifacts/technical_specification.md` §3.2), UC-03 (AC trace), UC-06 (фаза UI), UC-02 (highlight), согласованные с `context/artifacts/architecture.md` §4–5.7, §9 и с задачей **`task_1_1`** (ссылки на этот файл из `context/arch/desktop-pag-graph-snapshot.md` / merge волны 1).
 
-**Граница:** описание контрактов для будущих точек emit в **renderer**; в рамках волны 1 **нет** обязательства на реализацию emit в коде.
+**Реализация строк trace (renderer):** построение envelope `topic.publish` с `event_name` **`pag_graph_rev_reconciled`** / **`pag_snapshot_refreshed`** и извлечение внутреннего payload — `desktop/src/renderer/runtime/pagGraphObservabilityCompact.ts` (`buildPagGraphRevReconciledTraceRow`, `buildPagSnapshotRefreshedTraceRow`, `extractCompactPagEventPayload`). Whitelist `reason_code` в TypeScript должен оставаться **subset** перечня ниже (расширение только additive в этом файле и в таблице §1–2).
 
 ---
 
@@ -46,7 +46,7 @@
 | `session_id` | **required** string |
 | `namespace` | **required** string, если refresh атомарен для одного namespace; **иначе** вместо `namespace` — **required** компактное поле **`namespaces`** (массив строк). В одной строке события: либо задан `namespace`, либо непустой `namespaces`, либо (при согласовании в коде) оба — по правилу emit-реализации, но **запрещено** отсутствие и того и другого. |
 | `graph_rev_after` | **required** int (минимальный контракт ТЗ §3.2); multi-rev при multi-namespace — только **additive** расширением (например `graph_rev_by_namespace`), без ломки существующих обязательных полей |
-| `reason_code` | **required** `user_refresh` \| `poll_retry` \| другие короткие коды по `architecture.md` §4 |
+| `reason_code` | **required** whitelist (subset реализации TS): `user_refresh`, `poll_retry`, `post_refresh`, `initial_load` и другие короткие коды по `architecture.md` §4 — новые значения только additive |
 
 **Forbidden:** как в «Общие запреты».
 

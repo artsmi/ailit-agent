@@ -1,24 +1,43 @@
-# Отчёт о тестировании — task_4_1
+# Test Report: task_4_1
 
-## Статус
+## Контекст
+- Режим: developer
+- Task: 4_1 / `context/artifacts/tasks/task_4_1.md`
+- Wave: 5
 
-passed
+## Команды
 
-## Команда прогона
-
+### Command 1
 ```bash
-cd /home/artem/reps/ailit-agent/desktop && npm test && npm run typecheck
+cd desktop && npx vitest run \
+  src/renderer/runtime/memoryGraphDataKey.test.ts \
+  src/renderer/runtime/memoryGraphState.test.ts \
+  src/renderer/runtime/pagGraphSessionStore.test.ts \
+  src/renderer/runtime/pagGraphTraceDeltas.test.ts \
+  src/renderer/runtime/pagHighlightFromTrace.test.ts \
+  src/renderer/runtime/loadPagGraphMerged.test.ts \
+  src/renderer/runtime/memoryGraphForceGraphProjection.test.ts \
+  src/renderer/runtime/memoryGraph3DResolvedColors.test.ts \
+  src/renderer/runtime/memoryGraph3DLineStyle.test.ts \
+  src/renderer/runtime/pagGraphLimits.test.ts \
+  src/renderer/runtime/chatTraceAmPhase.test.ts \
+  src/renderer/views/MemoryGraph3DPage.test.tsx
 ```
 
-## Результат
+**Статус:** passed  
+**Лог:** N/A (stdout only)
 
-- Vitest: 19 файлов, 91 тест, без падений.
-- `tsc` (renderer / main / preload): без ошибок.
+## Результаты
+- Test files: 12 passed (12)
+- Tests: 80 passed (80)
+- Failed: 0
+- Blocked by environment: 0
 
-## Упавшие тесты
+## Упавшие проверки
+Нет.
 
-нет
+## Заблокировано окружением
+Нет.
 
-## Примечание
-
-Полный `npm run lint` по пакету `desktop` сообщает ошибку в `chatTraceAmPhase.ts` (правило `prefer-as-const`), не связанную с задачей 4.1. Файлы, изменённые по task_4_1, проверены точечно `eslint` без ошибок (есть прежние предупреждения `react-hooks/exhaustive-deps` в `MemoryGraph3DPage.tsx` у существующего `useMemo`).
+## Verification gaps
+Нет (юнит-Vitest, без live LLM).

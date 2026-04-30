@@ -1,56 +1,45 @@
-# Tech writer (13) — отчёт
+# Tech Writer Report
 
-**Режим:** feature  
-**Вход:** `context/artifacts/change_inventory.md`, `context/artifacts/reports/test_run_11_final.md`, фактический код в рабочем дереве.
+## Режим
 
-**Примечание:** путь под `.gitignore` для `context/artifacts/`; для индекса git при необходимости: `git add -f context/artifacts/tech_writer_report.md`.
+- `feature`
 
-## Созданные или обновлённые canonical knowledge files
+## Входной inventory
 
-| Путь | Действие |
-|------|----------|
-| `context/arch/desktop-pag-graph-snapshot.md` | Обновлено: §warnings/`graph_rev` — полный путь к `pagGraphRevWarningFormat.ts`, детали форматтера, требование поставки модуля в репо; §Тесты — ссылка на gate **11** (9 Vitest), убрана ошибочная строка про «тестовый файл» `pagGraphRevWarningFormat.ts`. |
-| `context/arch/INDEX.md` | Строка про `desktop-pag-graph-snapshot.md`: rev warnings / форматтер, ссылка на `test_run_11_final.md`. |
-| `context/tests/INDEX.md` | Переписан блок Vitest: полный список 9 файлов из gate 11, команда `npx vitest run`, pytest caps/W14 перекрёстные ссылки, примечание про `chatTraceAmPhase.test.ts` вне gate 11. |
-| `context/start/repository-launch.md` | Одно предложение: финальный gate Vitest Memory 3D → `test_run_11_final.md`. |
-| `context/INDEX.md` | Строка `tests/INDEX.md`: отсылка к `artifacts/reports/test_run_11_final.md`. |
-| `context/memories/feature_memory_3d_w1w5_pag_w14_caps_2026-04-30.md` | **Создан** — память итерации W1–W5 по фактам инвентаризации. |
-| `context/memories/index.md` | Добавлена строка на новую память. |
+- `context/artifacts/change_inventory.md`
 
-## Обновлённые `INDEX.md`
+## Создано
 
-- `context/arch/INDEX.md` — да.  
-- `context/tests/INDEX.md` — да.  
-- `context/INDEX.md` — да.  
-- `context/memories/index.md` — да.  
-- `context/proto/INDEX.md` — **без изменений:** формулировки W14 / broker inject уже соответствуют канону; правки порядка emit не требовали правки индекса.  
-- `context/start/INDEX.md` — **без изменений:** достаточно правки `repository-launch.md`; строка таблицы уже ведёт на него.
+- нет
 
-## Разделы `context/*`, которые не менялись (и почему)
+## Изменено
 
-- **`context/proto/*.md` (полные протоколы)** — не перечитывались построчно с `agent_memory_query_query_pipeline.py`; инвентаризация не указала расхождения с уже обновлёнными `ailit-memory-w14-graph-highlight.md` / `broker-memory-work-inject.md` / `pag-slice-desktop-renderer.md`. При сомнении о порядке emit — diff Python как источник правды.  
-- **`context/arch/system-elements.md` и прочие arch вне desktop/W14** — вне суммы затронутых процессов этой итерации.  
-- **`context/proto/install.md`** — установка не менялась по фактам **12**.
+- `context/arch/desktop-pag-graph-snapshot.md` — главные файлы: `pagGraphObservabilityCompact.ts`; блок «Тесты»: gate Vitest 12 файлов / 80 тестов, отсылка к `INDEX.md` и условному `test_run_11_final.md`.
+- `context/arch/w14-graph-highlight-m1.md` — M1-граница: **D-PROD-1** в Python, тест `test_python_forbids_pag_graph_rev_reconciled_literal`, ссылка на `tests/runtime/test_pag_graph_trace_w14_highlight.py`.
+- `context/arch/INDEX.md` — строка `desktop-pag-graph-snapshot`: компактный observability-модуль, gate §5.0 по `tests/INDEX.md`.
+- `context/proto/desktop-memory-3d-observability.md` — реализация в renderer (`pagGraphObservabilityCompact.ts`); whitelist `reason_code` для `pag_snapshot_refreshed` согласован с TS (`initial_load`, `post_refresh`, …).
+- `context/proto/INDEX.md` — строка observability: якорь на `pagGraphObservabilityCompact.ts`.
+- `context/start/repository-launch.md` — финальный Vitest gate Memory 3D: 12 файлов / 80 тестов, команды в `tests/INDEX.md`.
+- `context/tests/INDEX.md` — W14: описание `test_python_forbids_pag_graph_rev_reconciled_literal`, pytest gate 7 тестов.
+- `context/memories/feature_memory_3d_w1w5_pag_w14_caps_2026-04-30.md` — W6, верификация gate, `pagGraphObservabilityCompact`, proto observability.
+- `context/memories/index.md` — описание строки памяти W1–W6.
 
-## Продуктовый код (согласование с пробелом §9 инвентаризации)
+## Обновлённые INDEX.md
 
-- **`desktop/src/renderer/runtime/pagGraphRevWarningFormat.ts`:** выполнен `git add` (файл был **??** в рабочем дереве, импорты в `pagGraphTraceDeltas.ts` / `pagGraphSessionStore.ts` уже ссылались на него). Содержимое **не** редактировалось агентом **13**. Коммит остаётся за владельцем ветки (workflow проекта).
+- `context/arch/INDEX.md` — уточнение desktop-pag-graph и gate.
+- `context/proto/INDEX.md` — уточнение observability.
+- `context/memories/index.md` — строка feature memory.
 
-## Допущения
+## Не изменялось
 
-- Тексты протоколов в `context/proto/` считаются согласованными с кодом до явного audit-расхождения.  
-- `chatTraceAmPhase.test.ts` намеренно не включён в таблицу gate 11, так как его нет в `test_run_11_final.md`.  
-- `prompts/startf.txt`, удалённый `test_report_fix_pytest_five.md` — вне канона итерации (как в **12**).
+- `context/proto/pag-slice-desktop-renderer.md`, `context/proto/broker-memory-work-inject.md`, `context/proto/ailit-memory-w14-graph-highlight.md` — в инвентаризации нет расхождений с кодом итерации; IPC pag-slice не менялся.
+- `context/start/INDEX.md`, прочие файлы `context/start/*` кроме `repository-launch.md` — без новых фактов запуска.
+- `context/INDEX.md` — оглавление корня `context/` без обязательных правок при неизменных верхнеуровневых ссылках.
 
-## Локальный DB index markdown knowledge
+## Допущения и пробелы
 
-- Персистентный DB index канона `context/*` в репозитории **не** зафиксирован как обязательный шаг.  
-- **Selective sync** (если используется внешний tooling): переиндексировать затронутые knowledge-файлы:  
-  `context/arch/desktop-pag-graph-snapshot.md`,  
-  `context/arch/INDEX.md`,  
-  `context/tests/INDEX.md`,  
-  `context/start/repository-launch.md`,  
-  `context/INDEX.md`,  
-  `context/memories/feature_memory_3d_w1w5_pag_w14_caps_2026-04-30.md`,  
-  `context/memories/index.md`,  
-  `context/artifacts/tech_writer_report.md`.
+- Файл `context/artifacts/reports/test_run_11_final.md` в рабочем дереве агента **не найден**; числа gate (Vitest 12/80, pytest 7) взяты из `change_inventory.md` и согласованы с `context/tests/INDEX.md`. При появлении отчёта `11` сверить даты/exit code вручную.
+
+## Selective sync hints
+
+- Производный DB index / selective reindex по инвентаризации **не затрагиваются**; обновлены только перечисленные canonical knowledge files и индексы выше.
