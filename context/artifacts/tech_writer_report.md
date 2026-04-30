@@ -10,36 +10,31 @@
 
 ## Создано
 
-- нет
+- `context/memories/feature_w14_aw_am_fix_desktop_memory_2026-05-01.md` — память итерации W14/fix_desktop_memory (SoT, SLA RPC, изоляция тестов).
 
 ## Изменено
 
-- `context/arch/desktop-pag-graph-snapshot.md` — главные файлы: `pagGraphObservabilityCompact.ts`; блок «Тесты»: gate Vitest 12 файлов / 80 тестов, отсылка к `INDEX.md` и условному `test_run_11_final.md`.
-- `context/arch/w14-graph-highlight-m1.md` — M1-граница: **D-PROD-1** в Python, тест `test_python_forbids_pag_graph_rev_reconciled_literal`, ссылка на `tests/runtime/test_pag_graph_trace_w14_highlight.py`.
-- `context/arch/INDEX.md` — строка `desktop-pag-graph-snapshot`: компактный observability-модуль, gate §5.0 по `tests/INDEX.md`.
-- `context/proto/desktop-memory-3d-observability.md` — реализация в renderer (`pagGraphObservabilityCompact.ts`); whitelist `reason_code` для `pag_snapshot_refreshed` согласован с TS (`initial_load`, `post_refresh`, …).
-- `context/proto/INDEX.md` — строка observability: якорь на `pagGraphObservabilityCompact.ts`.
-- `context/start/repository-launch.md` — финальный Vitest gate Memory 3D: 12 файлов / 80 тестов, команды в `tests/INDEX.md`.
-- `context/tests/INDEX.md` — W14: описание `test_python_forbids_pag_graph_rev_reconciled_literal`, pytest gate 7 тестов.
-- `context/memories/feature_memory_3d_w1w5_pag_w14_caps_2026-04-30.md` — W6, верификация gate, `pagGraphObservabilityCompact`, proto observability.
-- `context/memories/index.md` — описание строки памяти W1–W6.
+- `context/artifacts/architecture.md` — §3 broker: `svc_timeout` AM из `agent_memory_rpc_timeout_s(merged)`; §4 `agent_memory_result`: поле `memory_continuation_required` как optional в v1 builder; §5 интерфейс клиентского таймаута и §9 reliability: убраны устаревшие «15 с клиент / 120 broker», зафиксирована единая линия SLA и риск регрессии рассинхрона.
+- `context/arch/system-elements.md` — строка P3: явная связка таймаута с `memory.runtime.agent_memory_rpc_timeout_s`, ссылки на `runtime-event-contract.md` и §5 architecture.
+- `context/INDEX.md` — в строке proto: указатель на D-OBS-1 / `runtime-event-contract.md`.
 
 ## Обновлённые INDEX.md
 
-- `context/arch/INDEX.md` — уточнение desktop-pag-graph и gate.
-- `context/proto/INDEX.md` — уточнение observability.
-- `context/memories/index.md` — строка feature memory.
+- `context/INDEX.md` — дополнение строки таблицы (D-OBS-1).
+- `context/memories/index.md` — строка для новой памяти итерации.
 
 ## Не изменялось
 
-- `context/proto/pag-slice-desktop-renderer.md`, `context/proto/broker-memory-work-inject.md`, `context/proto/ailit-memory-w14-graph-highlight.md` — в инвентаризации нет расхождений с кодом итерации; IPC pag-slice не менялся.
-- `context/start/INDEX.md`, прочие файлы `context/start/*` кроме `repository-launch.md` — без новых фактов запуска.
-- `context/INDEX.md` — оглавление корня `context/` без обязательных правок при неизменных верхнеуровневых ссылках.
+- `context/proto/runtime-event-contract.md`, `context/proto/broker-memory-work-inject.md`, `context/proto/INDEX.md` — уже согласованы с веткой; сверка литералов `work_agent.py` с D-OBS-1 без расхождений; правки не требовались.
+- `context/start/*` — в инвентаризации нет изменений по затронутым путям.
+- `context/tests/*` — прямых обновлений оглавления тестов по диффу не выявлено (сценарии в `tests/` и отчётах `artifacts/reports/`).
+- `context/arch/INDEX.md` — содержательно покрыт `system-elements.md`; отдельная строка под эту правку не добавлялась.
 
 ## Допущения и пробелы
 
-- Файл `context/artifacts/reports/test_run_11_final.md` в рабочем дереве агента **не найден**; числа gate (Vitest 12/80, pytest 7) взяты из `change_inventory.md` и согласованы с `context/tests/INDEX.md`. При появлении отчёта `11` сверить даты/exit code вручную.
+- Артефакт `09_code_reviewer` в инвентаризации не приложен — трассировка замечаний review при необходимости через оркестратора.
+- Совпадение `origin/fix/desktop_memory..HEAD` с remote у пользователя не верифицировалось локальным `git fetch` — при приёмке ветки проверить актуальность.
 
 ## Selective sync hints
 
-- Производный DB index / selective reindex по инвентаризации **не затрагиваются**; обновлены только перечисленные canonical knowledge files и индексы выше.
+- Не применимо: в проанализированных индексах нет отдельного производного DB index для knowledge; при появлении reindex hook — триггер после стабилизации `context/proto` и §5 architecture (как в inventory §12).
