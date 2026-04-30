@@ -29,3 +29,7 @@ desktop/node_modules/
 desktop/.vite/
 desktop/dist/
 desktop/dist-app/
+
+# Артефакты pipeline (оркестратор, субагенты) — локальные, каталог в репозитории
+context/artifacts/*
+!context/artifacts/.gitkeep
