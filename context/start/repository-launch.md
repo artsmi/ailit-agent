@@ -50,7 +50,7 @@
 - **Конфиг:** `pyproject.toml` — `pythonpath`: `tools`, `tests/e2e`; по умолчанию `addopts` исключает маркеры `integration` и `manual_model_e2e`.
 - **Изоляция:** autouse в `tests/conftest.py` — подмена `HOME`, `AILIT_RUNTIME_DIR`, `AILIT_PAG_DB_PATH`, `AILIT_KB_DB_PATH`, `AILIT_MEMORY_JOURNAL_PATH`, `AILIT_CONFIG_DIR`, `AILIT_STATE_DIR`, `AILIT_WORK_ROOT` (см. проектный workflow).
 
-Подробнее по группам и файлам — [`../tests/INDEX.md`](../tests/INDEX.md).
+Подробнее по группам и файлам — [`../tests/INDEX.md`](../tests/INDEX.md). Для desktop Memory 3D / PAG финальный gate Vitest (9 файлов) зафиксирован в `context/artifacts/reports/test_run_11_final.md`.
 
 ## Линтеры
 

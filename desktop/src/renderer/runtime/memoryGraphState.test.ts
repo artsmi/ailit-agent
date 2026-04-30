@@ -61,6 +61,32 @@ describe("memoryGraphState", () => {
     expect(o?.fz).toBe(0.3);
   });
 
+  it("merge: NaN во входящих координатах не затирает конечные прежние значения", () => {
+    const withPos: ReturnType<typeof mergeMemoryGraph> = mergeMemoryGraph(
+      {
+        nodes: [
+          {
+            id: "B:2",
+            label: "a",
+            level: "B",
+            x: 10,
+            y: 20,
+            z: 30
+          }
+        ],
+        links: []
+      },
+      {
+        nodes: [{ id: "B:2", label: "a", level: "B", x: Number.NaN, y: Number.POSITIVE_INFINITY }],
+        links: []
+      }
+    );
+    const o = withPos.nodes.find((node) => node.id === "B:2");
+    expect(o?.x).toBe(10);
+    expect(o?.y).toBe(20);
+    expect(o?.z).toBe(30);
+  });
+
   it("applyPagGraphTraceDelta + merge: upsert PAG-ноды без координат не стирает уже выставленные x/y/z", () => {
     const row: Record<string, unknown> = {
       type: "topic.publish",

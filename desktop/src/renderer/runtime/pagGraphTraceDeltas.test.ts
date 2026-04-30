@@ -66,4 +66,37 @@ describe("pagGraphTraceDeltas", () => {
     expect(r.data.nodes.length).toBe(1);
     expect(o["n"]).toBe(1);
   });
+
+  it("applyPagGraphTraceDelta включает namespace в текст revWarning при сбое последовательности", () => {
+    const d = parsePagGraphTraceDelta({
+      type: "topic.publish",
+      payload: {
+        type: "topic.publish",
+        topic: "chat",
+        event_name: "pag.node.upsert",
+        payload: {
+          kind: "pag.node.upsert",
+          namespace: "n",
+          rev: 9,
+          node: {
+            node_id: "B:z.py",
+            level: "B",
+            path: "z.py",
+            title: "z",
+            kind: "file"
+          }
+        }
+      }
+    } as Record<string, unknown>);
+    expect(d).not.toBeNull();
+    if (d === null) {
+      return;
+    }
+    const o: Record<string, number> = {};
+    const r = applyPagGraphTraceDelta({ nodes: [], links: [] }, d, { n: 1 }, o);
+    expect(r.revWarning).not.toBeNull();
+    expect(r.revWarning).toContain("для «n»");
+    expect(r.revWarning).toContain("ожидается 2");
+    expect(r.revWarning).toContain("в trace 9");
+  });
 });

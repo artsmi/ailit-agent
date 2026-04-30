@@ -6,6 +6,7 @@ import {
   type MemoryGraphLink,
   type MemoryGraphNode
 } from "./memoryGraphState";
+import { formatPagGraphRevMismatchWarning } from "./pagGraphRevWarningFormat";
 
 function str(x: unknown): string {
   return typeof x === "string" ? x : x == null ? "" : String(x);
@@ -91,12 +92,7 @@ export function applyPagGraphTraceDelta(
   const last: number = newRevsOut[delta.namespace] ?? 0;
   let revWarning: string | null = null;
   if (last > 0 && delta.rev !== last + 1) {
-    revWarning =
-      "PAG: несоответствие graph rev (ожидается " +
-      String(last + 1) +
-      ", в trace " +
-      String(delta.rev) +
-      "). Выполните Refresh.";
+    revWarning = formatPagGraphRevMismatchWarning(delta.namespace, last + 1, delta.rev);
   }
   newRevsOut[delta.namespace] = delta.rev;
   if (delta.kind === "pag.node.upsert") {

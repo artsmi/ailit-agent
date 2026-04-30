@@ -30,13 +30,37 @@
 | PAG session store, `pagDatabasePresent`, full load | `desktop/src/renderer/runtime/pagGraphSessionStore.test.ts` |
 | Прогон | `cd desktop && npm test` (или сузить до файла) |
 
-### Memory 3D layout / graph key (Vitest) — feature 1.3
+### Memory 3D / PAG / trace / 3D визуал (Vitest) — волны W1–W5, финальный gate **11**
 
-| Путь / команда | Содержание |
-|----------------|------------|
-| `desktop/src/renderer/runtime/memoryGraphDataKey.test.ts` | Ключ `computeMemoryGraphDataKey` без `n{nodes.length}`; смена при `loadState`, `graphRevByNamespace`, `pagDatabasePresent`. |
+**Канон прогона:** `context/artifacts/reports/test_run_11_final.md` (**passed**, 2026-04-30): **9 test files**, 48 tests; логи `context/artifacts/test_run_11_final_vitest.log` / `test_run_11_final_pytest.log`.
+
+| Путь | Содержание |
+|------|------------|
+| `desktop/src/renderer/runtime/memoryGraphDataKey.test.ts` | Ключ `computeMemoryGraphDataKey` без `n{nodes.length}`; смена при `loadState`, `graphRevByNamespace`, `pagDatabasePresent` (1.3 / 3.1). |
 | `desktop/src/renderer/runtime/memoryGraphState.test.ts` | `mergeNodePreservingCoords` / `mergeMemoryGraph`, trace-delta + merge без сброса координат. |
-| `desktop/src/renderer/runtime/pagGraphSessionStore.test.ts` | Регресс store (связь с 1.1/1.3). |
-| `cd desktop && npx vitest run src/renderer/runtime/memoryGraphDataKey.test.ts src/renderer/runtime/memoryGraphState.test.ts src/renderer/runtime/pagGraphSessionStore.test.ts` | Статус: `context/artifacts/reports/test_report_pipeline_task_1_3.md` (**25 passed**, 3 test files, exit 0). |
+| `desktop/src/renderer/runtime/pagGraphSessionStore.test.ts` | Store: full load, `pagDatabasePresent`, дедуп `warnings` по rev, интеграция с `pagGraphRevWarningFormat`. |
+| `desktop/src/renderer/runtime/pagGraphTraceDeltas.test.ts` | Парсинг/применение дельт trace; тексты рассинхрона rev (`formatPagGraphRevMismatchWarning`). |
+| `desktop/src/renderer/runtime/pagHighlightFromTrace.test.ts` | D-HI-1: highlight из trace → `PagSearchHighlightV1`. |
+| `desktop/src/renderer/runtime/loadPagGraphMerged.test.ts` | Слияние merged при caps/лимитах. |
+| `desktop/src/renderer/runtime/memoryGraph3DResolvedColors.test.ts` | Токены/цвета рёбер (task 4.1). |
+| `desktop/src/renderer/runtime/memoryGraph3DLineStyle.test.ts` | Политика линий/частиц рёбер (task 4.1). |
+| `desktop/src/renderer/runtime/pagGraphLimits.test.ts` | D-SCL-1: caps 20k нод / 40k рёбер, согласование с Python `pag_slice_caps` (task 5.1). |
 
-**Примечание:** в артефактах 08/09 полный `npm test` мог падать на тестах вне scope задачи (например `AppShell.test.tsx` / unhandled `window`). Для 1.3 DoD — целевой трёхфайловый прогон vitest выше; e2e по `task_1_3` не обязателен при согласовании 09.
+**Команда (как в gate 11):**
+
+```bash
+cd desktop && npx vitest run \
+  src/renderer/runtime/memoryGraphDataKey.test.ts \
+  src/renderer/runtime/memoryGraphState.test.ts \
+  src/renderer/runtime/pagGraphSessionStore.test.ts \
+  src/renderer/runtime/pagGraphTraceDeltas.test.ts \
+  src/renderer/runtime/pagHighlightFromTrace.test.ts \
+  src/renderer/runtime/loadPagGraphMerged.test.ts \
+  src/renderer/runtime/memoryGraph3DResolvedColors.test.ts \
+  src/renderer/runtime/memoryGraph3DLineStyle.test.ts \
+  src/renderer/runtime/pagGraphLimits.test.ts
+```
+
+**Связь с Python:** `tests/test_pag_slice_caps_alignment.py` — выравнивание чисел с `tools/agent_core/memory/pag_slice_caps.py` и `desktop/.../pagGraphLimits.ts`. W14 / broker UC 2.4 — строки выше в разделе pytest.
+
+**Примечание:** `chatTraceAmPhase.test.ts` (task 3.2, индикатор «вспоминает») в список финального **11** не входил; при доработке 3.x можно расширить gate отдельной постановкой. Полный `npm test` desktop может задевать тесты вне этого набора (см. исторические отчёты 08/09).
