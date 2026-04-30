@@ -1412,6 +1412,10 @@ class AgentMemoryWorker:
         project_root = str(req.payload.get("project_root", "") or "")
         if v1q is not None:
             project_root = v1q.project_root
+        envelope_explicit_path = bool(
+            str(req.payload.get("path", "") or "").strip()
+            or str(req.payload.get("hint_path", "") or "").strip(),
+        )
         want_path = str(req.payload.get("path", "") or "")
         if not want_path:
             want_path = str(req.payload.get("hint_path", "") or "")
@@ -1499,10 +1503,27 @@ class AgentMemoryWorker:
                 level=level,
             )
             used_fb = True
-        elif (
-            not str(memory_slice.get("injected_text") or "").strip()
-            and not w14_finish
-            and not w14_contract_failure
+        else:
+            no_inj = not str(
+                memory_slice.get("injected_text") or "",
+            ).strip()
+            need_fb = no_inj and not w14_finish
+            w14_path_fb = w14_contract_failure and bool(
+                str(want_path or "").strip(),
+            )
+            if need_fb and (not w14_contract_failure or w14_path_fb):
+                memory_slice = self._fallback_slice(
+                    namespace=req.namespace or self._cfg.namespace,
+                    path=want_path,
+                    goal=goal,
+                    query_kind=query_kind,
+                    level=level,
+                )
+                used_fb = True
+        if (
+            not w14_contract_failure
+            and not str(want_path or "").strip()
+            and not str(memory_slice.get("injected_text") or "").strip()
         ):
             memory_slice = self._fallback_slice(
                 namespace=req.namespace or self._cfg.namespace,
@@ -1511,6 +1532,30 @@ class AgentMemoryWorker:
                 query_kind=query_kind,
                 level=level,
             )
+            used_fb = True
+        pathless_v1_memory_query = (
+            v1q is not None and not envelope_explicit_path
+        )
+        if pathless_v1_memory_query and not str(
+            memory_slice.get("injected_text") or "",
+        ).strip():
+            stub = self._fallback_slice(
+                namespace=req.namespace or self._cfg.namespace,
+                path=str(want_path or "").strip(),
+                goal=goal,
+                query_kind=query_kind,
+                level=level,
+            )
+            merged: dict[str, Any] = dict(memory_slice)
+            merged["injected_text"] = str(stub.get("injected_text") or "")
+            et_stub = stub.get("estimated_tokens")
+            if isinstance(et_stub, int) and et_stub > 0:
+                merged["estimated_tokens"] = et_stub
+            elif not int(merged.get("estimated_tokens") or 0):
+                merged["estimated_tokens"] = self._estimate_tokens(
+                    str(merged.get("injected_text") or ""),
+                )
+            memory_slice = merged
             used_fb = True
         self._log_pipeline_slice(
             req,
@@ -1536,23 +1581,6 @@ class AgentMemoryWorker:
                 end_line=200,
             )
             grants.append(grant.to_dict())
-        if (
-            not want_path
-            and not str(memory_slice.get("injected_text") or "").strip()
-            and not w14_finish
-            and not w14_contract_failure
-        ):
-            err_out = make_response_envelope(
-                request=req,
-                ok=False,
-                payload={},
-                error={
-                    "code": "memory_unavailable",
-                    "message": "no PAG slice or path hint available",
-                },
-            ).to_dict()
-            self._log_query_context_outgoing(req, request_id, err_out)
-            return err_out
         d_gate: str = ""
         d_rsn: str = ""
         if w14_finish:
