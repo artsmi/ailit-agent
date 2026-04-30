@@ -12,6 +12,10 @@ from agent_core.memory.pag_indexer import (
     PagIndexer,
     index_project_to_default_store,
 )
+from agent_core.memory.pag_slice_caps import (
+    PAG_SLICE_MAX_EDGES,
+    PAG_SLICE_MAX_NODES,
+)
 from agent_core.memory.sqlite_pag import PagEdge, PagNode, SqlitePagStore
 
 
@@ -98,9 +102,9 @@ def _pag_slice_payload(
     edge_offset: int,
 ) -> dict[str, Any]:
     store = SqlitePagStore(db_path)
-    # limit+1 чтобы зафиксировать has_more без ложного True на последней «полной» странице;
-    # при node_limit=10k кап SqlitePagStore не даёт +1 — используем COUNT.
-    if node_limit < 10_000:
+    # limit+1: has_more без ложного True на последней полной странице;
+    # при node_limit=max кап store не даёт +1 — COUNT.
+    if node_limit < PAG_SLICE_MAX_NODES:
         nodes_raw = store.list_nodes(
             namespace=namespace,
             level=level,
@@ -124,7 +128,7 @@ def _pag_slice_payload(
             include_stale=True,
         )
         has_more_nodes = node_offset + len(nodes) < total_n
-    if edge_limit < 20_000:
+    if edge_limit < PAG_SLICE_MAX_EDGES:
         edges_raw = store.list_edges(
             namespace=namespace,
             limit=edge_limit + 1,
@@ -207,9 +211,15 @@ def cmd_memory_pag_slice(args: object) -> int:
         }
         os.write(1, (json.dumps(out, ensure_ascii=False) + "\n").encode())
         return 0
-    nlim = max(1, min(int(getattr(args, "node_limit", 500)), 10_000))
+    nlim = max(
+        1,
+        min(int(getattr(args, "node_limit", 500)), PAG_SLICE_MAX_NODES),
+    )
     noff = max(0, int(getattr(args, "node_offset", 0)))
-    elim = max(1, min(int(getattr(args, "edge_limit", 500)), 20_000))
+    elim = max(
+        1,
+        min(int(getattr(args, "edge_limit", 500)), PAG_SLICE_MAX_EDGES),
+    )
     eoff = max(0, int(getattr(args, "edge_offset", 0)))
     payload = _pag_slice_payload(
         namespace=namespace,

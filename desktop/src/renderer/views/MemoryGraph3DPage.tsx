@@ -11,6 +11,7 @@ import {
 } from "../runtime/memoryGraphDataKey";
 import {
   MEM3D_PAG_MAX_NODES,
+  PAG_3D_EXTREME_GRAPH_NODE_THRESHOLD,
   PAG_3D_HEAVY_DEFAULT_LINK_PARTICLES,
   PAG_3D_HEAVY_HIGHLIGHT_LINK_PARTICLES,
   PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD
@@ -202,6 +203,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
 
   const nodeCount: number = graph.nodes.length;
   const heavyGraph: boolean = nodeCount > PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD;
+  const extremeGraph: boolean = nodeCount > PAG_3D_EXTREME_GRAPH_NODE_THRESHOLD;
   const atPagNodeCap: boolean = nodeCount >= MEM3D_PAG_MAX_NODES;
 
   useEffect((): void => {
@@ -328,12 +330,12 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     if (highlightFrameRef.current !== null) {
       window.cancelAnimationFrame(highlightFrameRef.current);
     }
-    const minMs: number = 48;
     const tick = (): void => {
       const fg = ref.current;
       const h: HighlightState | null = highlightRef.current;
       const n: number = graphNodeCountRef.current;
       const throttle: boolean = n > PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD;
+      const minMs: number = n > PAG_3D_EXTREME_GRAPH_NODE_THRESHOLD ? 96 : 48;
       if (typeof fg !== "undefined") {
         const t: number = nowMs();
         if (throttle) {
@@ -503,8 +505,8 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
               height={viewSize.h}
               graphData={graph as unknown as { nodes: object[]; links: object[] }}
               backgroundColor="rgba(0,0,0,0)"
-              warmupTicks={heavyGraph ? 40 : 80}
-              cooldownTicks={heavyGraph ? 60 : 120}
+              warmupTicks={extremeGraph ? 24 : heavyGraph ? 40 : 80}
+              cooldownTicks={extremeGraph ? 40 : heavyGraph ? 60 : 120}
               d3VelocityDecay={0.9}
               enableNodeDrag={false}
               enableNavigationControls

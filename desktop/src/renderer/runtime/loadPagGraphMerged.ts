@@ -22,7 +22,7 @@ export type PagGraphSliceFn = (params: {
 }) => Promise<PagGraphSliceResult>;
 
 /**
- * Загрузить полный срез PAG с пагинацией до лимитов 10k / 20k (G12.2).
+ * Загрузить полный срез PAG с пагинацией до лимитов MEM3D_PAG_MAX_* (G12.2, D-SCL-1).
  * Сначала собираем все ноды (min edge-страница), затем рёбра.
  */
 export async function loadPagGraphMerged(

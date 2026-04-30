@@ -10,6 +10,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 
+from agent_core.memory.pag_slice_caps import (
+    PAG_SLICE_MAX_EDGES,
+    PAG_SLICE_MAX_NODES,
+)
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -569,7 +574,7 @@ class SqlitePagStore:
         level: str | None = None,
         include_stale: bool = True,
     ) -> int:
-        """Число нод в namespace (для has_more при node_limit=10k, G12)."""
+        """Число нод в namespace (для has_more при node_limit=max, G12)."""
         ns = str(namespace).strip()
         if not ns:
             return 0
@@ -614,7 +619,7 @@ class SqlitePagStore:
         ns = str(namespace).strip()
         if not ns:
             return []
-        lim = max(1, min(int(limit), 10_000))
+        lim = max(1, min(int(limit), PAG_SLICE_MAX_NODES))
         off = max(0, int(offset))
         where: list[str] = ["namespace = ?"]
         params: list[object] = [ns]
@@ -646,7 +651,7 @@ class SqlitePagStore:
         p = str(path or "").strip().replace("\\", "/").lstrip("./")
         if not ns or not p:
             return []
-        lim = max(1, min(int(limit), 10_000))
+        lim = max(1, min(int(limit), PAG_SLICE_MAX_NODES))
         where: list[str] = ["namespace = ?", "path = ?"]
         params: list[object] = [ns, p]
         if level is not None:
@@ -727,7 +732,7 @@ class SqlitePagStore:
         cands = self.list_nodes(
             namespace=ns,
             level="C",
-            limit=10_000,
+            limit=PAG_SLICE_MAX_NODES,
         )
         return [
             n
@@ -843,7 +848,7 @@ class SqlitePagStore:
         ids = tuple(str(x).strip() for x in node_ids if str(x).strip())
         if not ids:
             return []
-        lim = max(1, min(int(limit), 20_000))
+        lim = max(1, min(int(limit), PAG_SLICE_MAX_EDGES))
         ph = ",".join(["?"] * len(ids))
         sql = (
             "SELECT * FROM pag_edges "
@@ -870,7 +875,7 @@ class SqlitePagStore:
         ns = str(namespace).strip()
         if not ns:
             return []
-        lim = max(1, min(int(limit), 20_000))
+        lim = max(1, min(int(limit), PAG_SLICE_MAX_EDGES))
         off = max(0, int(offset))
         with self._connect() as con:
             rows = con.execute(

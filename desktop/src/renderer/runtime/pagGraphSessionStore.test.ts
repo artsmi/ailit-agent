@@ -121,7 +121,7 @@ describe("pagGraphSessionStore", () => {
         { node_id: "A:1", level: "A", path: ".", title: "p", kind: "project", namespace }
       ],
       edges: [],
-      limits: { node_limit: 10000, node_offset: 0, edge_limit: 1, edge_offset: 0 },
+      limits: { node_limit: 20000, node_offset: 0, edge_limit: 1, edge_offset: 0 },
       has_more: { nodes: false, edges: false }
     });
     const slice: ReturnType<typeof vi.fn> = vi.fn(
@@ -428,7 +428,7 @@ describe("pagGraphSessionStore", () => {
         { node_id: "A:1", level: "A", path: ".", title: "p", kind: "project", namespace: "ns-b" }
       ],
       edges: [],
-      limits: { node_limit: 10000, node_offset: 0, edge_limit: 1, edge_offset: 0 },
+      limits: { node_limit: 20000, node_offset: 0, edge_limit: 1, edge_offset: 0 },
       has_more: { nodes: false, edges: false }
     };
     const missing: PagGraphSliceResult = {
