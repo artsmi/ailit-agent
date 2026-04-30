@@ -174,7 +174,7 @@ def test_uc01_partial_continuation_two_memory_queries_before_tools(
     assert mem_svc[0]["query_id"] != mem_svc[1]["query_id"]
     cont = [t for t in trace if t[0] == "memory.query_context.continuation"]
     assert len(cont) == 1
-    assert cont[0][1].get("reason") == "continuation"
+    assert cont[0][1].get("reason") == wam._MEMORY_QUERY_CONTINUATION_REASON
     assert cont[0][1].get("previous_query_id") == mem_svc[0]["query_id"]
     assert cont[0][1].get("next_query_id") == mem_svc[1]["query_id"]
     inj = [t for t in trace if t[0] == "context.memory_injected"]
@@ -399,3 +399,436 @@ def test_uc01_two_memory_queries_before_orchestrator_run(
         worker=worker,
     )
     assert _mem_at_registry_build == [2]
+
+
+def test_agentwork_uc02_legacy_envelope_after_canonicalization_no_spurious_continuation(  # noqa: E501
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    """UC-02: partial + агрессивный rns без mcr/роста refs — один RPC."""
+    from agent_core.runtime.subprocess_agents import work_agent as wa
+    import agent_core.runtime.subprocess_agents.work_agent as wam
+
+    monkeypatch.setattr(
+        wa,
+        "load_merged_ailit_config_for_memory",
+        lambda: {
+            "memory": {"runtime": {"max_memory_queries_per_user_turn": 8}},
+        },
+    )
+    calls: list[dict[str, Any]] = []
+    amr1 = build_agent_memory_result_v1(
+        query_id="q1",
+        status="partial",
+        memory_slice=None,
+        partial=True,
+        decision_summary="p",
+        recommended_next_step="Drill down into every module aggressively",
+        explicit_results=[],
+        explicit_status="partial",
+    )
+    s1 = _slice("legacy partial body")
+
+    class _OneShot:
+        def __init__(self, _p: str) -> None:
+            pass
+
+        @property
+        def available(self) -> bool:
+            return True
+
+        def request(self, **kwargs: Any) -> dict[str, Any]:
+            pl = kwargs.get("payload")
+            if isinstance(pl, dict):
+                calls.append(dict(pl))
+            return {
+                "ok": True,
+                "payload": {
+                    "memory_slice": s1,
+                    "agent_memory_result": amr1,
+                },
+            }
+
+    monkeypatch.setattr(wa, "_BrokerServiceClient", _OneShot)
+
+    _WCS = wam._WorkChatSession  # noqa: SLF001
+    _RTE = wam._RuntimeEventEmitter  # noqa: SLF001
+    sess = _WCS()
+    sess._user_turn_id = f"ut-{uuid.uuid4().hex[:12]}"
+    sess._memory_queries_in_turn = 0
+    em = _RTE(identity=_identity(), parent_message_id="p1")
+
+    class _Cfg:
+        broker_socket_path: str = "/x"
+
+    class _Wpr:
+        _cfg = _Cfg()
+
+    msg = sess._request_memory_slice(
+        text="x",
+        workspace=_workspace(tmp_path),
+        emitter=em,
+        identity=_identity(),
+        parent_message_id="p1",
+        worker=_Wpr(),
+    )
+    assert msg is not None
+    mem_svc = [p for p in calls if p.get("service") == "memory.query_context"]
+    assert len(mem_svc) == 1
+
+
+def test_agentwork_uc03_fix_memory_llm_json_terminal_no_second_memory_query(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    """UC-03: ``fix_memory_llm_json`` — терминально для memory-loop."""
+    from agent_core.runtime.subprocess_agents import work_agent as wa
+    import agent_core.runtime.subprocess_agents.work_agent as wam
+    from agent_core.runtime.agent_memory_result_v1 import (
+        FIX_MEMORY_LLM_JSON_STEP,
+    )
+
+    monkeypatch.setattr(
+        wa,
+        "load_merged_ailit_config_for_memory",
+        lambda: {
+            "memory": {"runtime": {"max_memory_queries_per_user_turn": 8}},
+        },
+    )
+    calls: list[dict[str, Any]] = []
+    s1 = _slice("slice with telemetry")
+    amr1 = build_agent_memory_result_v1(
+        query_id="q1",
+        status="partial",
+        memory_slice=s1,
+        partial=True,
+        decision_summary="p",
+        recommended_next_step=FIX_MEMORY_LLM_JSON_STEP,
+    )
+
+    class _OneShot:
+        def __init__(self, _p: str) -> None:
+            pass
+
+        @property
+        def available(self) -> bool:
+            return True
+
+        def request(self, **kwargs: Any) -> dict[str, Any]:
+            pl = kwargs.get("payload")
+            if isinstance(pl, dict):
+                calls.append(dict(pl))
+            return {
+                "ok": True,
+                "payload": {
+                    "memory_slice": s1,
+                    "agent_memory_result": amr1,
+                },
+            }
+
+    monkeypatch.setattr(wa, "_BrokerServiceClient", _OneShot)
+
+    _WCS = wam._WorkChatSession  # noqa: SLF001
+    _RTE = wam._RuntimeEventEmitter  # noqa: SLF001
+    sess = _WCS()
+    sess._user_turn_id = f"ut-{uuid.uuid4().hex[:12]}"
+    sess._memory_queries_in_turn = 0
+    em = _RTE(identity=_identity(), parent_message_id="p1")
+
+    class _Cfg:
+        broker_socket_path: str = "/x"
+
+    class _Wpr:
+        _cfg = _Cfg()
+
+    msg = sess._request_memory_slice(
+        text="x",
+        workspace=_workspace(tmp_path),
+        emitter=em,
+        identity=_identity(),
+        parent_message_id="p1",
+        worker=_Wpr(),
+    )
+    assert msg is not None
+    mem_svc = [p for p in calls if p.get("service") == "memory.query_context"]
+    assert len(mem_svc) == 1
+
+
+def test_agentwork_uc03_w14_contract_failure_terminal_no_second_memory_query(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    """UC-03: ``w14_contract_failure`` на слайсе — без второго RPC."""
+    from agent_core.runtime.subprocess_agents import work_agent as wa
+    import agent_core.runtime.subprocess_agents.work_agent as wam
+
+    monkeypatch.setattr(
+        wa,
+        "load_merged_ailit_config_for_memory",
+        lambda: {
+            "memory": {"runtime": {"max_memory_queries_per_user_turn": 8}},
+        },
+    )
+    calls: list[dict[str, Any]] = []
+    s1 = {
+        "injected_text": "w14 body",
+        "node_ids": ["C:x.py:1"],
+        "edge_ids": [],
+        "level": "B",
+        "reason": "t",
+        "staleness": "fresh",
+        "w14_contract_failure": True,
+    }
+    amr1 = build_agent_memory_result_v1(
+        query_id="q1",
+        status="partial",
+        memory_slice=s1,
+        partial=True,
+        decision_summary="p",
+        recommended_next_step="retry",
+    )
+
+    class _OneShot:
+        def __init__(self, _p: str) -> None:
+            pass
+
+        @property
+        def available(self) -> bool:
+            return True
+
+        def request(self, **kwargs: Any) -> dict[str, Any]:
+            pl = kwargs.get("payload")
+            if isinstance(pl, dict):
+                calls.append(dict(pl))
+            return {
+                "ok": True,
+                "payload": {
+                    "memory_slice": s1,
+                    "agent_memory_result": amr1,
+                },
+            }
+
+    monkeypatch.setattr(wa, "_BrokerServiceClient", _OneShot)
+
+    _WCS = wam._WorkChatSession  # noqa: SLF001
+    _RTE = wam._RuntimeEventEmitter  # noqa: SLF001
+    sess = _WCS()
+    sess._user_turn_id = f"ut-{uuid.uuid4().hex[:12]}"
+    sess._memory_queries_in_turn = 0
+    em = _RTE(identity=_identity(), parent_message_id="p1")
+
+    class _Cfg:
+        broker_socket_path: str = "/x"
+
+    class _Wpr:
+        _cfg = _Cfg()
+
+    msg = sess._request_memory_slice(
+        text="x",
+        workspace=_workspace(tmp_path),
+        emitter=em,
+        identity=_identity(),
+        parent_message_id="p1",
+        worker=_Wpr(),
+    )
+    assert msg is not None
+    mem_svc = [p for p in calls if p.get("service") == "memory.query_context"]
+    assert len(mem_svc) == 1
+
+
+def test_agentwork_uc04_second_memory_query_only_on_graph_progress_or_explicit_continuation(  # noqa: E501
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    """UC-04: без новых refs/mcr третий RPC не делаем (финиш на 2-м ответе)."""
+    from agent_core.runtime.subprocess_agents import work_agent as wa
+    import agent_core.runtime.subprocess_agents.work_agent as wam
+
+    monkeypatch.setattr(
+        wa,
+        "load_merged_ailit_config_for_memory",
+        lambda: {
+            "memory": {"runtime": {"max_memory_queries_per_user_turn": 8}},
+        },
+    )
+    calls: list[dict[str, Any]] = []
+    idx = {"i": 0}
+    s1 = _slice("first partial")
+    s2 = _slice("second partial same graph")
+    amr1 = build_agent_memory_result_v1(
+        query_id="q1",
+        status="partial",
+        memory_slice=s1,
+        partial=True,
+        decision_summary="p1",
+        recommended_next_step="More context on auth",
+    )
+    amr2 = build_agent_memory_result_v1(
+        query_id="q2",
+        status="partial",
+        memory_slice=s2,
+        partial=True,
+        decision_summary="p2",
+        recommended_next_step="Still more on auth",
+    )
+    seq = (
+        {
+            "ok": True,
+            "payload": {
+                "memory_slice": s1,
+                "agent_memory_result": amr1,
+            },
+        },
+        {
+            "ok": True,
+            "payload": {
+                "memory_slice": s2,
+                "agent_memory_result": amr2,
+            },
+        },
+    )
+
+    class _SeqClient:
+        def __init__(self, _p: str) -> None:
+            pass
+
+        @property
+        def available(self) -> bool:
+            return True
+
+        def request(self, **kwargs: Any) -> dict[str, Any]:
+            pl = kwargs.get("payload")
+            if isinstance(pl, dict):
+                calls.append(dict(pl))
+            i = idx["i"]
+            idx["i"] += 1
+            if i >= len(seq):
+                return seq[-1]
+            return seq[i]
+
+    monkeypatch.setattr(wa, "_BrokerServiceClient", _SeqClient)
+
+    _WCS = wam._WorkChatSession  # noqa: SLF001
+    _RTE = wam._RuntimeEventEmitter  # noqa: SLF001
+    sess = _WCS()
+    sess._user_turn_id = f"ut-{uuid.uuid4().hex[:12]}"
+    sess._memory_queries_in_turn = 0
+    em = _RTE(identity=_identity(), parent_message_id="p1")
+
+    class _Cfg:
+        broker_socket_path: str = "/x"
+
+    class _Wpr:
+        _cfg = _Cfg()
+
+    msg = sess._request_memory_slice(
+        text="explore auth",
+        workspace=_workspace(tmp_path),
+        emitter=em,
+        identity=_identity(),
+        parent_message_id="p1",
+        worker=_Wpr(),
+    )
+    assert msg is not None
+    body = str(msg.content or "")
+    assert "second partial same graph" in body
+    assert "first partial" not in body
+    mem_svc = [p for p in calls if p.get("service") == "memory.query_context"]
+    assert len(mem_svc) == 2
+
+
+def test_agentwork_uc04_memory_continuation_required_allows_second_without_new_refs(  # noqa: E501
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+) -> None:
+    """UC-04: ``memory_continuation_required`` — второй RPC без новых refs."""
+    from agent_core.runtime.subprocess_agents import work_agent as wa
+    import agent_core.runtime.subprocess_agents.work_agent as wam
+
+    monkeypatch.setattr(
+        wa,
+        "load_merged_ailit_config_for_memory",
+        lambda: {
+            "memory": {"runtime": {"max_memory_queries_per_user_turn": 8}},
+        },
+    )
+    calls: list[dict[str, Any]] = []
+    idx = {"i": 0}
+    s1 = _slice("mcr partial")
+    s2 = _slice("final")
+    amr1 = build_agent_memory_result_v1(
+        query_id="q1",
+        status="partial",
+        memory_slice=s1,
+        partial=True,
+        decision_summary="p",
+        recommended_next_step="",
+        memory_continuation_required=True,
+    )
+    amr2 = build_agent_memory_result_v1(
+        query_id="q2",
+        status="complete",
+        memory_slice=s2,
+        partial=False,
+        decision_summary="ok",
+        recommended_next_step="",
+    )
+    seq = (
+        {
+            "ok": True,
+            "payload": {
+                "memory_slice": s1,
+                "agent_memory_result": amr1,
+            },
+        },
+        {
+            "ok": True,
+            "payload": {
+                "memory_slice": s2,
+                "agent_memory_result": amr2,
+            },
+        },
+    )
+
+    class _SeqClient:
+        def __init__(self, _p: str) -> None:
+            pass
+
+        @property
+        def available(self) -> bool:
+            return True
+
+        def request(self, **kwargs: Any) -> dict[str, Any]:
+            pl = kwargs.get("payload")
+            if isinstance(pl, dict):
+                calls.append(dict(pl))
+            i = idx["i"]
+            idx["i"] += 1
+            return seq[min(i, len(seq) - 1)]
+
+    monkeypatch.setattr(wa, "_BrokerServiceClient", _SeqClient)
+
+    _WCS = wam._WorkChatSession  # noqa: SLF001
+    _RTE = wam._RuntimeEventEmitter  # noqa: SLF001
+    sess = _WCS()
+    sess._user_turn_id = f"ut-{uuid.uuid4().hex[:12]}"
+    sess._memory_queries_in_turn = 0
+    em = _RTE(identity=_identity(), parent_message_id="p1")
+
+    class _Cfg:
+        broker_socket_path: str = "/x"
+
+    class _Wpr:
+        _cfg = _Cfg()
+
+    msg = sess._request_memory_slice(
+        text="x",
+        workspace=_workspace(tmp_path),
+        emitter=em,
+        identity=_identity(),
+        parent_message_id="p1",
+        worker=_Wpr(),
+    )
+    assert msg is not None
+    mem_svc = [p for p in calls if p.get("service") == "memory.query_context"]
+    assert len(mem_svc) == 2

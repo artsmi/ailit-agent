@@ -46,6 +46,7 @@ from agent_core.runtime.agent_memory_ailit_config import (
     load_merged_ailit_config_for_memory,
     max_memory_queries_per_user_turn,
 )
+from agent_core.runtime.agent_memory_result_v1 import FIX_MEMORY_LLM_JSON_STEP
 from agent_core.runtime.models import (
     AGENT_WORK_MEMORY_QUERY_V1,
     CONTRACT_VERSION,
@@ -144,24 +145,64 @@ def _partial_reasons_signal_continuation(amr: Mapping[str, Any]) -> bool:
     return False
 
 
-def _memory_path_should_continue(amr: Mapping[str, Any]) -> bool:
+_MEMORY_RNS_GENERIC_NO_FOLLOWUP_LOWER: Final[frozenset[str]] = frozenset(
+    (
+        "read selected context",
+        "provide more specific memory goal",
+    ),
+)
+
+
+def _recommended_next_step_implies_no_memory_followup(rns_raw: object) -> bool:
+    rns = str(rns_raw or "").strip()
+    if not rns:
+        return True
+    return rns.lower() in _MEMORY_RNS_GENERIC_NO_FOLLOWUP_LOWER
+
+
+def _memory_path_refs_strictly_expand(
+    amr: Mapping[str, Any],
+    *,
+    paths_before: frozenset[str],
+    nids_before: frozenset[str],
+) -> bool:
+    p2, n2 = _collect_refs_from_agent_memory_result(amr)
+    return bool((set(p2) - paths_before) | (set(n2) - nids_before))
+
+
+def _memory_path_partial_terminal(sot: _AgentMemoryPathSoT) -> bool:
+    amr = sot.agent_memory_result
+    rns = str(amr.get("recommended_next_step") or "").strip()
+    if rns == FIX_MEMORY_LLM_JSON_STEP:
+        return True
+    ms = sot.memory_slice
+    if isinstance(ms, Mapping) and bool(ms.get("w14_contract_failure")):
+        return True
+    return False
+
+
+def _memory_path_should_continue_loop(
+    sot: _AgentMemoryPathSoT,
+    *,
+    paths_before: frozenset[str],
+    nids_before: frozenset[str],
+) -> bool:
+    amr = sot.agent_memory_result
     if str(amr.get("status") or "").strip().lower() != "partial":
         return False
     if amr.get("memory_continuation_required") is True:
         return True
     if _partial_reasons_signal_continuation(amr):
         return True
-    rns = str(amr.get("recommended_next_step") or "").strip()
-    if not rns:
+    if _recommended_next_step_implies_no_memory_followup(
+        amr.get("recommended_next_step"),
+    ):
         return False
-    low = rns.lower()
-    generic = {
-        "read selected context",
-        "provide more specific memory goal",
-    }
-    if rns in generic or low in {x.lower() for x in generic}:
-        return False
-    return True
+    return _memory_path_refs_strictly_expand(
+        amr,
+        paths_before=paths_before,
+        nids_before=nids_before,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +237,9 @@ class _MemoryPathTurnClassifier:
     @staticmethod
     def outcome_kind(
         sot: _AgentMemoryPathSoT,
+        *,
+        paths_before: frozenset[str],
+        nids_before: frozenset[str],
     ) -> Literal["continue", "finish_inject", "finish_silent"]:
         amr = sot.agent_memory_result
         st = str(amr.get("status") or "").strip().lower()
@@ -204,7 +248,13 @@ class _MemoryPathTurnClassifier:
         if st == "complete":
             return "finish_inject"
         if st == "partial":
-            if _memory_path_should_continue(amr):
+            if _memory_path_partial_terminal(sot):
+                return "finish_inject"
+            if _memory_path_should_continue_loop(
+                sot,
+                paths_before=paths_before,
+                nids_before=nids_before,
+            ):
                 return "continue"
             return "finish_inject"
         if st:
@@ -340,6 +390,7 @@ _MEMORY_QUERY_TIMEOUT_EVENT: Final[str] = "memory.query.timeout"
 _MEMORY_QUERY_CONTINUATION_EVENT: Final[str] = (
     "memory.query_context.continuation"
 )
+_MEMORY_QUERY_CONTINUATION_REASON: Final[str] = "continuation"
 
 
 def _publish_memory_query_timeout(
@@ -491,6 +542,8 @@ class _WorkChatSession:
         subgoal = (text or "").strip() or "task"
 
         while True:
+            paths_before = frozenset(known_paths)
+            nids_before = frozenset(known_node_ids)
             if self._memory_queries_in_turn >= mem_cap:
                 emitter.publish(
                     event_type="memory.query.budget_exceeded",
@@ -585,7 +638,11 @@ class _WorkChatSession:
                     },
                 )
                 return None
-            outcome = _MemoryPathTurnClassifier.outcome_kind(sot)
+            outcome = _MemoryPathTurnClassifier.outcome_kind(
+                sot,
+                paths_before=paths_before,
+                nids_before=nids_before,
+            )
             self._memory_queries_in_turn += 1
 
             if outcome == "continue":
@@ -599,7 +656,7 @@ class _WorkChatSession:
                         "user_turn_id": self._user_turn_id,
                         "previous_query_id": qid,
                         "next_query_id": next_qid,
-                        "reason": "continuation",
+                        "reason": _MEMORY_QUERY_CONTINUATION_REASON,
                     },
                 )
                 p2, n2 = _collect_refs_from_agent_memory_result(

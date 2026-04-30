@@ -10,13 +10,19 @@
 
 | Topic | Producer (типично) | Минимальный compact-payload | Ссылка |
 |-------|--------------------|-----------------------------|--------|
-| `memory.query_context.continuation` | AgentWork | `user_turn_id`, `previous_query_id`, `next_query_id`, `reason` (= `continuation`) | `architecture.md` §5 Event continuation; `broker-memory-work-inject.md` (W14 continuation) |
+| `memory.query_context.continuation` | AgentWork | `user_turn_id`, `previous_query_id`, `next_query_id`, `reason` (= `continuation`, см. ниже) | `architecture.md` §5 Event continuation; `broker-memory-work-inject.md` (W14 continuation) |
+
+### Поле `reason` у `memory.query_context.continuation`
+
+Допустимое значение **ровно одно**: строка `continuation` (латиница, нижний регистр). В коде AgentWork литерал синхронизирован с таблицей через константу **`_MEMORY_QUERY_CONTINUATION_REASON`** в `tools/agent_core/runtime/subprocess_agents/work_agent.py` (значение совпадает с этим абзацем дословно).
 | `memory.query.timeout` | AgentWork | `query_id`, `user_turn_id`, `code` (напр. `runtime_timeout`), `timeout_s` | `architecture.md` §5 Event memory query timeout |
 | `memory.query.budget_exceeded` | AgentWork | §5: `cap`, `user_turn_id`; в `work_agent.py` дополнительно `code` (`too_many_memory_queries`) | `architecture.md` §5 Event cap exceeded |
 | `memory.actor_unavailable` | AgentWork | причина/ошибка без сырого prompt | `broker-memory-work-inject.md`, ветки broker/socket/SoT |
 | `memory.actor_slice_used` | AgentWork | успешный непустой слайс перед инжектом | `broker-memory-work-inject.md` §Условие публикации |
 | `memory.actor_slice_skipped` | AgentWork | пустой `injected_text` после успешного ответа AM | `broker-memory-work-inject.md` §Условие публикации |
 | `context.memory_injected` | AgentWork | схема `context.memory_injected.v2`, в т.ч. `usage_state` | `broker-memory-work-inject.md` §Обязательная тройка |
+| `memory.command.normalized` | AgentMemory (`AgentMemoryQueryPipeline` → journal) | `from_schema_version`, `to_schema_version` (= `agent_memory_command_output.v1`), опционально `from_status` (легаси до маппинга), `command_id_restored` (bool), усечённые `command` / `command_id` | `broker-memory-work-inject.md` §W14 planner canonicalization; ТЗ UC-01 |
+| `memory.w14.command_id_restored` | AgentMemory (journal) | `command_id` (усечённый канонический id после восстановления из runtime trace) | ТЗ UC-02; пишется только если восстановление применено |
 
 События **`memory.query_context.continuation`**, **`memory.query.timeout`**, **`memory.query.budget_exceeded`** — зона **D-OBS-1** по отношению к ТЗ §3.2 и **architecture.md** §5; остальные строки в таблице — уже используемые соседние compact-топики того же пути (не подменяют timeout/continuation).
 
