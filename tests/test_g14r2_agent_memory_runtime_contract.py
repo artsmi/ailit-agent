@@ -3,8 +3,18 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+
 import pytest
 
+from agent_core.memory.pag_runtime import PagRuntimeConfig
+from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_core.models import (
+    ChatRequest,
+    FinishReason,
+    NormalizedChatResponse,
+    NormalizedUsage,
+)
 from agent_core.runtime.agent_memory_runtime_contract import (
     AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
     AgentMemoryCommandRegistry,
@@ -18,6 +28,73 @@ from agent_core.runtime.agent_memory_runtime_contract import (
     parse_memory_query_pipeline_llm_text_result,
     parse_w14_command_output_text_strict,
 )
+from agent_core.runtime.models import RuntimeIdentity, make_request_envelope
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
+from agent_core.runtime.subprocess_agents.memory_agent import (
+    AgentMemoryWorker,
+    MemoryAgentConfig,
+)
+
+
+class _OneShotProvider:
+    def __init__(self, body: str) -> None:
+        self._body = body
+        self.calls: list[ChatRequest] = []
+
+    @property
+    def provider_id(self) -> str:
+        return "g14r2-uc-mock"
+
+    def complete(self, request: ChatRequest) -> NormalizedChatResponse:
+        self.calls.append(request)
+        return NormalizedChatResponse(
+            text_parts=(self._body,),
+            tool_calls=(),
+            finish_reason=FinishReason.STOP,
+            usage=NormalizedUsage(
+                input_tokens=1,
+                output_tokens=1,
+                total_tokens=2,
+            ),
+            provider_metadata={"mock": "g14r2-uc"},
+            raw_debug_payload=None,
+        )
+
+    def stream(self, request: ChatRequest) -> None:
+        raise NotImplementedError
+
+
+def _uc_env(
+    root: Path,
+    *,
+    goal: str,
+    path: str,
+    qid: str = "mem-uc-g14r2",
+) -> object:
+    ident = RuntimeIdentity(
+        runtime_id="rt-uc",
+        chat_id="c-uc-g14r2",
+        broker_id="b1",
+        trace_id="t1",
+        goal_id="g1",
+        namespace="ns-uc-g14r2",
+    )
+    return make_request_envelope(
+        identity=ident,
+        message_id="m1",
+        parent_message_id=None,
+        from_agent="AgentWork",
+        to_agent="AgentMemory:global",
+        msg_type="service.request",
+        payload={
+            "service": "memory.query_context",
+            "request_id": "r1",
+            "goal": goal,
+            "path": path,
+            "query_id": qid,
+            "project_root": str(root),
+        },
+    )
 
 
 def _minimal_w14_envelope() -> str:
@@ -96,11 +173,11 @@ def test_w14_schema_version_mismatch_can_be_canonicalized() -> None:
 
 def test_w14_schema_version_canonicalization_requires_exact_rest_shape(
 ) -> None:
-    """schema_version is the only field runtime may repair locally."""
+    """Лишние поля не снимаются локальной каноникализацией."""
     o = json.loads(_minimal_w14_envelope())
     o["schema_version"] = "1.0"
     o["extra"] = "nope"
-    with pytest.raises(W14CommandParseError, match="not agent_memory"):
+    with pytest.raises(W14CommandParseError, match="unknown_fields"):
         parse_memory_query_pipeline_llm_text_result(json.dumps(o))
 
 
@@ -115,3 +192,275 @@ def test_legacy_planner_allows_json_extract() -> None:
     wrapped = f"prefix text then {json.dumps(inner)} trailing"
     d = parse_memory_query_pipeline_llm_text(wrapped)
     assert d.get("decision_summary") == "x"
+
+
+def test_w14_uc01_canonical_envelope_avoids_superfluous_repair(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UC-01: schema 1.0 только — один LLM-вызов, без w14_contract_failure."""
+    db = tmp_path / "uc01.sqlite3"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    rm = tmp_path / "README.md"
+    rm.write_text("# Demo\n", encoding="utf-8")
+    wseed = PagGraphWriteService(
+        SqlitePagStore(PagRuntimeConfig.from_env().db_path),
+    )
+    wseed.upsert_node(
+        namespace="ns-uc-g14r2",
+        node_id="C:README.md#intro",
+        level="C",
+        kind="section",
+        path="README.md",
+        title="intro",
+        summary="About",
+        attrs={},
+        fingerprint="fp1",
+        staleness_state="fresh",
+    )
+    pl: dict[str, object] = {
+        "finish": True,
+        "status": "complete",
+        "selected_results": [
+            {
+                "kind": "c_summary",
+                "path": "README.md",
+                "node_id": "C:README.md#intro",
+                "summary": None,
+                "read_lines": [],
+                "reason": "uc01",
+            },
+        ],
+        "decision_summary": "d",
+        "recommended_next_step": "",
+    }
+    o: dict[str, object] = {
+        "schema_version": "1.0",
+        "command": "finish_decision",
+        "command_id": "fd-uc01",
+        "status": "ok",
+        "payload": pl,
+        "decision_summary": "d",
+        "violations": [],
+    }
+    prov = _OneShotProvider(json.dumps(o, ensure_ascii=False))
+    worker = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-uc-g14r2",
+            broker_id="b1",
+            namespace="ns-uc-g14r2",
+        ),
+    )
+    monkeypatch.setattr(worker, "_provider", prov, raising=False)
+    out = worker.handle(
+        _uc_env(tmp_path, goal="о чем readme", path="README.md"),
+    )
+    assert out.get("ok") is True
+    assert len(prov.calls) == 1
+    msl: object = (out.get("payload") or {}).get("memory_slice")
+    assert isinstance(msl, dict)
+    assert msl.get("w14_contract_failure") is not True
+
+
+def test_w14_uc02_command_id_restored_from_runtime_without_stale_repair_loop(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UC-02: 1.0 + null command_id + success + runtime id — один LLM-вызов."""
+    db = tmp_path / "uc02.sqlite3"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    rm = tmp_path / "README.md"
+    rm.write_text("# X\n", encoding="utf-8")
+    wseed = PagGraphWriteService(
+        SqlitePagStore(PagRuntimeConfig.from_env().db_path),
+    )
+    wseed.upsert_node(
+        namespace="ns-uc-g14r2",
+        node_id="C:README.md#x",
+        level="C",
+        kind="section",
+        path="README.md",
+        title="x",
+        summary="S",
+        attrs={},
+        fingerprint="fp2",
+        staleness_state="fresh",
+    )
+    pl: dict[str, object] = {
+        "finish": True,
+        "status": "complete",
+        "selected_results": [
+            {
+                "kind": "c_summary",
+                "path": "README.md",
+                "node_id": "C:README.md#x",
+                "summary": None,
+                "read_lines": [],
+                "reason": "uc02",
+            },
+        ],
+        "decision_summary": "d",
+        "recommended_next_step": "",
+    }
+    o = {
+        "schema_version": "1.0",
+        "command": "finish_decision",
+        "command_id": None,
+        "status": "success",
+        "payload": pl,
+        "decision_summary": "d",
+        "violations": [],
+    }
+    prov = _OneShotProvider(json.dumps(o, ensure_ascii=False))
+    worker = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-uc-g14r2",
+            broker_id="b1",
+            namespace="ns-uc-g14r2",
+        ),
+    )
+    monkeypatch.setattr(worker, "_provider", prov, raising=False)
+    out = worker.handle(
+        _uc_env(tmp_path, goal="g", path="README.md", qid="q-uc02"),
+    )
+    assert out.get("ok") is True
+    assert len(prov.calls) == 1
+    msl2: object = (out.get("payload") or {}).get("memory_slice")
+    assert isinstance(msl2, dict)
+    assert msl2.get("w14_contract_failure") is not True
+
+
+def test_w14_uc01_canonicalization_emits_compact_schema_transition(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UC-01: journal memory.command.normalized, from/to schema_version."""
+    db = tmp_path / "uc01obs.sqlite3"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    (tmp_path / "r.md").write_text("#\n", encoding="utf-8")
+    wseed = PagGraphWriteService(
+        SqlitePagStore(PagRuntimeConfig.from_env().db_path),
+    )
+    wseed.upsert_node(
+        namespace="ns-uc-g14r2",
+        node_id="C:r.md#1",
+        level="C",
+        kind="section",
+        path="r.md",
+        title="t",
+        summary="S",
+        attrs={},
+        fingerprint="fp3",
+        staleness_state="fresh",
+    )
+    pl: dict[str, object] = {
+        "finish": True,
+        "status": "complete",
+        "selected_results": [
+            {
+                "kind": "c_summary",
+                "path": "r.md",
+                "node_id": "C:r.md#1",
+                "summary": None,
+                "read_lines": [],
+                "reason": "o",
+            },
+        ],
+        "decision_summary": "d",
+        "recommended_next_step": "",
+    }
+    o: dict[str, object] = {
+        "schema_version": "1.0",
+        "command": "finish_decision",
+        "command_id": "x",
+        "status": "ok",
+        "payload": pl,
+        "decision_summary": "d",
+        "violations": [],
+    }
+    prov = _OneShotProvider(json.dumps(o, ensure_ascii=False))
+    worker = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-uc-g14r2",
+            broker_id="b1",
+            namespace="ns-uc-g14r2",
+        ),
+    )
+    monkeypatch.setattr(worker, "_provider", prov, raising=False)
+    worker.handle(_uc_env(tmp_path, goal="g", path="r.md", qid="q-obs1"))
+    rows = list(
+        worker._journal.filter_rows(  # noqa: SLF001
+            event_name="memory.command.normalized",
+        ),
+    )
+    assert rows, "expected memory.command.normalized journal row"
+    pay = rows[-1].payload
+    assert pay.get("from_schema_version") == "1.0"
+    assert pay.get("to_schema_version") == AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
+
+
+def test_w14_uc02_command_id_restore_emits_compact_fact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """UC-02 observability: факт восстановления command_id в journal."""
+    db = tmp_path / "uc02obs.sqlite3"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    (tmp_path / "z.md").write_text("#\n", encoding="utf-8")
+    wseed = PagGraphWriteService(
+        SqlitePagStore(PagRuntimeConfig.from_env().db_path),
+    )
+    wseed.upsert_node(
+        namespace="ns-uc-g14r2",
+        node_id="C:z.md#1",
+        level="C",
+        kind="section",
+        path="z.md",
+        title="t",
+        summary="S",
+        attrs={},
+        fingerprint="fp4",
+        staleness_state="fresh",
+    )
+    pl: dict[str, object] = {
+        "finish": True,
+        "status": "complete",
+        "selected_results": [
+            {
+                "kind": "c_summary",
+                "path": "z.md",
+                "node_id": "C:z.md#1",
+                "summary": None,
+                "read_lines": [],
+                "reason": "o",
+            },
+        ],
+        "decision_summary": "d",
+        "recommended_next_step": "",
+    }
+    o = {
+        "schema_version": "agent_memory_command_output.v1",
+        "command": "finish_decision",
+        "command_id": None,
+        "status": "ok",
+        "payload": pl,
+        "decision_summary": "d",
+        "violations": [],
+    }
+    prov = _OneShotProvider(json.dumps(o, ensure_ascii=False))
+    worker = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-uc-g14r2",
+            broker_id="b1",
+            namespace="ns-uc-g14r2",
+        ),
+    )
+    monkeypatch.setattr(worker, "_provider", prov, raising=False)
+    worker.handle(_uc_env(tmp_path, goal="g", path="z.md", qid="q-obs2"))
+    rows = list(
+        worker._journal.filter_rows(  # noqa: SLF001
+            event_name="memory.w14.command_id_restored",
+        ),
+    )
+    assert rows, "expected memory.w14.command_id_restored journal row"
+    assert rows[-1].payload.get("command_id")

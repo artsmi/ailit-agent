@@ -16,6 +16,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from threading import Event
 from typing import Any, Protocol
 
 from agent_core.bash_runner import BashRunOutcome, run_bash_command
@@ -630,6 +631,7 @@ class WorkTaskOrchestrator:
         event_sink: SessionEventSink | None,
         publisher: RuntimePublisher,
         wait_for_approval: Callable[[str], None],
+        cooperative_cancel: Event | None = None,
     ) -> None:
         """Bind dependencies for one task execution."""
         self._runner = runner
@@ -639,6 +641,7 @@ class WorkTaskOrchestrator:
         self._event_sink = event_sink
         self._publisher = publisher
         self._wait_for_approval = wait_for_approval
+        self._cooperative_cancel = cooperative_cancel
         self._classifier = TaskClassifier()
         self._planner = MicroPlanner()
         self._verifier = RuntimeVerifier()
@@ -769,6 +772,7 @@ class WorkTaskOrchestrator:
                 self._settings,
                 diag_sink=None,
                 event_sink=self._event_sink,
+                cancel=self._cooperative_cancel,
             )
             changed = _merge_unique(
                 changed,

@@ -47,6 +47,29 @@ class W14CommandParseResult:
     obj: dict[str, Any]
     normalized: bool = False
     from_schema_version: str = ""
+    legacy_status_from: str = ""
+    command_id_restored: bool = False
+
+
+_W14_CANON_STATUSES: Final[frozenset[str]] = frozenset(
+    ("ok", "partial", "refuse"),
+)
+
+# UC-02: легаси top-level status → канон (ok|partial|refuse).
+_LEGACY_W14_STATUS_MAP: Final[dict[str, str]] = {
+    "success": "ok",
+    "completed": "ok",
+    "complete": "ok",
+    "done": "ok",
+    "ok": "ok",
+    "partial": "partial",
+    "refuse": "refuse",
+    "rejected": "refuse",
+    "error": "refuse",
+    "failed": "refuse",
+    "failure": "refuse",
+    "blocked": "partial",
+}
 
 
 class UnknownRuntimeStateError(ValueError):
@@ -342,6 +365,9 @@ def validate_w14_command_envelope_object(
     for k in ("command", "command_id", "status"):
         if not isinstance(obj.get(k), str):
             raise W14CommandParseError(f"{k} must be a string")
+    st_norm = str(obj.get("status") or "").strip().lower()
+    if st_norm not in _W14_CANON_STATUSES:
+        raise W14CommandParseError(f"invalid_w14_envelope_status:{st_norm!r}")
     p = obj.get("payload", {})
     if not isinstance(p, dict):
         raise W14CommandParseError("payload must be an object")
@@ -355,29 +381,93 @@ def validate_w14_command_envelope_object(
     return {str(x): y for x, y in obj.items()}
 
 
+def _remap_w14_envelope_status(
+    raw: Any,
+) -> tuple[str | None, str]:
+    """
+    UC-02: привести top-level status к ok|partial|refuse.
+
+    Возвращает пару: новое значение или None, legacy_from для логов.
+    """
+    if not isinstance(raw, str):
+        return None, ""
+    s = raw.strip()
+    if not s:
+        return None, ""
+    lk = s.lower()
+    if lk in _W14_CANON_STATUSES:
+        return lk, ""
+    mapped = _LEGACY_W14_STATUS_MAP.get(lk)
+    if mapped is not None:
+        return mapped, s
+    raise W14CommandParseError(f"unknown_legacy_w14_status:{s!r}")
+
+
 def validate_or_canonicalize_w14_command_envelope_object(
     obj: Mapping[str, Any],
+    *,
+    runtime_command_id: str | None = None,
 ) -> W14CommandParseResult:
-    """Validate W14 envelope, allowing only schema_version canonicalization."""
+    """
+    Валидация W14 envelope с механической каноникализацией (UC-01/UC-02).
+
+    Устраняет без LLM-repair: schema_version, легаси status, пустой command_id
+    при известном runtime_command_id.
+    """
     try:
         return W14CommandParseResult(
             obj=validate_w14_command_envelope_object(obj),
         )
-    except W14CommandParseError as first_err:
-        raw_schema = obj.get("schema_version")
-        if raw_schema == AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA:
-            raise
-        candidate: dict[str, Any] = {str(x): y for x, y in obj.items()}
+    except W14CommandParseError:
+        pass
+
+    candidate: dict[str, Any] = {str(x): y for x, y in obj.items()}
+    from_schema_version = ""
+    legacy_status_from = ""
+    command_id_restored = False
+
+    if (
+        str(candidate.get("schema_version") or "").strip()
+        != AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
+    ):
+        from_schema_version = str(candidate.get("schema_version") or "")
         candidate["schema_version"] = AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
-        try:
-            parsed = validate_w14_command_envelope_object(candidate)
-        except W14CommandParseError:
-            raise first_err
-        return W14CommandParseResult(
-            obj=parsed,
-            normalized=True,
-            from_schema_version=str(raw_schema or ""),
+
+    rt = (runtime_command_id or "").strip()
+    cid_raw = candidate.get("command_id")
+    if (not isinstance(cid_raw, str) or not str(cid_raw).strip()) and rt:
+        candidate["command_id"] = rt
+        command_id_restored = True
+
+    new_status, legacy_status_from = _remap_w14_envelope_status(
+        candidate.get("status"),
+    )
+    if new_status is not None:
+        candidate["status"] = new_status
+
+    try:
+        parsed = validate_w14_command_envelope_object(candidate)
+    except W14CommandParseError as err:
+        cid_now = candidate.get("command_id")
+        needs_runtime = (
+            not isinstance(cid_now, str) or not str(cid_now).strip()
         )
+        if needs_runtime and not rt:
+            raise W14CommandParseError(
+                "w14_command_id_not_recoverable:no_runtime_command_id",
+            ) from err
+        raise err
+
+    normalized = bool(
+        from_schema_version or legacy_status_from or command_id_restored,
+    )
+    return W14CommandParseResult(
+        obj=parsed,
+        normalized=normalized,
+        from_schema_version=from_schema_version,
+        legacy_status_from=legacy_status_from,
+        command_id_restored=command_id_restored,
+    )
 
 
 def _json_extract_object(text: str) -> str | None:
@@ -398,6 +488,8 @@ def _json_extract_object(text: str) -> str | None:
 
 def parse_memory_query_pipeline_llm_text_result(
     text: str,
+    *,
+    runtime_command_id: str | None = None,
 ) -> W14CommandParseResult:
     """
     Парсинг ответа memory planner/LLM для `AgentMemoryQueryPipeline`.
@@ -432,7 +524,10 @@ def parse_memory_query_pipeline_llm_text_result(
     if not isinstance(o, dict):
         raise ValueError("memory json must be an object")
     if _is_w14_like_command_object(o):
-        return validate_or_canonicalize_w14_command_envelope_object(o)
+        return validate_or_canonicalize_w14_command_envelope_object(
+            o,
+            runtime_command_id=runtime_command_id,
+        )
     return W14CommandParseResult(obj=o)
 
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -53,6 +55,32 @@ if TYPE_CHECKING:
     from agent_core.runtime.subprocess_agents.memory_agent import (
         AgentMemoryWorker,
     )
+
+_memory_pipeline_cancel_tls = threading.local()
+
+
+class MemoryQueryCancelledError(Exception):
+    """Сигнал cooperative cancel для ``memory.query_context`` pipeline."""
+
+
+def _memory_pipeline_begin_cancel(
+    cancel_event: threading.Event | None,
+) -> None:
+    """Привязать cancel-event к текущему потоку (``memory.query_context``)."""
+    setattr(_memory_pipeline_cancel_tls, "cancel_event", cancel_event)
+
+
+def _memory_pipeline_end_cancel() -> None:
+    """Снять привязку cancel-event после ``pl.run``."""
+    if hasattr(_memory_pipeline_cancel_tls, "cancel_event"):
+        delattr(_memory_pipeline_cancel_tls, "cancel_event")
+
+
+def _memory_pipeline_coop_check() -> None:
+    ev = getattr(_memory_pipeline_cancel_tls, "cancel_event", None)
+    if isinstance(ev, threading.Event) and ev.is_set():
+        raise MemoryQueryCancelledError()
+
 
 # G14R.6: C/B LLM — `agent_core.runtime.agent_memory_summary_service` (D14R.4);
 # не `agent_core.legacy` C extraction.
@@ -191,6 +219,13 @@ class AgentMemoryQueryPipeline:
         level: str,
     ) -> AgentMemoryQueryPipelineResult:
         nspace = str(req.namespace or self._w._cfg.namespace)  # noqa: SLF001
+        hold_raw = os.environ.get(
+            "AILIT_TEST_MEMORY_PIPELINE_HOLD_S",
+            "",
+        ).strip()
+        if hold_raw:
+            time.sleep(float(hold_raw))
+        _memory_pipeline_coop_check()
         if not self._policy.enabled:
             self._w.log_memory_why_llm(  # noqa: SLF001
                 req,
@@ -333,6 +368,7 @@ class AgentMemoryQueryPipeline:
             counters={"runtime_transitions": 1},
         )
         try:
+            _memory_pipeline_coop_check()
             resp = self._prov.complete(c_req)
         except Exception as exc:  # noqa: BLE001
             self._w.log_memory_llm_verbose(  # noqa: SLF001
@@ -354,7 +390,10 @@ class AgentMemoryQueryPipeline:
         )
         raw_txt = "".join(resp.text_parts).strip()
         try:
-            plan_result = parse_memory_query_pipeline_llm_text_result(raw_txt)
+            plan_result = parse_memory_query_pipeline_llm_text_result(
+                raw_txt,
+                runtime_command_id=pl_command_trace,
+            )
         except W14CommandParseError as exc:
             repaired = self._repair_w14_command_output(
                 req=req,
@@ -362,6 +401,7 @@ class AgentMemoryQueryPipeline:
                 original_text=raw_txt,
                 validation_error=str(exc),
                 base_request=c_req,
+                runtime_command_id=pl_command_trace,
             )
             if repaired is not None:
                 plan_result = repaired
@@ -397,16 +437,30 @@ class AgentMemoryQueryPipeline:
                 self._nj(
                     req=req,
                     event_name="memory.command.normalized",
-                    summary="w14 command schema_version canonicalized",
+                    summary="w14 command envelope canonicalized",
                     request_id=request_id,
                     payload={
                         "from_schema_version": plan_result.from_schema_version,
                         "to_schema_version": (
                             AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
                         ),
+                        "from_status": plan_result.legacy_status_from,
+                        "command_id_restored": plan_result.command_id_restored,
                         "command": str(
                             plan_result.obj.get("command", "") or "",
                         )[:200],
+                        "command_id": str(
+                            plan_result.obj.get("command_id", "") or "",
+                        )[:200],
+                    },
+                )
+            if plan_result.command_id_restored:
+                self._nj(
+                    req=req,
+                    event_name="memory.w14.command_id_restored",
+                    summary="w14 command_id restored from runtime trace id",
+                    request_id=request_id,
+                    payload={
                         "command_id": str(
                             plan_result.obj.get("command_id", "") or "",
                         )[:200],
@@ -497,6 +551,7 @@ class AgentMemoryQueryPipeline:
         original_text: str,
         validation_error: str,
         base_request: ChatRequest,
+        runtime_command_id: str,
     ) -> W14CommandParseResult | None:
         if not self._should_repair_w14_error(validation_error):
             return None
@@ -534,6 +589,7 @@ class AgentMemoryQueryPipeline:
             model_override=self._policy.model or base_request.model,
         )
         try:
+            _memory_pipeline_coop_check()
             resp = self._prov.complete(repair_req)
         except Exception as exc:  # noqa: BLE001
             self._w.log_memory_llm_verbose(  # noqa: SLF001
@@ -555,7 +611,10 @@ class AgentMemoryQueryPipeline:
         )
         raw = "".join(resp.text_parts).strip()
         try:
-            return parse_memory_query_pipeline_llm_text_result(raw)
+            return parse_memory_query_pipeline_llm_text_result(
+                raw,
+                runtime_command_id=runtime_command_id,
+            )
         except (W14CommandParseError, ValueError):
             return None
 
@@ -1170,6 +1229,7 @@ class AgentMemoryQueryPipeline:
             phase="extractor",
             model_override=self._policy.model or "mock-memory",
         )
+        _memory_pipeline_coop_check()
         resp = self._prov.complete(c_req)
         self._w.log_memory_llm_verbose(  # noqa: SLF001
             req,

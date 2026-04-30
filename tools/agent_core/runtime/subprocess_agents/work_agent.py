@@ -97,6 +97,9 @@ class _Workspace:
     project_roots: tuple[Path, ...] = field(default_factory=tuple)
 
 
+RUNTIME_CANCEL_ACTIVE_TURN: Final[str] = "runtime.cancel_active_turn"
+_BROKER_MEMORY_RPC_CANCELLED: Final[str] = "broker_memory_rpc_cancelled"
+
 _MEMORY_RPC_FAILED_ADVISORY: str = (
     "AgentMemory RPC failed or timed out. This turn does not have a complete "
     "memory result. Tell the user; do not use glob_file, read_file, or "
@@ -412,6 +415,22 @@ def _publish_memory_query_timeout(
     )
 
 
+def _worker_cooperative_cancel_requested(worker: Any) -> bool:
+    fn = getattr(worker, "cooperative_cancel_requested", None)
+    if callable(fn):
+        return bool(fn())
+    ev = getattr(worker, "_active_turn_cancel_ev", None)
+    return isinstance(ev, threading.Event) and ev.is_set()
+
+
+def _worker_active_turn_cancel_event(worker: Any) -> threading.Event | None:
+    fn = getattr(worker, "active_turn_cancel_event", None)
+    if callable(fn):
+        return fn()
+    ev = getattr(worker, "_active_turn_cancel_ev", None)
+    return ev if isinstance(ev, threading.Event) else None
+
+
 class _BrokerServiceClient:
     """Синхронный локальный клиент AgentWork -> Broker services."""
 
@@ -430,6 +449,7 @@ class _BrokerServiceClient:
         to_agent: str,
         payload: Mapping[str, Any],
         timeout_s: float = 15.0,
+        cancel_event: threading.Event | None = None,
     ) -> Mapping[str, Any]:
         """Send one service.request through the broker Unix socket."""
         if not self._socket_path:
@@ -445,16 +465,43 @@ class _BrokerServiceClient:
         )
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            sock.settimeout(timeout_s)
+            sock.settimeout(0.25)
             sock.connect(self._socket_path)
             sock.sendall(env.to_json_line().encode("utf-8") + b"\n")
-            data = sock.recv(2_000_000)
+            buf = bytearray()
+            deadline = time.monotonic() + float(timeout_s)
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    try:
+                        sock.shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        pass
+                    raise RuntimeError(_BROKER_MEMORY_RPC_CANCELLED)
+                if time.monotonic() > deadline:
+                    raise TimeoutError("broker recv deadline")
+                try:
+                    chunk = sock.recv(65_536)
+                except TimeoutError:
+                    continue
+                except OSError as exc:
+                    if (
+                        cancel_event is not None
+                        and cancel_event.is_set()
+                    ):
+                        err = RuntimeError(_BROKER_MEMORY_RPC_CANCELLED)
+                        raise err from exc
+                    raise
+                if not chunk:
+                    break
+                buf.extend(chunk)
+                if b"\n" in buf or len(buf) > 1_900_000:
+                    break
         finally:
             try:
                 sock.close()
             except OSError:
                 pass
-        raw = data.decode("utf-8", errors="replace").strip()
+        raw = buf.decode("utf-8", errors="replace").strip().split("\n", 1)[0]
         if not raw:
             raise RuntimeError("empty broker response")
         parsed = json.loads(raw)
@@ -542,6 +589,8 @@ class _WorkChatSession:
         subgoal = (text or "").strip() or "task"
 
         while True:
+            if _worker_cooperative_cancel_requested(worker):
+                return None
             paths_before = frozenset(known_paths)
             nids_before = frozenset(known_node_ids)
             if self._memory_queries_in_turn >= mem_cap:
@@ -582,6 +631,7 @@ class _WorkChatSession:
                     to_agent="AgentMemory:global",
                     payload=payload,
                     timeout_s=rpc_to,
+                    cancel_event=_worker_active_turn_cancel_event(worker),
                 )
             except TimeoutError:
                 _publish_memory_query_timeout(
@@ -590,6 +640,18 @@ class _WorkChatSession:
                     user_turn_id=self._user_turn_id,
                     timeout_s=rpc_to,
                     code="runtime_timeout",
+                )
+                return None
+            except RuntimeError as exc:
+                if str(exc) == _BROKER_MEMORY_RPC_CANCELLED:
+                    return None
+                emitter.publish(
+                    event_type="memory.actor_unavailable",
+                    payload={
+                        "reason": "broker_request_failed",
+                        "error": str(exc),
+                        "fallback": "none",
+                    },
                 )
                 return None
             except Exception as exc:  # noqa: BLE001
@@ -603,11 +665,15 @@ class _WorkChatSession:
                 )
                 return None
             ok = bool(resp.get("ok", False))
+            if _worker_cooperative_cancel_requested(worker):
+                return None
             if not ok:
                 err_raw = resp.get("error")
                 err_code = ""
                 if isinstance(err_raw, Mapping):
                     err_code = str(err_raw.get("code") or "")
+                if err_code in ("cancelled", "memory_query_cancelled"):
+                    return None
                 if err_code == "runtime_timeout":
                     _publish_memory_query_timeout(
                         emitter,
@@ -628,6 +694,8 @@ class _WorkChatSession:
                 return None
             pl_any = resp.get("payload")
             pl = pl_any if isinstance(pl_any, dict) else {}
+            if _worker_cooperative_cancel_requested(worker):
+                return None
             sot = _AgentMemoryPathSoTParser.parse_payload(pl)
             if sot is None:
                 emitter.publish(
@@ -847,6 +915,7 @@ class _WorkChatSession:
         emitter: _RuntimeEventEmitter,
         identity: RuntimeIdentity,
         worker: "AgentWorkWorker",
+        action_id: str = "",
     ) -> Mapping[str, Any]:
         self._messages.append(ChatMessage(role=MessageRole.USER, content=text))
         self._user_turns += 1
@@ -875,6 +944,19 @@ class _WorkChatSession:
             else (workspace.project_root.resolve(),)
         )
         assistant_mid = f"asst-{uuid.uuid4()}"
+        with worker._state_lock:
+            worker._active_turn_cancel_ev = threading.Event()
+        eff_action_id = (
+            str(action_id or "").strip() or f"inproc-{uuid.uuid4().hex[:16]}"
+        )
+        emitter.publish(
+            event_type="action.started",
+            payload={
+                "action": "work.handle_user_prompt",
+                "action_id": eff_action_id,
+                "user_turn_id": self._user_turn_id,
+            },
+        )
         restored_d_msg = self._restore_d_context(
             workspace=workspace,
             emitter=emitter,
@@ -887,6 +969,13 @@ class _WorkChatSession:
             parent_message_id=assistant_mid,
             worker=worker,
         )
+        if _worker_cooperative_cancel_requested(worker):
+            return {
+                "ok": False,
+                "cancelled": True,
+                "error": "cancelled",
+                "user_turn_id": self._user_turn_id,
+            }
         provider_obj, model_eff = _ProviderAssembler().build(
             project_root=workspace.project_root,
         )
@@ -1125,8 +1214,11 @@ class _WorkChatSession:
                     or "edit",
                 )
 
+        turn_id_for_sink = self._user_turn_id
+
         def sink(ev: SessionEvent) -> None:
             p: MutableMapping[str, Any] = dict(ev.payload)
+            p.setdefault("user_turn_id", turn_id_for_sink)
             if ev.type.startswith("context."):
                 p.setdefault("chat_id", identity.chat_id)
             if ev.type in ("assistant.delta", "assistant.thinking"):
@@ -1174,6 +1266,7 @@ class _WorkChatSession:
             base_messages.append(restored_d_msg)
         if memory_slice_msg is not None:
             base_messages.append(memory_slice_msg)
+        cancel_ev = _worker_active_turn_cancel_event(worker)
         orchestrator = WorkTaskOrchestrator(
             runner=runner,
             approvals=worker._approval,  # type: ignore[attr-defined]
@@ -1182,6 +1275,7 @@ class _WorkChatSession:
             event_sink=sink,  # type: ignore[arg-type]
             publisher=emitter,
             wait_for_approval=wait_for_approval,
+            cooperative_cancel=cancel_ev,
         )
         result = orchestrator.run(
             WorkTaskRequest(
@@ -1193,11 +1287,21 @@ class _WorkChatSession:
             ),
         )
         self._messages = self._strip_transient_memory(list(result.messages))
+        if _worker_cooperative_cancel_requested(worker) or str(
+            result.error or "",
+        ).strip() == "cancelled":
+            return {
+                "ok": False,
+                "cancelled": True,
+                "error": "cancelled",
+                "user_turn_id": self._user_turn_id,
+            }
         emitter.publish(
             event_type="assistant.final",
             payload={
                 "message_id": assistant_mid,
                 "text": result.final_text,
+                "user_turn_id": self._user_turn_id,
             },
         )
         if result.ok:
@@ -1223,6 +1327,27 @@ class AgentWorkWorker:
         self._appr_event: threading.Event | None = None
         self._appr_call_id: str = ""
         self._user_prompt_thread: Optional[threading.Thread] = None
+        self._active_turn_cancel_ev: threading.Event | None = None
+
+    def active_turn_cancel_event(self) -> threading.Event | None:
+        with self._state_lock:
+            return self._active_turn_cancel_ev
+
+    def cooperative_cancel_requested(self) -> bool:
+        ev = self.active_turn_cancel_event()
+        return ev is not None and ev.is_set()
+
+    def signal_cooperative_cancel(self, user_turn_id: str) -> bool:
+        with self._state_lock:
+            ev = self._active_turn_cancel_ev
+            cur_ut = self._session._user_turn_id
+        if not str(user_turn_id or "").strip():
+            return True
+        if not str(cur_ut or "").strip() or user_turn_id != cur_ut:
+            return True
+        if ev is not None:
+            ev.set()
+        return True
 
     def _clear_perm_wait(self) -> None:
         self._perm_coord = None
@@ -1273,7 +1398,33 @@ class AgentWorkWorker:
 
     def handle(self, req: RuntimeRequestEnvelope) -> Mapping[str, Any]:
         if req.type == "service.request":
+            pls = req.payload if isinstance(req.payload, dict) else {}
             action = str(req.payload.get("action", "") or "").strip()
+            svc = str(pls.get("service", "") or "").strip()
+            if (
+                action == RUNTIME_CANCEL_ACTIVE_TURN
+                or svc == RUNTIME_CANCEL_ACTIVE_TURN
+            ):
+                utid = str(req.payload.get("user_turn_id") or "").strip()
+                cid_raw = req.payload.get("chat_id") or req.chat_id or ""
+                cid = str(cid_raw).strip()
+                if cid != self._cfg.chat_id:
+                    return make_response_envelope(
+                        request=req,
+                        ok=False,
+                        payload={},
+                        error={
+                            "code": "chat_mismatch",
+                            "message": self._cfg.chat_id,
+                        },
+                    ).to_dict()
+                self.signal_cooperative_cancel(utid)
+                return make_response_envelope(
+                    request=req,
+                    ok=True,
+                    payload={"accepted": True, "user_turn_id": utid},
+                    error=None,
+                ).to_dict()
             if action == "work.perm_mode_choice":
                 ok = self.complete_perm_choice(
                     str(req.payload.get("gate_id", "") or ""),
@@ -1374,52 +1525,73 @@ class AgentWorkWorker:
                 parent_message_id=req.message_id,
             ).with_lock(self._emit_lock)
             action_id = str(uuid.uuid4())
-            emitter.publish(
-                event_type="action.started",
-                payload={"action": action, "action_id": action_id},
-            )
 
             def _run() -> None:
                 try:
-                    result = self._session.run_user_prompt(
-                        text=prompt,
-                        workspace=_Workspace(
-                            namespace=req.namespace,
-                            project_root=project_root,
-                            project_roots=proot_t,
-                        ),
-                        emitter=emitter,
-                        identity=identity,
-                        worker=self,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    emitter.publish(
-                        event_type="assistant.final",
-                        payload={
-                            "message_id": f"asst-{uuid.uuid4()}",
-                            "text": (
-                                "AgentWork error: "
-                                f"{type(exc).__name__}: {exc}"
+                    try:
+                        result = self._session.run_user_prompt(
+                            text=prompt,
+                            workspace=_Workspace(
+                                namespace=req.namespace,
+                                project_root=project_root,
+                                project_roots=proot_t,
                             ),
-                        },
-                    )
+                            emitter=emitter,
+                            identity=identity,
+                            worker=self,
+                            action_id=action_id,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        emitter.publish(
+                            event_type="assistant.final",
+                            payload={
+                                "message_id": f"asst-{uuid.uuid4()}",
+                                "text": (
+                                    "AgentWork error: "
+                                    f"{type(exc).__name__}: {exc}"
+                                ),
+                            },
+                        )
+                        emitter.publish(
+                            event_type="action.failed",
+                            payload={
+                                "action": action,
+                                "action_id": action_id,
+                                "error": str(exc),
+                            },
+                        )
+                        return
+                    if isinstance(result, dict) and result.get("cancelled"):
+                        ut = str(result.get("user_turn_id") or "")
+                        emitter.publish(
+                            event_type="session.cancelled",
+                            payload={
+                                "user_turn_id": ut,
+                                "reason": "cooperative_cancel",
+                            },
+                        )
+                        emitter.publish(
+                            event_type="action.cancelled",
+                            payload={
+                                "action": action,
+                                "action_id": action_id,
+                                "user_turn_id": ut,
+                                "reason": "cooperative_cancel",
+                            },
+                        )
+                        return
                     emitter.publish(
-                        event_type="action.failed",
+                        event_type="action.completed",
                         payload={
                             "action": action,
                             "action_id": action_id,
-                            "error": str(exc),
+                            "user_turn_id": self._session._user_turn_id,
+                            "result": dict(result),
                         },
                     )
-                    return
-                emitter.publish(
-                    event_type="action.completed",
-                    payload={
-                        "action": action,
-                        "action_id": action_id,
-                        "result": dict(result),
-                    },
-                )
+                finally:
+                    with self._state_lock:
+                        self._active_turn_cancel_ev = None
 
             t = self._threading.Thread(target=_run, daemon=True)
             with self._state_lock:

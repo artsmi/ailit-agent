@@ -9,10 +9,12 @@ as the source of truth in the response payload.
 from __future__ import annotations
 
 import argparse
+import queue
 import sys
+import threading
 import uuid
-from pathlib import Path
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Mapping
 
 from agent_core.models import ChatRequest, NormalizedChatResponse
@@ -46,6 +48,9 @@ from agent_core.memory.pag_runtime import PagRuntimeConfig
 from agent_core.memory.sqlite_pag import SqlitePagStore
 from agent_core.runtime.agent_memory_query_pipeline import (
     AgentMemoryQueryPipeline,
+    MemoryQueryCancelledError,
+    _memory_pipeline_begin_cancel,
+    _memory_pipeline_end_cancel,
 )
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 from agent_core.runtime.memory_growth import (
@@ -91,6 +96,31 @@ from agent_core.runtime.pag_graph_trace import (
     emit_pag_graph_trace_row,
     emit_memory_w14_graph_highlight_row,
 )
+
+MEMORY_CANCEL_QUERY_SERVICE: str = "memory.cancel_query_context"
+_memory_cancel_registry: dict[str, threading.Event] = {}
+_memory_cancel_registry_lock = threading.Lock()
+
+
+def _memory_cancel_slot_register(
+    query_id: str,
+) -> tuple[threading.Event, Callable[[], None]]:
+    ev = threading.Event()
+    with _memory_cancel_registry_lock:
+        _memory_cancel_registry[query_id] = ev
+
+    def _cleanup() -> None:
+        with _memory_cancel_registry_lock:
+            _memory_cancel_registry.pop(query_id, None)
+
+    return ev, _cleanup
+
+
+def _memory_cancel_slot_fire(query_id: str) -> None:
+    with _memory_cancel_registry_lock:
+        ev = _memory_cancel_registry.get(query_id)
+    if ev is not None:
+        ev.set()
 
 
 @dataclass(frozen=True, slots=True)
@@ -1470,15 +1500,43 @@ class AgentMemoryWorker:
             self._memory_llm_policy,
             self._provider,
         )
-        pr = pl.run(
-            req=req,
-            request_id=request_id,
-            goal=goal,
-            project_root=project_root,
-            explicit_paths=explicit_paths,
-            query_kind=query_kind,
-            level=level,
-        )
+        qid_for_cancel = ""
+        if v1q is not None and str(v1q.query_id or "").strip():
+            qid_for_cancel = str(v1q.query_id).strip()
+        else:
+            qid_for_cancel = str(req.payload.get("query_id", "") or "").strip()
+        cancel_ev: threading.Event | None = None
+        cancel_cleanup: Callable[[], None] | None = None
+        if qid_for_cancel:
+            cancel_ev, cancel_cleanup = _memory_cancel_slot_register(
+                qid_for_cancel,
+            )
+        _memory_pipeline_begin_cancel(cancel_ev)
+        try:
+            try:
+                pr = pl.run(
+                    req=req,
+                    request_id=request_id,
+                    goal=goal,
+                    project_root=project_root,
+                    explicit_paths=explicit_paths,
+                    query_kind=query_kind,
+                    level=level,
+                )
+            except MemoryQueryCancelledError:
+                return make_response_envelope(
+                    request=req,
+                    ok=False,
+                    payload={"query_id": qid_for_cancel},
+                    error={
+                        "code": "memory_query_cancelled",
+                        "message": "cancelled",
+                    },
+                ).to_dict()
+        finally:
+            _memory_pipeline_end_cancel()
+            if cancel_cleanup is not None:
+                cancel_cleanup()
         w14_finish: bool = pr.am_v1_explicit_results is not None
         memory_slice = pr.memory_slice
         w14_contract_failure = bool(
@@ -1767,19 +1825,45 @@ def main(argv: list[str] | None = None) -> int:
         namespace=str(args.namespace),
     )
     worker = AgentMemoryWorker(cfg)
-    for line in sys.stdin:
-        raw = line.strip()
-        if not raw:
-            continue
-        try:
-            req = RuntimeRequestEnvelope.from_json_line(raw)
-        except Exception:
-            continue
-        if req.contract_version != CONTRACT_VERSION:
-            continue
-        out = worker.handle(req)
+    job_q: queue.Queue[RuntimeRequestEnvelope | None] = queue.Queue()
+    stop = threading.Event()
+
+    def _stdin_reader() -> None:
+        for line in sys.stdin:
+            if stop.is_set():
+                return
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                req = RuntimeRequestEnvelope.from_json_line(raw)
+            except Exception:
+                continue
+            if req.contract_version != CONTRACT_VERSION:
+                continue
+            pl = req.payload if isinstance(req.payload, dict) else {}
+            if str(pl.get("service", "") or "") == MEMORY_CANCEL_QUERY_SERVICE:
+                qid = str(pl.get("query_id", "") or "").strip()
+                if qid:
+                    _memory_cancel_slot_fire(qid)
+                continue
+            job_q.put(req)
+        job_q.put(None)
+
+    rth = threading.Thread(
+        target=_stdin_reader,
+        name="agent-memory-stdin",
+        daemon=True,
+    )
+    rth.start()
+    while True:
+        item = job_q.get()
+        if item is None:
+            break
+        out = worker.handle(item)
         sys.stdout.write(json_dumps_single_line(out))
         sys.stdout.flush()
+    stop.set()
     return 0
 
 

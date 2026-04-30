@@ -33,8 +33,10 @@ from agent_core.runtime.agent_memory_ailit_config import (
 from agent_core.runtime.errors import RuntimeProtocolError
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
+    RuntimeIdentity,
     RuntimeRequestEnvelope,
     RuntimeResponseEnvelope,
+    make_request_envelope,
     make_response_envelope,
 )
 from agent_core.runtime.paths import RuntimePaths, default_runtime_dir
@@ -54,6 +56,10 @@ def _json_dumps(obj: Mapping[str, Any]) -> bytes:
 
 def _safe_uuid() -> str:
     return str(uuid.uuid4())
+
+
+RUNTIME_CANCEL_ACTIVE_TURN: str = "runtime.cancel_active_turn"
+MEMORY_CANCEL_QUERY_SERVICE: str = "memory.cancel_query_context"
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +135,7 @@ class _AgentProcess:
             raise RuntimeError("failed to open agent pipes")
         self._stdin = self._proc.stdin
         self._stdout = self._proc.stdout
+        self._stdin_lock = threading.Lock()
         self._pending: dict[str, "queue.Queue[RuntimeResponseEnvelope]"] = {}
         self._lock = threading.Lock()
         self._reader = threading.Thread(
@@ -155,8 +162,9 @@ class _AgentProcess:
         q: "queue.Queue[RuntimeResponseEnvelope]" = queue.Queue(maxsize=1)
         with self._lock:
             self._pending[env.message_id] = q
-        self._stdin.write(env.to_json_line() + "\n")
-        self._stdin.flush()
+        with self._stdin_lock:
+            self._stdin.write(env.to_json_line() + "\n")
+            self._stdin.flush()
         try:
             return q.get(timeout=timeout_s)
         except queue.Empty as e:
@@ -167,8 +175,9 @@ class _AgentProcess:
 
     def send_oneway(self, env: RuntimeRequestEnvelope) -> None:
         """Отправить сообщение агенту без ожидания ответа."""
-        self._stdin.write(env.to_json_line() + "\n")
-        self._stdin.flush()
+        with self._stdin_lock:
+            self._stdin.write(env.to_json_line() + "\n")
+            self._stdin.flush()
 
     def _read_loop(self) -> None:
         while True:
@@ -227,6 +236,22 @@ class _AgentProcess:
                 except queue.Full:
                     pass
 
+    def inject_synthetic_response(
+        self,
+        message_id: str,
+        env: RuntimeResponseEnvelope,
+    ) -> bool:
+        """Поместить ответ в очередь ожидающего RPC (cooperative cancel)."""
+        with self._lock:
+            q = self._pending.get(message_id)
+        if q is None:
+            return False
+        try:
+            q.put_nowait(env)
+            return True
+        except queue.Full:
+            return True
+
 
 class AgentBroker:
     """Broker с routing и trace store."""
@@ -238,6 +263,11 @@ class AgentBroker:
         self._agents_lock = threading.Lock()
         self._agents: dict[str, _AgentProcess] = {}
         self._broker_id = f"broker-{cfg.chat_id}"
+        self._mem_rpc_lock = threading.Lock()
+        self._mem_rpc_active: dict[
+            tuple[str, str],
+            RuntimeRequestEnvelope,
+        ] = {}
 
     @property
     def broker_id(self) -> str:
@@ -337,12 +367,194 @@ class AgentBroker:
         self._trace.append(row)
         self._subs.broadcast(_json_dumps(env))
 
+    def _handle_runtime_cancel_active_turn(
+        self,
+        req: RuntimeRequestEnvelope,
+    ) -> RuntimeResponseEnvelope:
+        """Идемпотентный cooperative cancel (plan §Замороженный контракт)."""
+        cid = str(req.chat_id or "").strip()
+        pl = req.payload if isinstance(req.payload, dict) else {}
+        utid = str(pl.get("user_turn_id") or "").strip()
+        if not utid:
+            return make_response_envelope(
+                request=req,
+                ok=False,
+                payload={},
+                error={
+                    "code": "missing_user_turn_id",
+                    "message": "user_turn_id required",
+                },
+            )
+        if cid != str(self._cfg.chat_id or "").strip():
+            return make_response_envelope(
+                request=req,
+                ok=False,
+                payload={},
+                error={
+                    "code": "chat_mismatch",
+                    "message": f"expected {self._cfg.chat_id!r}",
+                },
+            )
+        self.spawn_work()
+        self.spawn_memory()
+        key = (cid, utid)
+        with self._mem_rpc_lock:
+            mem_req = self._mem_rpc_active.get(key)
+        qid = ""
+        if mem_req is not None:
+            mpl = (
+                mem_req.payload if isinstance(mem_req.payload, dict) else {}
+            )
+            qid = str(mpl.get("query_id") or "").strip()
+        identity = RuntimeIdentity(
+            runtime_id=req.runtime_id,
+            chat_id=cid,
+            broker_id=req.broker_id,
+            trace_id=req.trace_id,
+            goal_id=req.goal_id,
+            namespace=req.namespace,
+        )
+        work = self._ensure_agent("AgentWork")
+        mem = self._ensure_agent("AgentMemory")
+        if work is not None and work.is_alive():
+            wreq = make_request_envelope(
+                identity=identity,
+                message_id=_safe_uuid(),
+                parent_message_id=req.message_id,
+                from_agent=str(req.from_agent or "client:cancel"),
+                to_agent=f"AgentWork:{cid}",
+                msg_type="service.request",
+                payload={
+                    "action": RUNTIME_CANCEL_ACTIVE_TURN,
+                    "user_turn_id": utid,
+                    "chat_id": cid,
+                },
+            )
+            try:
+                work.send_oneway(wreq)
+            except Exception:
+                pass
+        if mem is not None and mem.is_alive() and qid:
+            mreq = make_request_envelope(
+                identity=identity,
+                message_id=_safe_uuid(),
+                parent_message_id=req.message_id,
+                from_agent=str(req.from_agent or "client:cancel"),
+                to_agent="AgentMemory:global",
+                msg_type="service.request",
+                payload={
+                    "service": MEMORY_CANCEL_QUERY_SERVICE,
+                    "query_id": qid,
+                    "user_turn_id": utid,
+                    "chat_id": cid,
+                },
+            )
+            try:
+                mem.send_oneway(mreq)
+            except Exception:
+                pass
+        if mem is not None and mem.is_alive() and mem_req is not None:
+            syn = make_response_envelope(
+                request=mem_req,
+                ok=False,
+                payload={},
+                error={
+                    "code": "memory_query_cancelled",
+                    "message": "cooperative cancel",
+                },
+            )
+            mem.inject_synthetic_response(mem_req.message_id, syn)
+        return make_response_envelope(
+            request=req,
+            ok=True,
+            payload={
+                "cancelled": True,
+                "user_turn_id": utid,
+                "query_id": qid or "",
+            },
+            error=None,
+        )
+
     def handle_request(
         self,
         req: RuntimeRequestEnvelope,
     ) -> RuntimeResponseEnvelope:
         """Обработать один runtime request envelope."""
         self.append_trace(req.to_dict())
+        if req.type == "service.request":
+            pl0 = req.payload if isinstance(req.payload, dict) else {}
+            svc0 = str(pl0.get("service", "") or "").strip()
+            act0 = str(pl0.get("action", "") or "").strip()
+            cancel_hit = (
+                act0 == RUNTIME_CANCEL_ACTIVE_TURN
+                or svc0 == RUNTIME_CANCEL_ACTIVE_TURN
+            )
+            if cancel_hit:
+                out = self._handle_runtime_cancel_active_turn(req)
+                self.append_trace(out.to_dict())
+                return out
+
+            to_agent = req.to_agent or ""
+            agent_type = self._agent_type_from_to_agent(to_agent)
+            agent = self._ensure_agent(agent_type) if agent_type else None
+            if agent is None or not agent.is_alive():
+                return make_response_envelope(
+                    request=req,
+                    ok=False,
+                    payload={},
+                    error={
+                        "code": "agent_unavailable",
+                        "message": agent_type or str(to_agent),
+                    },
+                )
+            inflight_key: tuple[str, str] | None = None
+            try:
+                if agent_type == "AgentMemory":
+                    try:
+                        _merged_am = load_merged_ailit_config_for_memory()
+                    except Exception:
+                        _merged_am = {}
+                    svc_timeout = float(
+                        agent_memory_rpc_timeout_s(_merged_am),
+                    )
+                else:
+                    svc_timeout = 15.0
+                plm = req.payload if isinstance(req.payload, dict) else {}
+                svc_n = str(plm.get("service", "") or "")
+                mem_q = svc_n == "memory.query_context"
+                if agent_type == "AgentMemory" and mem_q:
+                    uid = str(plm.get("user_turn_id") or "").strip()
+                    qid = str(plm.get("query_id") or "").strip()
+                    if uid and qid:
+                        inflight_key = (
+                            str(req.chat_id or "").strip(),
+                            uid,
+                        )
+                        with self._mem_rpc_lock:
+                            self._mem_rpc_active[inflight_key] = req
+                out = agent.request(
+                    req,
+                    timeout_s=svc_timeout,
+                )
+            except TimeoutError as e:
+                return make_response_envelope(
+                    request=req,
+                    ok=False,
+                    payload={},
+                    error={"code": "runtime_timeout", "message": str(e)},
+                )
+            finally:
+                if inflight_key is not None:
+                    with self._mem_rpc_lock:
+                        cur = self._mem_rpc_active.get(inflight_key)
+                        same = (
+                            cur is not None
+                            and cur.message_id == req.message_id
+                        )
+                        if same:
+                            self._mem_rpc_active.pop(inflight_key, None)
+            self.append_trace(out.to_dict())
+            return out
         if req.type == "topic.publish":
             # Best-effort fan-out to all spawned agents (MVP).
             self.spawn_dummy()
@@ -364,44 +576,6 @@ class AgentBroker:
             )
             self.append_trace(resp.to_dict())
             return resp
-        if req.type == "service.request":
-            to_agent = req.to_agent or ""
-            agent_type = self._agent_type_from_to_agent(to_agent)
-            agent = self._ensure_agent(agent_type) if agent_type else None
-            if agent is None or not agent.is_alive():
-                return make_response_envelope(
-                    request=req,
-                    ok=False,
-                    payload={},
-                    error={
-                        "code": "agent_unavailable",
-                        "message": agent_type or str(to_agent),
-                    },
-                )
-            try:
-                if agent_type == "AgentMemory":
-                    try:
-                        _merged_am = load_merged_ailit_config_for_memory()
-                    except Exception:
-                        _merged_am = {}
-                    svc_timeout = float(
-                        agent_memory_rpc_timeout_s(_merged_am),
-                    )
-                else:
-                    svc_timeout = 15.0
-                out = agent.request(
-                    req,
-                    timeout_s=svc_timeout,
-                )
-            except TimeoutError as e:
-                return make_response_envelope(
-                    request=req,
-                    ok=False,
-                    payload={},
-                    error={"code": "runtime_timeout", "message": str(e)},
-                )
-            self.append_trace(out.to_dict())
-            return out
         if req.type == "action.start":
             to_agent = req.to_agent or ""
             agent_type = self._agent_type_from_to_agent(to_agent)
