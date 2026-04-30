@@ -39,8 +39,6 @@ def isolate_ailit_test_artifacts(
     Каталог: ``tmp_path / ailit_test_isolation / …``. Тесты могут
     переопределить переменные через ``monkeypatch`` сильнее, чем autouse.
     """
-    monkeypatch.delenv("AILIT_WORK_ROOTS", raising=False)
-
     base = tmp_path / "ailit_test_isolation"
     home = base / "home"
     home.mkdir(parents=True)
