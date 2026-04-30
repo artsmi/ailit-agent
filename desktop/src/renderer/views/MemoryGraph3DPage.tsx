@@ -1,7 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ForceGraph3D, { type ForceGraphMethods } from "react-force-graph-3d";
 
-import { BROKER_MEMORY_RECALL_UI_LABEL } from "../runtime/chatTraceAmPhase";
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
 import { lastPagSearchHighlightFromTrace, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
 import { MemoryGraphForceGraphProjector } from "../runtime/memoryGraphForceGraphProjection";
@@ -13,12 +12,13 @@ import {
 import {
   MEM3D_PAG_MAX_NODES,
   PAG_3D_EXTREME_GRAPH_NODE_THRESHOLD,
-  PAG_3D_HEAVY_DEFAULT_LINK_PARTICLES,
   PAG_3D_HEAVY_HIGHLIGHT_LINK_PARTICLES,
   PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD
 } from "../runtime/pagGraphLimits";
 import {
   MEM3D_LINK_PARTICLE_WIDTH_HOT,
+  MEM3D_LINK_PARTICLE_WIDTH_NEURON,
+  mem3dColdLinkDirectionalParticles,
   mem3dLinkWidth
 } from "../runtime/memoryGraph3DLineStyle";
 import {
@@ -504,11 +504,6 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
               background: "rgba(255,255,255,0.35)"
             }}
           >
-            {s.brokerMemoryRecallActive ? (
-              <div className="memBrokerRecallOverlay" role="status" aria-live="polite">
-                {BROKER_MEMORY_RECALL_UI_LABEL}
-              </div>
-            ) : null}
             <ForceGraph3D
               key={graphDataKey}
               ref={ref}
@@ -569,7 +564,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
                 const hot: boolean =
                   h !== null && linkIsHighlightHot(link, h, alive);
                 if (!hot) {
-                  return heavyGraph ? PAG_3D_HEAVY_DEFAULT_LINK_PARTICLES : 0;
+                  return mem3dColdLinkDirectionalParticles(heavyGraph);
                 }
                 return heavyGraph
                   ? PAG_3D_HEAVY_HIGHLIGHT_LINK_PARTICLES
@@ -581,7 +576,12 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
                 const h: HighlightState | null = highlightRef.current;
                 const hot: boolean =
                   h !== null && linkIsHighlightHot(link, h, alive);
-                return hot ? MEM3D_LINK_PARTICLE_WIDTH_HOT : 0;
+                if (hot) {
+                  return MEM3D_LINK_PARTICLE_WIDTH_HOT;
+                }
+                return mem3dColdLinkDirectionalParticles(heavyGraph) > 0
+                  ? MEM3D_LINK_PARTICLE_WIDTH_NEURON
+                  : 0;
               }}
               onEngineStop={() => {
                 if (initialFitDoneRef.current) {

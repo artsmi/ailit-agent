@@ -434,24 +434,6 @@ button {
   position: relative;
 }
 
-.memBrokerRecallOverlay {
-  position: absolute;
-  inset: 0;
-  z-index: 4;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 0.65rem 0.75rem;
-  pointer-events: none;
-  box-sizing: border-box;
-  color: var(--candy-text);
-  background: color-mix(in srgb, var(--candy-accent-2) 14%, transparent);
-  border-bottom: 1px solid var(--candy-border);
-  font-size: 0.8rem;
-  font-weight: 800;
-  letter-spacing: 0.01em;
-}
-
 .mem3dView.mem3dGraphEntryPulse {
   animation: mem3dGraphEntryKF 0.48s ease-out;
 }
@@ -1916,6 +1898,86 @@ button {
 }
 
 .candyChatAgentDot:nth-child(3) {
+  animation-delay: 0.2s;
+}
+
+.candyChatMemoryRecallStatus {
+  position: relative;
+  z-index: 0;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 54rem;
+  min-width: 0;
+  margin: 0.1rem auto 0.2rem;
+  padding: 0.35rem 1rem 0.4rem;
+  overflow: hidden;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  color: color-mix(in srgb, var(--candy-code) 42%, #0f172a 58%);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--candy-code) 18%, #fff 82%) 0%,
+    color-mix(in srgb, var(--candy-code) 12%, #fff 88%) 50%,
+    color-mix(in srgb, var(--candy-code) 18%, #fff 82%) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--candy-code) 55%, #fff 45%);
+  border-radius: 0.75rem;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset;
+}
+
+.candyChatMemoryRecallStatusShimmer {
+  position: absolute;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--candy-code) 22%, transparent), transparent);
+  animation: candyChatShimmer 1.5s ease-in-out infinite;
+  pointer-events: none;
+  inset: 0;
+}
+
+.candyChatMemoryRecallStatusInner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.candyChatMemoryRecallStatusIcon {
+  line-height: 0;
+  opacity: 0.95;
+}
+
+.candyChatMemoryRecallStatusIcon .candyMaterialIcon {
+  font-size: 0.95rem;
+  color: color-mix(in srgb, var(--candy-code) 72%, #0369a1 28%);
+}
+
+.candyChatMemoryRecallStatusText {
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.candyChatMemoryRecallStatusDots {
+  display: inline-flex;
+  gap: 0.1rem;
+  line-height: 0;
+  margin-left: 0.1rem;
+}
+
+.candyChatMemoryRecallDot {
+  display: inline-block;
+  width: 0.2rem;
+  height: 0.2rem;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--candy-code) 85%, #0369a1 15%);
+  animation: candyChatDotBounce 0.8s ease-in-out infinite;
+}
+
+.candyChatMemoryRecallDot:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.candyChatMemoryRecallDot:nth-child(3) {
   animation-delay: 0.2s;
 }
 

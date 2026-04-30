@@ -33,11 +33,19 @@ import {
 } from "./chatTraceProjector";
 import { projectBrokerMemoryRecallActive } from "./chatTraceAmPhase";
 import {
+  buildBrokerMemoryRecallUiPhase,
+  recallPhraseIdAtIndex,
+  RECALL_PHRASE_ROTATION_MS,
+  type BrokerMemoryRecallUiPhase
+} from "./memoryRecallUiPhaseProjection";
+import { buildMemoryRecallUiPhaseTraceRow } from "./memoryRecallUiObservability";
+import {
   createEmptyPagGraphSessionSnapshot,
   PagGraphSessionFullLoad,
   PagGraphSessionTraceMerge,
   PagGraphWorkspaceNamespaces,
-  type PagGraphSessionSnapshot
+  type PagGraphSessionSnapshot,
+  type PagGraphTraceMergeEmitHooks
 } from "./pagGraphSessionStore";
 import { dedupKeyForRow, type NormalizedTraceProjection } from "./traceNormalize";
 import { newMessageId } from "./uuid";
@@ -86,8 +94,8 @@ export type DesktopSessionValue = {
   readonly resubscribeTrace: () => Promise<void>;
   /** Модель/рантайм обрабатывают ход (до assistant.final / стопа). */
   readonly agentTurnInProgress: boolean;
-  /** UC 2.4: фаза AgentMemory по broker trace (не `assistant.thinking`). */
-  readonly brokerMemoryRecallActive: boolean;
+  /** UC-06: фаза recall в строке чата (trace + ротация фраз ≥1.5s). */
+  readonly brokerMemoryRecallPhase: BrokerMemoryRecallUiPhase;
   readonly requestStopAgent: () => Promise<void>;
   /** Текущий perm-режим после ``session.perm_mode.settled`` (сокращение для поля ввода). */
   readonly permModeLabel: string | null;
@@ -220,6 +228,17 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const [rawTraceRows, setRawTraceRows] = React.useState<Record<string, unknown>[]>([]);
   const rawTraceRowsRef: React.MutableRefObject<Record<string, unknown>[]> = React.useRef<Record<string, unknown>[]>([]);
   const [pagGraphBySession, setPagGraphBySession] = React.useState<Record<string, PagGraphSessionSnapshot>>({});
+  const pagGraphBySessionRef: React.MutableRefObject<Record<string, PagGraphSessionSnapshot>> =
+    React.useRef<Record<string, PagGraphSessionSnapshot>>({});
+  React.useEffect((): void => {
+    pagGraphBySessionRef.current = pagGraphBySession;
+  }, [pagGraphBySession]);
+  const pagGraphRefreshIntentRef: React.MutableRefObject<"none" | "user" | "poll"> = React.useRef<"none" | "user" | "poll">(
+    "none"
+  );
+  const pagGraphLastEmittedReconcileRevRef: React.MutableRefObject<Map<string, number>> = React.useRef<
+    Map<string, number>
+  >(new Map());
   const [pagLoadTick, setPagLoadTick] = React.useState(0);
   const [optimisticChatLines, setOptimisticChatLines] = React.useState<ChatLine[]>([]);
   const [reconnectAttempt, setReconnectAttempt] = React.useState(0);
@@ -246,6 +265,11 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   }, [ui.sessions, ui.activeSessionId]);
 
   activeChatIdRef.current = activeSession.chatId;
+
+  React.useEffect((): void => {
+    pagGraphLastEmittedReconcileRevRef.current = new Map();
+    pagGraphRefreshIntentRef.current = "none";
+  }, [activeSession.id]);
 
   React.useEffect((): void => {
     rawTraceRowsRef.current = rawTraceRows;
@@ -289,6 +313,78 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     (): boolean => projectBrokerMemoryRecallActive(rawTraceRows, activeSession.chatId),
     [rawTraceRows, activeSession.chatId]
   );
+  const [brokerMemoryRecallPhraseIndex, setBrokerMemoryRecallPhraseIndex] = React.useState<number>(0);
+  React.useEffect((): void => {
+    setBrokerMemoryRecallPhraseIndex(0);
+  }, [activeSession.id]);
+  React.useEffect((): void | (() => void) => {
+    if (!brokerMemoryRecallActive) {
+      setBrokerMemoryRecallPhraseIndex(0);
+      return;
+    }
+    const id: number = window.setInterval((): void => {
+      setBrokerMemoryRecallPhraseIndex((i: number): number => i + 1);
+    }, RECALL_PHRASE_ROTATION_MS);
+    return (): void => {
+      window.clearInterval(id);
+    };
+  }, [brokerMemoryRecallActive]);
+  const brokerMemoryRecallPhase: BrokerMemoryRecallUiPhase = React.useMemo(
+    (): BrokerMemoryRecallUiPhase =>
+      buildBrokerMemoryRecallUiPhase(brokerMemoryRecallActive, brokerMemoryRecallPhraseIndex),
+    [brokerMemoryRecallActive, brokerMemoryRecallPhraseIndex]
+  );
+  const memoryRecallEmitSigRef: React.MutableRefObject<string | null> = React.useRef<string | null>(null);
+  React.useEffect((): void => {
+    memoryRecallEmitSigRef.current = null;
+  }, [activeSession.id]);
+  React.useEffect((): void => {
+    const rd: string | null = runtimeDir;
+    if (rd == null || typeof window.ailitDesktop?.appendTraceRow !== "function") {
+      return;
+    }
+    const chatId0: string = activeSession.chatId;
+    const sessionId0: string = activeSession.id;
+    const phase: BrokerMemoryRecallUiPhase = brokerMemoryRecallPhase;
+    const sig: string = phase.active
+      ? `a:${recallPhraseIdAtIndex(phase.phraseIndex)}`
+      : "idle";
+    const prev: string | null = memoryRecallEmitSigRef.current;
+    if (sig === "idle" && prev === "idle") {
+      return;
+    }
+    if (sig === "idle" && prev === null) {
+      memoryRecallEmitSigRef.current = "idle";
+      return;
+    }
+    if (phase.active && prev === sig) {
+      return;
+    }
+    memoryRecallEmitSigRef.current = sig;
+    const nsOpt: string | undefined =
+      pagDefaultNamespace.length > 0 ? pagDefaultNamespace : undefined;
+    const row: Record<string, unknown> = phase.active
+      ? buildMemoryRecallUiPhaseTraceRow({
+          chatId: chatId0,
+          sessionId: sessionId0,
+          phase_code: "recall_active",
+          phrase_id: recallPhraseIdAtIndex(phase.phraseIndex),
+          namespace: nsOpt
+        })
+      : buildMemoryRecallUiPhaseTraceRow({
+          chatId: chatId0,
+          sessionId: sessionId0,
+          phase_code: "idle",
+          namespace: nsOpt
+        });
+    void window.ailitDesktop.appendTraceRow({ runtimeDir: rd, chatId: chatId0, row });
+  }, [
+    brokerMemoryRecallPhase,
+    runtimeDir,
+    activeSession.chatId,
+    activeSession.id,
+    pagDefaultNamespace
+  ]);
   const permModeLabel: string | null = traceProjection.permModeLabel;
   const permModeGateId: string | null = traceProjection.permModeGateId;
   const toolApproval: ToolApprovalPending | null = traceProjection.toolApproval;
@@ -917,11 +1013,13 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   }, [mergeRows, resubscribeTrace]);
 
   const refreshPagGraph: () => void = React.useCallback((): void => {
+    pagGraphRefreshIntentRef.current = "user";
     setPagLoadTick((t) => t + 1);
   }, []);
 
   React.useEffect((): (() => void) | void => {
     const sessionId: string = activeSession.id;
+    const chatIdForPag: string = activeSession.chatId;
     const slice: unknown = window.ailitDesktop?.pagGraphSlice;
     if (!runtimeDir || typeof slice !== "function" || pagNamespaces.length === 0) {
       return;
@@ -966,13 +1064,35 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       }
       const pagDatabasePresent: boolean = r.pagSqliteMissing !== true;
       const rows: readonly Record<string, unknown>[] = rawTraceRowsRef.current;
+      const rd0: string | null = runtimeDir;
+      const prevRevsFull: Readonly<Record<string, number>> =
+        pagGraphBySessionRef.current[sessionId]?.graphRevByNamespace ?? {};
+      const intentFl: "none" | "user" | "poll" = pagGraphRefreshIntentRef.current;
+      pagGraphRefreshIntentRef.current = "none";
+      const fullLoadKind: "user_refresh" | "poll_retry" | "initial_load" =
+        intentFl === "user" ? "user_refresh" : intentFl === "poll" ? "poll_retry" : "initial_load";
+      const hooks: PagGraphTraceMergeEmitHooks | undefined =
+        rd0 != null && typeof window.ailitDesktop?.appendTraceRow === "function"
+          ? {
+              chatId: chatIdForPag,
+              sessionId,
+              graphRevBeforeByNamespace: { ...prevRevsFull },
+              defaultNamespace: pagDefaultNamespace,
+              reconciledEmitRevByNs: pagGraphLastEmittedReconcileRevRef.current,
+              fullLoad: { kind: fullLoadKind, namespaces: [...pagNamespaces] },
+              emitTraceRow: (row: Record<string, unknown>): void => {
+                void window.ailitDesktop.appendTraceRow({ runtimeDir: rd0, chatId: chatIdForPag, row });
+              }
+            }
+          : undefined;
       const snap: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.afterFullLoad(
         r.merged,
         r.graphRevByNamespace,
         rows,
         pagNamespaces,
         pagDefaultNamespace,
-        pagDatabasePresent
+        pagDatabasePresent,
+        hooks
       );
       if (cancelled) {
         return;
@@ -988,7 +1108,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     return () => {
       cancelled = true;
     };
-  }, [activeSession.id, pagDefaultNamespace, pagLoadTick, pagNamespaces, projKey, registry, runtimeDir]);
+  }, [activeSession.chatId, activeSession.id, pagDefaultNamespace, pagLoadTick, pagNamespaces, projKey, registry, runtimeDir]);
 
   /**
    * Пока `store.sqlite3` ещё не создан, `pag-slice` даёт `missing_db`; после `ready`+trace
@@ -999,6 +1119,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       return;
     }
     const sessionId: string = activeSession.id;
+    const chatIdPoll: string = activeSession.chatId;
     const slice: unknown = window.ailitDesktop?.pagGraphSlice;
     if (!runtimeDir || typeof slice !== "function" || pagNamespaces.length === 0) {
       return;
@@ -1029,14 +1150,35 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           return;
         }
         const rows: readonly Record<string, unknown>[] = rawTraceRowsRef.current;
+        const rdPoll: string | null = runtimeDir;
+        const prevRevsPoll: Readonly<Record<string, number>> =
+          pagGraphBySessionRef.current[sessionId]?.graphRevByNamespace ?? {};
+        const hooksPoll: PagGraphTraceMergeEmitHooks | undefined =
+          rdPoll != null && typeof window.ailitDesktop?.appendTraceRow === "function"
+            ? {
+                chatId: chatIdPoll,
+                sessionId,
+                graphRevBeforeByNamespace: { ...prevRevsPoll },
+                defaultNamespace: pagDefaultNamespace,
+                reconciledEmitRevByNs: pagGraphLastEmittedReconcileRevRef.current,
+                fullLoad: { kind: "poll_retry", namespaces: [...pagNamespaces] },
+                emitTraceRow: (row: Record<string, unknown>): void => {
+                  void window.ailitDesktop.appendTraceRow({ runtimeDir: rdPoll, chatId: chatIdPoll, row });
+                }
+              }
+            : undefined;
         const snap: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.afterFullLoad(
           r.merged,
           r.graphRevByNamespace,
           rows,
           pagNamespaces,
           pagDefaultNamespace,
-          true
+          true,
+          hooksPoll
         );
+        if (cancelled) {
+          return;
+        }
         setPagGraphBySession((p0) => ({ ...p0, [sessionId]: snap }));
       })();
     }, PAG_SQLITE_RETRY_MS);
@@ -1044,27 +1186,50 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       cancelled = true;
       clearInterval(h);
     };
-  }, [awaitingPagSqlite, activeSession.id, pagDefaultNamespace, pagNamespaces, projKey, registry, runtimeDir]);
+  }, [awaitingPagSqlite, activeSession.chatId, activeSession.id, pagDefaultNamespace, pagNamespaces, projKey, registry, runtimeDir]);
 
   React.useEffect((): void => {
     const sessionId: string = activeSession.id;
+    const chatIdInc: string = activeSession.chatId;
+    const rdInc: string | null = runtimeDir;
     setPagGraphBySession((prev) => {
       const cur: PagGraphSessionSnapshot | undefined = prev[sessionId];
       if (!cur || cur.loadState !== "ready") {
         return prev;
       }
+      const hooksInc: PagGraphTraceMergeEmitHooks | undefined =
+        rdInc != null && typeof window.ailitDesktop?.appendTraceRow === "function"
+          ? {
+              chatId: chatIdInc,
+              sessionId,
+              graphRevBeforeByNamespace: { ...cur.graphRevByNamespace },
+              defaultNamespace: pagDefaultNamespace,
+              reconciledEmitRevByNs: pagGraphLastEmittedReconcileRevRef.current,
+              emitTraceRow: (row: Record<string, unknown>): void => {
+                void window.ailitDesktop.appendTraceRow({ runtimeDir: rdInc, chatId: chatIdInc, row });
+              }
+            }
+          : undefined;
       const nxt: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.applyIncremental(
         cur,
         rawTraceRows,
         pagNamespaces,
-        pagDefaultNamespace
+        pagDefaultNamespace,
+        hooksInc
       );
       if (nxt === cur) {
         return prev;
       }
       return { ...prev, [sessionId]: nxt };
     });
-  }, [activeSession.id, pagDefaultNamespace, pagNamespaces, rawTraceRows]);
+  }, [
+    activeSession.chatId,
+    activeSession.id,
+    pagDefaultNamespace,
+    pagNamespaces,
+    rawTraceRows,
+    runtimeDir
+  ]);
 
   const pagGraphActive: PagGraphSessionSnapshot | null =
     pagGraphBySession[activeSession.id] ?? null;
@@ -1103,7 +1268,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     sendUserPrompt,
     resubscribeTrace,
     agentTurnInProgress,
-    brokerMemoryRecallActive,
+    brokerMemoryRecallPhase,
     requestStopAgent,
     permModeLabel,
     permModeGateId,

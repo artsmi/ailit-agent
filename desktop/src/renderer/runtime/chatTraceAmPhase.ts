@@ -1,9 +1,6 @@
 import { readChatTopicEvent } from "./chatTraceProjector";
 import { RuntimeTraceNormalizer } from "./traceNormalize";
 
-/** UC 2.4 / D-UX-1: строка оверлея без альтернатив и локализаций. */
-export const BROKER_MEMORY_RECALL_UI_LABEL: "Ailit вспоминает" = "Ailit вспоминает";
-
 const traceNormalizer: RuntimeTraceNormalizer = new RuntimeTraceNormalizer();
 
 type AmRecallPhase = "idle" | "awaiting_memory_response" | "awaiting_inject_or_skip";

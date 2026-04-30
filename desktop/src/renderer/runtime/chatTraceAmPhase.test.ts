@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { BROKER_MEMORY_RECALL_UI_LABEL, projectBrokerMemoryRecallActive } from "./chatTraceAmPhase";
+import { projectBrokerMemoryRecallActive } from "./chatTraceAmPhase";
+import {
+  BROKER_MEMORY_RECALL_STYLE_TOKEN,
+  buildBrokerMemoryRecallUiPhase,
+  projectBrokerMemoryRecallPhase,
+  RECALL_PHRASE_ROTATION_MS,
+  RECALL_UI_PHRASE_WHITELIST
+} from "./memoryRecallUiPhaseProjection";
+import { buildMemoryRecallUiPhaseTraceRow } from "./memoryRecallUiObservability";
 
 const CHAT: string = "chat-a";
 
@@ -142,7 +150,52 @@ describe("projectBrokerMemoryRecallActive", () => {
     expect(projectBrokerMemoryRecallActive(rows, CHAT)).toBe(false);
   });
 
-  it("exports exact overlay copy", () => {
-    expect(BROKER_MEMORY_RECALL_UI_LABEL).toBe("Ailit вспоминает");
+});
+
+describe("projectBrokerMemoryRecallPhase / recall ui projection", () => {
+  it("whitelist has at least two phrases (UC-06)", () => {
+    expect(RECALL_UI_PHRASE_WHITELIST.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("uses candy-code style token for status projection", () => {
+    const p = buildBrokerMemoryRecallUiPhase(true, 0);
+    expect(p.styleToken).toBe(BROKER_MEMORY_RECALL_STYLE_TOKEN);
+    expect(BROKER_MEMORY_RECALL_STYLE_TOKEN).toBe("--candy-code");
+  });
+
+  it("phrase index wraps modulo whitelist length", () => {
+    const n = RECALL_UI_PHRASE_WHITELIST.length;
+    const p = buildBrokerMemoryRecallUiPhase(true, n + 1);
+    expect(p.phraseIndex).toBe(1 % n);
+  });
+
+  it("RECALL_PHRASE_ROTATION_MS meets UC-06 A1 debounce floor", () => {
+    expect(RECALL_PHRASE_ROTATION_MS).toBeGreaterThanOrEqual(1500);
+  });
+
+  it("projectBrokerMemoryRecallPhase combines trace active with phrase slot", () => {
+    const rows: Record<string, unknown>[] = [memoryQueryStart()];
+    const off = projectBrokerMemoryRecallPhase([], CHAT, 3);
+    expect(off.active).toBe(false);
+    expect(off.phraseIndex).toBe(0);
+    const on = projectBrokerMemoryRecallPhase(rows, CHAT, 3);
+    expect(on.active).toBe(true);
+    expect(on.phraseIndex).toBe(3 % RECALL_UI_PHRASE_WHITELIST.length);
+  });
+
+  it("buildMemoryRecallUiPhaseTraceRow publishes memory_recall_ui_phase topic payload", () => {
+    const row: Record<string, unknown> = buildMemoryRecallUiPhaseTraceRow({
+      chatId: CHAT,
+      sessionId: "sess-1",
+      phase_code: "recall_active",
+      phrase_id: "recall_remembers_v1"
+    });
+    const pl: Record<string, unknown> = row["payload"] as Record<string, unknown>;
+    expect(pl["event_name"]).toBe("memory_recall_ui_phase");
+    const inner: Record<string, unknown> = pl["payload"] as Record<string, unknown>;
+    expect(inner["session_id"]).toBe("sess-1");
+    expect(inner["phase_code"]).toBe("recall_active");
+    expect(inner["phrase_id"]).toBe("recall_remembers_v1");
+    expect(inner).not.toHaveProperty("rotation_index");
   });
 });

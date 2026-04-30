@@ -1,6 +1,7 @@
 import React, { useLayoutEffect } from "react";
 
 import { CandyChatAgentStatusRow } from "../components/chat/CandyChatAgentStatusRow";
+import { CandyChatMemoryRecallStatusRow } from "../components/chat/CandyChatMemoryRecallStatusRow";
 import { ChatAnalyticsAside } from "../components/chat/ChatAnalyticsAside";
 import { ChatHistoryModal } from "../components/chat/ChatHistoryModal";
 import { CandyChatConsoleBlock } from "../components/chat/CandyChatConsoleBlock";
@@ -375,7 +376,11 @@ export function ChatPage(): React.JSX.Element {
               ))}
             </div>
           </div>
-          <CandyChatAgentStatusRow active={s.agentTurnInProgress} />
+          {s.brokerMemoryRecallPhase.active ? (
+            <CandyChatMemoryRecallStatusRow phase={s.brokerMemoryRecallPhase} />
+          ) : (
+            <CandyChatAgentStatusRow active={s.agentTurnInProgress} />
+          )}
           <div className="candyChatInputWrap">
             <div className="candyChatInputGlow" />
             <div className="candyChatInputBox">
@@ -397,7 +402,7 @@ export function ChatPage(): React.JSX.Element {
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
-                      if (s.agentTurnInProgress) {
+                      if (s.agentTurnInProgress || s.brokerMemoryRecallPhase.active) {
                         return;
                       }
                       const t: string = draft;
@@ -407,7 +412,7 @@ export function ChatPage(): React.JSX.Element {
                     }
                   }}
                 />
-                {s.agentTurnInProgress ? (
+                {s.agentTurnInProgress || s.brokerMemoryRecallPhase.active ? (
                   <button
                     className="candyChatSend candyChatSendStop"
                     type="button"
