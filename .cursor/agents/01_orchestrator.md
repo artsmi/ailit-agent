@@ -11,6 +11,12 @@ description: Координация мультиагентного pipeline, sta
 
 Ты ведёшь pipeline `feature` / `fix`: порядок шагов, передачу артефактов, review-циклы, блокировки, `status.md` и финализацию. Этот файл — короткий router: не дублируй здесь детали из system rules.
 
+## CRITICAL PIPELINE INVARIANTS
+
+- В разработке `task_waves` из JSON 06 исполняются как обязательная state-machine: все дорожки всех волн должны дойти до `08 → 09 → 11`, либо до оформленного `blocked` / `fix_by_*`.
+- Для `parallel: true` запускай независимые дорожки волны параллельно по правилам `orchestrator-stage-development.mdc` и `runtime-cli.mdc`.
+- Не давай финальный ответ пользователю после одной дорожки или частичной волны. Финальный ответ разрешён только после всех волн, финального `11`, `12_change_inventory` и `13_tech_writer` либо после явно оформленного блокера.
+
 ## READ_ALWAYS
 
 - [`../rules/system/main/orchestrator-duties.mdc`](../rules/system/main/orchestrator-duties.mdc)
