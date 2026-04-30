@@ -4,6 +4,7 @@ import ForceGraph3D, { type ForceGraphMethods } from "react-force-graph-3d";
 import { BROKER_MEMORY_RECALL_UI_LABEL } from "../runtime/chatTraceAmPhase";
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
 import { lastPagSearchHighlightFromTrace, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
+import { MemoryGraphForceGraphProjector } from "../runtime/memoryGraphForceGraphProjection";
 import { type MemoryGraphData, type MemoryGraphLink, type MemoryGraphNode } from "../runtime/memoryGraphState";
 import {
   computeMemoryGraphDataKey,
@@ -36,6 +37,8 @@ type Mem3dProps = {
 };
 
 const GRAPH_VIEWPORT_MIN_H: number = 420;
+
+const EMPTY_MEMORY_GRAPH: MemoryGraphData = { nodes: [], links: [] };
 
 /** OQ2 placeholder (open_questions.md) — согласовать copy до merge UI. */
 const OQ2_PAG_MISSING_BANNER: string =
@@ -129,22 +132,6 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
   });
   const [edgeColors, setEdgeColors] = useState<Mem3dLinkEdgeResolved>(MEM3D_LINK_EDGE_FALLBACK);
   const snap: ReturnType<typeof useDesktopSession>["pagGraph"]["activeSnapshot"] = s.pagGraph.activeSnapshot;
-  const graph: MemoryGraphData = snap?.merged ?? { nodes: [], links: [] };
-  const graphRevSig: string =
-    snap == null ? "" : formatGraphRevByNamespaceKey(snap.graphRevByNamespace);
-  const graphDataKey: string = useMemo((): string => {
-    return computeMemoryGraphDataKey({
-      activeSessionId: s.activeSessionId,
-      snap:
-        snap == null
-          ? null
-          : {
-              loadState: snap.loadState,
-              pagDatabasePresent: snap.pagDatabasePresent,
-              graphRevByNamespace: snap.graphRevByNamespace
-            }
-    });
-  }, [s.activeSessionId, snap == null, snap?.loadState, snap?.pagDatabasePresent, graphRevSig]);
 
   const namespaces: readonly string[] = useMemo((): readonly string[] => {
     const ids: readonly string[] =
@@ -161,6 +148,30 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     return out;
   }, [s.registry, s.selectedProjectIds]);
 
+  const mergedFromSnap: MemoryGraphData = snap?.merged ?? EMPTY_MEMORY_GRAPH;
+  const primaryNamespace: string = namespaces[0] ?? "default";
+  const graph3d: MemoryGraphData = useMemo(
+    (): MemoryGraphData =>
+      MemoryGraphForceGraphProjector.project(mergedFromSnap, primaryNamespace),
+    [mergedFromSnap, primaryNamespace]
+  );
+
+  const graphRevSig: string =
+    snap == null ? "" : formatGraphRevByNamespaceKey(snap.graphRevByNamespace);
+  const graphDataKey: string = useMemo((): string => {
+    return computeMemoryGraphDataKey({
+      activeSessionId: s.activeSessionId,
+      snap:
+        snap == null
+          ? null
+          : {
+              loadState: snap.loadState,
+              pagDatabasePresent: snap.pagDatabasePresent,
+              graphRevByNamespace: snap.graphRevByNamespace
+            }
+    });
+  }, [s.activeSessionId, snap == null, snap?.loadState, snap?.pagDatabasePresent, graphRevSig]);
+
   const pageView: "loading" | "error" | "missingPagEmpty" | "missingPagTrace" | "empty" | "ready" = (() => {
     if (snap == null) {
       return "loading";
@@ -173,12 +184,12 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     }
     if (snap.loadState === "ready") {
       if (!snap.pagDatabasePresent) {
-        if (graph.nodes.length === 0 && graph.links.length === 0) {
+        if (mergedFromSnap.nodes.length === 0 && mergedFromSnap.links.length === 0) {
           return "missingPagEmpty";
         }
         return "missingPagTrace";
       }
-      if (graph.nodes.length === 0 && graph.links.length === 0) {
+      if (mergedFromSnap.nodes.length === 0 && mergedFromSnap.links.length === 0) {
         return "empty";
       }
       return "ready";
@@ -201,17 +212,17 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     return null;
   })();
 
-  const nodeCount: number = graph.nodes.length;
+  const nodeCount: number = mergedFromSnap.nodes.length;
   const heavyGraph: boolean = nodeCount > PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD;
   const extremeGraph: boolean = nodeCount > PAG_3D_EXTREME_GRAPH_NODE_THRESHOLD;
   const atPagNodeCap: boolean = nodeCount >= MEM3D_PAG_MAX_NODES;
 
   useEffect((): void => {
-    graphNodeCountRef.current = graph.nodes.length;
-  }, [graph.nodes.length]);
+    graphNodeCountRef.current = graph3d.nodes.length;
+  }, [graph3d.nodes.length]);
 
   useEffect((): void | (() => void) => {
-    const n: number = graph.nodes.length;
+    const n: number = graph3d.nodes.length;
     const prev: number = prevGraphNodeCountRef.current;
     prevGraphNodeCountRef.current = n;
     if (prev >= 0 && n > prev) {
@@ -224,7 +235,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       };
     }
     return;
-  }, [graph.nodes.length]);
+  }, [graph3d.nodes.length]);
 
   useEffect((): void => {
     if (s.activeSessionId) {
@@ -283,7 +294,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     if (viewSize.w < 2 || viewSize.h < 2) {
       return;
     }
-    if (graph.nodes.length === 0) {
+    if (graph3d.nodes.length === 0) {
       return;
     }
     const fg: ForceGraphMethods | undefined = ref.current;
@@ -293,7 +304,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     window.requestAnimationFrame((): void => {
       ref.current?.refresh();
     });
-  }, [s.memoryPanelOpen, graph.nodes.length, viewSize.w, viewSize.h, graphDataKey]);
+  }, [s.memoryPanelOpen, graph3d.nodes.length, viewSize.w, viewSize.h, graphDataKey]);
 
   useEffect((): void | (() => void) => {
     return (): void => {
@@ -378,10 +389,10 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
 
   function freezeGraphAtCenteredCoordinates(): void {
     const fg: ForceGraphMethods | undefined = ref.current;
-    if (typeof fg === "undefined" || graph.nodes.length === 0) {
+    if (typeof fg === "undefined" || graph3d.nodes.length === 0) {
       return;
     }
-    const center = graph.nodes.reduce(
+    const center = graph3d.nodes.reduce(
       (acc, node) => ({
         x: acc.x + coordinateOrZero(node.x),
         y: acc.y + coordinateOrZero(node.y),
@@ -389,10 +400,10 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       }),
       { x: 0, y: 0, z: 0 }
     );
-    const centerX: number = center.x / graph.nodes.length;
-    const centerY: number = center.y / graph.nodes.length;
-    const centerZ: number = center.z / graph.nodes.length;
-    for (const node of graph.nodes) {
+    const centerX: number = center.x / graph3d.nodes.length;
+    const centerY: number = center.y / graph3d.nodes.length;
+    const centerZ: number = center.z / graph3d.nodes.length;
+    for (const node of graph3d.nodes) {
       const x: number = coordinateOrZero(node.x) - centerX;
       const y: number = coordinateOrZero(node.y) - centerY;
       const z: number = coordinateOrZero(node.z) - centerZ;
@@ -503,7 +514,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
               ref={ref}
               width={viewSize.w}
               height={viewSize.h}
-              graphData={graph as unknown as { nodes: object[]; links: object[] }}
+              graphData={graph3d as unknown as { nodes: object[]; links: object[] }}
               backgroundColor="rgba(0,0,0,0)"
               warmupTicks={extremeGraph ? 24 : heavyGraph ? 40 : 80}
               cooldownTicks={extremeGraph ? 40 : heavyGraph ? 60 : 120}

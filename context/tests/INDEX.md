@@ -42,6 +42,7 @@
 | `desktop/src/renderer/runtime/pagGraphTraceDeltas.test.ts` | Парсинг/применение дельт trace; тексты рассинхрона rev (`formatPagGraphRevMismatchWarning`). |
 | `desktop/src/renderer/runtime/pagHighlightFromTrace.test.ts` | D-HI-1: highlight из trace → `PagSearchHighlightV1`. |
 | `desktop/src/renderer/runtime/loadPagGraphMerged.test.ts` | Слияние merged при caps/лимитах. |
+| `desktop/src/renderer/runtime/memoryGraphForceGraphProjection.test.ts` | UC-04 A + D-TRACE-CONN-1: фильтр рёбер, `ensureTraceConnectivity`, пачка merge→проекция (wave 3, task 2_2). |
 | `desktop/src/renderer/runtime/memoryGraph3DResolvedColors.test.ts` | Токены/цвета рёбер (task 4.1). |
 | `desktop/src/renderer/runtime/memoryGraph3DLineStyle.test.ts` | Политика линий/частиц рёбер (task 4.1). |
 | `desktop/src/renderer/runtime/pagGraphLimits.test.ts` | D-SCL-1: caps 20k нод / 40k рёбер, согласование с Python `pag_slice_caps` (task 5.1). |
@@ -56,6 +57,7 @@ cd desktop && npx vitest run \
   src/renderer/runtime/pagGraphTraceDeltas.test.ts \
   src/renderer/runtime/pagHighlightFromTrace.test.ts \
   src/renderer/runtime/loadPagGraphMerged.test.ts \
+  src/renderer/runtime/memoryGraphForceGraphProjection.test.ts \
   src/renderer/runtime/memoryGraph3DResolvedColors.test.ts \
   src/renderer/runtime/memoryGraph3DLineStyle.test.ts \
   src/renderer/runtime/pagGraphLimits.test.ts
