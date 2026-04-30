@@ -5,6 +5,8 @@
 - **Broker** (P3): Unix socket на `BrokerConfig.socket_path`; процессы `AgentWork:<chat_id>`, `AgentMemory:global`.
 - **Trace store:** JSONL (`trace_store_path`), строки = события рантайма.
 
+По умолчанию broker/Python **не** пишут в trace/journal compact-событие **`memory_recall_ui_phase`**; его продюсирует только **renderer** (см. [`desktop-memory-3d-observability.md`](desktop-memory-3d-observability.md)).
+
 ## Обязательная тройка для регрессии `test_broker_routes_memory_service_and_work_action`
 
 После `action.start` с `work.handle_user_prompt` и успешного второго запроса памяти в том же чате в trace должны появиться **все** три вида следов:
