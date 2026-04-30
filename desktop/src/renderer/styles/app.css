@@ -434,6 +434,24 @@ button {
   position: relative;
 }
 
+.memBrokerRecallOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0.65rem 0.75rem;
+  pointer-events: none;
+  box-sizing: border-box;
+  color: var(--candy-text);
+  background: color-mix(in srgb, var(--candy-accent-2) 14%, transparent);
+  border-bottom: 1px solid var(--candy-border);
+  font-size: 0.8rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
 .mem3dView.mem3dGraphEntryPulse {
   animation: mem3dGraphEntryKF 0.48s ease-out;
 }

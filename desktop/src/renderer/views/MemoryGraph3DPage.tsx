@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ForceGraph3D, { type ForceGraphMethods } from "react-force-graph-3d";
 
+import { BROKER_MEMORY_RECALL_UI_LABEL } from "../runtime/chatTraceAmPhase";
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
 import { lastPagSearchHighlightFromTrace, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
 import { type MemoryGraphData, type MemoryGraphLink, type MemoryGraphNode } from "../runtime/memoryGraphState";
@@ -471,6 +472,11 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
               background: "rgba(255,255,255,0.35)"
             }}
           >
+            {s.brokerMemoryRecallActive ? (
+              <div className="memBrokerRecallOverlay" role="status" aria-live="polite">
+                {BROKER_MEMORY_RECALL_UI_LABEL}
+              </div>
+            ) : null}
             <ForceGraph3D
               key={graphDataKey}
               ref={ref}

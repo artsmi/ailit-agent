@@ -31,6 +31,7 @@ import {
   type ContextFillState,
   type ToolApprovalPending
 } from "./chatTraceProjector";
+import { projectBrokerMemoryRecallActive } from "./chatTraceAmPhase";
 import {
   createEmptyPagGraphSessionSnapshot,
   PagGraphSessionFullLoad,
@@ -85,6 +86,8 @@ export type DesktopSessionValue = {
   readonly resubscribeTrace: () => Promise<void>;
   /** Модель/рантайм обрабатывают ход (до assistant.final / стопа). */
   readonly agentTurnInProgress: boolean;
+  /** UC 2.4: фаза AgentMemory по broker trace (не `assistant.thinking`). */
+  readonly brokerMemoryRecallActive: boolean;
   readonly requestStopAgent: () => Promise<void>;
   /** Текущий perm-режим после ``session.perm_mode.settled`` (сокращение для поля ввода). */
   readonly permModeLabel: string | null;
@@ -282,6 +285,10 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     });
   }, [optimisticChatLines, traceProjection.chatLines]);
   const agentTurnInProgress: boolean = traceProjection.agentTurnInProgress || optimisticChatLines.length > 0;
+  const brokerMemoryRecallActive: boolean = React.useMemo(
+    (): boolean => projectBrokerMemoryRecallActive(rawTraceRows, activeSession.chatId),
+    [rawTraceRows, activeSession.chatId]
+  );
   const permModeLabel: string | null = traceProjection.permModeLabel;
   const permModeGateId: string | null = traceProjection.permModeGateId;
   const toolApproval: ToolApprovalPending | null = traceProjection.toolApproval;
@@ -1096,6 +1103,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     sendUserPrompt,
     resubscribeTrace,
     agentTurnInProgress,
+    brokerMemoryRecallActive,
     requestStopAgent,
     permModeLabel,
     permModeGateId,
