@@ -21,7 +21,7 @@ alwaysApply: true
 
 | Файл | Назначение |
 |------|------------|
-| `project-agent-models.mdc` | **Опционально**: модели CLI для агентов; при отсутствии файла или записи используется `auto` |
+| `project-agent-models.mdc` | **Опционально**: модели Cursor Subagents для агентов; при отсутствии файла или записи используется `auto` |
 | `project-architecture-review.mdc` | Критерии review архитектуры для этого репо |
 | `project-code-review.mdc` | Стандарты review кода |
 | `project/project-workflow.mdc` | Порядок комитов и вызова пользователя через отправку сообщения - если есть блокеры проекта |

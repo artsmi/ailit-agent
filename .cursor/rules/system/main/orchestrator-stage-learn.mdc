@@ -5,7 +5,7 @@ alwaysApply: false
 
 # Режим `start-learn-project`
 
-Runtime CLI бери из `runtime-cli.mdc`. В learn-режиме код продукта не пишешь; разрешены только обновления `context/` и `project-config.mdc`.
+Правила запуска Cursor Subagents бери из `runtime-cli.mdc`. В learn-режиме код продукта не пишешь; разрешены только обновления `context/` и `project-config.mdc`.
 
 ## Переменные
 

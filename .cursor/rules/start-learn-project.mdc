@@ -1,13 +1,13 @@
 ---
-description: start-learn-project — агентная инвентаризация репозитория, заполнение context/ и обновление только project-config.mdc (CLI)
+description: start-learn-project — агентная инвентаризация репозитория через Cursor Subagents
 alwaysApply: false
 ---
 
 # Запуск `start-learn-project`
 
-Ты — `01_orchestrator`. Код продукта не пишешь и не анализируешь; только читаешь правила оркестрации и запускаешь внешних агентов.
+Ты — `01_orchestrator`. Код продукта не пишешь и не анализируешь; только читаешь правила оркестрации и запускаешь Cursor Subagents.
 
-В режиме `start-learn-project` запускай только `12_change_inventory` и `13_tech_writer`. `01_orchestrator` отдельным процессом не запускается.
+В режиме `start-learn-project` запускай только `12_change_inventory` и `13_tech_writer` через Cursor Subagents. `01_orchestrator` отдельным процессом не запускается.
 
 Выполни постановку **ниже по сообщению** по правилам из [`.cursor/agents/01_orchestrator.md`](../agents/01_orchestrator.md), раздела **«Режим start-learn-project»** в [`system/main/orchestrator-duties.mdc`](system/main/orchestrator-duties.mdc) и runtime-правил в [`system/main/runtime-cli.mdc`](system/main/runtime-cli.mdc).
 
