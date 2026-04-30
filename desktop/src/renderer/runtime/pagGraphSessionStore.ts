@@ -37,6 +37,11 @@ export type PagGraphSessionSnapshot = {
   readonly warnings: readonly string[];
   /** > {@link MEM3D_PAG_MAX_NODES} нод в merged: предупредить, не усечь молча. */
   readonly atLargeGraphWarning: boolean;
+  /**
+   * `false` — на последнем успешном full load для всех запрошенных namespace был только
+   * `missing_db` и срез из БД пуст; `true` — sqlite/срез доступен хотя бы по одному namespace.
+   */
+  readonly pagDatabasePresent: boolean;
   readonly loadState: "idle" | "loading" | "ready" | "error";
   readonly loadError: string | null;
 };
@@ -50,6 +55,7 @@ export function createEmptyPagGraphSessionSnapshot(
     lastAppliedTraceIndex: -1,
     warnings: [],
     atLargeGraphWarning: false,
+    pagDatabasePresent: true,
     loadState: init.loadState,
     loadError: null
   };
@@ -202,7 +208,8 @@ function buildSnapshotFromReconcile(
   lastIndex: number,
   warnings: readonly string[],
   loadState: PagGraphSessionSnapshot["loadState"],
-  loadError: string | null
+  loadError: string | null,
+  pagDatabasePresent: boolean
 ): PagGraphSessionSnapshot {
   const w2: { readonly atLargeGraphWarning: boolean; readonly warnings: readonly string[] } = withLargeWarning(
     merged,
@@ -214,6 +221,7 @@ function buildSnapshotFromReconcile(
     lastAppliedTraceIndex: lastIndex,
     warnings: w2.warnings,
     atLargeGraphWarning: w2.atLargeGraphWarning,
+    pagDatabasePresent,
     loadState,
     loadError
   };
@@ -354,13 +362,14 @@ export class PagGraphSessionTraceMerge {
     revs0: RevRec,
     rows: readonly Record<string, unknown>[],
     namespaces: readonly string[],
-    defaultNamespace: string
+    defaultNamespace: string,
+    pagDatabasePresent: boolean = true
   ): PagGraphSessionSnapshot {
     const ns: Set<string> = new Set(namespaces);
     const lastRow: number = rows.length - 1;
     if (lastRow < 0) {
       const m1: MemoryGraphData = this.applyHighlightFromLastRow(merged0, rows, defaultNamespace);
-      return buildSnapshotFromReconcile(m1, revs0, -1, [], "ready", null);
+      return buildSnapshotFromReconcile(m1, revs0, -1, [], "ready", null, pagDatabasePresent);
     }
     const ap: {
       readonly merged: MemoryGraphData;
@@ -368,7 +377,15 @@ export class PagGraphSessionTraceMerge {
       readonly warnings: readonly string[];
     } = applyDeltasInRange(merged0, revs0, rows, 0, lastRow, ns, [], true);
     const m1: MemoryGraphData = this.applyHighlightFromLastRow(ap.merged, rows, defaultNamespace);
-    return buildSnapshotFromReconcile(m1, ap.revs, lastRow, ap.warnings, "ready", null);
+    return buildSnapshotFromReconcile(
+      m1,
+      ap.revs,
+      lastRow,
+      ap.warnings,
+      "ready",
+      null,
+      pagDatabasePresent
+    );
   }
 
   /**
@@ -406,7 +423,15 @@ export class PagGraphSessionTraceMerge {
       useInitialTraceCatchup
     );
     const m1: MemoryGraphData = this.applyHighlightFromLastRow(ap.merged, rows, defaultNamespace);
-    return buildSnapshotFromReconcile(m1, ap.revs, end, ap.warnings, "ready", null);
+    return buildSnapshotFromReconcile(
+      m1,
+      ap.revs,
+      end,
+      ap.warnings,
+      "ready",
+      null,
+      cur.pagDatabasePresent
+    );
   }
 }
 

@@ -218,8 +218,6 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const rawTraceRowsRef: React.MutableRefObject<Record<string, unknown>[]> = React.useRef<Record<string, unknown>[]>([]);
   const [pagGraphBySession, setPagGraphBySession] = React.useState<Record<string, PagGraphSessionSnapshot>>({});
   const [pagLoadTick, setPagLoadTick] = React.useState(0);
-  /** `pag/store.sqlite3` ещё нет — ждём появления и молча ретраим `PagGraphSessionFullLoad`. */
-  const [awaitingPagSqlite, setAwaitingPagSqlite] = React.useState(false);
   const [optimisticChatLines, setOptimisticChatLines] = React.useState<ChatLine[]>([]);
   const [reconnectAttempt, setReconnectAttempt] = React.useState(0);
   const seenRowKeys: React.MutableRefObject<Set<string>> = React.useRef<Set<string>>(new Set());
@@ -247,10 +245,6 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   activeChatIdRef.current = activeSession.chatId;
 
   React.useEffect((): void => {
-    setAwaitingPagSqlite(false);
-  }, [activeSession.id]);
-
-  React.useEffect((): void => {
     rawTraceRowsRef.current = rawTraceRows;
   }, [rawTraceRows]);
 
@@ -263,6 +257,11 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     (): string => PagGraphWorkspaceNamespaces.defaultNamespace(registry, activeSession.projectIds),
     [registry, activeSession.projectIds]
   );
+
+  const awaitingPagSqlite: boolean = React.useMemo((): boolean => {
+    const cur: PagGraphSessionSnapshot | undefined = pagGraphBySession[activeSession.id];
+    return cur != null && cur.loadState === "ready" && !cur.pagDatabasePresent;
+  }, [pagGraphBySession, activeSession.id]);
 
   const traceProjection = React.useMemo(
     () => projectChatTraceRows(rawTraceRows, { suppressedToolApprovalCallId }),
@@ -935,7 +934,6 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         return;
       }
       if (!r.ok) {
-        setAwaitingPagSqlite(false);
         setPagGraphBySession((p0) => ({
           ...p0,
           [sessionId]: {
@@ -946,18 +944,15 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         }));
         return;
       }
-      if (r.pagSqliteMissing) {
-        setAwaitingPagSqlite(true);
-      } else {
-        setAwaitingPagSqlite(false);
-      }
+      const pagDatabasePresent: boolean = r.pagSqliteMissing !== true;
       const rows: readonly Record<string, unknown>[] = rawTraceRowsRef.current;
       const snap: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.afterFullLoad(
         r.merged,
         r.graphRevByNamespace,
         rows,
         pagNamespaces,
-        pagDefaultNamespace
+        pagDefaultNamespace,
+        pagDatabasePresent
       );
       if (cancelled) {
         return;
@@ -1000,7 +995,6 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           return;
         }
         if (!r.ok) {
-          setAwaitingPagSqlite(false);
           setPagGraphBySession((p0) => ({
             ...p0,
             [sessionId]: {
@@ -1020,9 +1014,9 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           r.graphRevByNamespace,
           rows,
           pagNamespaces,
-          pagDefaultNamespace
+          pagDefaultNamespace,
+          true
         );
-        setAwaitingPagSqlite(false);
         setPagGraphBySession((p0) => ({ ...p0, [sessionId]: snap }));
       })();
     }, PAG_SQLITE_RETRY_MS);

@@ -45,6 +45,9 @@ from agent_core.runtime.models import RuntimeRequestEnvelope
 from agent_core.memory.pag_runtime import PagRuntimeConfig
 from agent_core.memory.sqlite_pag import SqlitePagStore
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
+from agent_core.runtime.w14_graph_highlight_path import (
+    W14GraphHighlightPathBuilder,
+)
 
 if TYPE_CHECKING:
     from agent_core.runtime.subprocess_agents.memory_agent import (
@@ -681,7 +684,11 @@ class AgentMemoryQueryPipeline:
             f"{qid_log}:finish_decision"
         )
         _fnids = mem_sl.get("node_ids", [])
-        _feids = mem_sl.get("edge_ids", [])
+        _w14_hl = W14GraphHighlightPathBuilder.union_to_ends(
+            store,
+            nspace,
+            [str(x) for x in _fnids if str(x).strip()],
+        )
         self._w.emit_w14_graph_highlight(
             req,
             request_id=request_id,
@@ -689,8 +696,8 @@ class AgentMemoryQueryPipeline:
             query_id=qid_log,
             w14_command=AgentMemoryCommandName.FINISH_DECISION.value,
             w14_command_id=_cmd_id,
-            node_ids=[str(x) for x in _fnids if str(x).strip()],
-            edge_ids=[str(x) for x in _feids if str(x).strip()],
+            node_ids=_w14_hl.node_ids,
+            edge_ids=_w14_hl.edge_ids,
             reason=str(dsum)[:256],
         )
         return AgentMemoryQueryPipelineResult(
@@ -804,6 +811,20 @@ class AgentMemoryQueryPipeline:
                 project_root=root,
                 changed_paths=selected_b,
             )
+        for rel in selected_b:
+            b_nid = _b_node_id(str(rel))
+            self._w._append_journal(  # noqa: SLF001
+                req=req,
+                event_name="memory.index.node_updated",
+                summary="query-driven PAG node updated",
+                request_id=request_id,
+                node_ids=[b_nid],
+                payload={
+                    "namespace": nspace,
+                    "selected_paths": [str(rel)],
+                    "reason": "w14_materialize_b",
+                },
+            )
         c_nodes = self._c_nodes_for_b_paths(
             store=store,
             namespace=nspace,
@@ -897,12 +918,18 @@ class AgentMemoryQueryPipeline:
         _pt_cid = str(plan_obj.get("command_id", "") or "").strip() or (
             f"{qid_log}:plan_traversal"
         )
-        _nids = [
+        _slice_n = [
             str(x) for x in (ms2.get("node_ids") or []) if str(x).strip()
         ]
-        _eids = [
-            str(x) for x in (ms2.get("edge_ids") or []) if str(x).strip()
+        _end_from_results = [
+            str(r.get("node_id", "") or "")
+            for r in explicit_results
+            if r.get("node_id")
         ]
+        _hl_ends = _end_from_results or _slice_n
+        _w14_hl = W14GraphHighlightPathBuilder.union_to_ends(
+            store, nspace, _hl_ends
+        )
         self._w.emit_w14_graph_highlight(
             req,
             request_id=request_id,
@@ -910,8 +937,8 @@ class AgentMemoryQueryPipeline:
             query_id=qid_log,
             w14_command=_pt_cmd,
             w14_command_id=_pt_cid,
-            node_ids=_nids,
-            edge_ids=_eids,
+            node_ids=_w14_hl.node_ids,
+            edge_ids=_w14_hl.edge_ids,
             reason=str(dsum)[:256],
         )
         return AgentMemoryQueryPipelineResult(
@@ -1194,6 +1221,9 @@ class AgentMemoryQueryPipeline:
             except Exception:  # noqa: BLE001
                 pass
             else:
+                _c_hl = W14GraphHighlightPathBuilder.path_to_end(
+                    svc.store, namespace, str(c_input.c_node_id),
+                )
                 self._w.emit_w14_graph_highlight(
                     req,
                     request_id=request_id,
@@ -1201,8 +1231,8 @@ class AgentMemoryQueryPipeline:
                     query_id=qid_log,
                     w14_command=AgentMemoryCommandName.SUMMARIZE_C.value,
                     w14_command_id=_sc_cid,
-                    node_ids=[str(c_input.c_node_id)],
-                    edge_ids=[],
+                    node_ids=_c_hl.node_ids,
+                    edge_ids=_c_hl.edge_ids,
                     reason="summarize_c",
                 )
             refreshed = svc.store.fetch_node(
@@ -1276,6 +1306,9 @@ class AgentMemoryQueryPipeline:
             except Exception:  # noqa: BLE001
                 pass
             else:
+                _b_hl = W14GraphHighlightPathBuilder.path_to_end(
+                    svc.store, namespace, b_id,
+                )
                 self._w.emit_w14_graph_highlight(
                     req,
                     request_id=request_id,
@@ -1283,8 +1316,8 @@ class AgentMemoryQueryPipeline:
                     query_id=qid_log,
                     w14_command=AgentMemoryCommandName.SUMMARIZE_B.value,
                     w14_command_id=_sb_cid,
-                    node_ids=[b_id],
-                    edge_ids=[],
+                    node_ids=_b_hl.node_ids,
+                    edge_ids=_b_hl.edge_ids,
                     reason="summarize_b",
                 )
             refreshed = svc.store.fetch_node(namespace=namespace, node_id=b_id)

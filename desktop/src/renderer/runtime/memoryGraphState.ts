@@ -83,6 +83,29 @@ export function linkFromPag(raw: Record<string, unknown>): MemoryGraphLink | nul
   };
 }
 
+const MERGE_COORD_KEYS: readonly (keyof MemoryGraphNode)[] = ["x", "y", "z", "fx", "fy", "fz"];
+
+function mergeNodePreservingCoords(
+  prev: MemoryGraphNode | undefined,
+  incoming: MemoryGraphNode
+): MemoryGraphNode {
+  const merged: MemoryGraphNode = { ...prev, ...incoming };
+  if (prev == null) {
+    return merged;
+  }
+  for (const k of MERGE_COORD_KEYS) {
+    const nv: number | undefined = incoming[k] as number | undefined;
+    if (typeof nv === "number" && Number.isFinite(nv)) {
+      continue;
+    }
+    const pv: number | undefined = prev[k] as number | undefined;
+    if (typeof pv === "number" && Number.isFinite(pv)) {
+      (merged as Record<string, number | undefined>)[k] = pv;
+    }
+  }
+  return merged;
+}
+
 export function mergeMemoryGraph(
   current: MemoryGraphData,
   next: MemoryGraphData
@@ -93,7 +116,8 @@ export function mergeMemoryGraph(
     nodes.set(node.id, node);
   }
   for (const node of next.nodes) {
-    nodes.set(node.id, { ...nodes.get(node.id), ...node });
+    const prev: MemoryGraphNode | undefined = nodes.get(node.id);
+    nodes.set(node.id, mergeNodePreservingCoords(prev, node));
   }
   for (const link of current.links) {
     links.set(link.id, link);

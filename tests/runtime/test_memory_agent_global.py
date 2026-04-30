@@ -87,8 +87,17 @@ def test_agent_memory_query_updates_pag_without_full_repo(
     monkeypatch: object,
     tmp_path: Path,
 ) -> None:
+    am_cfg = tmp_path / "agent_memory_quiet_llm.yaml"
+    am_cfg.write_text(
+        'schema_version: "1"\n'
+        "memory:\n"
+        "  llm:\n"
+        "    enabled: false\n",
+        encoding="utf-8",
+    )
     journal_path = tmp_path / "memory-journal.jsonl"
     db_path = tmp_path / "pag.sqlite3"
+    monkeypatch.setenv("AILIT_AGENT_MEMORY_CONFIG", str(am_cfg))
     monkeypatch.setenv("AILIT_MEMORY_JOURNAL_PATH", str(journal_path))
     monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db_path))
     (tmp_path / "target.py").write_text(

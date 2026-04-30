@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 from io import StringIO
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+from agent_core.memory.sqlite_pag import SqlitePagStore
 from agent_core.runtime.models import (
     RuntimeRequestEnvelope,
     make_request_envelope,
@@ -17,6 +19,11 @@ from agent_core.runtime.pag_graph_trace import (
     MEMORY_W14_GRAPH_HIGHLIGHT_EVENT,
     MEMORY_W14_GRAPH_HIGHLIGHT_SCHEMA,
     emit_memory_w14_graph_highlight_row,
+)
+from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
+from agent_core.runtime.w14_graph_highlight_path import (
+    W14GraphHighlightPathBuilder,
+    a_node_id,
 )
 
 
@@ -76,3 +83,58 @@ def test_emit_memory_w14_graph_highlight_row_shape(
         inner2 = pl.get("payload", {})
         assert inner2.get("schema") == MEMORY_W14_GRAPH_HIGHLIGHT_SCHEMA
         assert inner2.get("node_ids") == ["A:ns1", "B:foo.py"]
+
+
+def test_w14_graph_highlight_path_not_single_leaf_only(
+    tmp_path: Path,
+) -> None:
+    """2.2: `node_ids` — цепочка A→…→цель, не один лист."""
+    store = SqlitePagStore(tmp_path / "p.sqlite3")
+    w = PagGraphWriteService(store)
+    ns = "ns1"
+    aid = a_node_id(ns)
+    bid = "B:app/y.py"
+    w.upsert_node(
+        namespace=ns,
+        node_id=aid,
+        level="A",
+        kind="p",
+        path=".",
+        title="r",
+        summary="",
+        attrs={},
+        fingerprint="1",
+    )
+    w.upsert_node(
+        namespace=ns,
+        node_id=bid,
+        level="B",
+        kind="file",
+        path="app/y.py",
+        title="f",
+        summary="",
+        attrs={},
+        fingerprint="1",
+    )
+    w.upsert_edge(
+        namespace=ns,
+        edge_id="eab",
+        edge_class="containment",
+        edge_type="contains",
+        from_node_id=aid,
+        to_node_id=bid,
+    )
+    pth = W14GraphHighlightPathBuilder.path_to_end(store, ns, bid)
+    assert pth.node_ids[0] == aid
+    assert pth.node_ids[-1] == bid
+    assert "eab" in pth.edge_ids
+
+
+def test_w14_path_empty_end_does_not_represent_emit_payload(
+    tmp_path: Path,
+) -> None:
+    """D16.1: пустой `path_to_end` — нет `node_ids`, emit не пишет trace."""
+    store = SqlitePagStore(tmp_path / "e.sqlite3")
+    pth = W14GraphHighlightPathBuilder.path_to_end(store, "n", "")
+    assert pth.node_ids == []
+    assert pth.edge_ids == []

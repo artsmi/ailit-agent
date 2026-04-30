@@ -4,6 +4,7 @@ import ForceGraph3D, { type ForceGraphMethods } from "react-force-graph-3d";
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
 import { highlightFromTraceRow, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
 import { type MemoryGraphData, type MemoryGraphLink, type MemoryGraphNode } from "../runtime/memoryGraphState";
+import { computeMemoryGraphDataKey } from "../runtime/memoryGraphDataKey";
 import {
   MEM3D_PAG_MAX_NODES,
   PAG_3D_HEAVY_HIGHLIGHT_LINK_PARTICLES,
@@ -19,6 +20,10 @@ type Mem3dProps = {
 };
 
 const GRAPH_VIEWPORT_MIN_H: number = 420;
+
+/** OQ2 placeholder (open_questions.md) — согласовать copy до merge UI. */
+const OQ2_PAG_MISSING_BANNER: string =
+  "База PAG ещё не создана. После появления store.sqlite3 срез подхватится автоматически (placeholder OQ2).";
 
 function nowMs(): number {
   return Date.now();
@@ -110,16 +115,18 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
   const snap: ReturnType<typeof useDesktopSession>["pagGraph"]["activeSnapshot"] = s.pagGraph.activeSnapshot;
   const graph: MemoryGraphData = snap?.merged ?? { nodes: [], links: [] };
   const graphDataKey: string = useMemo((): string => {
-    const st: string = snap?.loadState ?? "none";
-    const n: number = graph.nodes.length;
-    const rev: string = snap
-      ? Object.entries(snap.graphRevByNamespace)
-          .map(([k, v]) => `${k}:${String(v)}`)
-          .sort()
-          .join("|")
-      : "";
-    return `${s.activeSessionId}-${st}-n${String(n)}-${rev}`;
-  }, [s.activeSessionId, snap, graph.nodes.length]);
+    return computeMemoryGraphDataKey({
+      activeSessionId: s.activeSessionId,
+      snap:
+        snap == null
+          ? null
+          : {
+              loadState: snap.loadState,
+              pagDatabasePresent: snap.pagDatabasePresent,
+              graphRevByNamespace: snap.graphRevByNamespace
+            }
+    });
+  }, [s.activeSessionId, snap]);
 
   const namespaces: readonly string[] = useMemo((): readonly string[] => {
     const ids: readonly string[] =
@@ -136,7 +143,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     return out;
   }, [s.registry, s.selectedProjectIds]);
 
-  const loadState: "idle" | "loading" | "empty" | "ready" | "error" = (() => {
+  const pageView: "loading" | "error" | "missingPagEmpty" | "missingPagTrace" | "empty" | "ready" = (() => {
     if (snap == null) {
       return "loading";
     }
@@ -146,20 +153,35 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     if (snap.loadState === "error") {
       return "error";
     }
-    if (graph.nodes.length === 0 && graph.links.length === 0) {
-      return "empty";
+    if (snap.loadState === "ready") {
+      if (!snap.pagDatabasePresent) {
+        if (graph.nodes.length === 0 && graph.links.length === 0) {
+          return "missingPagEmpty";
+        }
+        return "missingPagTrace";
+      }
+      if (graph.nodes.length === 0 && graph.links.length === 0) {
+        return "empty";
+      }
+      return "ready";
     }
-    return "ready";
+    return "loading";
   })();
 
-  const err: string | null =
-    snap != null
-      ? snap.loadError != null
+  const err: string | null = ((): string | null => {
+    if (snap == null) {
+      return null;
+    }
+    if (snap.loadState === "error") {
+      return snap.loadError != null && snap.loadError.length > 0
         ? snap.loadError
-        : snap.warnings.length > 0
-          ? snap.warnings.join(" | ")
-          : null
-      : null;
+        : "Ошибка чтения PAG (БД).";
+    }
+    if (snap.loadState === "ready" && snap.warnings.length > 0) {
+      return snap.warnings.join(" | ");
+    }
+    return null;
+  })();
 
   const nodeCount: number = graph.nodes.length;
   const heavyGraph: boolean = nodeCount > PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD;
@@ -374,7 +396,38 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
               с БД.
             </div>
           ) : null}
-          {err ? <div className="errLine" style={{ marginBottom: 8 }}>{err}</div> : null}
+          {pageView === "error" && err != null ? (
+            <div className="errLine" style={{ marginBottom: 8 }}>{err}</div>
+          ) : null}
+          {pageView !== "error" && err != null ? (
+            <div
+              className="errLine"
+              style={{
+                marginBottom: 8,
+                background: "rgba(234, 179, 8, 0.12)",
+                border: "1px solid rgba(234, 179, 8, 0.35)"
+              }}
+            >
+              {err}
+            </div>
+          ) : null}
+          {(pageView === "missingPagEmpty" || pageView === "missingPagTrace") && (
+            <div
+              className="errLine"
+              style={{
+                marginBottom: 8,
+                background: "rgba(14, 165, 233, 0.10)",
+                border: "1px solid rgba(14, 165, 233, 0.35)"
+              }}
+            >
+              {OQ2_PAG_MISSING_BANNER}
+            </div>
+          )}
+          {pageView === "missingPagTrace" ? (
+            <div className="memoryJournalEmpty" style={{ marginBottom: 8 }}>
+              <span>Ниже — ноды из trace; срез SQLite PAG ещё отсутствует (OQ2 placeholder).</span>
+            </div>
+          ) : null}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
             <button className="primaryButton smBtn" type="button" onClick={() => s.pagGraph.refreshPagGraph()}>
               Refresh
@@ -383,14 +436,20 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
               Fit
             </button>
           </div>
-          {loadState === "loading" ? (
+          {pageView === "loading" ? (
             <div className="memoryJournalEmpty">
               <span>Загружаю PAG для активного workspace...</span>
             </div>
           ) : null}
-          {loadState === "empty" && !err ? (
+          {pageView === "empty" ? (
             <div className="memoryJournalEmpty">
               <span>Память пока пуста. Она начнёт расти после запросов AgentWork к AgentMemory.</span>
+            </div>
+          ) : null}
+          {pageView === "missingPagEmpty" ? (
+            <div className="memoryJournalEmpty">
+              <span>Граф пуст: данные PAG в SQLite ещё не появились; после индексации появится срез из БД (OQ2
+              placeholder).</span>
             </div>
           ) : null}
           <div

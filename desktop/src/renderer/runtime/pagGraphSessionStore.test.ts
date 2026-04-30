@@ -271,6 +271,134 @@ describe("pagGraphSessionStore", () => {
     expect(snap.graphRevByNamespace[ns]).toBe(3);
   });
 
+  it("createEmptyDefaultsPagDatabasePresentTrue", () => {
+    const e: ReturnType<typeof createEmptyPagGraphSessionSnapshot> = createEmptyPagGraphSessionSnapshot();
+    expect(e.pagDatabasePresent).toBe(true);
+  });
+
+  it("afterFullLoadAllMissingYieldsReadyAndPagDatabasePresentFalse", () => {
+    const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> = PagGraphSessionTraceMerge.afterFullLoad(
+      { nodes: [], links: [] },
+      {},
+      [],
+      ["ns1"],
+      "ns1",
+      false
+    );
+    expect(snap.loadState).toBe("ready");
+    expect(snap.loadError).toBeNull();
+    expect(snap.pagDatabasePresent).toBe(false);
+  });
+
+  it("applyIncrementalPreservesPagDatabasePresent", () => {
+    const base: ReturnType<typeof createEmptyPagGraphSessionSnapshot> = {
+      ...createEmptyPagGraphSessionSnapshot({ loadState: "ready" }),
+      pagDatabasePresent: false,
+      merged: { nodes: [], links: [] },
+      graphRevByNamespace: { "ns-a": 0 },
+      lastAppliedTraceIndex: -1
+    };
+    const row: Record<string, unknown> = rowPagNodeUpsert("ns-a", 1, {
+      node_id: "B:file.py",
+      level: "B",
+      path: "file.py",
+      title: "f",
+      kind: "file"
+    });
+    const nxt: ReturnType<typeof PagGraphSessionTraceMerge.applyIncremental> = PagGraphSessionTraceMerge.applyIncremental(
+      base,
+      [row],
+      ["ns-a"],
+      "ns-a"
+    );
+    expect(nxt.merged.nodes.length).toBeGreaterThan(0);
+    expect(nxt.pagDatabasePresent).toBe(false);
+  });
+
+  it("afterFullLoadTogglesPagDatabasePresentWhenDatabaseAppears", () => {
+    const ns: string = "ns-flip";
+    const n0: ReturnType<typeof nodeFromPag> = nodeFromPag({
+      node_id: "A:1",
+      level: "A",
+      path: ".",
+      title: "p",
+      namespace: ns
+    })!;
+    const snap0: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> = PagGraphSessionTraceMerge.afterFullLoad(
+      { nodes: [], links: [] },
+      {},
+      [],
+      [ns],
+      ns,
+      false
+    );
+    expect(snap0.pagDatabasePresent).toBe(false);
+    const snap1: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> = PagGraphSessionTraceMerge.afterFullLoad(
+      { nodes: [n0], links: [] },
+      { [ns]: 1 },
+      [],
+      [ns],
+      ns,
+      true
+    );
+    expect(snap1.pagDatabasePresent).toBe(true);
+    expect(snap1.loadState).toBe("ready");
+  });
+
+  it("runPartialOneMissingOneOkHasPagDatabasePresentImplied", async () => {
+    const okNsB: PagGraphSliceResult = {
+      ok: true,
+      kind: "ailit_pag_graph_slice_v1",
+      namespace: "ns-b",
+      db_path: "/b.db",
+      graph_rev: 1,
+      pag_state: "ok",
+      level_filter: null,
+      nodes: [
+        { node_id: "A:1", level: "A", path: ".", title: "p", kind: "project", namespace: "ns-b" }
+      ],
+      edges: [],
+      limits: { node_limit: 10000, node_offset: 0, edge_limit: 1, edge_offset: 0 },
+      has_more: { nodes: false, edges: false }
+    };
+    const missing: PagGraphSliceResult = {
+      ok: false,
+      kind: "ailit_pag_graph_slice_v1",
+      error: "sqlite not found",
+      code: "missing_db"
+    };
+    const slice: ReturnType<typeof vi.fn> = vi.fn(
+      async (p: { readonly namespace: string }): Promise<PagGraphSliceResult> => {
+        if (p.namespace === "ns-a") {
+          return missing;
+        }
+        if (p.namespace === "ns-b") {
+          return okNsB;
+        }
+        return missing;
+      }
+    );
+    const r: Awaited<ReturnType<typeof PagGraphSessionFullLoad.run>> = await PagGraphSessionFullLoad.run(
+      slice,
+      ["ns-a", "ns-b"]
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) {
+      return;
+    }
+    expect(r.pagSqliteMissing).toBeFalsy();
+    const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> = PagGraphSessionTraceMerge.afterFullLoad(
+      r.merged,
+      r.graphRevByNamespace,
+      [],
+      ["ns-a", "ns-b"],
+      "ns-b",
+      true
+    );
+    expect(snap.pagDatabasePresent).toBe(true);
+    expect(snap.merged.nodes.length).toBeGreaterThan(0);
+  });
+
   it("runReturnsPagSqliteMissingWhenAllNamespacesReturnMissingDb", async () => {
     const missing: PagGraphSliceResult = {
       ok: false,
