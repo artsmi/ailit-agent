@@ -1,34 +1,51 @@
 # Test Report: task_2_2
 
 ## Контекст
-
 - Режим: developer
-- Task: `context/artifacts/tasks/task_2_2.md`
-- Wave: 3
+- Task: task_2_2 (`context/artifacts/tasks/task_2_2.md`)
+- Wave: 2
 
 ## Команды
 
-### Command 1
+### Command 1 — документарная проверка имён (антипаттерны)
 
-```bash
-cd desktop && npx vitest run \
-  src/renderer/runtime/memoryGraphForceGraphProjection.test.ts \
-  src/renderer/runtime/memoryGraphDataKey.test.ts \
-  src/renderer/runtime/memoryGraphState.test.ts \
-  src/renderer/runtime/loadPagGraphMerged.test.ts
-```
+`rg 'memory\.query\.continuation|memory\.rpc\.timeout|query_context_continuation' --glob '!*.md' .`
 
-**Статус:** `passed`  
-**Результат:** 4 test files, 17 tests passed.
+**Статус:** passed  
+**Лог:** N/A (совпадений нет)
 
-## Failed checks
+### Command 2 — согласованность D-OBS-1 топиков в каноне и коде
 
-Нет.
+`rg -n 'memory\.query\.timeout|memory\.query_context\.continuation|memory\.query\.budget_exceeded' tools/agent_core/runtime/subprocess_agents/work_agent.py context/artifacts/architecture.md context/proto/runtime-event-contract.md`
+
+**Статус:** passed  
+**Лог:** N/A
+
+### Command 3 — регрессия compact/continuation
+
+`.venv/bin/python -m pytest tests/test_g14r1_agent_work_memory_query.py tests/test_g14r_agentwork_memory_continuation.py -q --tb=no`
+
+**Статус:** passed  
+**Лог:** N/A
+
+## Результаты
+- Всего проверок: 3
+- Passed: 3
+- Failed: 0
+- Blocked by environment: 0
+
+## Упавшие проверки
+
+_(нет)_
 
 ## Заблокировано окружением
 
-Нет.
+_(нет)_
 
-## Verification gaps
+## Verification Gaps
 
-Ручной smoke 3D (висячие сегменты, плотность нод) не выполнялся в этой сессии; логика покрыта unit-тестами проекции и регрессом по ключу/merge.
+- Live broker/trace JSONL не прогонялись: задача документарная; поведение AW подтверждено существующими юнит-тестами выше.
+
+## Итог
+
+passed
