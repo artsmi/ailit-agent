@@ -16,6 +16,7 @@ import {
 } from "../state/persistedUi";
 import {
   buildPermModeChoiceRequest,
+  buildRuntimeCancelActiveTurnRequest,
   buildToolApprovalResolveRequest,
   buildUserPromptAction
 } from "./envelopeFactory";
@@ -49,6 +50,7 @@ import {
 } from "./pagGraphSessionStore";
 import { dedupKeyForRow, type NormalizedTraceProjection } from "./traceNormalize";
 import { newMessageId } from "./uuid";
+import { BrokerTraceUserTurnResolver } from "./userTurnIdFromTrace";
 
 const GOAL: string = "g-desktop";
 const PAG_SQLITE_RETRY_MS: number = 2500;
@@ -168,9 +170,18 @@ function extractBroker(
 function buildSessionCancelledTraceRow(params: {
   readonly chatId: string;
   readonly namespace: string;
+  readonly userTurnId?: string;
 }): Record<string, unknown> {
   const traceId: string = newMessageId();
   const messageId: string = newMessageId();
+  const cancelledPayload: Record<string, unknown> = {
+    reason: "user_stop",
+    source: "desktop"
+  };
+  const ut: string | undefined = params.userTurnId?.trim();
+  if (ut && ut.length > 0) {
+    cancelledPayload["user_turn_id"] = ut;
+  }
   return {
     contract_version: "ailit_agent_runtime_v1",
     runtime_id: "ailit-desktop",
@@ -189,10 +200,7 @@ function buildSessionCancelledTraceRow(params: {
       type: "topic.publish",
       topic: "chat",
       event_name: "session.cancelled",
-      payload: {
-        reason: "user_stop",
-        source: "desktop"
-      }
+      payload: cancelledPayload
     }
   };
 }
@@ -248,6 +256,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const activeChatIdRef: React.MutableRefObject<string> = React.useRef("");
   const [suppressedToolApprovalCallId, setSuppressedToolApprovalCallId] = React.useState<string | null>(null);
   const toolApprovalRef: React.MutableRefObject<ToolApprovalPending | null> = React.useRef<ToolApprovalPending | null>(null);
+  const stopAgentInFlightRef: React.MutableRefObject<boolean> = React.useRef<boolean>(false);
 
   const setUiAndSave: (next: PersistedUiStateV1 | ((prev: PersistedUiStateV1) => PersistedUiStateV1)) => void = React.useCallback(
     (next) => {
@@ -942,39 +951,68 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   );
 
   const requestStopAgent: () => Promise<void> = React.useCallback(async () => {
-    const cid: string = activeSession.chatId;
-    const rd: string | null = runtimeDir;
-    const ws0: { namespace: string; projectRoot: string; pids: string[]; roots: readonly string[] } | null =
-      pickWorkspace();
-    const stopRow: Record<string, unknown> = buildSessionCancelledTraceRow({
-      chatId: cid,
-      namespace: ws0?.namespace ?? ""
-    });
-    mergeRows([stopRow]);
-    if (rd) {
-      const appended: Awaited<ReturnType<typeof window.ailitDesktop.appendTraceRow>> =
-        await window.ailitDesktop.appendTraceRow({
-          runtimeDir: rd,
+    if (stopAgentInFlightRef.current) {
+      return;
+    }
+    stopAgentInFlightRef.current = true;
+    try {
+      const cid: string = activeSession.chatId;
+      const rd: string | null = runtimeDir;
+      const ep: string | null = brokerEndpoint;
+      const ws0: { namespace: string; projectRoot: string; pids: string[]; roots: readonly string[] } | null =
+        pickWorkspace();
+      const userTurnId: string = BrokerTraceUserTurnResolver.latestForChat(rawTraceRows, cid);
+      if (ep && ws0) {
+        const builtCancel: ReturnType<typeof buildRuntimeCancelActiveTurnRequest> = buildRuntimeCancelActiveTurnRequest({
           chatId: cid,
-          row: stopRow
+          brokerId: `broker-${cid}`,
+          namespace: ws0.namespace,
+          goalId: GOAL,
+          traceId: newMessageId(),
+          userTurnId
         });
-      if (!appended.ok) {
-        setLastError(appended.error);
+        const cr: { readonly ok: true; readonly response: RuntimeResponseEnvelope } | { readonly ok: false; readonly error: string } =
+          await window.ailitDesktop.brokerRequest({ endpoint: ep, request: builtCancel.envelope });
+        if (!cr.ok) {
+          setLastError(cr.error);
+        } else if (!cr.response.ok) {
+          const msg: string = cr.response.error?.message ?? JSON.stringify(cr.response.error);
+          setLastError(msg.length > 0 ? msg : "runtime.cancel_active_turn rejected");
+        }
       }
+      const stopRow: Record<string, unknown> = buildSessionCancelledTraceRow({
+        chatId: cid,
+        namespace: ws0?.namespace ?? "",
+        userTurnId: userTurnId.length > 0 ? userTurnId : undefined
+      });
+      mergeRows([stopRow]);
+      if (rd) {
+        const appended: Awaited<ReturnType<typeof window.ailitDesktop.appendTraceRow>> =
+          await window.ailitDesktop.appendTraceRow({
+            runtimeDir: rd,
+            chatId: cid,
+            row: stopRow
+          });
+        if (!appended.ok) {
+          setLastError(appended.error);
+        }
+      }
+      setBrokerEndpoint(null);
+      try {
+        await window.ailitDesktop.supervisorStopBroker({ chatId: cid });
+      } catch (e) {
+        setLastError(e instanceof Error ? e.message : String(e));
+      }
+      setConnection("connecting");
+      try {
+        await connectToBroker();
+      } catch (e) {
+        setLastError(e instanceof Error ? e.message : String(e));
+      }
+    } finally {
+      stopAgentInFlightRef.current = false;
     }
-    setBrokerEndpoint(null);
-    try {
-      await window.ailitDesktop.supervisorStopBroker({ chatId: cid });
-    } catch (e) {
-      setLastError(e instanceof Error ? e.message : String(e));
-    }
-    setConnection("connecting");
-    try {
-      await connectToBroker();
-    } catch (e) {
-      setLastError(e instanceof Error ? e.message : String(e));
-    }
-  }, [activeSession.chatId, connectToBroker, mergeRows, pickWorkspace, runtimeDir]);
+  }, [activeSession.chatId, brokerEndpoint, connectToBroker, mergeRows, pickWorkspace, rawTraceRows, runtimeDir]);
 
   React.useEffect(() => {
     const offRow: (() => void) | void = window.ailitDesktop.onTraceRow((evt) => {

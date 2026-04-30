@@ -111,6 +111,13 @@ export function registerIpcHandlers(): void {
     }
   });
 
+  /**
+   * Cooperative Stop (UC-05, plan.md волна 4): renderer шлёт JSON-line в broker-сокет
+   * через этот же handler. Операция `runtime.cancel_active_turn` — `service.request`
+   * на `AgentWork:<chat_id>` с payload `{ action, chat_id, user_turn_id }` (см.
+   * `context/proto/desktop-electron-runtime-bridge.md`). Повторный Stop идемпотентен
+   * на стороне UI (`DesktopSessionContext`); broker должен принять повторный cancel.
+   */
   ipcMain.handle(
     "ailit:brokerRequest",
     async (_e: unknown, params: { readonly endpoint: string; readonly request: Record<string, unknown> }) => {

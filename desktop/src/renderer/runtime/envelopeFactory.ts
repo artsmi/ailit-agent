@@ -83,6 +83,42 @@ export function buildPermModeChoiceRequest(params: {
 }
 
 /** Сервис в AgentWork: ответ на ``session.waiting_approval`` (ASK на инструмент, напр. run_shell). */
+/** Cooperative Stop (UC-05): `service.request` → AgentWork, см. plan.md §волна 4. */
+export function buildRuntimeCancelActiveTurnRequest(params: {
+  readonly chatId: string;
+  readonly brokerId: string;
+  readonly namespace: string;
+  readonly goalId: string;
+  readonly traceId: string;
+  readonly userTurnId: string;
+}): { readonly envelope: RuntimeRequestEnvelope; readonly messageId: string } {
+  const messageId: string = newMessageId();
+  const now: string = new Date().toISOString();
+  return {
+    messageId,
+    envelope: {
+      contract_version: CONTRACT,
+      runtime_id: "ailit-desktop",
+      chat_id: params.chatId,
+      broker_id: params.brokerId,
+      trace_id: params.traceId,
+      message_id: messageId,
+      parent_message_id: null,
+      goal_id: params.goalId,
+      namespace: params.namespace,
+      from_agent: "User:desktop",
+      to_agent: `AgentWork:${params.chatId}`,
+      created_at: now,
+      type: "service.request",
+      payload: {
+        action: "runtime.cancel_active_turn",
+        chat_id: params.chatId,
+        user_turn_id: params.userTurnId
+      }
+    }
+  };
+}
+
 export function buildToolApprovalResolveRequest(params: {
   readonly chatId: string;
   readonly brokerId: string;

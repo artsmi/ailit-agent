@@ -12,6 +12,20 @@
 |-------|----------|------------|
 | Supervisor API | Unix socket `supervisor.sock`, JSON строками | `status`, `brokers`, `create_or_get_broker`, `stop_broker` (IPC handlers `ailit:supervisor*`). |
 | Broker API | Unix socket по `endpoint` (`unix://…`), JSON строка запроса | `ailit:brokerRequest` — делегирование в broker процесс. |
+
+### Cooperative Stop (UC-05)
+
+Транспорт тот же, что для `work.handle_user_prompt`: **`ailit:brokerRequest`** (`registerIpc.ts` → `brokerJsonRequest`).
+
+| Поле | Значение |
+|------|----------|
+| Envelope `type` | `service.request` |
+| `to_agent` | `AgentWork:<chat_id>` |
+| `payload.action` | `runtime.cancel_active_turn` |
+| `payload.chat_id` | идентификатор чата (совпадает с envelope `chat_id`) |
+| `payload.user_turn_id` | корреляция turn; при отсутствии в trace до первого `memory.query_context` допускается пустая строка — broker/AgentWork трактует по контракту волны 4 |
+
+Семантика: идемпотентный cooperative cancel активного user-turn (доставка в AgentWork, отмена pending memory-path); UI дополнительно пишет терминальную строку trace `session.cancelled` (см. `DesktopSessionContext.tsx`). Жёсткий `supervisorStopBroker` после cancel остаётся fallback-сбросом сессии broker для чата.
 | PAG slice | `execFile(ailit, ['memory','pag-slice',…])`, stdout | `runPagGraphSlice` в `pagGraphBridge.ts`; бинарь из `AILIT_CLI` или `ailit` в `PATH`. |
 | Trace JSONL | чтение файлов под `runtimeDir/trace/` | `readDurableTraceRows`, broadcast в renderer (`ailit:traceRow`). |
 
