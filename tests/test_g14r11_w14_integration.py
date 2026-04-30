@@ -747,6 +747,14 @@ def test_w14_pipeline_emits_terminal_agent_memory_result_per_query(
         assert rt.get("final_step") == "finish"
         res: object = amr.get("results")
         assert isinstance(res, list)
+        assert res, (
+            "D-UC3-1: terminal agent_memory_result must include consumable "
+            "results[], not slice-only completion"
+        )
+        for row in res:
+            assert isinstance(row, dict)
+            assert row.get("kind") == "c_summary"
+            assert str(row.get("path") or "").strip()
 
 
 def test_w14_normal_path_does_not_call_query_driven_pag_growth(
