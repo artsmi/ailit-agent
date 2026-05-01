@@ -1,11 +1,12 @@
 # Мультиагентные пайплайны
 
-Обзор для **оператора**: зачем CLI, где лежат роли и контекст. Детальные процедуры — в правилах ядра (см. [`.cursor/README.md`](../.cursor/README.md) в установленном проекте).
+Обзор для **оператора**: где лежат роли, точки входа и canonical context. Детальные процедуры теперь описаны в самодостаточных файлах `.cursor/agents/*.md` и entrypoint-правилах `.cursor/rules/start-*.mdc`.
 
 ## Иерархия правил
 
-1. **Ядро** — `.cursor/rules/system/`: **не** править вручную в продуктовых репозиториях; обновлять из установленного пакета шаблонов.
-2. **Проект** — `.cursor/rules/project/`: **обязательно** заполнить; точка входа **`project-config.mdc`**.
+1. **Агенты** — `.cursor/agents/`: самодостаточные prompt-файлы ролей `00`-`17`.
+2. **Проект** — `.cursor/rules/project/`: проектные overrides; точка входа **`project-config.mdc`**.
+3. **Точки входа** — `.cursor/rules/start-*.mdc`: `feature`, `fix`, `learn`, `research`.
 
 Опционально можно добавить `project-agent-models.mdc` в том же каталоге, чтобы закрепить модель для каждого агента. Если файл отсутствует или агент не указан, используется `auto`.
 
@@ -14,6 +15,10 @@
 | Путь | Назначение |
 |------|------------|
 | `context/arch/` | Границы процессов и их внутренняя декомпозиция |
+| `context/install/` | Установка, packaging, update/uninstall |
+| `context/modules/` | Карта модулей и ownership |
+| `context/files/` | Meaningful file catalog; generated/vendor группируются отдельно |
+| `context/models/` | DTO, config models, trace events |
 | `context/proto/` | Контракты между процессами |
 | `context/start/` | Способы запуска, env, порядок старта, зависимости |
 | `context/tests/` | Тестовые группы, entrypoint'ы, покрытие, артефакты |
@@ -23,23 +28,17 @@
 
 ## Контракты артефактов и JSON
 
-См. `rules/system/artifacts/README.md` и файлы `artifact-*.mdc`.
+Контракты JSON и markdown-артефактов встроены в соответствующие agent-файлы: `.cursor/agents/02_*.md` ... `.cursor/agents/17_*.md`. Оркестратор сверяет ответы по схемам, описанным в этих файлах.
 
 ## Почему «ничего не запускается»
 
-Обычный чат — **один** сеанс. **Субагентов** нужно вызывать shell-командами **`agent …`** и **дождаться** результата каждого вызова (см. [референс](https://github.com/rdudov/agents/blob/master/README.md)).
-
-Установка CLI Cursor: `curl https://cursor.com/install | bash`, затем `agent login`.
-
-### Вызов `agent` из shell (роли с YAML `---`)
-
-Текст запроса передаётся **позиционно** в конце команды (не через вымышленный «`-p` текст»: у Cursor `-p` — это `--print`). Чтобы начало файла роли с `---` не ломало разбор argv, после всех флагов ставь **`--`**, затем один закавыченный промпт. Пример и пояснения — в `rules/system/main/orchestrator-duties.mdc` (раздел «Запуск CLI») в установленном шаблоне.
+Обычный чат — **один** сеанс. Для pipeline `01_orchestrator` запускает роли `02+` отдельными Cursor Subagents согласно `.cursor/agents/01_orchestrator.md`. Если Subagents недоступны, pipeline останавливается с blocker.
 
 ## Запуск feature
 
 Точка входа: **`rules/start-feature.mdc`** (в Cursor — `.cursor/rules/start-feature.mdc`). Постановка — **в конце** сообщения пользователя.
 
-Шаблоны этапов: `rules/system/main/orchestrator-stage-*.mdc`.
+Режим `feature`: `02 → 03 → 04 → 05 → 06 → 07 → task_waves(08→09→11) → final 11 → 12 → 13 → auto commit`.
 
 ## Запуск learn-проекта
 
@@ -57,17 +56,16 @@
 
 ### Падение тестов
 
-`rules/system/test/pipeline-test-failure.mdc`.
+См. `.cursor/agents/11_test_runner.md`: `failed` ведёт к `fix_by_tests`, `blocked_by_environment` требует разблокировки или эскалации, `passed` не заменяет code review approval.
 
 ## Кто обновляет `context/`
 
 | Этап | Агент | Когда запускается | Что обновляет |
 |------|-------|-------------------|---------------|
 | learn: инвентаризация | `12_change_inventory` | Первый шаг `start-learn-project` | Не пишет `context/`; готовит `{artifacts_dir}/change_inventory.md` как фактическую сводку по репозиторию |
-| learn: запись контекста | `13_tech_writer` | После `12_change_inventory` в `start-learn-project` | `context/arch/`, `context/proto/`, `context/start/`, `context/tests/`, `context/memories/`; в `rules/project/` меняет только `project-config.mdc` |
-| feature: архитектура | `04_architect` | После утверждения ТЗ | Актуализирует `context/arch/` и `context/proto/`, если архитектурные решения меняют границы процессов или контракты |
-| feature: после review и тестов | `12_change_inventory` | После успешных `09_code_reviewer` и `11_test_runner` или допустимого локального успеха `08_developer` | Не пишет `context/`; собирает факты по реально сделанным изменениям текущей задачи |
-| feature: после инвентаризации | `13_tech_writer` | После `12_change_inventory` для каждой задачи итерации | `context/arch/`, `context/proto/`, `context/start/`, `context/tests/`, `context/memories/` |
+| learn: запись контекста | `13_tech_writer` | После `12_change_inventory` в `start-learn-project` | `context/arch/`, `context/install/`, `context/start/`, `context/modules/`, `context/files/`, `context/models/`, `context/proto/`, `context/tests/`, `context/memories/` |
+| feature/fix: после финального verify | `12_change_inventory` | После успешного final `11_test_runner` | Не пишет `context/`; собирает факты по суммарному diff до commit |
+| feature/fix: запись контекста | `13_tech_writer` | После `12_change_inventory` | Обновляет только затронутые canonical sections |
 | feature: память итерации | `13_tech_writer` | На каждом завершённом проходе задачи после инвентаризации | Создаёт или обновляет файл `context/memories/feature_<task_description>_<time>.md` и `context/memories/index.md` |
 
 ## Роли
@@ -75,6 +73,12 @@
 | № | Роль |
 |---|------|
 | 01 | Оркестратор |
-| 02–11 | Как в `.cursor/README.md` |
+| 02–09 | Feature/fix: анализ, review, архитектура, план, разработка, code review |
+| 10 | Общий researcher для отдельных вопросов |
+| 11 | Независимый verify |
 | 12 | Инвентаризация изменений и репозитория (feature / learn) |
 | 13 | Глубокое обновление `context/` (feature / learn) |
+| 14 | Donor researcher для research pipeline |
+| 15 | Research synthesizer |
+| 16 | Plan author |
+| 17 | Research plan reviewer |

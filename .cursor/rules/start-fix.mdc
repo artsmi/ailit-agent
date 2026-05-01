@@ -1,8 +1,52 @@
 ---
-description: Точка входа pipeline fix (заглушка)
+description: Точка входа pipeline fix — исправление bug report пользователя через 01_orchestrator
 alwaysApply: false
 ---
 
 # Запуск pipeline fix
 
-**ВАЖНО:** данный пайплайн **не реализован** в текущей версии мультиагентной системы. Сообщи пользователю явно и **прекрати работу** по этому сценарию.
+Ты — `01_orchestrator` в режиме `fix`. Текущий чат выполняет роль `01`; роли `02+` запускаются отдельными Cursor Subagents.
+
+## Обязательно прочитать
+
+- `.cursor/agents/01_orchestrator.md`
+- `.cursor/rules/project/project-config.mdc`
+- `.cursor/rules/project/project-agent-models.mdc` *(если существует)*
+- `.cursor/rules/project/project-orchestrator-overrides.mdc`
+- `.cursor/rules/project/project-workflow.mdc`
+- `context/INDEX.md` *(если существует; читать index-first)*
+
+## Вход
+
+Пользователь должен передать bug report: observed behavior, expected behavior, reproduction steps, логи/команды/screenshots если есть.
+
+Если bug report неполный настолько, что `02_analyst` не сможет сформировать fix-ТЗ, задай уточняющий вопрос до запуска pipeline.
+
+## Route
+
+Mode: `fix`.
+
+Сначала запусти:
+
+`02_analyst → 03_tz_reviewer`
+
+Дальше выбери route:
+
+- короткий fix route: `06_planner → 07_plan_reviewer → task_waves(08 → 09 → 11) → final 11 → 12 → 13 → auto commit`;
+- полный fix route: `04_architect → 05_architecture_reviewer → 06_planner → 07_plan_reviewer → task_waves(08 → 09 → 11) → final 11 → 12 → 13 → auto commit`.
+
+Короткий route разрешён только если:
+
+- bug локальный;
+- не меняются protocol/state/process boundaries;
+- не меняются persisted data, DTO, install, public CLI/API;
+- `02/03` не выявили архитектурный вопрос;
+- fix можно доказать regression/e2e проверками без нового архитектурного решения.
+
+При сомнении запускай полный route с `04/05`.
+
+Auto commit выполняется в конце успешного pipeline; auto push не выполняется.
+
+---
+
+**Bug report (ниже по сообщению пользователя):**

@@ -1,8 +1,60 @@
 ---
-description: Точка входа pipeline research (заглушка)
+description: Точка входа research pipeline — donor research, synthesis, plan authoring, plan review
 alwaysApply: false
 ---
 
 # Запуск pipeline research
 
-**ВАЖНО:** данный пайплайн **не реализован** в текущей версии мультиагентной системы. Сообщи пользователю явно и **прекрати работу** по этому сценарию.
+Ты — `01_orchestrator` в режиме `research`. Product code не меняется. Цель — создать или обновить `plan/<name>.md`, пригодный для поэтапной подачи в `start-feature`.
+
+## Обязательно прочитать
+
+- `.cursor/agents/01_orchestrator.md`
+- `.cursor/agents/14_donor_researcher.md`
+- `.cursor/agents/15_research_synthesizer.md`
+- `.cursor/agents/16_plan_author.md`
+- `.cursor/agents/17_research_plan_reviewer.md`
+- `.cursor/rules/project/project-config.mdc`
+- `.cursor/rules/project/project-agent-models.mdc` *(если существует)*
+- `.cursor/rules/project/project-orchestrator-overrides.mdc`
+- `.cursor/rules/project/project-workflow.mdc`
+- `plan/14-agent-memory-runtime.md` *(ориентир качества и структуры плана)*
+
+## Route
+
+Mode: `research`.
+
+1. Определи цель research и будущего плана.
+2. Определи donor repositories из входа пользователя или из `.cursor/rules/project/project-workflow.mdc`.
+3. Создай donor `task_waves`: одна дорожка = один donor repo или donor scope.
+4. Запусти `14_donor_researcher` по donor waves; независимые donors запускай параллельно.
+5. После donor barrier запусти `15_research_synthesizer`.
+6. Если `15` требует пользовательский выбор реализации, остановись и задай вопрос.
+7. Запусти `16_plan_author` для создания `plan/<name>.md`.
+8. Запусти `17_research_plan_reviewer`.
+9. При `rework_required` верни plan в `16` один раз; при `blocked/rejected` подключи пользователя.
+10. После `approved` выполни auto commit research artifacts и plan; auto push не выполняется.
+
+## Требования к плану
+
+План должен быть написан человеческим языком и содержать:
+
+- пользовательский алгоритм разработки;
+- donor links и выводы с ссылками на файлы/символы;
+- audit findings;
+- contracts/decisions;
+- stages/tasks;
+- implementation anchors;
+- exact tests/static checks/manual smoke;
+- dependencies;
+- anti-patterns;
+- definition of done;
+- инструкцию, как подавать stages в `start-feature`.
+
+## Previous research
+
+Если пользователь передал готовый research/synthesis/plan file, не начинай всё заново. Передай previous file в `15` или `16` и обновляй только то, что нужно для текущей цели.
+
+---
+
+**Research request (ниже по сообщению пользователя):**

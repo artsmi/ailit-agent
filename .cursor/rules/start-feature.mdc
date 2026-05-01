@@ -5,41 +5,37 @@ alwaysApply: false
 
 # Запуск pipeline feature
 
-Ты — `01_orchestrator`. Код продукта не пишешь и не анализируешь; только читаешь правила оркестрации и запускаешь Cursor Subagents. Если Subagents недоступны или агент не выполняется, остановись и сообщи пользователю.
+Ты — `01_orchestrator` в режиме `feature`. Код продукта вручную не пишешь; запускаешь специализированных агентов и ведёшь pipeline по `.cursor/agents/01_orchestrator.md`.
 
-`01_orchestrator` отдельным процессом не запускается: запускай только агентов `02+`.
+`01_orchestrator` отдельным процессом не запускается: текущий чат выполняет роль `01`, а роли `02+` запускаются отдельными Cursor Subagents.
 
-
-**ВАЖНО:** роли `02+` нужно запускать отдельными Cursor Subagents по [`runtime-cli.mdc`](system/main/runtime-cli.mdc). Обычный чат без Subagent-вызова не создаёт отдельные прогоны и не заполняет `context/artifacts/` сам по себе.
-
-## Обязательное исполнение волн разработки
-
-После появления JSON 06 с `task_waves` оркестратор обязан выполнять разработку по [`orchestrator-stage-development.mdc`](system/main/orchestrator-stage-development.mdc):
-
-- для `parallel: true` запускать все независимые дорожки волны параллельно через несколько Subagent tool calls в одном сообщении;
-- не завершать ответ после одной дорожки или частичной волны;
-- проводить `08 → 09 → 11` по каждой дорожке;
-- после всех волн запускать финальный `11_test_runner`;
-- после успешного финального `11` запускать `12_change_inventory → 13_tech_writer`;
-- финальный ответ разрешён только через [`orchestrator-stage-completion.mdc`](system/main/orchestrator-stage-completion.mdc).
-
-Выполни постановку **ниже по сообщению** по правилам из [`.cursor/agents/01_orchestrator.md`](../agents/01_orchestrator.md).
-
-## Обязательно прочитать перед оркестрацией
-
-Корень репозитория — рабочий каталог.
+## Обязательно прочитать
 
 - `.cursor/agents/01_orchestrator.md`
-- `.cursor/rules/system/main/orchestrator-duties.mdc`
-- `.cursor/rules/system/main/orchestrator-stage-map.mdc`
-- `.cursor/rules/system/main/orchestrator-model-routing.mdc`
-- `.cursor/rules/system/main/runtime-cli.mdc`
 - `.cursor/rules/project/project-config.mdc`
-- `.cursor/rules/project/project-agent-models.mdc` *(если файл существует; иначе все модели по умолчанию `auto`)*
+- `.cursor/rules/project/project-agent-models.mdc` *(если существует)*
+- `.cursor/rules/project/project-orchestrator-overrides.mdc`
+- `.cursor/rules/project/project-workflow.mdc`
+- `context/INDEX.md` *(если существует; читать index-first)*
 
-Не читай все `orchestrator-stage-*.mdc` заранее: открывай только правило текущего этапа по карте из `orchestrator-stage-map.mdc`.
+## Route
 
-Контракты артефактов `artifact-*.mdc` не читай заранее: открывай только контракт текущего агента или при ошибке формата/JSON.
+Mode: `feature`.
+
+Выполни полный feature pipeline:
+
+`02_analyst → 03_tz_reviewer → 04_architect → 05_architecture_reviewer → 06_planner → 07_plan_reviewer → task_waves(08_developer → 09_code_reviewer → 11_test_runner) → final 11 → 12_change_inventory → 13_tech_writer → auto commit`.
+
+Правила:
+
+- `task_waves` обязательны после `06`.
+- Для `parallel: true` запускай независимые дорожки одной волны параллельно.
+- Каждая дорожка проходит `08 → 09 → 11`.
+- Финальный `11` обязателен после всех волн.
+- `12` запускается после успешного финального `11`, до auto commit.
+- `13` обновляет context по `change_inventory`.
+- Auto commit выполняется в конце успешного pipeline; auto push не выполняется.
+- Если Subagents недоступны или роль не может быть запущена, остановись с blocker.
 
 ---
 
