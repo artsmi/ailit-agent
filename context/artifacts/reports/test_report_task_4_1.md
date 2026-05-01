@@ -1,42 +1,16 @@
-# Test Report: task_4_1
-
-## Контекст
-
-- Режим: developer
-- Task: task_4_1.md (UC-05 backend, cooperative cancel)
-- Wave: 4
+# test_report task_4_1
 
 ## Команды
 
-### Command 1 — flake8
+- `pytest -q tests/test_g14r11_w14_integration.py tests/test_g14r2_agent_memory_runtime_contract.py tests/test_g14r_agentwork_memory_continuation.py tests/test_g14r7_agent_memory_result_assembly.py tests/runtime/test_broker_work_memory_routing.py tests/runtime/test_broker_coverage.py tests/test_g14r_uc05_cooperative_cancel_trace_ordering.py`
+- `flake8 tests/test_g14r_uc05_cooperative_cancel_trace_ordering.py tools/agent_core/runtime/broker.py tools/agent_core/runtime/subprocess_agents/work_agent.py tools/agent_core/runtime/subprocess_agents/memory_agent.py tools/agent_core/runtime/agent_memory_query_pipeline.py tools/agent_core/runtime/subprocess_agents/work_orchestrator.py`
 
-`.venv/bin/flake8 tools/agent_core/runtime/broker.py tools/agent_core/runtime/subprocess_agents/work_agent.py tools/agent_core/runtime/subprocess_agents/memory_agent.py tests/test_g14r_uc05_cooperative_cancel_trace_ordering.py`
+## Результат
 
-**Статус:** passed  
-**Лог:** N/A
+- Все перечисленные тесты: **passed** (50).
+- flake8 по новому тестовому файлу: **ok**.
 
-### Command 2 — pytest (релевантный набор из задачи)
+## UC-05
 
-`.venv/bin/python -m pytest tests/test_g14r11_w14_integration.py tests/test_g14r2_agent_memory_runtime_contract.py tests/test_g14r_agentwork_memory_continuation.py tests/test_g14r7_agent_memory_result_assembly.py tests/runtime/test_broker_coverage.py tests/runtime/test_broker_routing.py tests/runtime/test_broker_work_memory_routing.py tests/test_g14r_uc05_cooperative_cancel_trace_ordering.py -q`
-
-**Статус:** passed  
-**Лог:** N/A
-
-## Результаты
-
-- Всего проверок: 52 (51 тест + 1 команда flake8)
-- Passed: 52
-- Failed: 0
-- Blocked by environment: 0
-
-## Упавшие проверки
-
-Нет.
-
-## Заблокировано окружением
-
-Нет.
-
-## Verification gaps
-
-Live LLM / production Desktop IPC для UC-05 не прогонялись; сценарии на in-process broker + subprocess агентах и trace jsonl.
+- `test_uc05_cancel_during_memory_query_trace_ordering_no_zombie_final` — broker subprocess, `AILIT_TEST_MEMORY_PIPELINE_HOLD_S`, инвариант trace.
+- `test_uc05_runtime_cancel_idempotent_unknown_turn` — идемпотентный cancel.

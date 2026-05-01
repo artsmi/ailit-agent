@@ -23,6 +23,8 @@
 | `context.memory_injected` | AgentWork | схема `context.memory_injected.v2`, в т.ч. `usage_state` | `broker-memory-work-inject.md` §Обязательная тройка |
 | `memory.command.normalized` | AgentMemory (`AgentMemoryQueryPipeline` → journal) | `from_schema_version`, `to_schema_version` (= `agent_memory_command_output.v1`), опционально `from_status` (легаси до маппинга), `command_id_restored` (bool), усечённые `command` / `command_id` | `broker-memory-work-inject.md` §W14 planner canonicalization; ТЗ UC-01 |
 | `memory.w14.command_id_restored` | AgentMemory (journal) | `command_id` (усечённый канонический id после восстановления из runtime trace) | ТЗ UC-02; пишется только если восстановление применено |
+| `session.cancelled` | AgentWork (`SessionRunner` / cooperative path) | минимум `phase`; при cooperative cancel из `work_agent` допускается `user_turn_id`, `reason` | `architecture.md` §5 UC-05 |
+| `action.cancelled` | AgentWork (`AgentWorkWorker.handle` / `_run` после отменённого turn) | `action`, `action_id`, `user_turn_id`, `reason` | `architecture.md` §5 UC-05 |
 
 События **`memory.query_context.continuation`**, **`memory.query.timeout`**, **`memory.query.budget_exceeded`** — зона **D-OBS-1** по отношению к ТЗ §3.2 и **architecture.md** §5; остальные строки в таблице — уже используемые соседние compact-топики того же пути (не подменяют timeout/continuation).
 

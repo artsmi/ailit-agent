@@ -22,10 +22,11 @@
 | Поле | Значение |
 |------|----------|
 | Envelope `type` | `service.request` |
-| `to_agent` | `AgentWork:<chat_id>` |
-| `payload.action` | `runtime.cancel_active_turn` |
+| `to_agent` | `AgentWork:<chat_id>` (или иной адресат; broker распознаёт по полю ниже) |
+| `payload.service` | `runtime.cancel_active_turn` (канон плана волны 4, вариант A) |
+| `payload.action` | то же логическое имя — **допускается** для совместимости с ранним текстом этого файла |
 | `payload.chat_id` | идентификатор чата (совпадает с envelope `chat_id`) |
-| `payload.user_turn_id` | корреляция turn; при отсутствии в trace до первого `memory.query_context` допускается пустая строка — broker/AgentWork трактует по контракту волны 4 |
+| `payload.user_turn_id` | корреляция turn (как в `memory.query_context` / `work_agent.py`) |
 
 Семантика: идемпотентный cooperative cancel активного user-turn (доставка в AgentWork, отмена pending memory-path); UI дополнительно пишет терминальную строку trace `session.cancelled` (см. `DesktopSessionContext.tsx`). Жёсткий `supervisorStopBroker` после cancel остаётся fallback-сбросом сессии broker для чата. Renderer сначала резолвит workspace строго (`pickWorkspace`); если broker уже подключён, а строгий выбор пуст (например устаревшие `projectIds` в UI-сессии), для **только** cancel-запроса допускается fallback на первую запись `projectRegistry`, чтобы не терять cooperative путь и не опираться только на `stop_broker`.
 
