@@ -220,6 +220,23 @@ class MemoryJournalStore:
                 continue
             yield row
 
+    def append_rows_from_jsonl_file(self, source: Path) -> int:
+        """Append all valid rows from another JSONL journal into this store.
+
+        Used to merge a shadow init journal into the canonical path on COMMIT.
+
+        Returns:
+            Number of rows appended.
+        """
+        src = source.resolve()
+        if not src.exists():
+            return 0
+        n = 0
+        for row in self._iter_rows_from_file(src):
+            self.append(row)
+            n += 1
+        return n
+
     @staticmethod
     def _iter_rows_from_file(path: Path) -> Iterator[MemoryJournalRow]:
         with path.open("r", encoding="utf-8") as f:

@@ -15,7 +15,7 @@ import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import Any, Callable, Literal, Mapping
 
 from agent_core.models import ChatRequest, NormalizedChatResponse
 from agent_core.runtime.agent_memory_config import (
@@ -32,6 +32,9 @@ from agent_core.runtime.agent_memory_chat_log import (
     AgentMemoryChatDebugLog,
     MEMORY_AUDIT_WHY,
     audit_jsonable,
+)
+from agent_core.runtime.compact_observability_sink import (
+    CompactObservabilitySink,
 )
 from agent_core.runtime.d_creation_policy import (
     DCreationPolicy,
@@ -130,6 +133,10 @@ class MemoryAgentConfig:
     chat_id: str
     broker_id: str
     namespace: str
+    session_log_mode: Literal["desktop", "cli_init"] = "desktop"
+    cli_session_dir: Path | None = None
+    memory_journal_path: Path | None = None
+    compact_init_session_id: str | None = None
 
 
 class AgentMemoryWorker:
@@ -137,7 +144,11 @@ class AgentMemoryWorker:
 
     def __init__(self, cfg: MemoryAgentConfig) -> None:
         self._cfg = cfg
-        self._journal = MemoryJournalStore()
+        self._journal = (
+            MemoryJournalStore(cfg.memory_journal_path)
+            if cfg.memory_journal_path is not None
+            else MemoryJournalStore()
+        )
         self._am_file = load_or_create_agent_memory_config()
         self._ailit_merged: dict[str, Any] = (
             load_merged_ailit_config_for_memory()
@@ -146,7 +157,16 @@ class AgentMemoryWorker:
             self._ailit_merged,
             self._am_file.memory.llm_optimization,
         )
-        self._chat_debug = AgentMemoryChatDebugLog(self._am_file)
+        self._chat_debug = AgentMemoryChatDebugLog(
+            self._am_file,
+            session_log_mode=cfg.session_log_mode,
+            cli_session_dir=cfg.cli_session_dir,
+        )
+        _cid = str(cfg.compact_init_session_id or "").strip()
+        self._compact_init_session_id: str = (
+            _cid if _cid else str(uuid.uuid4())
+        )
+        self._compact_sink: CompactObservabilitySink | None = None
         self._boundary = SourceBoundaryFilter(self._am_file.memory.artifacts)
         self._change_idempotency = ChangeFeedbackIdempotencyStore()
         self._growth = QueryDrivenPagGrowth(
@@ -155,6 +175,21 @@ class AgentMemoryWorker:
         self._provider = build_chat_provider_for_agent_memory(
             self._ailit_merged,
         )
+
+    def _get_compact_sink(self) -> CompactObservabilitySink | None:
+        if self._cfg.session_log_mode != "cli_init":
+            return None
+        if self._compact_sink is not None:
+            return self._compact_sink
+        cpath = self._chat_debug.compact_log_path_for_write()
+        if cpath is None:
+            return None
+        self._compact_sink = CompactObservabilitySink(
+            compact_file=cpath,
+            init_session_id=self._compact_init_session_id,
+            tee_stderr=True,
+        )
+        return self._compact_sink
 
     def _issue_grant(
         self,
@@ -251,6 +286,7 @@ class AgentMemoryWorker:
                         "data": audit_jsonable(data),
                     },
                 )
+            sk = w._get_compact_sink()
             if op == "node":
                 emit_pag_graph_trace_row(
                     req=req,
@@ -261,6 +297,8 @@ class AgentMemoryWorker:
                         "rev": rev,
                         "node": data,
                     },
+                    request_id=request_id,
+                    compact_sink=sk,
                 )
             elif op == "edge":
                 emit_pag_graph_trace_row(
@@ -272,6 +310,8 @@ class AgentMemoryWorker:
                         "rev": rev,
                         "edges": [data],
                     },
+                    request_id=request_id,
+                    compact_sink=sk,
                 )
             elif op == "edge_batch":
                 if isinstance(data, dict):
@@ -289,6 +329,8 @@ class AgentMemoryWorker:
                         "rev": rev,
                         "edges": edge_list,
                     },
+                    request_id=request_id,
+                    compact_sink=sk,
                 )
 
         return _cb
@@ -344,6 +386,8 @@ class AgentMemoryWorker:
         emit_memory_w14_graph_highlight_row(
             req=req,
             inner_payload=pl,
+            request_id=str(request_id)[:200],
+            compact_sink=self._get_compact_sink(),
         )
 
     def _log_handle_error(
@@ -433,6 +477,21 @@ class AgentMemoryWorker:
         change_batch_id: str | None = None,
     ) -> None:
         """Аудит: стабильный reason_id (whitelist) + опциональный чеклист."""
+        sk = self._get_compact_sink()
+        if sk is not None:
+            cfields: dict[str, str | int | bool] = {
+                "request_id": str(request_id)[:200],
+                "topic": "llm_decision",
+                "reason_id": reason_id,
+            }
+            if str(service or "").strip():
+                cfields["service"] = str(service).strip()
+            sk.emit(
+                req=req,
+                chat_id=req.chat_id,
+                event="memory.why_llm",
+                fields=cfields,
+            )
         if not self._chat_debug.enabled:
             return
         body: dict[str, Any] = {
@@ -690,6 +749,14 @@ class AgentMemoryWorker:
             request_id=request_id,
             payload=pld,
         )
+        if str(status) == "complete":
+            sk2 = self._get_compact_sink()
+            if sk2 is not None:
+                sk2.emit_memory_result_complete_marker(
+                    req=req,
+                    chat_id=req.chat_id,
+                    request_id=str(request_id)[:200],
+                )
 
     def log_memory_graph_write(
         self,
@@ -1814,15 +1881,32 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--chat-id", type=str, required=True)
     p.add_argument("--broker-id", type=str, required=True)
     p.add_argument("--namespace", type=str, required=True)
+    p.add_argument(
+        "--session-log-mode",
+        type=str,
+        default="desktop",
+        choices=("desktop", "cli_init"),
+        help="desktop: flat <safe>.log; cli_init: …/ailit-cli-*/legacy.log",
+    )
+    p.add_argument(
+        "--cli-session-dir",
+        type=str,
+        default="",
+        help="optional existing directory for cli_init (otherwise auto mkdir)",
+    )
     return p.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(list(argv) if argv is not None else sys.argv[1:])
+    cli_raw: str = str(getattr(args, "cli_session_dir", "") or "").strip()
+    cli_dir: Path | None = Path(cli_raw).expanduser() if cli_raw else None
     cfg = MemoryAgentConfig(
         chat_id=str(args.chat_id),
         broker_id=str(args.broker_id),
         namespace=str(args.namespace),
+        session_log_mode=str(args.session_log_mode),
+        cli_session_dir=cli_dir,
     )
     worker = AgentMemoryWorker(cfg)
     job_q: queue.Queue[RuntimeRequestEnvelope | None] = queue.Queue()

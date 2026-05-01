@@ -202,6 +202,45 @@ class SqliteKb:
                 updated += 1
         return scanned, updated
 
+    def count_records_for_namespace(self, *, namespace: str) -> int:
+        """Return KB row count for ``namespace``."""
+        ns = str(namespace).strip()
+        if not ns:
+            return 0
+        with self._connect() as con:
+            row = con.execute(
+                "SELECT COUNT(*) AS c FROM kb_records WHERE namespace = ?",
+                (ns,),
+            ).fetchone()
+        return int(row["c"] if row is not None else 0)
+
+    def delete_all_for_namespace(self, *, namespace: str) -> int:
+        """Delete all KB records for ``namespace``; sync FTS if present."""
+        ns = str(namespace).strip()
+        if not ns:
+            return 0
+        deleted = 0
+        with self._connect() as con:
+            try:
+                con.execute(
+                    """
+                    DELETE FROM kb_records_fts
+                    WHERE id IN (
+                        SELECT id FROM kb_records WHERE namespace = ?
+                    )
+                    """,
+                    (ns,),
+                )
+            except sqlite3.OperationalError:
+                pass
+            cur = con.execute(
+                "DELETE FROM kb_records WHERE namespace = ?",
+                (ns,),
+            )
+            deleted = int(getattr(cur, "rowcount", 0) or 0)
+            con.commit()
+        return deleted
+
     def append_audit_event(
         self,
         *,

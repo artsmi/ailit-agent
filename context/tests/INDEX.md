@@ -6,6 +6,30 @@
 
 Изоляция артефактов, pytest, e2e — в проектных правилах workflow и в `tests/conftest.py`. Не путать с vitest desktop.
 
+### Agent Memory CLI — `memory init` (orchestrator / transaction / compact)
+
+| Путь / смысл | Содержание |
+|----------------|------------|
+| `tests/test_memory_init_cli_layout.py` | CLI: layout каталога сессии, VERIFY журнала. |
+| `tests/test_memory_cli_init_task_3_1.py` | CLI: help, путь, базовый сценарий `memory init`. |
+| `tests/runtime/test_memory_init_transaction_task_2_1.py` | Транзакция PAG/KB, lock, фазы `NEW`…`ABORTED`. |
+| `tests/runtime/test_memory_init_orchestrator_task_2_2.py` | Оркестратор init, shadow journal → merge в канонический journal. |
+| `tests/runtime/test_compact_observability_sink.py` | Формат строк `compact.log`, tee stderr. |
+| `tests/test_agent_memory_session_log_layout_task_1_1.py` | Режимы лога сессии: `desktop` vs `cli_init` (`ailit-cli-*`, `legacy.log` / `compact.log`). |
+
+**Команда (как в финальном `11` v2, pytest batch2):**
+
+```bash
+./.venv/bin/python -m pytest \
+  tests/test_memory_init_cli_layout.py \
+  tests/test_memory_cli_init_task_3_1.py \
+  tests/runtime/test_memory_init_transaction_task_2_1.py \
+  tests/runtime/test_memory_init_orchestrator_task_2_2.py \
+  -q
+```
+
+Расширенный список путей для flake8 SoT и полный прогон **11** v2 — [`../artifacts/reports/test_runner_final_11.md`](../artifacts/reports/test_runner_final_11.md).
+
 ### W14 UC-05 — cooperative cancel (broker + trace ordering)
 
 | Путь / смысл | Содержание |

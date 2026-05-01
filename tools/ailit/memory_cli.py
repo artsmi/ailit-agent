@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,14 @@ from typing import Any
 from agent_core.memory.pag_indexer import (
     PagIndexer,
     index_project_to_default_store,
+)
+from agent_core.runtime.errors import RuntimeProtocolError
+from agent_core.runtime.memory_init_orchestrator import (
+    MemoryInitOrchestrator,
+)
+from agent_core.session.repo_context import (
+    detect_repo_context,
+    namespace_for_repo,
 )
 from agent_core.memory.pag_slice_caps import (
     PAG_SLICE_MAX_EDGES,
@@ -89,6 +98,26 @@ def cmd_memory_index(args: object) -> int:
     line = json.dumps(out.as_dict(), ensure_ascii=False) + "\n"
     os.write(1, line.encode())
     return 0
+
+
+def cmd_memory_init(args: object) -> int:
+    """Initialize agent memory for a project root (PAG namespace; §4.2)."""
+    root_raw = getattr(args, "project_root", None)
+    if root_raw is None or not str(root_raw).strip():
+        sys.stderr.write("memory init: path required\n")
+        return 2
+    root = Path(str(root_raw)).expanduser().resolve()
+    ctx = detect_repo_context(root)
+    ns = namespace_for_repo(
+        repo_uri=ctx.repo_uri,
+        repo_path=ctx.repo_path,
+        branch=ctx.branch,
+    )
+    try:
+        return int(MemoryInitOrchestrator().run(root, ns))
+    except RuntimeProtocolError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
 
 
 def _pag_slice_payload(

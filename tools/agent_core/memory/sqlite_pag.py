@@ -607,6 +607,48 @@ class SqlitePagStore:
             ).fetchone()
         return int(row[0] or 0) if row is not None else 0
 
+    def delete_all_data_for_namespace(
+        self,
+        *,
+        namespace: str,
+    ) -> dict[str, int]:
+        """Remove all PAG rows for ``namespace`` (memory init / reset).
+
+        Deletes pending edges, edges, nodes, and graph_rev for the namespace
+        and returns approximate deleted row counts per table group.
+        """
+        ns = str(namespace).strip()
+        out: dict[str, int] = {
+            "pending_edges": 0,
+            "edges": 0,
+            "nodes": 0,
+            "graph_rev": 0,
+        }
+        if not ns:
+            return out
+        with self._connect() as con:
+            cur_p = con.execute(
+                "DELETE FROM pag_pending_edges WHERE namespace = ?",
+                (ns,),
+            )
+            out["pending_edges"] = int(getattr(cur_p, "rowcount", 0) or 0)
+            cur_e = con.execute(
+                "DELETE FROM pag_edges WHERE namespace = ?",
+                (ns,),
+            )
+            out["edges"] = int(getattr(cur_e, "rowcount", 0) or 0)
+            cur_n = con.execute(
+                "DELETE FROM pag_nodes WHERE namespace = ?",
+                (ns,),
+            )
+            out["nodes"] = int(getattr(cur_n, "rowcount", 0) or 0)
+            cur_g = con.execute(
+                "DELETE FROM pag_graph_rev WHERE namespace = ?",
+                (ns,),
+            )
+            out["graph_rev"] = int(getattr(cur_g, "rowcount", 0) or 0)
+        return out
+
     def list_nodes(
         self,
         *,

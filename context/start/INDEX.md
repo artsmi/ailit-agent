@@ -4,6 +4,6 @@
 
 | Документ | Содержание |
 |----------|------------|
-| [`repository-launch.md`](repository-launch.md) | Установка (`scripts/install`), systemd user unit, переменные окружения, supervisor/desktop, pytest из venv репозитория. |
+| [`repository-launch.md`](repository-launch.md) | Установка (`scripts/install`), systemd user unit, переменные окружения, supervisor/desktop, pytest из venv репозитория, smoke **`ailit memory init`** и ссылки на артефакты в [`../artifacts/`](../artifacts/). |
 
 **Связанные разделы:** [`../arch/INDEX.md`](../arch/INDEX.md) (процессы P1–P6), [`../proto/INDEX.md`](../proto/INDEX.md) (IPC), [`../install/INDEX.md`](../install/INDEX.md) (install SoT), [`../tests/INDEX.md`](../tests/INDEX.md) (pytest / vitest).

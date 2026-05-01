@@ -1,7 +1,12 @@
 """
-Логи отладки AgentMemory: ~/.ailit/agent-memory/chat_logs/<chat_id>.log
-при memory.debug.verbose = 1. Записи: блоки с разделителем, JSON с indent=2
-(чтение сырого лога — один файл, вся аналитика + LLM).
+Логи отладки AgentMemory при memory.debug.verbose = 1.
+
+Режим **desktop**: один файл ``…/chat_logs/<safe_chat_id>.log`` (как
+``agentMemoryChatLogFileName`` в desktop ``tracePaths.ts``).
+
+Режим **cli_init**: каталог ``…/chat_logs/ailit-cli-<suffix>/`` и внутри
+append-only ``legacy.log`` (тот же формат блоков и JSON, что раньше в
+плоском файле).
 """
 
 from __future__ import annotations
@@ -11,11 +16,13 @@ import json
 import os
 import re
 import threading
+import time
+import uuid
 from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Final, Mapping
+from typing import Any, Final, Literal, Mapping, TypeAlias
 
 from agent_core.models import (
     ChatMessage,
@@ -31,6 +38,12 @@ from agent_core.models import (
 from agent_core.runtime.agent_memory_config import AgentMemoryFileConfig
 
 _SAFE_RE: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9_-]")
+
+LEGACY_LOG_FILE_NAME: Final[str] = "legacy.log"
+COMPACT_LOG_FILE_NAME: Final[str] = "compact.log"
+CLI_SESSION_DIR_PREFIX: Final[str] = "ailit-cli-"
+
+SessionLogMode: TypeAlias = Literal["desktop", "cli_init"]
 
 # Единая блокировка append в процессе AgentMemory (последовательная запись).
 _write_lock: threading.Lock = threading.Lock()
@@ -89,10 +102,40 @@ def default_chat_logs_dir() -> Path:
     return (Path.home() / ".ailit" / "agent-memory" / "chat_logs").resolve()
 
 
-def log_file_path_for_chat(raw_chat_id: str) -> Path:
-    """Путь `…/chat_logs/<safe_id>.log`."""
+def agent_memory_chat_log_file_name(raw_chat_id: str) -> str:
+    """Имя файла: ``agentMemoryChatLogFileName`` (desktop ``tracePaths``)."""
     safe: str = safe_chat_id_for_log_file(raw_chat_id)
-    return default_chat_logs_dir() / f"{safe}.log"
+    return f"{safe}.log"
+
+
+def log_file_path_for_chat(raw_chat_id: str) -> Path:
+    """Путь `…/chat_logs/<safe_id>.log` (только режим desktop)."""
+    return default_chat_logs_dir() / agent_memory_chat_log_file_name(
+        raw_chat_id,
+    )
+
+
+def create_unique_cli_session_dir(parent: Path | None = None) -> Path:
+    """
+    Создать каталог сессии CLI ``ailit-cli-<ms>_<hex>`` под ``parent``.
+
+    ``parent`` по умолчанию — ``default_chat_logs_dir()``. Без молчаливого
+    игнорирования ошибок прав доступа.
+    """
+    base: Path = parent if parent is not None else default_chat_logs_dir()
+    base.mkdir(parents=True, exist_ok=True)
+    for _ in range(32):
+        suffix: str = f"{int(time.time() * 1000)}_{uuid.uuid4().hex[:10]}"
+        candidate: Path = base / f"{CLI_SESSION_DIR_PREFIX}{suffix}"
+        try:
+            candidate.mkdir(parents=False, exist_ok=False)
+            return candidate.resolve()
+        except FileExistsError:
+            continue
+    raise OSError(
+        "failed to allocate unique cli session directory under "
+        f"{base!s}",
+    )
 
 
 def _now_local_iso() -> str:
@@ -207,17 +250,57 @@ _AUDIT_SEP: Final[str] = "=" * 80
 
 class AgentMemoryChatDebugLog:
     """
-    Пишет append-only в `log_file_path_for_chat(chat_id)` при verbose=1.
-    Каждое событие — блок: разделитель, строка-заголовок, JSON с отступом.
+    Пишет append-only при verbose=1: desktop — плоский ``<safe>.log``;
+    cli_init — ``…/ailit-cli-*/legacy.log``.
     """
 
-    def __init__(self, file_cfg: AgentMemoryFileConfig) -> None:
+    def __init__(
+        self,
+        file_cfg: AgentMemoryFileConfig,
+        *,
+        session_log_mode: SessionLogMode = "desktop",
+        cli_session_dir: Path | None = None,
+    ) -> None:
         self._file_cfg: AgentMemoryFileConfig = file_cfg
+        self._session_log_mode: SessionLogMode = session_log_mode
+        self._cli_session_dir_arg: Path | None = (
+            cli_session_dir.expanduser().resolve()
+            if cli_session_dir is not None
+            else None
+        )
+        self._cli_session_root_resolved: Path | None = None
 
     @property
     def enabled(self) -> bool:
         v: int = int(self._file_cfg.memory.debug.verbose)
         return v == 1
+
+    def _ensure_cli_session_root_locked(self) -> Path:
+        if self._session_log_mode != "cli_init":
+            raise RuntimeError("cli session root only for cli_init mode")
+        if self._cli_session_root_resolved is not None:
+            return self._cli_session_root_resolved
+        if self._cli_session_dir_arg is not None:
+            root: Path = self._cli_session_dir_arg
+            root.mkdir(parents=True, exist_ok=True)
+            self._cli_session_root_resolved = root
+            return root
+        created: Path = create_unique_cli_session_dir()
+        self._cli_session_root_resolved = created
+        return created
+
+    def _legacy_log_path_for_write(self, raw_chat_id: str) -> Path:
+        if self._session_log_mode == "desktop":
+            return log_file_path_for_chat(raw_chat_id)
+        root: Path = self._ensure_cli_session_root_locked()
+        return root / LEGACY_LOG_FILE_NAME
+
+    def compact_log_path_for_write(self) -> Path | None:
+        """Путь ``compact.log`` в каталоге CLI-сессии; в desktop — ``None``."""
+        if self._session_log_mode != "cli_init":
+            return None
+        root: Path = self._ensure_cli_session_root_locked()
+        return root / COMPACT_LOG_FILE_NAME
 
     @staticmethod
     def _dumps_pretty(data: Mapping[str, Any]) -> str:
@@ -236,14 +319,14 @@ class AgentMemoryChatDebugLog:
     ) -> None:
         if not self.enabled:
             return
-        p: Path = log_file_path_for_chat(raw_chat_id)
-        p.parent.mkdir(parents=True, exist_ok=True)
         text: str = (
             f"{_AUDIT_SEP}\n"
             f"{header_line}\n"
             f"{self._dumps_pretty(record)}\n"
         )
         with _write_lock:
+            p: Path = self._legacy_log_path_for_write(raw_chat_id)
+            p.parent.mkdir(parents=True, exist_ok=True)
             with p.open("a", encoding="utf-8") as f:
                 f.write(text + "\n")
 

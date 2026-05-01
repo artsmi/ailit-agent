@@ -426,7 +426,11 @@ def main(argv: list[str] | None = None) -> int:
         cmd_kb_rebuild_index,
         cmd_kb_ttl_apply,
     )
-    from ailit.memory_cli import cmd_memory_index, cmd_memory_pag_slice
+    from ailit.memory_cli import (
+        cmd_memory_index,
+        cmd_memory_init,
+        cmd_memory_pag_slice,
+    )
     from ailit.models_cli import register_models_parser
     from ailit.desktop_cli import register_desktop_parser
     from ailit.project_cli import register_project_parser
@@ -870,6 +874,25 @@ def main(argv: list[str] | None = None) -> int:
         help="Полный re-index (в MVP: без оптимизаций)",
     )
     p_idx.set_defaults(func=cmd_memory_index)
+
+    p_init = mem_sub.add_parser(
+        "init",
+        help=(
+            "Инициализировать агентную память для корня проекта. "
+            "Повторный init для того же PAG namespace деструктивно очищает "
+            "данные namespace (§4.2); используйте осознанно."
+        ),
+    )
+    p_init.add_argument(
+        "project_root",
+        metavar="path",
+        type=str,
+        help=(
+            "Корень проекта (абсолютный, относительный или ./); "
+            "каталог должен существовать."
+        ),
+    )
+    p_init.set_defaults(func=cmd_memory_init)
 
     p_ps = mem_sub.add_parser(
         "pag-slice",

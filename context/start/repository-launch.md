@@ -29,6 +29,10 @@
 
 После установки: shim `~/.local/bin/ailit` (если не отключён) и при доступном user systemd — unit `~/.config/systemd/user/ailit.service` с `ExecStart` на `ailit runtime supervisor` и `Environment=AILIT_RUNTIME_DIR=%t/ailit` (см. скрипт).
 
+### Smoke: `ailit memory init` (UC-01)
+
+После успешного `./scripts/install` или `./scripts/install dev` (канон шагов — [`../proto/install.md`](../proto/install.md)) выполните `ailit memory init <path>` для корня целевого проекта. В `…/chat_logs/` появится каталог с префиксом **`ailit-cli-*`** с файлами **`legacy.log`** и **`compact.log`**; приёмка успеха по журналу и маркеру цикла памяти — в [ТЗ §4.1](../artifacts/technical_specification.md). Согласованность графа Desktop с тем же корнем/namespace после init (UC-05) — только в [plan.md — «Manual smoke (UC-05)»](../artifacts/plan.md); шаги оттуда сюда не дублируются.
+
 ## Runtime supervisor (долгоживущий процесс)
 
 1. Убедиться, что `XDG_RUNTIME_DIR` и user bus доступны (иначе install может пропустить unit).
@@ -50,7 +54,7 @@
 - **Конфиг:** `pyproject.toml` — `pythonpath`: `tools`, `tests/e2e`; по умолчанию `addopts` исключает маркеры `integration` и `manual_model_e2e`.
 - **Изоляция:** autouse в `tests/conftest.py` — подмена `HOME`, `AILIT_RUNTIME_DIR`, `AILIT_PAG_DB_PATH`, `AILIT_KB_DB_PATH`, `AILIT_MEMORY_JOURNAL_PATH`, `AILIT_CONFIG_DIR`, `AILIT_STATE_DIR`, `AILIT_WORK_ROOT` (см. проектный workflow).
 
-Подробнее по группам и файлам — [`../tests/INDEX.md`](../tests/INDEX.md). Для desktop Memory 3D / PAG финальный gate Vitest (**12 файлов, 80 тестов**, §5.0 ТЗ) и команда — в `context/tests/INDEX.md`; сводный отчёт финального `11` при наличии — `context/artifacts/reports/test_run_11_final.md`.
+Подробнее по группам и файлам — [`../tests/INDEX.md`](../tests/INDEX.md). Для desktop Memory 3D / PAG финальный gate Vitest (**12 файлов, 80 тестов**, §5.0 ТЗ) и команда — в [`../tests/INDEX.md`](../tests/INDEX.md). Сводный отчёт финального gate **`11` v2** (Agent Memory CLI / memory init, flake8 SoT 17 путей): [`../artifacts/reports/test_runner_final_11.md`](../artifacts/reports/test_runner_final_11.md).
 
 ## Линтеры
 
