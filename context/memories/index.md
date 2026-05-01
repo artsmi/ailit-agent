@@ -13,4 +13,6 @@ Index-first: краткие заголовки; полные заметки — 
 | `feature_3d_memory_w14_task_1_2` | W14 M1: builder пути, pipeline через builder, D16.1 пустой emit | [`feature_3d_memory_w14_task_1_2.md`](feature_3d_memory_w14_task_1_2.md) |
 | `feature_3d_memory_layout_task_1_3` | 3D: `graphDataKey` без `n{count}`, merge `x..fz`, G16.4; vitest 3 файла | [`feature_3d_memory_layout_task_1_3.md`](feature_3d_memory_layout_task_1_3.md) |
 
-**Оглавление канона:** [`../INDEX.md`](../INDEX.md).
+**Оглавление канона:** [`../INDEX.md`](../INDEX.md) (в т.ч. [`../install/INDEX.md`](../install/INDEX.md), [`../modules/INDEX.md`](../modules/INDEX.md), [`../files/INDEX.md`](../files/INDEX.md), [`../models/INDEX.md`](../models/INDEX.md)).
+
+**Связанные разделы:** [`../tests/INDEX.md`](../tests/INDEX.md), [`../arch/INDEX.md`](../arch/INDEX.md).

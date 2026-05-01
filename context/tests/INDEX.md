@@ -1,4 +1,4 @@
-# Тесты — ссылки на канон
+# Тесты — индекс
 
 Общий контур: изоляция `HOME` / `AILIT_*` в `tests/conftest.py`, маркеры и `addopts` в `pyproject.toml`, запуск из venv репозитория — см. [`../start/repository-launch.md`](../start/repository-launch.md).
 
@@ -77,3 +77,5 @@ cd desktop && npx vitest run \
 **Связь с Python:** `tests/test_pag_slice_caps_alignment.py` — выравнивание чисел с `tools/agent_core/memory/pag_slice_caps.py` и `desktop/.../pagGraphLimits.ts`. W14 / broker UC 2.4 — строки выше в разделе pytest.
 
 Другие Vitest-файлы в пакете `desktop` (ledger, shell, state и т.д.) **не входят** в этот gate; при изменении контрактов §5.0 gate расширяют осознанно и обновляют эту таблицу и команду.
+
+**Связанные разделы:** [`../INDEX.md`](../INDEX.md), [`../start/INDEX.md`](../start/INDEX.md), [`../proto/INDEX.md`](../proto/INDEX.md), [`../arch/INDEX.md`](../arch/INDEX.md), [`../modules/INDEX.md`](../modules/INDEX.md).
