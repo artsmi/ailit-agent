@@ -6,6 +6,16 @@
 
 Изоляция артефактов, pytest, e2e — в проектных правилах workflow и в `tests/conftest.py`. Не путать с vitest desktop.
 
+### W14 UC-05 — cooperative cancel (broker + trace ordering)
+
+| Путь / смысл | Содержание |
+|----------------|------------|
+| `tests/test_g14r_uc05_cooperative_cancel_trace_ordering.py` | CI-инвариант: поля broker JSON (`payload.service` / `payload.action`), порядок compact-событий после cancel в сценарии с задержкой memory pipeline. |
+| `AILIT_TEST_MEMORY_PIPELINE_HOLD_S` | Env для удержания pipeline в тесте cancel (изоляция через `RuntimePaths` / `BrokerConfig` — см. файл теста). |
+| `desktop/src/renderer/runtime/envelopeFactory.cancel.test.ts` | Vitest: канон полей cancel-envelope для broker (`runtime.cancel_active_turn`), согласовано с `registerIpc.ts` / `preload.ts`. |
+
+Финальный прогон **11** (W14 + Desktop): **81** pytest по `test_g14*.py` и `tests/runtime/test_broker*.py`; **13** Vitest-файлов, **82** теста; `npm run typecheck` — см. `context/artifacts/reports/test_report_11_final_w14_desktop.md`.
+
 ### Broker UC 2.4 (pathless `memory.query_context`, инжект) — G4 task 2.1
 
 | Путь / смысл | Содержание |

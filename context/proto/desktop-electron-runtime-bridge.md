@@ -17,7 +17,9 @@
 
 ### Cooperative Stop (UC-05)
 
-Транспорт тот же, что для `work.handle_user_prompt`: **`ailit:brokerRequest`** (`registerIpc.ts` → `brokerJsonRequest`).
+Транспорт тот же, что для `work.handle_user_prompt`: **`ailit:brokerRequest`** (`desktop/src/main/registerIpc.ts` → `brokerJsonRequest`; preload — `desktop/src/preload/preload.ts`, канал `invoke('ailit:brokerRequest', …)`).
+
+**Renderer:** envelope собирается в `desktop/src/renderer/runtime/envelopeFactory.ts` (`requestStopAgent` / контекст в `desktop/src/renderer/runtime/DesktopSessionContext.tsx`). Vitest на канон полей cancel: `desktop/src/renderer/runtime/envelopeFactory.cancel.test.ts` (финальный прогон **11** включал этот файл).
 
 | Поле | Значение |
 |------|----------|
@@ -29,6 +31,8 @@
 | `payload.user_turn_id` | корреляция turn (как в `memory.query_context` / `work_agent.py`) |
 
 Семантика: идемпотентный cooperative cancel активного user-turn (доставка в AgentWork, отмена pending memory-path); UI дополнительно пишет терминальную строку trace `session.cancelled` (см. `DesktopSessionContext.tsx`). Жёсткий `supervisorStopBroker` после cancel остаётся fallback-сбросом сессии broker для чата. Renderer сначала резолвит workspace строго (`pickWorkspace`); если broker уже подключён, а строгий выбор пуст (например устаревшие `projectIds` в UI-сессии), для **только** cancel-запроса допускается fallback на первую запись `projectRegistry`, чтобы не терять cooperative путь и не опираться только на `stop_broker`.
+
+**Пробел качества (не CI):** полный ручной smoke «Stop во время live `memory.query_context`» в автоматическом прогоне wave4 task_5_1 (Command 6) по отчёту **11** не выполнялся; автотесты Python (`test_g14r_uc05_cooperative_cancel_trace_ordering.py`) и Vitest на envelope закрывают контракт транспорта и порядок trace, но не заменяют интерактивную проверку UI.
 
 ## Семантика PAG slice
 

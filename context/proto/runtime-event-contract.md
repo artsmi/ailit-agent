@@ -11,10 +11,6 @@
 | Topic | Producer (типично) | Минимальный compact-payload | Ссылка |
 |-------|--------------------|-----------------------------|--------|
 | `memory.query_context.continuation` | AgentWork | `user_turn_id`, `previous_query_id`, `next_query_id`, `reason` (= `continuation`, см. ниже) | `architecture.md` §5 Event continuation; `broker-memory-work-inject.md` (W14 continuation) |
-
-### Поле `reason` у `memory.query_context.continuation`
-
-Допустимое значение **ровно одно**: строка `continuation` (латиница, нижний регистр). В коде AgentWork литерал синхронизирован с таблицей через константу **`_MEMORY_QUERY_CONTINUATION_REASON`** в `tools/agent_core/runtime/subprocess_agents/work_agent.py` (значение совпадает с этим абзацем дословно).
 | `memory.query.timeout` | AgentWork | `query_id`, `user_turn_id`, `code` (напр. `runtime_timeout`), `timeout_s` | `architecture.md` §5 Event memory query timeout |
 | `memory.query.budget_exceeded` | AgentWork | §5: `cap`, `user_turn_id`; в `work_agent.py` дополнительно `code` (`too_many_memory_queries`) | `architecture.md` §5 Event cap exceeded |
 | `memory.actor_unavailable` | AgentWork | причина/ошибка без сырого prompt | `broker-memory-work-inject.md`, ветки broker/socket/SoT |
@@ -25,6 +21,12 @@
 | `memory.w14.command_id_restored` | AgentMemory (journal) | `command_id` (усечённый канонический id после восстановления из runtime trace) | ТЗ UC-02; пишется только если восстановление применено |
 | `session.cancelled` | AgentWork (`SessionRunner` / cooperative path) | минимум `phase`; при cooperative cancel из `work_agent` допускается `user_turn_id`, `reason` | `architecture.md` §5 UC-05 |
 | `action.cancelled` | AgentWork (`AgentWorkWorker.handle` / `_run` после отменённого turn) | `action`, `action_id`, `user_turn_id`, `reason` | `architecture.md` §5 UC-05 |
+
+### Поле `reason` у `memory.query_context.continuation`
+
+Допустимое значение **ровно одно**: строка `continuation` (латиница, нижний регистр). В коде AgentWork литерал синхронизирован с таблицей через константу **`_MEMORY_QUERY_CONTINUATION_REASON`** в `tools/agent_core/runtime/subprocess_agents/work_agent.py` (значение совпадает с этим абзацем дословно).
+
+**UC-05 (cooperative cancel):** запрос **`runtime.cancel_active_turn`** идёт по **broker** Unix socket (как `work.handle_user_prompt`), не по supervisor JSON; после доставки в AgentWork ожидаются терминальные compact-события **`session.cancelled`** / **`action.cancelled`** в согласованном порядке с memory-path (инвариант CI: `tests/test_g14r_uc05_cooperative_cancel_trace_ordering.py`; удержание memory pipeline в сценарии — env **`AILIT_TEST_MEMORY_PIPELINE_HOLD_S`**). См. [`desktop-electron-runtime-bridge.md`](desktop-electron-runtime-bridge.md) §Cooperative Stop.
 
 События **`memory.query_context.continuation`**, **`memory.query.timeout`**, **`memory.query.budget_exceeded`** — зона **D-OBS-1** по отношению к ТЗ §3.2 и **architecture.md** §5; остальные строки в таблице — уже используемые соседние compact-топики того же пути (не подменяют timeout/continuation).
 
@@ -38,7 +40,7 @@
 После смены имён в коде или §5:
 
 ```bash
-rg -n 'memory\.query\.timeout|memory\.query_context\.continuation|memory\.query\.budget_exceeded' tools/agent_core/runtime/subprocess_agents/work_agent.py context/artifacts/architecture.md context/proto/runtime-event-contract.md
+rg -n 'memory\.query\.timeout|memory\.query_context\.continuation|memory\.query\.budget_exceeded|session\.cancelled|action\.cancelled|RUNTIME_CANCEL_ACTIVE_TURN' tools/agent_core/runtime/subprocess_agents/work_agent.py tools/agent_core/runtime/broker.py context/artifacts/architecture.md context/proto/runtime-event-contract.md
 ```
 
 Черновые или альтернативные имена (пример антипаттерна: `memory.query.continuation`, `memory.rpc.timeout`) в продюсере AW **не** допускаются без согласованного изменения §5 и этого whitelist.

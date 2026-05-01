@@ -8,9 +8,11 @@
 ## Результат
 
 - Все перечисленные тесты: **passed** (50).
-- flake8 по новому тестовому файлу: **ok**.
+- flake8 по путям из секции «Команды» (включая `tests/test_g14r_uc05_cooperative_cancel_trace_ordering.py`): **ok**.
 
 ## UC-05
 
-- `test_uc05_cancel_during_memory_query_trace_ordering_no_zombie_final` — broker subprocess, `AILIT_TEST_MEMORY_PIPELINE_HOLD_S`, инвариант trace.
-- `test_uc05_runtime_cancel_idempotent_unknown_turn` — идемпотентный cancel.
+Канонический модуль: `tests/test_g14r_uc05_cooperative_cancel_trace_ordering.py`.
+
+- `test_w14_uc05_cancel_during_memory_query_no_zombie_final_or_completed` — broker subprocess, `AILIT_TEST_MEMORY_PIPELINE_HOLD_S`, инвариант trace.
+- `test_w14_uc05_cancel_before_memory_returns_without_hang` — отмена до memory-query без зависания.

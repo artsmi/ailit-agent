@@ -21,6 +21,10 @@
 - Клиенты задают таймаут (например 2000–5000 ms в Electron handlers).
 - Отсутствие сокета: диагностическое сообщение в UI про `ailit runtime supervisor` и `systemctl --user status ailit.service`.
 
+## Cooperative cancel (UC-05) — не этот канал
+
+Остановка активного user-turn по плану W14 (**cooperative cancel**) выполняется через **broker** Unix socket (`ailit:brokerRequest` в Electron, тот же транспорт, что для `work.handle_user_prompt`), логическое имя **`runtime.cancel_active_turn`**. Здесь, на **`supervisor.sock`**, отдельной команды cancel нет — не искать UC-05 в этом документе; канон полей и семантики — [`desktop-electron-runtime-bridge.md`](desktop-electron-runtime-bridge.md) §Cooperative Stop и [`broker-memory-work-inject.md`](broker-memory-work-inject.md) §Cooperative cancel.
+
 ## Тесты
 
 - E2E сценарии supervisor: например `tests/e2e/test_supervisor_g8_8.py` (переменная `AILIT_SUPERVISOR_SOCKET` в инвентаризации).

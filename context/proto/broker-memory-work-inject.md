@@ -9,6 +9,14 @@
 3. **Таймаут:** SLA ожидания ответа AM должно быть **согласовано** между клиентом AW (`_BrokerServiceClient`), broker (`svc_timeout` для worker AgentMemory) и `memory.runtime.agent_memory_rpc_timeout_s` в merged config; клиент не должен обрывать ожидание существенно раньше broker при целевом SLA W14 pipeline.
 4. **Timeout / late response:** ответ `runtime_timeout` или отсутствие валидного `agent_memory_result` **не** трактуется как успешное завершение memory-path. Поздний ответ с устаревшим `query_id` не должен менять состояние текущего turn детерминированно (discard / диагностика).
 
+### AgentMemory: поле `memory_continuation_required` в SoT
+
+Вычисление и встраивание в объект **`agent_memory_result.v1`** — `resolve_memory_continuation_required` и `build_agent_memory_result_v1` в `tools/agent_core/runtime/agent_memory_result_v1.py`; итоговый объект отдаётся в broker-поток из `tools/agent_core/runtime/subprocess_agents/memory_agent.py`. Правила UC-03/UC-04 для поля — в docstring `resolve_memory_continuation_required` (источник правды рядом с кодом).
+
+### Cooperative cancel (UC-05)
+
+Транспорт — тот же broker Unix socket, что и для `work.handle_user_prompt`: логическое имя операции **`runtime.cancel_active_turn`** (константа `RUNTIME_CANCEL_ACTIVE_TURN` в `tools/agent_core/runtime/broker.py` и `tools/agent_core/runtime/subprocess_agents/work_agent.py`). В JSON допускается дублирование имени в `payload.service` и `payload.action`; для корреляции с turn — **`chat_id`**, **`user_turn_id`** (согласовано с Desktop envelope в [`desktop-electron-runtime-bridge.md`](desktop-electron-runtime-bridge.md)). Broker маршрутизирует запрос в AgentWork; терминальные compact-события и порядок относительно memory-path — [`runtime-event-contract.md`](runtime-event-contract.md). **Supervisor** JSON socket (`supervisor.sock`) для UC-05 **не** используется — см. [`supervisor-json-socket.md`](supervisor-json-socket.md).
+
 Компактные события: нормативный whitelist имён и полей — [`runtime-event-contract.md`](runtime-event-contract.md) (**D-OBS-1**), в дословном соответствии с `context/artifacts/architecture.md` §5 и литералами в `work_agent.py`. Кратко: continuation — `memory.query_context.continuation` (`previous_query_id`, `next_query_id`, `user_turn_id`, `reason`); timeout RPC — `memory.query.timeout` (`query_id`, `user_turn_id`, `code`, `timeout_s`); без сырого prompt.
 
 ---
@@ -88,5 +96,7 @@ Work публикует `context.memory_injected` **только** если от
 
 - `tools/agent_core/runtime/subprocess_agents/work_agent.py` — `_request_memory_slice` (payload pathless v1), `_memory_slice_message`, `_memory_injected_payload` (строки порядка ~290–517).
 - `tools/agent_core/session/context_ledger.py` — `memory_injected_v2_payload` (`usage_state: "estimated"` в возвращаемом dict, ~267–297).
-- `tools/agent_core/runtime/subprocess_agents/memory_agent.py` — `_fallback_slice` (~1284–1316), `handle` / ветка `memory.query_context` и пост-pipeline (~1496–1564).
+- `tools/agent_core/runtime/subprocess_agents/memory_agent.py` — `_fallback_slice` (~1284–1316), `handle` / ветка `memory.query_context` и пост-pipeline (~1496–1564); cancel path и публикация SoT.
+- `tools/agent_core/runtime/agent_memory_result_v1.py` — `resolve_memory_continuation_required`, `build_agent_memory_result_v1`.
+- `tools/agent_core/runtime/broker.py` — ветка `runtime.cancel_active_turn` на `service.request`.
 - `tools/agent_core/runtime/agent_memory_query_pipeline.py` — выставление `reason: w14_command_output_invalid` (без изменений в task 2.1; согласование семантики с п.2 выше).
