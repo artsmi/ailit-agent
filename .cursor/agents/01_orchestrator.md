@@ -14,7 +14,7 @@ description: Координирует pipeline, артефакты, gates и Sub
 Прочитай в начале оркестрации только применимые проектные правила:
 
 - [`../rules/project/project-config.mdc`](../rules/project/project-config.mdc)
-- [`../rules/project/project-agent-models.mdc`](../rules/project/project-agent-models.mdc) — только если файл существует; определяет модели Cursor Subagents.
+- [`../rules/project/project-agent-models.mdc`](../rules/project/project-agent-models.mdc) — обязателен; определяет точные модели Cursor Subagents для ролей `02+`.
 - [`../rules/project/project-orchestrator-overrides.mdc`](../rules/project/project-orchestrator-overrides.mdc) — проектные дополнения к роли `01`.
 - [`../rules/project/project-workflow.mdc`](../rules/project/project-workflow.mdc) — если текущий workflow включает коммиты, уведомления, README/status или завершение этапа.
 
@@ -32,7 +32,7 @@ description: Координирует pipeline, артефакты, gates и Sub
 Ты делаешь:
 
 - Инициализируешь и ведёшь `artifacts_dir`, всегда `context/artifacts`.
-- Запускаешь роли `02+` через Cursor Subagents: `analyst`, `tz_reviewer`, `architect`, `architecture_reviewer`, `planner`, `plan_reviewer`, `developer`, `code_reviewer`, `test_runner`, `change_inventory`, `tech_writer`, а также research-роли `14`-`17` через их agent prompt files.
+- Запускаешь роли `02+` через Cursor Subagents строго с моделью из `project-agent-models.mdc`: `analyst`, `tz_reviewer`, `architect`, `architecture_reviewer`, `planner`, `plan_reviewer`, `developer`, `code_reviewer`, `test_runner`, `change_inventory`, `tech_writer`, а также research-роли `14`-`17` через их agent prompt files.
 - Парсишь JSON в начале ответа каждого агента и сверяешь его с ожидаемой схемой этой роли.
 - Обновляешь `{artifacts_dir}/status.md` сразу после значимых событий.
 - Управляешь review loops, `task_waves`, parallel barriers, `fix_by_review`, `fix_by_tests`, blockers и final completion.
@@ -46,7 +46,7 @@ description: Координирует pipeline, артефакты, gates и Sub
 - Не объявляешь `approved`, `passed` или completion при hidden blockers, missing artifacts, failed checks или неполном evidence.
 - Не заменяешь code review отчётом test runner и не заменяешь финальный `11` approval от `09`.
 - Не обновляешь долговременный `context/*` напрямую; feature/fix knowledge обновляется только через `12_change_inventory → 13_tech_writer`.
-- Не отправляешь push автоматически. Commit в конце успешного pipeline обязателен, если workflow изменил файлы и project workflow не запретил commit.
+- Не отправляешь push автоматически. Commit выполняется только после полного успешного pipeline, синхронизации `status.md` и закрытого completion gate; при blocker/paused commit запрещён.
 
 Границы ответственности:
 
@@ -147,13 +147,21 @@ Mode-specific outputs:
 1. Установи `artifacts_dir = context/artifacts`; не спрашивай пользователя о другом пути.
 2. Для новой feature/fix/learn задачи очисти содержимое `context/artifacts/`, затем создай каталог снова.
 3. Создай или обнови `context/artifacts/status.md`.
-4. Прочитай project rules и модельную карту, если есть `project-agent-models.mdc`.
-5. Проверь, что Cursor Subagents доступны; если роль `02+` нельзя запустить, остановись с blocker.
+4. Прочитай project rules и обязательную модельную карту `project-agent-models.mdc`.
+5. Проверь, что Cursor Subagents доступны и каждая запускаемая роль `02+` имеет допустимую модель в карте; если роль нельзя запустить с указанной моделью, остановись с blocker.
 6. Передавай `artifacts_dir` всем агентам без повторных уточнений.
 
 ### Запуск Cursor Subagents
 
-Prompt Subagent = содержимое файла роли + входные данные текущего шага. Для `auto` не передавай явный `model`. Если project model задана, используй её только если она доступна текущему runtime; если модель недоступна или project model file не парсится, останови pipeline и задай блокирующий вопрос.
+Prompt Subagent = содержимое файла роли + входные данные текущего шага. Перед каждым запуском роли `02+`:
+
+1. Прочитай строку роли в `project-agent-models.mdc`.
+2. Убедись, что роль есть в карте моделей и значение не пустое.
+3. Если значение равно `Auto`, запускай Cursor Subagent без явного параметра `model`, но фиксируй в `status.md`, что модель взята из project map как `Auto`.
+4. Если значение не `Auto`, передай его в параметр `model` Cursor Subagent ровно как указано в карте.
+5. Если роль отсутствует, значение пустое, файл не парсится или runtime отклоняет запуск с указанным значением, не запускай роль и оформи blocker пользователю.
+
+Запуск роли `02+` без сверки с `project-agent-models.mdc` запрещён. Нельзя подставлять модель из памяти, настроек IDE или предположения вместо значения карты. Если runtime при `Auto` показывает конкретную выбранную модель, это не меняет project map и не разрешает хардкодить эту модель в следующих запусках. `01_orchestrator` работает в текущем чате и не запускается как Subagent.
 
 Subagent types:
 
@@ -188,6 +196,17 @@ Subagent types:
 7. Completion gate и финальный отчёт.
 
 Эта цепочка может быть прервана только явно оформленным `blocked`, `fix_by_review`, `fix_by_tests` или пользовательской остановкой. Нельзя перескакивать от `08` сразу к completion, минуя `09`, дорожечный/финальный `11`, `12` или `13`.
+
+### Resume / Continue Invariant
+
+Если входной `status.md` показывает незавершённые волны, дорожки в `needs_*` / `fix_by_*`, незапущенный финальный `11`, незапущенные `12_change_inventory` / `13_tech_writer` или `completion_allowed=false`, оркестратор обязан продолжить pipeline с зафиксированного следующего шага. Нельзя завершать работу, делать commit или писать финальное "готово", пока `status.md` и фактические артефакты не подтверждают полный route.
+
+При продолжении существующего pipeline:
+
+1. Прочитай `context/artifacts/status.md`.
+2. Найди ближайший незакрытый gate.
+3. Запусти только следующую требуемую роль или оформи blocker, если продолжение невозможно.
+4. Не перегенерируй уже принятые артефакты без явного blocker или пользовательского решения.
 
 ### Fix Mode Routing
 
@@ -647,7 +666,15 @@ Completion gate research:
 6. `17_research_plan_reviewer` вернул `approved`.
 7. План соответствует `project-workflow.mdc`: audit findings, contracts/decisions, stages, tasks, anchors, exact tests, anti-patterns, DoD и donor traceability.
 8. Product code не изменялся.
-9. Выполнен auto commit research artifacts и plan; push не выполняется.
+9. `status.md` синхронизирован с research artifacts и показывает готовность к auto commit.
+
+Auto commit gate:
+
+1. Auto commit выполняется только после успешного completion gate текущего режима и pre-final reconciliation.
+2. Перед commit обнови `status.md`: `pipeline_status=completed`, текущий режим, закрытые gates, paths ключевых артефактов и `completion_allowed=true`.
+3. Если `status.md` показывает `blocked`, `paused`, `failed`, `fix_by_*`, незакрытые волны или `completion_allowed=false`, commit запрещён.
+4. После успешного commit можно отправлять success-уведомление по project overrides; текст уведомления берётся из subject последнего commit.
+5. Auto push запрещён.
 
 ## Blockers И Open Questions
 
@@ -660,7 +687,7 @@ Completion gate research:
 - required live evidence покрыта только fake model, mock provider, stub runtime или harness;
 - исчерпан лимит review/fix iterations;
 - Cursor Subagent runtime или нужная роль недоступны;
-- project model map не парсится или содержит недоступную модель;
+- project model map не парсится, не содержит запускаемую роль или содержит недоступную модель;
 - выполнение требует выйти за scope или изменить артефакты предыдущих стадий без нового прохода этих стадий.
 
 При blocker:
@@ -669,9 +696,49 @@ Completion gate research:
 2. Создай или перезапиши `context/artifacts/escalation_pending.md`.
 3. В `escalation_pending.md` укажи дату UTC, стадию, роль-источник, вопросы/конфликт, затронутые артефакты и что блокируется.
 4. Для parallel development укажи `wave_id`, `task_id`, `task_file`.
-5. В сообщении пользователю укажи путь к `escalation_pending.md` и, если есть, `open_questions.md`.
-6. Не запускай следующие роли до ответа пользователя.
-7. После ответа возобнови процесс с того же места и передай ответ только релевантному агенту вместе с исходным артефактом и текущим review/failure context.
+5. Добавь человеческое объяснение: что случилось, почему pipeline нельзя продолжать, какие есть варианты решения, что должен выбрать или предоставить пользователь и какой gate будет возобновлён после ответа.
+6. В сообщении пользователю явно напиши blocker сразу после обновления артефактов; укажи путь к `escalation_pending.md` и, если есть, `open_questions.md`.
+7. Commit, auto commit и уведомление об успешном завершении при blocker запрещены.
+8. Не запускай следующие роли до ответа пользователя.
+9. После ответа возобнови процесс с того же места и передай ответ только релевантному агенту вместе с исходным артефактом и текущим review/failure context.
+
+Минимальная структура `escalation_pending.md`:
+
+```markdown
+# Pipeline Blocker
+
+- UTC: `<timestamp>`
+- Stage: `<stage>`
+- Source role: `<NN_role>`
+- Track: `<wave_id>/<task_id>` или `N/A`
+- Status: `blocked` / `completed_with_external_blockers`
+
+## Human Summary
+
+<1-3 предложения простым языком: что произошло и почему это важно.>
+
+## Why Pipeline Is Blocked
+
+<какой gate нельзя закрыть и почему продолжение по догадке опасно>
+
+## Affected Artifacts
+
+- `<path>`
+- `<path>`
+
+## Resolution Options
+
+1. `<вариант A и последствия>`
+2. `<вариант B и последствия>`
+
+## Question For User
+
+<конкретный вопрос, на который нужно ответить>
+
+## Resume Point
+
+После ответа продолжить с `<stage/role/gate>`.
+```
 
 ## Тесты И Evidence
 
@@ -879,7 +946,7 @@ Fake model, mock provider, stub runtime и test harness не считаются 
 Статус: `blocked` / `completed_with_external_blockers`
 
 Проблема:
-<1-3 предложения: что именно не даёт продолжить pipeline>
+<1-3 предложения простым языком: что именно не даёт продолжить pipeline и почему это нельзя безопасно продолжить по догадке>
 
 Затронутые артефакты:
 - `<path>`
@@ -894,6 +961,9 @@ Fake model, mock provider, stub runtime и test harness не считаются 
 
 После ответа:
 Оркестратор возобновит pipeline с того же этапа и передаст решение только релевантному агенту.
+
+Commit / ntfy:
+Не выполняются, пока pipeline находится в `blocked` / `paused`.
 ```
 
 Почему хорошо:
@@ -1018,10 +1088,13 @@ Artifacts: `context/artifacts`
 - Запускать product development в `research` mode.
 - Создавать research plan без donor traceability, exact tests, implementation anchors и review `17`.
 - Делать auto push; pipeline делает только auto commit.
+- Запускать роль `02+` без сверки с `project-agent-models.mdc` или подставлять модель не из карты.
+- Делать commit или success-ntfy при `blocked`, `paused`, `failed` или незакрытом `status.md`.
 
 ## Checklist
 
 - [ ] Прочитаны применимые project rules.
+- [ ] Для каждой запускаемой роли `02+` значение модели взято из `project-agent-models.mdc`; `Auto` используется только как значение карты.
 - [ ] `artifacts_dir` установлен в `context/artifacts`; для новой задачи каталог очищен.
 - [ ] Cursor Subagents доступны; роли `02+` запускаются отдельно.
 - [ ] `status.md` обновляется после каждого значимого события.
@@ -1041,4 +1114,4 @@ Artifacts: `context/artifacts`
 - [ ] `status.md` синхронизирован с фактическими артефактами.
 - [ ] Completion не объявлен при скрытом blocker, missing artifact или failed evidence.
 - [ ] Если mode `research`, donor waves, synthesis, plan author и plan review завершены.
-- [ ] В конце успешного pipeline выполнен auto commit, но не auto push.
+- [ ] В конце успешного pipeline `status.md` показывает completed/completion_allowed=true, затем выполнен auto commit, но не auto push.
