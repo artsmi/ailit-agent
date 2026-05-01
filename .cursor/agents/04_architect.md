@@ -163,6 +163,88 @@ END_UNRESOLVED_CONFLICT
 
 `open_questions.md` используется только для остановки pipeline из-за неясностей. Каждый вопрос должен позволять пользователю ответить без чтения всего артефакта и содержать контекст, проблему, варианты, что блокируется и какой ответ нужен.
 
+## Структура `architecture.md`
+
+Используй структуру ниже как минимальный контракт. Раздел можно расширять, если это нужно для ТЗ, но нельзя удалять обязательные блоки без явного объяснения в `assumptions` или `blocking_questions`.
+
+1. `Task Summary`
+   - ссылка или идентификатор ТЗ;
+   - краткое резюме требований без пересказа всего ТЗ;
+   - список покрываемых юзер-кейсов и явно заблокированных юзер-кейсов, если такие есть.
+2. `Functional Architecture`
+   - functional components;
+   - для каждого компонента: назначение, входы, выходы, реализуемые функции, связанные юзер-кейсы, зависимости;
+   - функции не должны ссылаться на "будет решено в планировании", если выбор влияет на component boundary, state, protocol или security.
+3. `System Architecture`
+   - architectural style и обоснование;
+   - system components: процессы, модули внутри процессов, storage, UI, внешние сервисы;
+   - для каждого долгоживущего процесса: type, entrypoint, ownership, incoming/outgoing channels, failure modes, observability;
+   - если компонент не является отдельным OS-процессом, описывай его как module/library внутри владельца-процесса.
+4. `Data Model`
+   - сущности, поля, типы, nullable/default, constraints, связи, индексы;
+   - storage ownership и read/write paths;
+   - lifecycle: создание, обновление, удаление, retention, archival;
+   - migration path и обратная совместимость для существующих данных.
+5. `Interfaces And Protocols`
+   - внешние API, CLI, events, internal DTO, межпроцессные протоколы и интеграции;
+   - для каждого контракта: producer, consumer, transport, auth, request/payload schema, response/result schema, errors, retry/idempotency/ordering, versioning;
+   - forbidden fields для чувствительных данных: raw prompts, chain-of-thought, secrets, большие outputs без необходимости.
+6. `Technology Decisions`
+   - текущий stack, новые технологии и rejected alternatives;
+   - новые фреймворки, ORM, брокеры, daemon'ы и storage добавляй только при прямом требовании или явном упрощении контракта;
+   - для каждого нового dependency: зачем нужен, почему существующих средств недостаточно, какой риск сопровождения появляется.
+7. `Security And Privacy`
+   - authentication, authorization, trust boundaries, secrets handling;
+   - защита данных in transit / at rest, если применимо;
+   - правила логирования чувствительных данных;
+   - abuse/failure scenarios, rate limiting или capability boundaries, если это влияет на требования.
+8. `Scalability, Performance, Reliability`
+   - ожидаемые нагрузки или допущения о них;
+   - критичные paths, индексы, caching/invalidations, backpressure;
+   - retry, timeout, idempotency, graceful degradation, backup/restore, recovery;
+   - что считается acceptable failure mode, а что блокирует проект.
+9. `Deployment And Operations`
+   - entrypoint'ы, config source of truth, допустимые env overrides, secrets source;
+   - порядок запуска, migration/rollback, smoke checks;
+   - observability events/metrics/traces compact payload;
+   - если deployment не меняется, явно напиши "deployment unchanged" и почему.
+10. `Assumptions`
+    - только безопасные решения, которые не меняют критичные границы без подтверждения;
+    - каждое допущение содержит причину и affected sections.
+11. `Open Questions`
+    - только вопросы, блокирующие архитектурное решение или передачу планировщику;
+    - каждый вопрос связан с конкретным разделом и отражён в JSON `blocking_questions`.
+
+Минимальный шаблон компонента:
+
+```markdown
+### Component: <name>
+- Kind: process | module | storage | UI | external service
+- Owner: <process/module that owns state or behavior>
+- Implements: <functional component IDs or user cases>
+- Entrypoint: <command/API/module path, or `none` for storage>
+- Incoming: <callers, commands, events, files, sockets>
+- Outgoing: <calls, events, writes, provider APIs>
+- State: <owned entities, read/write paths, retention>
+- Failure Modes: <expected failures and handling>
+- Observability: <compact events/metrics/traces; forbidden fields>
+- Context Updates Needed: <context/arch, context/proto, context/start paths or `none`>
+```
+
+Минимальный шаблон interface/protocol:
+
+```markdown
+### Interface: <producer> -> <consumer>
+- Purpose: <why this interaction exists>
+- Transport: <function call | CLI | HTTP | socket | file | queue | event>
+- Auth/Trust Boundary: <required auth or `same-process trusted call`>
+- Request/Payload: <schema-like required/nullable/default/forbidden fields>
+- Response/Result: <schema-like success and error results>
+- Ordering/Idempotency: <rule or `not required because ...`>
+- Retry/Timeout: <rule or `forbidden because ...`>
+- Versioning: <compatibility rule>
+```
+
 ## Машиночитаемый ответ / JSON
 
 Ответ всегда начинается с JSON:

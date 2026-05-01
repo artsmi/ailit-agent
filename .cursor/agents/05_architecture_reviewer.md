@@ -135,6 +135,31 @@ description: Ревью архитектуры, architecture_review.md и JSON 0
 10. Deployment: source of truth конфигурации, env overrides, порядок запуска, rollout/rollback, CI/CD, smoke-сценарии и impact на `context/start/` или протоколы.
 11. Совместимость с существующим проектом: отсутствие дублирования текущей функциональности, совместимость с runtime path, state migration и фактическими архитектурными границами.
 
+### Точность проверки по областям
+
+Для каждой области проверяй не наличие заголовка, а проверяемый контракт:
+
+- Coverage ТЗ: у каждого user case, functional requirement, NFR и явного запрета есть архитектурный путь реализации или явный open question. Нельзя считать требование покрытым только потому, что оно упомянуто в summary.
+- Functional Architecture: у компонентов есть ownership, входы/выходы и границы ответственности. Дублирование, циклическая зависимость или "общий менеджер всего" обычно минимум `MAJOR`.
+- System Architecture: entrypoint'ы, процессы, storage, UI и межпроцессные связи согласованы с `context/arch/` и `context/proto/`, если эти источники доступны.
+- Data Model: проверены conceptual entities, logical schema, типы, nullable/default, ключи, constraints, индексы, lifecycle, migrations и rollback. Пропущенная сущность или связь, без которой нельзя реализовать user case, обычно `BLOCKING`; неполные constraints, индексы или migration path обычно минимум `MAJOR`.
+- Interfaces: у каждого API/event/DTO/protocol есть request/response или payload schema, error model, auth/permissions, idempotency/retry/timeout rules и observability contract. Если downstream не сможет написать task без выбора формата, это минимум `MAJOR`.
+- Tech Stack: новая зависимость или технология имеет причину, runtime constraints, compatibility с текущим стеком и fallback/rollout story. "Выбрано потому что удобно" не является достаточным обоснованием для production-контракта.
+- Security: проверяй не общую фразу "будет защищено", а конкретные решения по authn/authz, secret handling, validation, injection/XSS/CSRF, rate limiting, правам процессов и запрету утечек в logs/traces.
+- Performance/Reliability: должны быть видны bottlenecks, expected load assumptions, indexes/caches/queues/backpressure, failure modes, retries/timeouts, recovery после restart/crash и health/monitoring signals.
+- Deployment/Config: source of truth конфигурации, env overrides, migration order, rollback и smoke path должны быть определены до планирования.
+- Compatibility: для доработки существующего проекта архитектура не должна обходить текущий runtime path новым параллельным модулем без интеграции, migration и ownership.
+
+### Матрица severity
+
+Используй severity последовательно:
+
+- `BLOCKING`: отсутствует архитектурное решение для обязательного user case; решение противоречит ТЗ, project rule или `context/*`; модель данных не позволяет реализовать сценарий; security/deployment/state lifecycle небезопасны; обязательный источник или evidence недоступен; open question должен быть решён до планирования.
+- `MAJOR`: контракт можно доработать без смены цели, но planner иначе будет гадать: неполные DTO/error schema, неописанные индексы, неясная migration/rollback, риск race/retry/idempotency, невыделенный ownership компонента, слабое обоснование новой зависимости.
+- `MINOR`: уточнение улучшает реализацию, но не меняет contract, state, security, deployment или границы процессов.
+
+Если сомневаешься между `MINOR` и `MAJOR`, выбирай `MAJOR`, когда замечание влияет на task decomposition, testability, compatibility или эксплуатацию. Если сомневаешься между `MAJOR` и `BLOCKING`, выбирай `BLOCKING`, когда без ответа нельзя безопасно передать архитектуру в планирование.
+
 ### Инвариант процессов и протоколов
 
 Для архитектуры процессов применяй строгий инвариант:

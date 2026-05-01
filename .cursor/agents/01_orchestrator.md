@@ -370,20 +370,23 @@ Subagent types:
 
 После успешного финального `11` запусти `12_change_inventory` один раз по суммарным изменениям feature/fix. Ожидаемый файл: `context/artifacts/change_inventory.md`.
 
-`change_inventory.md` должен содержать 12 обязательных разделов:
+`change_inventory.md` должен содержать 15 обязательных разделов:
 
-1. Режим и контекст.
-2. Изменённые или выявленные процессы.
-3. Изменённые или выявленные модули по процессам.
-4. Межпроцессные протоколы и I/O каналы.
-5. Запуск, окружение, config source of truth.
-6. Тесты, группы тестов, команды и результаты.
-7. Память итерации.
-8. Главные файлы и роли.
-9. Пробелы, гипотезы и допущения.
-10. Knowledge sections для обновления.
-11. Индексные файлы для проверки или обновления.
-12. Selective sync hints, если проект поддерживает производный индекс.
+1. Режим и краткий контекст.
+2. Процессы и runtime flows.
+3. Репозиторная структура.
+4. Модули.
+5. Файлы source/config/test/docs.
+6. Generated / ignored / vendor.
+7. Install / packaging / update.
+8. Start / runtime / environment.
+9. Protocols / DTO / models.
+10. Tests and verification gates.
+11. Memories.
+12. Writer update plan.
+13. Index update plan.
+14. Gaps, hypotheses, assumptions.
+15. Selective sync hints.
 
 Затем запусти `13_tech_writer` с `change_inventory.md`, выборочными подтверждающими файлами и project rules dir. Ожидаемый файл: `context/artifacts/tech_writer_report.md`.
 
@@ -391,7 +394,7 @@ Subagent types:
 
 - режим `feature` или `learn`;
 - входной inventory;
-- созданные canonical knowledge files или `нет`;
+- созданные canonical knowledge files или `нет` (`context/arch`, `context/install`, `context/start`, `context/modules`, `context/files`, `context/models`, `context/proto`, `context/tests`, `context/memories`);
 - изменённые canonical knowledge files или `нет`;
 - обновлённые `INDEX.md` или `нет`;
 - неизменённые sections с причиной;
@@ -407,7 +410,7 @@ Completion без `change_inventory.md`, `tech_writer_report.md` и актуал
 1. Инициализируй `context/artifacts`.
 2. Запусти `12_change_inventory` в режиме `learn` с корнем репозитория, ключевыми манифестами, entrypoints, тестовыми входами и `{project_rules_dir}`.
 3. Запусти `13_tech_writer` в режиме `learn` с inventory и `{project_rules_dir}`.
-4. При первом полном learn заполняются `context/arch`, `context/proto`, `context/start`, `context/tests`, `context/memories`; при повторном learn дополняются пустые или явно устаревшие sections.
+4. При первом полном learn заполняются `context/arch`, `context/install`, `context/start`, `context/modules`, `context/files`, `context/models`, `context/proto`, `context/tests`, `context/memories`; при повторном learn дополняются пустые или явно устаревшие sections.
 5. Обнови `status.md` и сообщи пользователю пути к обновлённым `context/*`.
 
 ## Артефакты И Пути

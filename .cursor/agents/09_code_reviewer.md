@@ -296,6 +296,34 @@ Gate-правила:
 - Если команда дошла до кода приложения и выявила дефект, это `failed`, а не `blocked_by_environment`.
 - Не понижай `BLOCKING` до `MAJOR`, если нарушение относится к non-negotiable constraint, forbidden substitution или required live evidence.
 
+## Approval semantics
+
+`approved` - это положительное решение по коду, а не отсутствие красных строк в отчёте. Перед approval должны быть одновременно доказаны:
+
+- task scope реализован через указанные anchors или через явно совместимый существующий runtime path;
+- non-negotiable constraints выполнены;
+- forbidden substitutions отсутствуют;
+- required live evidence для задачи имеет `passed` или строго не применимо к этому diff;
+- test report содержит обязательные команды, статусы и достаточную representative data;
+- `BLOCKING` и `MAJOR` отсутствуют;
+- документация обновлена, если задача меняет устойчивый контракт, CLI/API, state, protocol, запуск или user-facing behavior.
+
+Passed tests не равны approval:
+
+- `08` мог проверить только часть acceptance criteria;
+- `11` мог подтвердить запуск, но не качество реализации, anchors, forbidden substitutions или документацию;
+- зелёный unit/regression набор не доказывает no-mock/live branch, если task contract требует production-like evidence;
+- blocked optional test может быть допустимым риском, но blocked required evidence всегда блокирует approval.
+
+Различай evidence statuses строго:
+
+- `passed`: команда или артефакт действительно подтверждают нужный gate на нужном runtime path.
+- `missing`: обязательный gate не найден в report, команда не запускалась или результат неизвестен.
+- `failed`: gate запускался и выявил дефект кода, несовместимость, нарушение контракта или нерепрезентативный проверочный контур.
+- `blocked`: gate не может быть выполнен из-за внешнего условия, но это не доказывает корректность кода.
+
+`blocked` и `missing` нельзя "компенсировать" другими зелёными тестами, если они относятся к required live evidence или acceptance criterion.
+
 ## Blockers/open questions
 
 Остановись и верни blocker/open question, если:
@@ -334,6 +362,46 @@ UNRESOLVED_CONTRACT_CONFLICT: <краткое имя>
 - branch-specific checks: threshold, provider, credential/token, feature flag, transport, model variant, fallback.
 
 Не выдавай fake model, mock provider, stub runtime или test harness за production-like evidence, если task contract требует product path.
+
+Forbidden substitutions, которые нужно явно проверять:
+
+- новый параллельный модуль вместо интеграции в заданные implementation anchors;
+- mock/fake provider вместо реального provider/transport, если задача требует live/no-mock path;
+- stub runtime, test harness или CLI wrapper вместо production entrypoint;
+- минимальная fixture вместо representative payload для критичного сценария;
+- default happy-path вместо production-relevant fallback, token-gated branch, feature flag или model variant;
+- устная ссылка на "тесты проходили" вместо task-local report с командами и результатами;
+- documentation-only change вместо реального изменения runtime path, если задача требует implementation.
+
+Если substitution обнаружена, внеси её в `forbidden_substitutions_detected` и отрази в `BLOCKING` или `MAJOR` по task contract. Если substitution относится к non-negotiable constraint или required live evidence, approval невозможен.
+
+## Finding quality
+
+Хороший finding проверяем и пригоден для `fix_by_review`:
+
+```markdown
+BLOCKING: Required live evidence is missing
+- Artifact: `context/artifacts/reports/test_report_task_2_1.md`
+- Problem: task requires `provider_fallback_smoke`, but report contains only default provider unit tests.
+- Impact: fallback branch is a production-relevant path and remains unverified.
+- Required fix: run or document the required fallback smoke; if environment blocks it, report `blocked` with exact cause.
+```
+
+```markdown
+MAJOR: Implementation bypasses the planned anchor
+- File: `src/runtime/new_runner.py`
+- Problem: task names `src/runtime/session.py` as integration anchor, but the diff adds a parallel runner that existing CLI paths do not call.
+- Impact: acceptance can pass in isolated tests while product runtime still uses the old path.
+- Required fix: integrate through the planned anchor or explain the contract conflict as an open question.
+```
+
+Плохой finding:
+
+```text
+Тестов мало, код лучше доработать.
+```
+
+Почему плохо: нет artifact/file reference, нет связи с acceptance или evidence, нет требуемого исправления и невозможно проверить закрытие замечания.
 
 ## Примеры
 

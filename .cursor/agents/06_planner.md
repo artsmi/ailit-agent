@@ -99,9 +99,10 @@ description: Создаёт plan.md, task files и JSON 06.
 4. Разбей работу сверху вниз: сначала внешний сквозной путь и стабы с устойчивыми контрактами, затем глубокая реализация, затем runtime/deploy/observability/data migration, затем финальная интеграционная проверка.
 5. Для каждой задачи зафиксируй ownership, границы, входы/выходы, implementation anchors, точные проверки, acceptance criteria и зависимости.
 6. Разложи task files по `task_waves`. `parallel: true` ставь только задачам с разными anchors/ownership или с заранее описанным контрактом разделения. Для общих файлов, протоколов, config source-of-truth или контрактных зависимостей используй `parallel: false` либо разные волны.
-7. Создай `plan.md`, все `tasks/task_X_Y.md`, при необходимости `open_questions.md`.
-8. Проведи self-review плана: нет ли пропущенных audit/contract IDs, задач без anchors, неопределённых schemas, "добавить тесты" без exact сценария, обхода старого runtime path новым модулем или recovery-риска без integration/regression этапа.
-9. Верни ответ: сначала JSON 06, затем короткий markdown-отчёт.
+7. Проверь качество task descriptions: каждая задача должна указывать, какие существующие классы/методы/команды переиспользуются, где меняется сигнатура или контракт, какие данные поднимаются выше по call chain, и что запрещено дублировать рядом.
+8. Создай `plan.md`, все `tasks/task_X_Y.md`, при необходимости `open_questions.md`.
+9. Проведи self-review плана: нет ли пропущенных audit/contract IDs, задач без anchors, неопределённых schemas, "добавить тесты" без exact сценария, обхода старого runtime path новым модулем или recovery-риска без integration/regression этапа.
+10. Верни ответ: сначала JSON 06, затем короткий markdown-отчёт.
 
 ### Доработка после review
 
@@ -167,10 +168,40 @@ description: Создаёт plan.md, task files и JSON 06.
 5. Schema-like контракты для DTO/events/config/state: required/null/default/forbidden правила.
 6. Implementation anchors, которые нельзя обходить новым параллельным модулем без интеграции.
 7. Интеграцию с существующим runtime path и state/config source-of-truth.
-8. Тест-кейсы: no-mock E2E/smoke, unit, regression, branch-specific checks; для стабов укажи ожидаемый hard-coded result.
-9. Acceptance criteria, включая команды проверки или точные сценарии ручного smoke.
-10. `Do not implement this as`: конкретные anti-patterns для рискованных workflow.
-11. Примечания только для реальных ограничений: риски, зависимости окружения, порядок merge/deploy.
+8. Поддерживаемость: какие существующие helpers/services/models переиспользовать, где нельзя плодить почти одинаковую логику, какие операции нельзя повторять в нескольких ветках вызова.
+9. Тест-кейсы: no-mock E2E/smoke, unit, regression, branch-specific checks; для стабов укажи ожидаемый hard-coded result.
+10. Acceptance criteria, включая команды проверки или точные сценарии ручного smoke.
+11. `Do not implement this as`: конкретные anti-patterns для рискованных workflow.
+12. Примечания только для реальных ограничений: риски, зависимости окружения, порядок merge/deploy.
+
+### Качество task descriptions
+
+Task description должен быть рабочей инструкцией, а не пересказом ТЗ:
+
+- Для нового кода указывай имена файлов, классов, методов, параметры и return types, но не вставляй готовые реализации.
+- Для существующего кода указывай точные anchors: файл, класс/функцию, текущий runtime path, вызывающие места и source-of-truth.
+- Если нужно добавить параметр, изменить payload или schema, явно опиши старый и новый контракт, default/null/forbidden правила и downstream-потребителей.
+- Если задача меняет flow, опиши вход, выход, состояние до/после и место интеграции в основном пользовательском сценарии.
+- Если одно и то же действие понадобится нескольким веткам, планируй общий helper/service или перенос операции выше по stack, а не повторение логики.
+- Не добавляй production-код, который нужен только тестам; test helpers допустимы только в тестовом слое и должны быть названы как test-only anchors.
+
+Хороший фрагмент описания изменения:
+
+```markdown
+#### Файл: `src/services/payment_service.py`
+
+**Класс `PaymentService`:**
+- Изменить `process_payment(amount: Decimal, user_id: str) -> PaymentResult`.
+- Добавить параметр `currency: str` без default; отсутствие валюты считается contract error.
+- Переиспользовать существующий `CurrencyPolicy`, не добавлять локальную таблицу валют в `PaymentService`.
+- Вызовы из `src/api/payments.py` и `src/jobs/retry_payments.py` должны передавать currency из одного source-of-truth.
+```
+
+Почему хорошо:
+
+- есть точная сигнатура и downstream callers;
+- запрещён локальный дубль политики;
+- контракт не оставлен на усмотрение разработчика.
 
 ## Машиночитаемый ответ / JSON
 
