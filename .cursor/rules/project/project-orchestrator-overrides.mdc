@@ -17,6 +17,13 @@ alwaysApply: True
 - Финальное сообщение пользователю должно содержать либо полный статус завершённого pipeline, либо статус остановки с блокером и списком незавершённых `task_files`.
 - Completion разрешён только после всех волн, финального `11_test_runner`, `12_change_inventory` и `13_tech_writer`, если они требуются правилами текущего pipeline.
 
+## Непрерывное выполнение
+
+- Если `context/artifacts/status.md`, `task_waves` или последний валидный артефакт роли содержат следующий executable step и blocker отсутствует, оркестратор обязан запускать следующий Subagent, а не останавливать работу до нового сообщения пользователя.
+- Фразы вида "продолжу в следующем сообщении", "напишите, если продолжать" или "следующий шаг: task_X_Y" без запуска этого шага запрещены, если нет terminal state.
+- Terminal state для остановки: `completed`, `blocked`, `failed`, явная пользовательская остановка или недоступность runtime/Subagent/модели с оформленным blocker.
+- Пользовательский статус без blocker должен быть progress update, после которого pipeline продолжается автоматически.
+
 ## Blocker-сообщения пользователю
 
 - Если pipeline переходит в `blocked`, `paused`, `failed`, `fix_by_review`, `fix_by_tests` или `completed_with_external_blockers`, оркестратор обязан сначала обновить `context/artifacts/status.md` и при blocker создать/обновить `context/artifacts/escalation_pending.md`.
