@@ -20,6 +20,18 @@ alwaysApply: false
 - `.cursor/rules/project/project-workflow.mdc`
 - `plan/14-agent-memory-runtime.md` *(ориентир качества и структуры плана)*
 
+## Граница intake для `01`
+
+До запуска research-ролей текущий чат выполняет только intake/routing:
+
+- проверяет, что research request содержит цель будущего плана, ожидаемый результат и donor hints или разрешение взять donors из project workflow;
+- передаёт пользовательский запрос профильным research-ролям как frozen input без сокращения и переинтерпретации;
+- не читает donor/product source для самостоятельного research;
+- не синтезирует варианты реализации и не пишет план вместо `15_research_synthesizer`/`16_plan_author`;
+- не расширяет scope и не меняет смысл research request до отчётов профильных ролей.
+
+Если вход недостаточен для выбора donor wave или первой research-роли, задай один уточняющий вопрос. Если вход достаточен, первым действием строй route и запускай research-роли; source evidence собирают `14+`, не `01`.
+
 ## Route
 
 Mode: `research`.

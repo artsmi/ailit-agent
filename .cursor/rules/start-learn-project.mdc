@@ -19,6 +19,18 @@ alwaysApply: false
 - `.cursor/rules/project/project-orchestrator-overrides.mdc`
 - `.cursor/rules/project/project-workflow.mdc`
 
+## Граница intake для `01`
+
+До запуска `12_change_inventory` текущий чат выполняет только intake/routing:
+
+- проверяет, что пользователь указал режим learn: полная перезапись или дозаполнение существующего `context/*`;
+- передаёт постановку в `12_change_inventory` как frozen input без сокращения и переинтерпретации;
+- не инвентаризирует repo tree, manifests, entrypoints или source самостоятельно;
+- не создаёт и не правит `context/*` вместо `12_change_inventory`/`13_tech_writer`;
+- не расширяет scope learn до отчёта `12`.
+
+Если вход не говорит, нужна ли полная перезапись learn или дозаполнение, задай один уточняющий вопрос. Если вход достаточен, первым действием запускай `12_change_inventory`; инвентаризацию выполняет `12`, не `01`.
+
 ## Route
 
 Mode: `learn`.
