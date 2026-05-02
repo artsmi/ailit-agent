@@ -9,7 +9,7 @@
 | [`files/INDEX.md`](files/INDEX.md) | Устойчивые пути: примеры workflow, ключевые пользовательские конфиги `~/.ailit/…`. |
 | [`models/INDEX.md`](models/INDEX.md) | Модели/DTO в коде и отсылка к proto-контрактам событий. |
 | [`arch/INDEX.md`](arch/INDEX.md) | Процессы и границы: карта P1–P6 (learn), desktop PAG-снимок, W14 M1 и т.д. |
-| [`proto/INDEX.md`](proto/INDEX.md) | Каналы: install-ссылки, supervisor socket, desktop↔runtime, pag-slice, W14 highlight, broker Work↔Memory pathless (UC 2.4), D-OBS-1 compact whitelist (`runtime-event-contract.md`). |
+| [`proto/INDEX.md`](proto/INDEX.md) | Каналы: install-ссылки, supervisor socket, desktop↔runtime, pag-slice, W14 highlight, broker Work↔Memory pathless (UC 2.4), D-OBS-1 compact whitelist (`runtime-event-contract.md`); UC-03 CLI `memory init` — [`proto/memory-query-context-init.md`](proto/memory-query-context-init.md). |
 | [`start/INDEX.md`](start/INDEX.md) | Запуск: systemd, dev desktop, pytest/venv, переменные окружения. |
 | [`tests/INDEX.md`](tests/INDEX.md) | Точки входа к тестам (pytest, e2e, vitest; W14 UC-05 G14R; финальный gate Memory 3D — отчёты **11** в `artifacts/reports/`). |
 | [`memories/index.md`](memories/index.md) | Память итераций feature/learn (index-first). Имя файла — `index.md` (нижний регистр). |

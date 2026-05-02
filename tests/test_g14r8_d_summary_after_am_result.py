@@ -78,6 +78,8 @@ def test_d_summary_created_after_finish_decision(
 
     def _fake_run(
         self: AgentMemoryQueryPipeline,
+        *,
+        memory_init: bool = False,
         **kwargs: object,
     ) -> AgentMemoryQueryPipelineResult:
         return AgentMemoryQueryPipelineResult(

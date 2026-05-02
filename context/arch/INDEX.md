@@ -1,6 +1,6 @@
 # Архитектура — индекс
 
-Процессы ОС, границы подсистем desktop/runtime и точки интеграции. Протоколы обмена — в [`../proto/INDEX.md`](../proto/INDEX.md).
+Процессы ОС, границы подсистем desktop/runtime и точки интеграции. Протоколы обмена — в [`../proto/INDEX.md`](../proto/INDEX.md). **UC-03:** observability CLI `memory init` (`ailit-cli-*` / compact на stderr vs desktop flat) — [`../proto/memory-query-context-init.md`](../proto/memory-query-context-init.md).
 
 | Документ | Содержание |
 |----------|------------|

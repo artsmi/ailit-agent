@@ -217,6 +217,7 @@ class AgentMemoryQueryPipeline:
         explicit_paths: list[str],
         query_kind: str,
         level: str,
+        memory_init: bool = False,
     ) -> AgentMemoryQueryPipelineResult:
         nspace = str(req.namespace or self._w._cfg.namespace)  # noqa: SLF001
         hold_raw = os.environ.get(
@@ -531,6 +532,7 @@ class AgentMemoryQueryPipeline:
                 level=level,
                 nspace=nspace,
                 explicit_paths=explicit_paths,
+                memory_init=memory_init,
             )
         return self._partial_json_fallback(
             req=req,
@@ -804,6 +806,7 @@ class AgentMemoryQueryPipeline:
         level: str,
         nspace: str,
         explicit_paths: list[str],
+        memory_init: bool,
     ) -> AgentMemoryQueryPipelineResult:
         """
         W14 action runtime: execute plan_traversal actions deterministically.
@@ -829,6 +832,7 @@ class AgentMemoryQueryPipeline:
             level=level,
             nspace=nspace,
             explicit_paths=explicit_paths,
+            memory_init=memory_init,
         )
 
     def _runtime_limits(self) -> W14RuntimeLimits:
@@ -858,6 +862,7 @@ class AgentMemoryQueryPipeline:
         level: str,
         nspace: str,
         explicit_paths: list[str],
+        memory_init: bool,
     ) -> AgentMemoryQueryPipelineResult:
         limits = self._runtime_limits()
         root = Path(str(project_root or "")).expanduser().resolve()
@@ -868,6 +873,7 @@ class AgentMemoryQueryPipeline:
             plan_obj=plan_obj,
             explicit_paths=explicit_paths,
             limits=limits,
+            memory_init=memory_init,
         )
         with store.graph_trace(
             self._w._graph_trace_hook(  # noqa: SLF001
@@ -1040,6 +1046,7 @@ class AgentMemoryQueryPipeline:
         plan_obj: Mapping[str, Any],
         explicit_paths: Sequence[str],
         limits: W14RuntimeLimits,
+        memory_init: bool,
     ) -> list[str]:
         selected: list[str] = []
         for raw in explicit_paths:
@@ -1058,7 +1065,8 @@ class AgentMemoryQueryPipeline:
                 if rel and rel != "." and (root / rel).resolve().is_file():
                     selected.append(rel)
         if not selected:
-            if _looks_like_full_repo_goal(goal):
+            use_walk = memory_init or _looks_like_full_repo_goal(goal)
+            if use_walk:
                 max_b = limits.max_selected_b
                 selected.extend(
                     self._walk_project_files(root, limit=max_b),

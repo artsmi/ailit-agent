@@ -105,6 +105,11 @@ _memory_cancel_registry: dict[str, threading.Event] = {}
 _memory_cancel_registry_lock = threading.Lock()
 
 
+def _payload_memory_init_flag(payload: Mapping[str, Any]) -> bool:
+    """C2: init-call iff ``payload['memory_init'] is True`` (strict bool)."""
+    return bool(payload.get("memory_init") is True)
+
+
 def _memory_cancel_slot_register(
     query_id: str,
 ) -> tuple[threading.Event, Callable[[], None]]:
@@ -1512,6 +1517,30 @@ class AgentMemoryWorker:
         project_root = str(req.payload.get("project_root", "") or "")
         if v1q is not None:
             project_root = v1q.project_root
+        memory_init = _payload_memory_init_flag(req.payload)
+        if memory_init:
+            p_init = str(req.payload.get("path", "") or "").strip()
+            h_init = str(req.payload.get("hint_path", "") or "").strip()
+            if p_init or h_init:
+                err_init = make_response_envelope(
+                    request=req,
+                    ok=False,
+                    payload={},
+                    error={
+                        "code": "memory_init_path_forbidden",
+                        "message": (
+                            "memory_init: path and hint_path must be empty; "
+                            "narrow init is not allowed (use goal only)"
+                        ),
+                    },
+                ).to_dict()
+                self._log_handle_error(
+                    req,
+                    request_id=request_id,
+                    service="memory.query_context",
+                    out=err_init,
+                )
+                return err_init
         envelope_explicit_path = bool(
             str(req.payload.get("path", "") or "").strip()
             or str(req.payload.get("hint_path", "") or "").strip(),
@@ -1520,7 +1549,7 @@ class AgentMemoryWorker:
         if not want_path:
             want_path = str(req.payload.get("hint_path", "") or "")
         if v1q is not None and not str(want_path or "").strip():
-            if v1q.known_paths:
+            if v1q.known_paths and not memory_init:
                 want_path = str(v1q.known_paths[0])
         workspace_projects = req.payload.get("workspace_projects")
         self._append_journal(
@@ -1539,7 +1568,9 @@ class AgentMemoryWorker:
                 ),
             },
         )
-        explicit_paths: list[str] = [want_path] if want_path else []
+        explicit_paths: list[str] = (
+            [] if memory_init else ([want_path] if want_path else [])
+        )
         if want_path and self._boundary.is_forbidden_source_path(want_path):
             self._append_journal(
                 req=req,
@@ -1589,6 +1620,7 @@ class AgentMemoryWorker:
                     explicit_paths=explicit_paths,
                     query_kind=query_kind,
                     level=level,
+                    memory_init=memory_init,
                 )
             except MemoryQueryCancelledError:
                 return make_response_envelope(
@@ -1657,6 +1689,7 @@ class AgentMemoryWorker:
             not w14_contract_failure
             and not str(want_path or "").strip()
             and not str(memory_slice.get("injected_text") or "").strip()
+            and not (memory_init and w14_finish)
         ):
             memory_slice = self._fallback_slice(
                 namespace=req.namespace or self._cfg.namespace,
@@ -1667,7 +1700,9 @@ class AgentMemoryWorker:
             )
             used_fb = True
         pathless_v1_memory_query = (
-            v1q is not None and not envelope_explicit_path
+            v1q is not None
+            and not envelope_explicit_path
+            and not memory_init
         )
         if pathless_v1_memory_query and not str(
             memory_slice.get("injected_text") or "",

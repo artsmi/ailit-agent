@@ -59,6 +59,8 @@ def test_query_context_returns_agent_memory_result_next_to_memory_slice(
 
     def _fake_run(
         self: AgentMemoryQueryPipeline,
+        *,
+        memory_init: bool = False,
         **kwargs: object,
     ) -> AgentMemoryQueryPipelineResult:
         return AgentMemoryQueryPipelineResult(

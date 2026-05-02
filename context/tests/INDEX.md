@@ -13,7 +13,8 @@
 | `tests/test_memory_init_cli_layout.py` | CLI: layout каталога сессии, VERIFY журнала. |
 | `tests/test_memory_cli_init_task_3_1.py` | CLI: help, путь, базовый сценарий `memory init`. |
 | `tests/runtime/test_memory_init_transaction_task_2_1.py` | Транзакция PAG/KB, lock, фазы `NEW`…`ABORTED`. |
-| `tests/runtime/test_memory_init_orchestrator_task_2_2.py` | Оркестратор init, shadow journal → merge в канонический journal. |
+| `tests/runtime/test_memory_init_orchestrator_task_2_2.py` | Оркестратор init, shadow journal → merge в канонический journal; stub `agent_memory_result` с `memory_continuation_required`. |
+| `tests/runtime/test_memory_init_fix_uc01_uc02.py` | UC-01/UC-02: payload init, VERIFY/summary; gate **11** `memory_init_fix` — [`../artifacts/reports/test_report_final_11_memory_init_fix.md`](../artifacts/reports/test_report_final_11_memory_init_fix.md). |
 | `tests/runtime/test_compact_observability_sink.py` | Формат строк `compact.log`, tee stderr. |
 | `tests/test_agent_memory_session_log_layout_task_1_1.py` | Режимы лога сессии: `desktop` vs `cli_init` (`ailit-cli-*`, `legacy.log` / `compact.log`). |
 
@@ -27,6 +28,8 @@
   tests/runtime/test_memory_init_orchestrator_task_2_2.py \
   -q
 ```
+
+Subset gate **11** `memory_init_fix` (pytest + flake8, см. отчёт): включает в т.ч. `tests/runtime/test_memory_init_fix_uc01_uc02.py`, `tests/test_g14r0_w14_clean_replacement.py`, `tests/test_g14r8_d_summary_after_am_result.py` — в последних у `_fake_run` добавлен keyword-only `memory_init` под сигнатуру `AgentMemoryQueryPipeline.run`.
 
 Расширенный список путей для flake8 SoT и полный прогон **11** v2 — [`../artifacts/reports/test_runner_final_11.md`](../artifacts/reports/test_runner_final_11.md).
 

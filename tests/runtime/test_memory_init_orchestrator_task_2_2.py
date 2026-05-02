@@ -63,7 +63,11 @@ def _stub_handle_complete(
     self: AgentMemoryWorker,
     req: RuntimeRequestEnvelope,
 ) -> dict[str, object]:
-    """Без live LLM продуктовый путь даёт ``partial``; stub фиксирует §4.1."""
+    """Без live LLM продуктовый путь даёт ``partial``; stub фиксирует §4.1.
+
+    Доп. поля ``agent_memory_result`` (continuation и т.д.) игнорируются —
+    см. UC-01 в ``test_memory_init_fix_uc01_uc02.py``.
+    """
     self._journal.append(
         MemoryJournalRow(
             chat_id=req.chat_id,
@@ -93,6 +97,10 @@ def _stub_handle_complete(
             "partial": False,
             "decision_summary": "stub",
             "recommended_next_step": "none",
+            "agent_memory_result": {
+                "schema_version": "agent_memory_result.v1",
+                "memory_continuation_required": False,
+            },
         },
     }
 
@@ -226,6 +234,10 @@ def _handle_cooperative_sleep_then_ok_sigint_path(
             "partial": False,
             "decision_summary": "sigint-stub",
             "recommended_next_step": "none",
+            "agent_memory_result": {
+                "schema_version": "agent_memory_result.v1",
+                "memory_continuation_required": False,
+            },
         },
     }
 

@@ -8,12 +8,11 @@ from __future__ import annotations
 import json
 import os
 import signal
-import sys
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Final
+from typing import Callable, Final, Literal
 
 from agent_core.runtime.agent_memory_chat_log import (
     COMPACT_LOG_FILE_NAME,
@@ -21,6 +20,9 @@ from agent_core.runtime.agent_memory_chat_log import (
 )
 from agent_core.runtime.compact_observability_sink import (
     CompactObservabilitySink,
+)
+from agent_core.runtime.memory_init_summary import (
+    emit_memory_init_user_summary,
 )
 from agent_core.runtime.errors import RuntimeProtocolError
 from agent_core.runtime.memory_init_transaction import (
@@ -42,6 +44,17 @@ _DEFAULT_TAIL_BYTES: Final[int] = 8 * 1024 * 1024
 _EXIT_VERIFY_FAIL: Final[int] = 1
 _EXIT_INTERRUPT: Final[int] = 130
 _EXIT_RUNTIME: Final[int] = 2
+
+# D1: max successful ``handle`` invocations in init continuation loop (§3.4).
+MEMORY_INIT_MAX_CONTINUATION_ROUNDS: Final[int] = 32
+
+# D2 / UC-01: canonical English goal (no driver ``path``; ``memory_init`` SoT).
+MEMORY_INIT_CANONICAL_GOAL: Final[str] = (
+    "Build knowledge base and agent memory for the entire project at the "
+    "configured project_root; traverse the relevant tree excluding caches, "
+    "generated artifacts, and vendor paths; finish only when project memory "
+    "is sufficient for further AgentWork and Desktop work."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,17 +175,6 @@ def count_compact_d4_summary_lines(compact_path: Path) -> tuple[int, int, int]:
         if "event=memory.w14_graph_highlight" in line:
             n_w14 += 1
     return (n_why, n_pg_node, n_w14)
-
-
-def _pick_relative_query_path(root: Path) -> str:
-    for pat in ("*.py", "*.md", "*.txt"):
-        for f in sorted(root.rglob(pat)):
-            if f.is_file():
-                try:
-                    return str(f.relative_to(root)).replace("\\", "/")
-                except ValueError:
-                    continue
-    return ""
 
 
 class MemoryInitSigintGuard:
@@ -313,7 +315,6 @@ class MemoryInitOrchestrator:
                 compact_init_session_id=init_session_id,
             )
             worker = AgentMemoryWorker(cfg)
-            rel = _pick_relative_query_path(root)
             identity = RuntimeIdentity(
                 runtime_id=f"rt-{init_session_id[:8]}",
                 chat_id=cid,
@@ -322,66 +323,103 @@ class MemoryInitOrchestrator:
                 goal_id="memory_init",
                 namespace=ns,
             )
-            req = make_request_envelope(
-                identity=identity,
-                message_id=f"msg-init-{init_session_id[:8]}",
-                parent_message_id=None,
-                from_agent=f"AgentWork:{cid}",
-                to_agent="AgentMemory:global",
-                msg_type="service.request",
-                payload={
-                    "service": "memory.query_context",
-                    "request_id": f"req-init-{init_session_id[:8]}",
-                    "path": rel,
-                    "goal": "inspect path",
-                    "project_root": str(root),
-                    "workspace_projects": [
-                        {"project_id": "memory_init", "namespace": ns},
-                    ],
-                },
-                now=RuntimeNow(),
-            )
-            try:
-                out = worker.handle(req)
-            except KeyboardInterrupt:
-                try:
-                    tx.phase_abort()
-                except RuntimeProtocolError:
-                    pass
-                self._emit_orch(
-                    orch_sink,
-                    session,
-                    "orch_memory_init_phase",
-                    {"phase": "abort"},
+            round_idx = 0
+            while True:
+                if round_idx >= MEMORY_INIT_MAX_CONTINUATION_ROUNDS:
+                    break
+                rid_suffix = uuid.uuid4().hex[:10]
+                request_id = (
+                    f"req-meminit-{init_session_id}-"
+                    f"{round_idx:04d}-{rid_suffix}"
                 )
-                self._print_summary(compact_path)
-                return _EXIT_INTERRUPT
-            if guard.cancelled:
-                try:
-                    tx.phase_abort()
-                except RuntimeProtocolError:
-                    pass
-                self._emit_orch(
-                    orch_sink,
-                    session,
-                    "orch_memory_init_phase",
-                    {"phase": "abort"},
+                message_id = (
+                    f"msg-meminit-{init_session_id}-"
+                    f"{round_idx:04d}-{rid_suffix}"
                 )
-                self._print_summary(compact_path)
-                return _EXIT_INTERRUPT
-            if not isinstance(out, dict) or out.get("ok") is not True:
-                try:
-                    tx.phase_abort()
-                except RuntimeProtocolError:
-                    pass
-                self._emit_orch(
-                    orch_sink,
-                    session,
-                    "orch_memory_init_phase",
-                    {"phase": "abort"},
+                req = make_request_envelope(
+                    identity=identity,
+                    message_id=message_id,
+                    parent_message_id=None,
+                    from_agent=f"AgentWork:{cid}",
+                    to_agent="AgentMemory:global",
+                    msg_type="service.request",
+                    payload={
+                        "service": "memory.query_context",
+                        "request_id": request_id,
+                        "goal": MEMORY_INIT_CANONICAL_GOAL,
+                        "project_root": str(root),
+                        "workspace_projects": [
+                            {"project_id": "memory_init", "namespace": ns},
+                        ],
+                        "memory_init": True,
+                    },
+                    now=RuntimeNow(),
                 )
-                self._print_summary(compact_path)
-                return _EXIT_VERIFY_FAIL
+                try:
+                    out = worker.handle(req)
+                except KeyboardInterrupt:
+                    try:
+                        tx.phase_abort()
+                    except RuntimeProtocolError:
+                        pass
+                    self._emit_orch(
+                        orch_sink,
+                        session,
+                        "orch_memory_init_phase",
+                        {"phase": "abort"},
+                    )
+                    self._emit_memory_init_user_summary(
+                        compact_path,
+                        "aborted",
+                        reason_short="keyboard_interrupt",
+                    )
+                    return _EXIT_INTERRUPT
+                if guard.cancelled:
+                    try:
+                        tx.phase_abort()
+                    except RuntimeProtocolError:
+                        pass
+                    self._emit_orch(
+                        orch_sink,
+                        session,
+                        "orch_memory_init_phase",
+                        {"phase": "abort"},
+                    )
+                    self._emit_memory_init_user_summary(
+                        compact_path,
+                        "aborted",
+                        reason_short="sigint",
+                    )
+                    return _EXIT_INTERRUPT
+                if not isinstance(out, dict) or out.get("ok") is not True:
+                    try:
+                        tx.phase_abort()
+                    except RuntimeProtocolError:
+                        pass
+                    self._emit_orch(
+                        orch_sink,
+                        session,
+                        "orch_memory_init_phase",
+                        {"phase": "abort"},
+                    )
+                    self._emit_memory_init_user_summary(
+                        compact_path,
+                        "partial",
+                    )
+                    return _EXIT_VERIFY_FAIL
+                if verify_memory_init_journal_complete_marker(shadow, cid):
+                    break
+                pl_raw = out.get("payload")
+                pl = pl_raw if isinstance(pl_raw, dict) else None
+                amr_raw = pl.get("agent_memory_result") if pl else None
+                amr = amr_raw if isinstance(amr_raw, dict) else None
+                cont = (
+                    amr is not None
+                    and amr.get("memory_continuation_required") is True
+                )
+                if not cont:
+                    break
+                round_idx += 1
             self._emit_orch(
                 orch_sink,
                 session,
@@ -401,7 +439,10 @@ class MemoryInitOrchestrator:
                     "orch_memory_init_phase",
                     {"phase": "abort"},
                 )
-                self._print_summary(compact_path)
+                self._emit_memory_init_user_summary(
+                    compact_path,
+                    "partial",
+                )
                 return _EXIT_VERIFY_FAIL
             try:
                 tx.phase_commit()
@@ -412,7 +453,11 @@ class MemoryInitOrchestrator:
                     "orch_memory_init_phase",
                     {"phase": "abort"},
                 )
-                self._print_summary(compact_path)
+                self._emit_memory_init_user_summary(
+                    compact_path,
+                    "aborted",
+                    reason_short="commit_failed",
+                )
                 return _EXIT_RUNTIME
             self._emit_orch(
                 orch_sink,
@@ -420,7 +465,7 @@ class MemoryInitOrchestrator:
                 "orch_memory_init_phase",
                 {"phase": "commit"},
             )
-            self._print_summary(compact_path)
+            self._emit_memory_init_user_summary(compact_path, "complete")
             return 0
         except Exception:
             try:
@@ -433,7 +478,11 @@ class MemoryInitOrchestrator:
                 "orch_memory_init_phase",
                 {"phase": "abort"},
             )
-            self._print_summary(compact_path)
+            self._emit_memory_init_user_summary(
+                compact_path,
+                "aborted",
+                reason_short="runtime_error",
+            )
             return _EXIT_RUNTIME
         finally:
             if guard.active:
@@ -453,7 +502,26 @@ class MemoryInitOrchestrator:
             fields={"kind": "orchestrator", **fields},
         )
 
-    def _print_summary(self, compact_path: Path) -> None:
-        a, b, c = count_compact_d4_summary_lines(compact_path)
-        sys.stderr.write(f"{a} {b} {c}\n")
-        sys.stderr.flush()
+    def _emit_memory_init_user_summary(
+        self,
+        compact_path: Path,
+        exit_kind: Literal["complete", "partial", "aborted"],
+        *,
+        reason_short: str | None = None,
+    ) -> None:
+        """
+        UC-02 финальный блок summary. Таблица ``exit_kind`` (детерминированно):
+
+        - ``complete`` — успешный COMMIT (код выхода 0).
+        - ``partial`` — gate без полного успеха (код 1): ответ worker не ``ok``
+          или VERIFY журнала без финального ``memory.result.returned`` /
+          ``payload.status=complete``.
+        - ``aborted`` — прерывание (130), ошибка исполнения / COMMIT (код 2).
+        """
+        d4 = count_compact_d4_summary_lines(compact_path)
+        emit_memory_init_user_summary(
+            compact_path,
+            exit_kind,
+            d4,
+            reason_short=reason_short,
+        )
