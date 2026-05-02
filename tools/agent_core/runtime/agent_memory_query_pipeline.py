@@ -93,11 +93,64 @@ W14_PLAN_TRAVERSAL_SYSTEM: str = (
     "command=plan_traversal. "
     "Поля: schema_version, command, command_id, status, payload "
     "(actions, is_final, final_answer_basis), decision_summary, violations. "
+    "Top-level поле status только \"ok\", \"partial\" или \"refuse\"; "
+    "не используй \"in_progress\" и иные lifecycle-метки на верхнем уровне "
+    "envelope — ход плана только через payload.is_final и payload.actions. "
     "actions[].action: list_children|get_b_summary|get_c_content|"
     "decompose_b_to_c|summarize_b|finish; пути — POSIX relpath. "
     "Не выдумывай пути; не проси сырой B content. "
     "См. plan/14-agent-memory-runtime.md C14R.5 для полной схемы."
 )
+
+
+def _w14_repair_error_targets_in_progress_legacy_status(
+    validation_error: str,
+) -> bool:
+    """UC-03: repair-контекст для unknown_legacy_w14_status + in_progress."""
+    low = str(validation_error or "").lower()
+    return "unknown_legacy_w14_status" in low and "in_progress" in low
+
+
+def _w14_repair_system_message(validation_error: str) -> str:
+    """Текст system-сообщения для repair W14 (C4 при legacy in_progress)."""
+    base = (
+        "Исправь JSON ответа AgentMemory. Верни только "
+        "валидный agent_memory_command_output.v1 JSON. "
+        "Не меняй смысл команды без необходимости."
+    )
+    if not _w14_repair_error_targets_in_progress_legacy_status(
+        validation_error,
+    ):
+        return base
+    return (
+        f"{base} "
+        "UC-03 (plan_traversal, C4): если validation_error про недопустимый "
+        "legacy top-level status `in_progress`, команда plan_traversal, "
+        "payload валиден по контракту, payload.is_final=false и "
+        "payload.actions непустой — установи top-level status в "
+        "\"ok\" (или \"partial\"/\"refuse\" по смыслу ответа), не сохраняй "
+        "\"in_progress\" на верхнем уровне из‑за общей фразы "
+        "«не меняй смысл»: прогресс плана выражается через is_final и "
+        "actions, это не меняет смысл шага."
+    )
+
+
+def _w14_repair_user_instruction(validation_error: str) -> str:
+    """Structured instruction для repair_user (тот же UC-03 / C4)."""
+    base = (
+        "Return only a JSON object that validates as "
+        "agent_memory_command_output.v1. Do not add prose."
+    )
+    if not _w14_repair_error_targets_in_progress_legacy_status(
+        validation_error,
+    ):
+        return base
+    return (
+        f"{base} "
+        "If command is plan_traversal, payload is valid, is_final is false, "
+        "and actions is a non-empty array: top-level status must be one of "
+        "ok|partial|refuse; set status to ok instead of in_progress."
+    )
 
 
 def _json_dumps(obj: Mapping[str, Any]) -> str:
@@ -561,21 +614,14 @@ class AgentMemoryQueryPipeline:
             "validation_error": str(validation_error)[:1_000],
             "previous_response": str(original_text or "")[:4_000],
             "required_schema_version": AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
-            "instruction": (
-                "Return only a JSON object that validates as "
-                "agent_memory_command_output.v1. Do not add prose."
-            ),
+            "instruction": _w14_repair_user_instruction(validation_error),
         }
         repair_req = self._policy.apply_chat_request(
             ChatRequest(
                 messages=(
                     ChatMessage(
                         role=MessageRole.SYSTEM,
-                        content=(
-                            "Исправь JSON ответа AgentMemory. Верни только "
-                            "валидный agent_memory_command_output.v1 JSON. "
-                            "Не меняй смысл команды без необходимости."
-                        ),
+                        content=_w14_repair_system_message(validation_error),
                     ),
                     ChatMessage(
                         role=MessageRole.USER,

@@ -17,6 +17,23 @@
 
 Явное правило: **текстовая постановка обязательна**; поля `path` / `hint_path` для init не используются и не допускаются с непустым значением.
 
+## W14: envelope `status` и прогресс `plan_traversal` (C1, C2)
+
+Нормативно для ответа планера в форме `agent_memory_command_output.v1` на пути `memory.query_context`, когда worker выполняет W14 (init использует тот же `handle` / pipeline — см. вводную выше).
+
+| ID | Правило |
+|----|---------|
+| **C1** | Поле верхнего уровня **`status`** в envelope — только смысл **итога команды для рантайма** (валидность / допустимость / отказ): литералы **`ok`**, **`partial`**, **`refuse`**. Это **не** жизненный цикл шага плана и **не** маркер «ещё в работе». |
+| **C2** | Для `command == "plan_traversal"` прогресс обхода плана выражается **`payload.is_final`**, **`payload.actions`** и остальными полями payload по схеме валидации в коде — **не** значением `in_progress` на верхнем уровне envelope. |
+| Запрет | **`in_progress`** и прочие lifecycle-метки **запрещены** как top-level **`status`** W14 envelope; узкие случаи механической канонизации описаны в реализации (см. ниже), а не через расширение whitelist статусов. |
+
+Реализация (SoT по разбору и каноникализации, без пересказа `plan/14-…`):
+
+- текст планера и явный whitelist статусов: константа **`W14_PLAN_TRAVERSAL_SYSTEM`** в `tools/agent_core/runtime/agent_memory_query_pipeline.py`;
+- парсинг envelope, whitelist top-level **`status`**, проверка **`payload.actions`** / **`payload.is_final`**: `validate_or_canonicalize_w14_command_envelope_object`, `validate_w14_command_envelope_object`, `_validate_plan_traversal_payload`, набор **`_W14_CANON_STATUSES`** в `tools/agent_core/runtime/agent_memory_runtime_contract.py`.
+
+**Как читать ответ:** верхний **`status`** — итог команды по контракту; «ещё не финальный план» и следующие шаги — из **`payload`** (`is_final`, `actions`), а не из недопустимого top-level статуса.
+
 ## VERIFY по journal
 
 Функция `verify_memory_init_journal_complete_marker` в `memory_init_orchestrator.py` (bounded tail read JSONL):

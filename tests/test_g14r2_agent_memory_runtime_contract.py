@@ -15,6 +15,12 @@ from agent_core.models import (
     NormalizedChatResponse,
     NormalizedUsage,
 )
+from agent_core.runtime.agent_memory_query_pipeline import (
+    W14_PLAN_TRAVERSAL_SYSTEM,
+    _w14_repair_error_targets_in_progress_legacy_status,
+    _w14_repair_system_message,
+    _w14_repair_user_instruction,
+)
 from agent_core.runtime.agent_memory_runtime_contract import (
     AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
     AgentMemoryCommandRegistry,
@@ -527,3 +533,23 @@ def test_plan_traversal_schema_1_0_in_progress_parses_ok() -> None:
     assert res.normalized is True
     assert res.legacy_status_from == "in_progress"
     assert res.from_schema_version == "1.0"
+
+
+def test_w14_plan_traversal_repair_uc03_system_and_instruction() -> None:
+    """Wave 2: W14 whitelist status; UC-03 repair при unknown legacy."""
+    needle = "только \"ok\", \"partial\" или \"refuse\""
+    assert needle in W14_PLAN_TRAVERSAL_SYSTEM
+    assert "in_progress" in W14_PLAN_TRAVERSAL_SYSTEM
+    assert "payload.is_final" in W14_PLAN_TRAVERSAL_SYSTEM
+    assert "payload.actions" in W14_PLAN_TRAVERSAL_SYSTEM
+    err = "unknown_legacy_w14_status:'in_progress'"
+    assert _w14_repair_error_targets_in_progress_legacy_status(err) is True
+    sys_msg = _w14_repair_system_message(err)
+    assert "UC-03" in sys_msg
+    assert "payload.is_final=false" in sys_msg or "is_final=false" in sys_msg
+    assert "не сохраняй" in sys_msg
+    inst = _w14_repair_user_instruction(err)
+    assert "ok|partial|refuse" in inst
+    assert "in_progress" in inst
+    base_only = _w14_repair_system_message("invalid_w14_envelope_status")
+    assert "UC-03" not in base_only
