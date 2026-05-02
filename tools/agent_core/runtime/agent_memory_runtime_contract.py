@@ -381,6 +381,41 @@ def validate_w14_command_envelope_object(
     return {str(x): y for x, y in obj.items()}
 
 
+def _candidate_matches_uc02_plan_traversal_in_progress_narrow_safe_context(
+    candidate: Mapping[str, Any],
+) -> bool:
+    """
+    UC-02: узкий безопасный контекст для механической канонизации
+    in_progress → ok.
+
+    Правило меняется только здесь (A1/A2: не глобальная мапа без проверки
+    команды и payload).
+    """
+    st_raw = str(candidate.get("status") or "")
+    if st_raw.strip().lower() != "in_progress":
+        return False
+    cmd_raw = str(candidate.get("command") or "")
+    try:
+        cmd = AgentMemoryCommandRegistry.resolve(cmd_raw)
+    except UnknownAgentMemoryCommandError:
+        return False
+    if cmd != AgentMemoryCommandName.PLAN_TRAVERSAL:
+        return False
+    payload = candidate.get("payload")
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("is_final") is not False:
+        return False
+    actions = payload.get("actions", [])
+    if not isinstance(actions, list) or len(actions) < 1:
+        return False
+    try:
+        _validate_plan_traversal_payload(payload)
+    except W14CommandParseError:
+        return False
+    return True
+
+
 def _remap_w14_envelope_status(
     raw: Any,
 ) -> tuple[str | None, str]:
@@ -439,11 +474,20 @@ def validate_or_canonicalize_w14_command_envelope_object(
         candidate["command_id"] = rt
         command_id_restored = True
 
+    uc02_legacy_status_from = ""
+    if _candidate_matches_uc02_plan_traversal_in_progress_narrow_safe_context(
+        candidate,
+    ):
+        uc02_legacy_status_from = str(candidate.get("status") or "")
+        candidate["status"] = "ok"
+
     new_status, legacy_status_from = _remap_w14_envelope_status(
         candidate.get("status"),
     )
     if new_status is not None:
         candidate["status"] = new_status
+    if uc02_legacy_status_from:
+        legacy_status_from = uc02_legacy_status_from
 
     try:
         parsed = validate_w14_command_envelope_object(candidate)

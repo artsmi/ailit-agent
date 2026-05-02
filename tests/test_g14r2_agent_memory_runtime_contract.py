@@ -27,6 +27,8 @@ from agent_core.runtime.agent_memory_runtime_contract import (
     parse_memory_query_pipeline_llm_text,
     parse_memory_query_pipeline_llm_text_result,
     parse_w14_command_output_text_strict,
+    validate_or_canonicalize_w14_command_envelope_object,
+    validate_w14_command_envelope_object,
 )
 from agent_core.runtime.models import RuntimeIdentity, make_request_envelope
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
@@ -464,3 +466,64 @@ def test_w14_uc02_command_id_restore_emits_compact_fact(
     )
     assert rows, "expected memory.w14.command_id_restored journal row"
     assert rows[-1].payload.get("command_id")
+
+
+def test_plan_traversal_in_progress_canonicalizes_to_ok() -> None:
+    """
+    T1: frozen W14 JSON; UC-02 maps in_progress to ok.
+
+    Strict validate passes on parsed envelope.
+    """
+    frozen: dict[str, object] = {
+        "schema_version": AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
+        "command": "plan_traversal",
+        "command_id": "w14-planner-frozen-1",
+        "status": "in_progress",
+        "payload": {
+            "is_final": False,
+            "actions": [
+                {"action": "list_children", "path": "docs/README.md"},
+            ],
+        },
+        "decision_summary": "Continue plan traversal",
+        "violations": [],
+    }
+    text = json.dumps(frozen, ensure_ascii=False)
+    plan_res = parse_memory_query_pipeline_llm_text_result(text)
+    assert plan_res.obj["status"] == "ok"
+    assert plan_res.normalized is True
+    assert plan_res.legacy_status_from == "in_progress"
+    direct = validate_or_canonicalize_w14_command_envelope_object(
+        {str(k): v for k, v in frozen.items()},
+    )
+    assert direct.obj["status"] == "ok"
+    assert direct.normalized is True
+    assert direct.legacy_status_from == "in_progress"
+    validate_w14_command_envelope_object(plan_res.obj)
+
+
+def test_plan_traversal_schema_1_0_in_progress_parses_ok() -> None:
+    """
+    T2: schema 1.0 + in_progress; valid plan_traversal payload.
+
+    Parser accepts W14 envelope (no terminal invalid path).
+    """
+    o: dict[str, object] = {
+        "schema_version": "1.0",
+        "command": "plan_traversal",
+        "command_id": "w14-pt-1",
+        "status": "in_progress",
+        "payload": {
+            "is_final": False,
+            "actions": [{"action": "get_b_summary", "path": "README.md"}],
+        },
+        "decision_summary": "d",
+        "violations": [],
+    }
+    text = json.dumps(o, ensure_ascii=False)
+    res = parse_memory_query_pipeline_llm_text_result(text)
+    assert res.obj["schema_version"] == AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
+    assert res.obj["status"] == "ok"
+    assert res.normalized is True
+    assert res.legacy_status_from == "in_progress"
+    assert res.from_schema_version == "1.0"
