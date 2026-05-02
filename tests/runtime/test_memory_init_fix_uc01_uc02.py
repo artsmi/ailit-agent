@@ -75,6 +75,48 @@ def _apply_memory_init_isolation(
     monkeypatch.setenv("AILIT_RUNTIME_DIR", str(rt))
 
 
+def _stub_handle_w14_verify_fail_partial(
+    self: AgentMemoryWorker,
+    req: RuntimeRequestEnvelope,
+) -> dict[str, object]:
+    """
+    TC-UC06 B: W14 invalid slice; нет ``memory.result.returned`` complete.
+
+    Без stub complete; VERIFY журнала → partial (exit 1).
+    """
+    self._journal.append(
+        MemoryJournalRow(
+            chat_id=req.chat_id,
+            request_id="stub-w14-req",
+            namespace=str(req.namespace or self._cfg.namespace),
+            event_name="memory.slice.returned",
+            summary="w14 stub",
+            payload={"partial": True},
+        ),
+    )
+    return {
+        "ok": True,
+        "payload": {
+            "memory_slice": {
+                "kind": "memory_slice",
+                "schema": "memory.slice.v1",
+                "level": "B",
+                "reason": "w14_command_output_invalid",
+                "w14_contract_failure": True,
+                "partial": True,
+            },
+            "partial": True,
+            "decision_summary": "w14 command output invalid: envelope",
+            "recommended_next_step": "fix_memory_llm_json",
+            "agent_memory_result": {
+                "schema_version": "agent_memory_result.v1",
+                "memory_continuation_required": False,
+                "status": "partial",
+            },
+        },
+    }
+
+
 def _stub_handle_complete(
     self: AgentMemoryWorker,
     req: RuntimeRequestEnvelope,
@@ -289,6 +331,35 @@ def test_uc02_final_summary_contains_labeled_metrics_and_compact_path(
     assert "memory.why_llm:" in err
     assert "memory.pag_graph(node):" in err
     assert "memory.w14_graph_highlight:" in err
+    assert "abort_reason=" not in err
+
+
+def test_tc_uc06_summary_abort_reason_w14_on_partial_verify(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """TC-UC06-SUMMARY: partial после W14; stderr с ``abort_reason=``."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "f.py").write_text("pass\n", encoding="utf-8")
+    _apply_memory_init_isolation(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        AgentMemoryWorker,
+        "handle",
+        _stub_handle_w14_verify_fail_partial,
+    )
+    paths = MIP(
+        pag_db=tmp_path / "pag.sqlite3",
+        kb_db=tmp_path / "kb.sqlite3",
+        journal_canonical=tmp_path / "memory-journal.jsonl",
+        runtime_dir=tmp_path / "runtime",
+    )
+    code = MemoryInitOrchestrator(paths=paths).run(proj, "ns-uc06-w14")
+    assert code == 1
+    err = capsys.readouterr().err
+    assert "status=partial" in err
+    assert "abort_reason=w14_command_output_invalid" in err
 
 
 def test_uc02_final_summary_no_multiline_json_envelope(

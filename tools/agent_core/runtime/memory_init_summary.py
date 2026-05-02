@@ -197,7 +197,7 @@ def emit_memory_init_user_summary(
         f"compact_log={abs_compact}",
         f"status={exit_kind}",
     ]
-    if exit_kind == "aborted" and reason_short:
+    if reason_short and exit_kind in ("partial", "aborted"):
         safe = reason_short.replace("\n", " ").strip()
         if safe:
             lines.append(f"abort_reason={safe}")

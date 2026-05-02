@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Final, Literal
+from typing import Any, Callable, Final, Literal, Mapping
 
 from agent_core.runtime.agent_memory_chat_log import (
     COMPACT_LOG_FILE_NAME,
@@ -44,6 +44,67 @@ _DEFAULT_TAIL_BYTES: Final[int] = 8 * 1024 * 1024
 _EXIT_VERIFY_FAIL: Final[int] = 1
 _EXIT_INTERRUPT: Final[int] = 130
 _EXIT_RUNTIME: Final[int] = 2
+
+# UC-06: compact W14 tokens in ``abort_reason=`` (no raw LLM / full envelope).
+_W14_REASON_UNKNOWN_LEGACY: Final[str] = "unknown_legacy_w14_status"
+_W14_REASON_CMD_INVALID: Final[str] = "w14_command_output_invalid"
+
+
+def _w14_reason_short_from_worker_ok_envelope(
+    out: Mapping[str, Any],
+) -> str | None:
+    """
+    If the last successful worker response indicates W14 as primary cause,
+    return a one-line machine id for summary; else None.
+    """
+    if out.get("ok") is not True:
+        return None
+    pl = out.get("payload")
+    if not isinstance(pl, dict):
+        return None
+    ds = str(pl.get("decision_summary") or "")
+    ms = pl.get("memory_slice")
+    ms_dict = ms if isinstance(ms, dict) else None
+    if _W14_REASON_UNKNOWN_LEGACY in ds or (
+        ms_dict is not None
+        and _W14_REASON_UNKNOWN_LEGACY in str(ms_dict.get("reason") or "")
+    ):
+        return _W14_REASON_UNKNOWN_LEGACY
+    if ms_dict is None:
+        return None
+    ms_reason = str(ms_dict.get("reason") or "")
+    w14_cf = bool(ms_dict.get("w14_contract_failure"))
+    if w14_cf or ms_reason == _W14_REASON_CMD_INVALID:
+        return _W14_REASON_CMD_INVALID
+    return None
+
+
+def _w14_reason_short_from_worker_failure_envelope(
+    out: Mapping[str, Any],
+) -> str | None:
+    """W14 id from ``ok: false`` error message (compact substrings)."""
+    if out.get("ok") is not False:
+        return None
+    err = out.get("error")
+    if not isinstance(err, dict):
+        return None
+    msg = str(err.get("message", "") or "")
+    if _W14_REASON_UNKNOWN_LEGACY in msg:
+        return _W14_REASON_UNKNOWN_LEGACY
+    if _W14_REASON_CMD_INVALID in msg:
+        return _W14_REASON_CMD_INVALID
+    return None
+
+
+def _w14_reason_short_from_worker_envelope(
+    out: Mapping[str, Any],
+) -> str | None:
+    """Union of ok/failure W14 extractors for partial ``handle`` outcomes."""
+    rs = _w14_reason_short_from_worker_ok_envelope(out)
+    if rs is not None:
+        return rs
+    return _w14_reason_short_from_worker_failure_envelope(out)
+
 
 # D1: max successful ``handle`` invocations in init continuation loop (§3.4).
 MEMORY_INIT_MAX_CONTINUATION_ROUNDS: Final[int] = 32
@@ -324,6 +385,7 @@ class MemoryInitOrchestrator:
                 namespace=ns,
             )
             round_idx = 0
+            last_ok_worker_envelope: dict[str, Any] | None = None
             while True:
                 if round_idx >= MEMORY_INIT_MAX_CONTINUATION_ROUNDS:
                     break
@@ -357,6 +419,8 @@ class MemoryInitOrchestrator:
                 )
                 try:
                     out = worker.handle(req)
+                    if isinstance(out, dict) and out.get("ok") is True:
+                        last_ok_worker_envelope = out
                 except KeyboardInterrupt:
                     try:
                         tx.phase_abort()
@@ -405,6 +469,11 @@ class MemoryInitOrchestrator:
                     self._emit_memory_init_user_summary(
                         compact_path,
                         "partial",
+                        reason_short=(
+                            _w14_reason_short_from_worker_envelope(out)
+                            if isinstance(out, dict)
+                            else None
+                        ),
                     )
                     return _EXIT_VERIFY_FAIL
                 if verify_memory_init_journal_complete_marker(shadow, cid):
@@ -439,9 +508,15 @@ class MemoryInitOrchestrator:
                     "orch_memory_init_phase",
                     {"phase": "abort"},
                 )
+                rs_verify: str | None = None
+                if last_ok_worker_envelope is not None:
+                    rs_verify = _w14_reason_short_from_worker_ok_envelope(
+                        last_ok_worker_envelope,
+                    )
                 self._emit_memory_init_user_summary(
                     compact_path,
                     "partial",
+                    reason_short=rs_verify,
                 )
                 return _EXIT_VERIFY_FAIL
             try:
