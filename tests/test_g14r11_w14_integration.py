@@ -20,6 +20,9 @@ from agent_core.models import (
     NormalizedChatResponse,
     NormalizedUsage,
 )
+from agent_core.runtime.agent_memory_runtime_contract import (
+    AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
+)
 from agent_core.runtime.agent_memory_result_v1 import (
     AGENT_MEMORY_RESULT_V1,
     build_agent_memory_result_v1,
@@ -92,6 +95,49 @@ class _SeqProvider:
             provider_metadata={"mock": "g14r11-seq"},
             raw_debug_payload=None,
         )
+
+    def stream(self, request: ChatRequest) -> None:
+        raise NotImplementedError
+
+
+_PLANNER_SYS_PLAN_TRAVERSAL = "команду AgentMemory plan_traversal"
+
+
+class _InProgressPlanFirstRuntimeProvider:
+    """
+    Первый planner-раунд: валидный plan_traversal с legacy top-level
+    ``in_progress`` (UC-02 механика); далее тот же контракт, что
+    ``_RuntimeProvider``.
+    """
+
+    def __init__(self) -> None:
+        self._rt = _RuntimeProvider()
+        self._first_planner = True
+        self.calls: list[ChatRequest] = []
+
+    @property
+    def provider_id(self) -> str:
+        return "g14r11-uc03-t3"
+
+    def complete(self, request: ChatRequest) -> NormalizedChatResponse:
+        self.calls.append(request)
+        sys0 = str(request.messages[0].content or "")
+        if self._first_planner and _PLANNER_SYS_PLAN_TRAVERSAL in sys0:
+            self._first_planner = False
+            body = _w14_plan_traversal_in_progress_envelope()
+            return NormalizedChatResponse(
+                text_parts=(body,),
+                tool_calls=(),
+                finish_reason=FinishReason.STOP,
+                usage=NormalizedUsage(
+                    input_tokens=1,
+                    output_tokens=1,
+                    total_tokens=2,
+                ),
+                provider_metadata={"mock": "g14r11-uc03-t3"},
+                raw_debug_payload=None,
+            )
+        return self._rt.complete(request)
 
     def stream(self, request: ChatRequest) -> None:
         raise NotImplementedError
@@ -252,6 +298,26 @@ def _w14_plan(
     }
     if extra:
         o["extra"] = "bad"
+    return json.dumps(o, ensure_ascii=False)
+
+
+def _w14_plan_traversal_in_progress_envelope() -> str:
+    """Frozen W14 plan_traversal с top-level ``in_progress`` (UC-02 narrow)."""
+    o: dict[str, object] = {
+        "schema_version": "agent_memory_command_output.v1",
+        "command": "plan_traversal",
+        "command_id": "pt-in-progress",
+        "status": "in_progress",
+        "payload": {
+            "actions": [
+                {"action": "list_children", "path": "."},
+            ],
+            "is_final": False,
+            "final_answer_basis": None,
+        },
+        "decision_summary": "plan",
+        "violations": [],
+    }
     return json.dumps(o, ensure_ascii=False)
 
 
@@ -548,6 +614,71 @@ def test_w14_schema_repair_failure_returns_empty_results(
     assert amr.get("results") == []
     store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
     assert store.list_nodes(namespace="ns-g14r11") == []
+
+
+def test_w14_plan_traversal_repair_uc03_tc_t3(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    TC-T3 / TC-UC03-REPAIR (wave 3): первый ответ — plan_traversal +
+    ``in_progress``.
+
+    Механическая канонизация UC-02; без repair-раунда и без terminal
+    ``w14_contract_failure`` / ``fix_memory_llm_json`` из-за статуса шага.
+    """
+    db = tmp_path / "tc-t3-uc03.sqlite3"
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(db))
+    (tmp_path / "g.py").write_text(
+        "def g() -> int:\n    return 1\n",
+        encoding="utf-8",
+    )
+    prov = _InProgressPlanFirstRuntimeProvider()
+    worker = AgentMemoryWorker(
+        MemoryAgentConfig(
+            chat_id="c-g14r11",
+            broker_id="b1",
+            namespace="ns-g14r11",
+        ),
+    )
+    monkeypatch.setattr(worker, "_provider", prov, raising=False)
+    out = worker.handle(
+        _env(
+            tmp_path,
+            goal="изучи g.py",
+            path="g.py",
+            qid="mem-tc-t3-uc03",
+        ),
+    )
+    assert out.get("ok") is True
+    pl: object = out.get("payload")
+    assert isinstance(pl, dict)
+    assert pl.get("recommended_next_step") != "fix_memory_llm_json"
+    msl: object = pl.get("memory_slice")
+    assert isinstance(msl, dict)
+    assert msl.get("w14_contract_failure") is not True
+    assert msl.get("reason") != "w14_command_output_invalid"
+    amr: object = pl.get("agent_memory_result")
+    assert isinstance(amr, dict)
+    res: object = amr.get("results")
+    assert isinstance(res, list) and res
+    assert res[0].get("path") == "g.py"
+    store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
+    b_g = store.fetch_node(
+        namespace="ns-g14r11",
+        node_id="B:g.py",
+    )
+    assert b_g is not None
+    norm_rows = list(
+        worker._journal.filter_rows(  # noqa: SLF001
+            event_name="memory.command.normalized",
+        ),
+    )
+    assert norm_rows, "expected memory.command.normalized journal row"
+    pay = norm_rows[-1].payload
+    assert str(pay.get("from_status") or "").strip().lower() == "in_progress"
+    assert pay.get("to_schema_version") == AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
+    assert len(prov.calls) >= 2
 
 
 def test_agent_memory_result_does_not_project_a_or_b_as_c_summary() -> None:
