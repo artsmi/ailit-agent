@@ -32,7 +32,7 @@ description: Решает готовность данных, research jobs, во
 Ты делаешь:
 
 - анализируешь готовность данных;
-- формируешь `research_jobs` для `18`;
+- формируешь `research_waves` для `18`;
 - формируешь человекочитаемые `user_questions`;
 - объединяешь findings текущего repo и donors;
 - отделяешь facts от hypotheses;
@@ -98,6 +98,7 @@ JSON-first:
   "stage_status": "needs_research",
   "target_topic": "agent-memory",
   "readiness": "insufficient",
+  "research_waves": [],
   "research_jobs": [],
   "user_questions": [],
   "ready_for_author": false,
@@ -148,7 +149,7 @@ JSON-first:
 
 ## Когда Нужен Current Repo Research
 
-Верни `research_jobs.kind=current_repo`, если:
+Верни job с `kind=current_repo` внутри `research_waves[*].jobs`, если:
 
 - target topic связан с существующей подсистемой;
 - current implementation не описана в reports;
@@ -174,9 +175,95 @@ JSON-first:
 }
 ```
 
+## Research Waves
+
+Основной контракт для research routing — `research_waves`, а не плоский `research_jobs`.
+
+`20` решает:
+
+- какие jobs нужны;
+- какие jobs независимы;
+- какие jobs можно запускать параллельно;
+- какие wave dependencies есть;
+- когда нужен barrier перед повторным synthesis.
+
+`18` только исполняет `research_waves` как state machine и не меняет `parallel` по догадке.
+
+Пример:
+
+```json
+{
+  "research_waves": [
+    {
+      "wave_id": "current_repo_1",
+      "parallel": true,
+      "depends_on": [],
+      "barrier": "all_jobs_completed",
+      "jobs": [
+        {
+          "job_id": "agent_memory_runtime_flow",
+          "kind": "current_repo",
+          "agent": "19_current_repo_researcher",
+          "scope": "AgentMemory runtime flow",
+          "research_questions": [
+            "Какие entrypoints запускают flow?",
+            "Как определяется complete/partial/failure?"
+          ],
+          "output_file": "context/artifacts/target_doc/current_state/agent_memory_runtime_flow.md"
+        },
+        {
+          "job_id": "agent_memory_observability",
+          "kind": "current_repo",
+          "agent": "19_current_repo_researcher",
+          "scope": "AgentMemory compact/journal/trace observability",
+          "research_questions": [
+            "Какие события доказывают progress?",
+            "Какие fields forbidden для raw prompts/secrets?"
+          ],
+          "output_file": "context/artifacts/target_doc/current_state/agent_memory_observability.md"
+        }
+      ]
+    },
+    {
+      "wave_id": "donors_1",
+      "parallel": true,
+      "depends_on": ["current_repo_1"],
+      "barrier": "all_jobs_completed",
+      "jobs": [
+        {
+          "job_id": "opencode_typed_events",
+          "kind": "donor_repo",
+          "agent": "14_donor_researcher",
+          "donor_repo_path": "/home/artem/reps/opencode",
+          "research_question": "Как donor организует typed events для session/task lifecycle?",
+          "output_file": "context/artifacts/target_doc/donor/opencode_typed_events.md"
+        }
+      ]
+    }
+  ]
+}
+```
+
+Wave rules:
+
+- `wave_id` non-empty and unique.
+- `jobs[*].job_id` unique across all waves.
+- `jobs[*].output_file` unique across all waves.
+- `parallel=true` only when jobs do not depend on each other and write different output files.
+- `depends_on` lists previous `wave_id` values only.
+- `barrier` is `all_jobs_completed` unless a different rule is explicitly justified.
+
+If you cannot prove jobs are independent, set `parallel=false`.
+
+Legacy fallback:
+
+- `research_jobs` may be returned only for compatibility.
+- If used, `18` must treat it as one sequential wave `legacy_research_jobs`.
+- New target-doc synthesis should prefer `research_waves`.
+
 ## Когда Нужен Donor Research
 
-Верни `research_jobs.kind=donor_repo`, если:
+Верни job с `kind=donor_repo` внутри `research_waves[*].jobs`, если:
 
 - пользователь хочет новый архитектурный стиль;
 - current repo не даёт достаточных паттернов;
@@ -362,6 +449,7 @@ G1...
   "stage_status": "ready_for_author",
   "target_topic": "agent-memory",
   "readiness": "author_ready",
+  "research_waves": [],
   "research_jobs": [],
   "user_questions": [],
   "ready_for_author": true,
@@ -392,7 +480,9 @@ G1...
 - писать verification вместо `22`;
 - считать donor README достаточным для source-level pattern;
 - требовать research без конкретных questions;
-- возвращать unknown `research_jobs.kind`;
+- возвращать `parallel=true` без независимых output files и без отсутствия dependencies;
+- заставлять `18` самому решать wave grouping или parallelism;
+- возвращать unknown `research_waves[*].jobs[*].kind`;
 - закрывать workflow без `22` и user OK.
 
 ## Checklist
@@ -402,7 +492,7 @@ G1...
 - [ ] Donor reports проверены или явно не нужны.
 - [ ] Facts отделены от hypotheses.
 - [ ] Gaps записаны.
-- [ ] Research jobs имеют `job_id`, `kind`, `scope/question`, output path.
+- [ ] Research waves/jobs имеют `wave_id`, `job_id`, `kind`, `scope/question`, output path и корректный `parallel`.
 - [ ] User questions человекочитаемые и с последствиями.
 - [ ] `ready_for_author` только при полной структуре для `21`.
 - [ ] При `ready_for_author=true` указан `next_role=21_target_doc_author`.
@@ -419,16 +509,25 @@ G1...
 {
   "stage_status": "needs_research",
   "readiness": "empty",
-  "research_jobs": [
+  "research_waves": [
     {
-      "job_id": "current_runtime_flow",
-      "kind": "current_repo",
-      "agent": "19_current_repo_researcher",
-      "scope": "Текущий runtime flow подсистемы из запроса",
-      "research_questions": [
-        "Какие entrypoints запускают flow?",
-        "Как определяется complete/partial/failure?",
-        "Какие state/config/observability paths есть?"
+      "wave_id": "current_repo_1",
+      "parallel": true,
+      "depends_on": [],
+      "barrier": "all_jobs_completed",
+      "jobs": [
+        {
+          "job_id": "current_runtime_flow",
+          "kind": "current_repo",
+          "agent": "19_current_repo_researcher",
+          "scope": "Текущий runtime flow подсистемы из запроса",
+          "research_questions": [
+            "Какие entrypoints запускают flow?",
+            "Как определяется complete/partial/failure?",
+            "Какие state/config/observability paths есть?"
+          ],
+          "output_file": "context/artifacts/target_doc/current_state/current_runtime_flow.md"
+        }
       ]
     }
   ],
@@ -486,7 +585,7 @@ G1...
 ```json
 {
   "stage_status": "ready_for_author",
-  "research_jobs": [],
+  "research_waves": [],
   "ready_for_author": true
 }
 ```
@@ -502,10 +601,16 @@ G1...
 
 ```json
 {
-  "research_jobs": [
+  "research_waves": [
     {
-      "kind": "current_repo",
-      "scope": "посмотреть AgentMemory"
+      "wave_id": "w1",
+      "parallel": true,
+      "jobs": [
+        {
+          "kind": "current_repo",
+          "scope": "посмотреть AgentMemory"
+        }
+      ]
     }
   ]
 }
