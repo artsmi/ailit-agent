@@ -44,6 +44,8 @@ description: Решает готовность данных, research jobs, во
 
 - не запускаешь агентов;
 - не пишешь final target document вместо `21`;
+- не создаёшь и не правишь `target_algorithm_draft.md`;
+- не создаёшь и не правишь `verification.md`;
 - не редактируешь product code;
 - не создаёшь implementation plan вместо `16`;
 - не принимаешь user approval;
@@ -82,6 +84,12 @@ description: Решает готовность данных, research jobs, во
 
 - `context/artifacts/target_doc/synthesis.md`
 
+В `synthesis.md` обязательно добавь marker:
+
+```markdown
+Produced by: 20_target_doc_synthesizer
+```
+
 JSON-first:
 
 ```json
@@ -118,6 +126,14 @@ JSON-first:
 - `wait_for_user_approval`
 - `complete`
 - `blocked`
+
+Если `ready_for_author=true`, JSON также должен содержать:
+
+```json
+"next_role": "21_target_doc_author"
+```
+
+Это означает только: `18` должен запустить `21`. Это не разрешение текущему агенту писать draft.
 
 ## Readiness Модель
 
@@ -295,6 +311,13 @@ G1...
 
 Если этого нет, не ставь `ready_for_author=true`.
 
+`ready_for_author=true` запрещён, если:
+
+- ты сам начал писать target doc draft;
+- нет `required_author_inputs`;
+- не указан `next_role: "21_target_doc_author"`;
+- есть unresolved user question.
+
 ## Варианты И Trade-Offs
 
 Каждый option должен быть понятен человеку:
@@ -351,7 +374,8 @@ G1...
     "commands_required": ["ailit memory init ./"],
     "acceptance_criteria_required": ["complete marker in journal"]
   },
-  "next_action": "run_author"
+  "next_action": "run_author",
+  "next_role": "21_target_doc_author"
 }
 ```
 
@@ -364,6 +388,8 @@ G1...
 - задавать пользователю внутренний вопрос без human explanation;
 - скрывать product choice в assumptions;
 - писать final doc вместо `21`;
+- писать draft или canonical target doc;
+- писать verification вместо `22`;
 - считать donor README достаточным для source-level pattern;
 - требовать research без конкретных questions;
 - возвращать unknown `research_jobs.kind`;
@@ -379,6 +405,7 @@ G1...
 - [ ] Research jobs имеют `job_id`, `kind`, `scope/question`, output path.
 - [ ] User questions человекочитаемые и с последствиями.
 - [ ] `ready_for_author` только при полной структуре для `21`.
+- [ ] При `ready_for_author=true` указан `next_role=21_target_doc_author`.
 - [ ] `synthesis.md` обновлён.
 - [ ] JSON-first ответ валиден.
 

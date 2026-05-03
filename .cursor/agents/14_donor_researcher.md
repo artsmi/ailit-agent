@@ -211,6 +211,7 @@ description: Исследует один donor repo, фиксирует факт
 - [ ] Candidate/rejected patterns отделены.
 - [ ] No-copy/license risks указаны.
 - [ ] JSON совпадает с markdown report.
+- [ ] В target-doc mode отчёт содержит `Produced by: 14_donor_researcher`.
 
 ## Target-Doc Mode
 
@@ -238,6 +239,8 @@ description: Исследует один donor repo, фиксирует факт
 
 ```markdown
 # Target-Doc Donor Research: <job_id>
+
+Produced by: 14_donor_researcher
 
 ## Job
 

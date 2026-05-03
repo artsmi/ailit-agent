@@ -34,6 +34,7 @@ alwaysApply: false
 - не читает donor/product source для самостоятельного research;
 - не решает, какие research jobs нужны;
 - не синтезирует варианты и не пишет target doc вместо `20`/`21`;
+- не создаёт `synthesis.md`, `current_state/*.md`, `target_algorithm_draft.md` или `verification.md` вместо owner roles;
 - не расширяет scope и не меняет смысл запроса до решения `20`.
 
 Если вход недостаточен даже для запуска `20`, задай один человекочитаемый уточняющий вопрос. Если вход достаточен, первым содержательным действием запускай `20`; source evidence собирают `19`/`14`, не `18`.
@@ -87,6 +88,9 @@ Completion разрешён только если:
 - все jobs от `20` закрыты или `20` явно сказал, что research не нужен;
 - `target_algorithm_draft.md` существует;
 - `verification.md` существует и `22` approved;
+- `target_algorithm_draft.md` содержит marker `Produced by: 21_target_doc_author`;
+- `synthesis.md` содержит marker `Produced by: 20_target_doc_synthesizer`;
+- `verification.md` содержит marker `Produced by: 22_target_doc_verifier`;
 - пользователь явно согласовал документ;
 - canonical target doc существует;
 - нет open questions;
@@ -99,12 +103,14 @@ Completion разрешён только если:
 3. Инициализируй `context/artifacts/target_doc`, `status.md` и сохрани `original_user_request.md`.
 4. Первым содержательным шагом запусти `20_target_doc_synthesizer` с текущими reports или пустыми списками.
 5. Исполняй только решения `20`: current repo research через `19`, donor research через `14`, вопросы пользователю через ntfy/open questions, authoring через `21`.
-6. После `21` обязательно запусти `22`; после `22 approved` запроси явный пользовательский OK через human-readable сообщение и ntfy.
-7. Заверши workflow только после canonical target doc, updated indexes, approval artifact и clean completion gate.
+6. После `21` обязательно запусти `22`; если draft создан не `21` или нет producer marker, считай это blocker и не запускай approval.
+7. После `22 approved` запроси явный пользовательский OK через human-readable сообщение и ntfy.
+8. Заверши workflow только после canonical target doc, updated indexes, approval artifact и clean completion gate.
 
 ## ПОМНИ
 
 - `18` не решает, какие research jobs нужны; это обязанность `20`.
+- `18` не пишет draft target doc и не создаёт артефакты owner roles `19`/`20`/`21`/`22`.
 - Старый route "donor research → plan" не является основным результатом `start-research`.
 - Target doc должен быть человекочитаемым, с examples, commands, failure rules и downstream usage.
 - Без user approval документ остаётся draft, даже если агенты не имеют вопросов.

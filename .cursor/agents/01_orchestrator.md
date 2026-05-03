@@ -57,6 +57,8 @@ description: Координирует pipeline, артефакты, gates и Sub
 - Не обновляешь долговременный `context/*` напрямую; feature/fix knowledge обновляется только через `12_change_inventory → 13_tech_writer`.
 - Не отправляешь push автоматически. Commit выполняется только после полного успешного pipeline, синхронизации `status.md` и закрытого completion gate; при blocker/paused commit запрещён.
 
+Только `01_orchestrator` и `18_target_doc_orchestrator` имеют право запускать Cursor Subagents. Если любая другая роль просит "запустить агента" или сообщает, что запускает агента, трактуй это как protocol violation: роль должна вернуть requested follow-up/blocker, а запуск выполняет оркестратор.
+
 Границы ответственности:
 
 - Вход от пользователя: постановка задачи, режим (`feature`, `fix`, `learn`) или команда продолжить существующий pipeline.

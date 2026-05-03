@@ -165,12 +165,39 @@ ailit memory init ./
 
 Агент должен оценить смысл ответа. Если ответ содержит замечания, это не approval.
 
+## Role Ownership And Agent Launching
+
+Агентская система использует строгую модель ownership:
+
+- Только оркестраторы `01_orchestrator` и `18_target_doc_orchestrator` имеют право запускать других агентов.
+- Все остальные роли (`02`-`17`, `19`-`22`) не запускают агентов, не имитируют их ответы и не управляют pipeline. Они возвращают JSON, markdown-артефакт, blockers или requested follow-up для оркестратора.
+- Каждый ключевой артефакт имеет owner role. Чужой артефакт нельзя создавать "для ускорения".
+
+Target-doc ownership:
+
+| Артефакт | Owner |
+|----------|-------|
+| `context/artifacts/target_doc/original_user_request.md` | `18_target_doc_orchestrator` |
+| `context/artifacts/target_doc/intake.md` | `18_target_doc_orchestrator` |
+| `context/artifacts/target_doc/current_state/*.md` | `19_current_repo_researcher` |
+| `context/artifacts/target_doc/donor/*.md` | `14_donor_researcher` |
+| `context/artifacts/target_doc/synthesis.md` | `20_target_doc_synthesizer` |
+| `context/artifacts/target_doc/target_algorithm_draft.md` | `21_target_doc_author` |
+| `context/artifacts/target_doc/verification.md` | `22_target_doc_verifier` |
+| `context/artifacts/target_doc/approval.md` | `18_target_doc_orchestrator` |
+
+Если роль собирается создать чужой артефакт, она обязана остановиться и вернуть blocker/next action для оркестратора.
+
+Каждый target-doc артефакт должен содержать machine-readable или human-readable marker `Produced by: <role>`, если это markdown-документ. Verifier/орchestrator должны считать артефакт без producer marker подозрительным и требовать rework/provenance clarification.
+
 ## Anti-Patterns
 
 Запрещено:
 
 - спрашивать пользователя внутренними ID без объяснения;
 - писать документы только для агентов, а не для человека;
+- запускать агентов из не-оркестраторских ролей;
+- создавать артефакт, принадлежащий другой роли;
 - использовать "опционально", "можно", "при необходимости" без точного правила;
 - скрывать product choice в assumptions;
 - считать отсутствие вопросов approval;
