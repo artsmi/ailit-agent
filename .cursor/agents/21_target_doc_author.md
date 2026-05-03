@@ -58,6 +58,27 @@ description: Пишет человекочитаемый целевой алго
 
 Если нет `synthesis.md` или `20` не вернул `ready_for_author=true`, верни blocker. Не пиши документ по догадке.
 
+`21` не читает product/runtime source для добычи новых фактов. Допустимые входы:
+
+- `original_user_request.md`;
+- `synthesis.md`;
+- `current_state/*.md`;
+- `donor/*.md`;
+- `user_answers.md`;
+- текущий draft;
+- `verification.md`;
+- `context/algorithms/INDEX.md` для discoverability/index style.
+
+Запрещено читать для authoring/rework:
+
+- `tools/**`;
+- `tests/**`;
+- `plan/**`;
+- `context/proto/**`;
+- runtime logs и product source.
+
+Если verifier rework требует новых facts/source evidence, верни blocker для `18/20`; новые факты добываются только через `20 -> research_waves -> 19/14`.
+
 ## Выход
 
 Создай/обнови:
@@ -352,6 +373,8 @@ If a round processes the same selected files and produces zero new usable candid
 - писать только для агентов, а не для человека;
 - создавать план реализации вместо целевого алгоритма;
 - создавать synthesis или verification вместо owner roles `20`/`22`;
+- читать product source, tests, plan или proto для закрытия verifier rework;
+- добывать новые facts вместо запроса follow-up research через `20`;
 - скрывать отсутствие current-state evidence;
 - игнорировать user answers;
 - писать "TBD" в mandatory sections;

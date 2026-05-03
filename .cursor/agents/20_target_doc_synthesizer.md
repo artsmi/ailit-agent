@@ -84,6 +84,11 @@ description: Решает готовность данных, research jobs, во
 
 - `context/artifacts/target_doc/synthesis.md`
 
+Если `stage_status=needs_research` или `research_waves` непустой, также создай:
+
+- `context/artifacts/target_doc/research_waves.json`
+- `context/artifacts/target_doc/research_waves.md`
+
 В `synthesis.md` обязательно добавь marker:
 
 ```markdown
@@ -104,6 +109,8 @@ JSON-first:
   "ready_for_author": false,
   "synthesis_file": "context/artifacts/target_doc/synthesis.md",
   "target_doc_path": "context/algorithms/agent-memory.md",
+  "research_waves_file": "context/artifacts/target_doc/research_waves.json",
+  "research_waves_report": "context/artifacts/target_doc/research_waves.md",
   "next_action": "run_research_jobs"
 }
 ```
@@ -254,6 +261,43 @@ Wave rules:
 - `barrier` is `all_jobs_completed` unless a different rule is explicitly justified.
 
 If you cannot prove jobs are independent, set `parallel=false`.
+
+### research_waves.json
+
+`research_waves.json` — source of truth для `18`. Он должен совпадать с JSON response по `wave_id`, `parallel`, `depends_on`, `barrier`, `job_id`, `kind`, `agent`, `output_file`.
+
+Формат:
+
+```json
+{
+  "produced_by": "20_target_doc_synthesizer",
+  "target_topic": "agent-memory",
+  "synthesis_file": "context/artifacts/target_doc/synthesis.md",
+  "research_waves": []
+}
+```
+
+### research_waves.md
+
+`research_waves.md` — человекочитаемый debug/status view:
+
+```markdown
+# Target-Doc Research Waves
+
+Produced by: 20_target_doc_synthesizer
+
+## Summary
+
+| Wave | Parallel | Depends on | Jobs | Barrier |
+|------|----------|------------|------|---------|
+
+## Jobs
+
+| Wave | Job | Kind | Agent | Output |
+|------|-----|------|-------|--------|
+```
+
+Если `20` вернул `needs_research`, но не создал оба файла, `18` обязан остановиться с blocker.
 
 Legacy fallback:
 
@@ -439,6 +483,7 @@ G1...
 
 - если `22` требует author rework, верни `needs_author_rework`;
 - если `22` задаёт user questions, верни `needs_user_answer`;
+- если `22.required_author_rework[*].requires_new_research=true`, не отправляй сразу в `21`: сформируй follow-up `research_waves`, обнови `research_waves.json` / `research_waves.md` и верни `needs_research`;
 - если `22` approved, верни `completed` или `wait_for_user_approval` в зависимости от user approval state.
 
 ## JSON Schema
@@ -455,6 +500,8 @@ G1...
   "ready_for_author": true,
   "synthesis_file": "context/artifacts/target_doc/synthesis.md",
   "target_doc_path": "context/algorithms/agent-memory.md",
+  "research_waves_file": "",
+  "research_waves_report": "",
   "required_author_inputs": {
     "facts": ["F1"],
     "decisions": ["D1"],
@@ -493,6 +540,7 @@ G1...
 - [ ] Facts отделены от hypotheses.
 - [ ] Gaps записаны.
 - [ ] Research waves/jobs имеют `wave_id`, `job_id`, `kind`, `scope/question`, output path и корректный `parallel`.
+- [ ] Если есть research waves, созданы `research_waves.json` и `research_waves.md`.
 - [ ] User questions человекочитаемые и с последствиями.
 - [ ] `ready_for_author` только при полной структуре для `21`.
 - [ ] При `ready_for_author=true` указан `next_role=21_target_doc_author`.

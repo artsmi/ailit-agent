@@ -149,6 +149,8 @@ Required rework for 21: ...
 
 Если source для важного утверждения отсутствует, требуй rework или user question.
 
+Если finding требует новых facts/source evidence из product code, logs, tests, plan или proto, укажи `requires_new_research=true` в соответствующем `required_author_rework[]`. Тогда `18` обязан вернуть workflow в `20`, а не запускать `21` сразу.
+
 ## start-feature / start-fix Gate
 
 Документ должен явно говорить, как downstream pipelines используют его:
@@ -257,7 +259,8 @@ approved | rework_required | needs_user_answer | blocked | rejected
       "id": "MAJOR-1",
       "section": "Failure And Retry Rules",
       "problem": "No bounded no-progress rule",
-      "required_change": "Add exact rule for no-progress rounds."
+      "required_change": "Add exact rule for no-progress rounds.",
+      "requires_new_research": false
     }
   ],
   "user_questions": [],
@@ -437,7 +440,8 @@ Notes: Нужно потом добавить failure rules.
   "id": "MAJOR-3",
   "section": "Observability",
   "problem": "The draft says compact log must show progress, but does not list required events or fields.",
-  "required_change": "Add event names, minimal payload fields and forbidden raw data."
+  "required_change": "Add event names, minimal payload fields and forbidden raw data.",
+  "requires_new_research": false
 }
 ```
 
@@ -499,6 +503,7 @@ Residual risk допустим только если:
 - human: "что пользователь утверждает";
 - paths: draft/canonical candidate;
 - if blocked: exact next role (`21` or user).
+- if rework needs facts: `requires_new_research=true` and exact next role is `20`.
 
 Если `18` не сможет по твоему JSON понять следующий gate, verification result неполный.
 

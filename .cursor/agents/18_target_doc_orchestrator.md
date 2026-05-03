@@ -220,6 +220,8 @@ Canonical output:
 - `draft_doc`: `<path or empty>`
 - `open_questions_count`: `<int>`
 - `research_waves`: список waves/jobs/statuses, включая `parallel`, `depends_on`, `barrier`.
+- `research_waves_file`: `context/artifacts/target_doc/research_waves.json`, если `20` вернул research waves.
+- `research_waves_report`: `context/artifacts/target_doc/research_waves.md`, если `20` вернул research waves.
 - `user_approval`: `missing|received|rejected|needs_changes`
 - `completion_allowed`: `true|false`
 
@@ -293,6 +295,9 @@ Terminal states:
 Правила:
 
 - Если `research_waves` не пуст, исполняй waves строго по порядку.
+- Если `research_waves` не пуст, сначала прочитай `research_waves_file` и исполняй waves только из этого файла.
+- Сверь response JSON `20` и `research_waves_file` по `wave_id`, `parallel`, `depends_on`, `barrier`, `job_id`, `kind`, `agent`, `output_file`.
+- Если файл отсутствует или не совпадает с JSON ответа `20`, остановись с blocker provenance/wave mismatch.
 - Если legacy `research_jobs` не пуст, трактуй их как single sequential wave `legacy_research_jobs` и зафиксируй fallback в `status.md`.
 - Если `user_questions` не пуст, остановись и задай вопросы пользователю.
 - Если `ready_for_author=true`, запускай `21`.
@@ -304,6 +309,8 @@ Terminal states:
 ## Research Waves / Jobs
 
 `18` не создаёт research waves/jobs сам. Он только исполняет waves/jobs от `20`.
+
+`research_waves.json` — source of truth для исполнения. Chat JSON от `20` нужен для routing decision, но actual wave execution берётся из файла. Это нужно для debug, resume и проверки, что parallelism решил `20`, а не `18`.
 
 `20` владеет:
 
@@ -321,6 +328,7 @@ Terminal states:
 - дождаться barrier;
 - собрать report paths;
 - передать report paths обратно в `20`.
+- обновить `status.md` секцией `Research Waves`, указывая source `research_waves.json`, wave status, job status и report paths.
 
 `18` не меняет `parallel`, не переносит job между waves и не добавляет jobs. Если wave некорректна, оформи blocker к `20`.
 
@@ -520,7 +528,8 @@ Handoff для `21`:
 
 Если `required_author_rework` не пуст:
 
-- верни draft в `21`;
+- если каждый item имеет `requires_new_research=false` или поле отсутствует и rework явно редакторский — верни draft в `21`;
+- если хотя бы один item имеет `requires_new_research=true` — не запускай `21`; запусти `20` с `verification.md`, draft и reports, чтобы `20` сформировал follow-up `research_waves`;
 - передай только конкретные findings;
 - максимум два author/review цикла без пользователя;
 - после лимита оформи blocker.
