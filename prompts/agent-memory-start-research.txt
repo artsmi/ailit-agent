@@ -1,0 +1,378 @@
+Нужно запустить `start-research` / target-doc workflow и зафиксировать целевой алгоритм работы модуля AgentMemory.
+
+Product code не менять. Результат workflow — утверждённая человеком целевая документация алгоритма, пригодная как канон для будущего `start-feature` / `start-fix`.
+
+## Target Topic
+
+`agent-memory`
+
+## Canonical Output
+
+Предпочтительный формат: папка `context/algorithms/agent-memory/` с `INDEX.md` и отдельными файлами по крупным контрактам.
+
+Минимальный состав:
+
+- `context/algorithms/agent-memory/INDEX.md` — обзор, статус, ссылки на части алгоритма.
+- `context/algorithms/agent-memory/runtime-flow.md` — целевой runtime flow AgentMemory.
+- `context/algorithms/agent-memory/memory-graph-links.md` — правила A/B/C/D graph links, включая связи между C и D.
+- `context/algorithms/agent-memory/llm-commands.md` — команды, которые runtime отправляет LLM, их входы/выходы и примеры.
+- `context/algorithms/agent-memory/prompts.md` — system/developer/user prompts AgentMemory для всех состояний.
+- `context/algorithms/agent-memory/external-protocol.md` — внешний протокол событий для AgentWork, CLI и Desktop.
+- `context/algorithms/agent-memory/failure-retry-observability.md` — ошибки, retry, heartbeat, progress, journal/trace/log events.
+
+Если `21_target_doc_author` сочтёт один файл лучше, он обязан явно объяснить почему, но документ всё равно должен быть discoverable из `context/algorithms/INDEX.md`.
+
+## Source Of Previous Algorithm
+
+Прежний алгоритм явно зафиксирован в:
+
+- `plan/14-agent-memory-runtime.md`
+
+Этот документ нужно считать основным historical source/evidence, но не финальным target algorithm. Нужно усилить и нормализовать его в человекочитаемый целевой канон.
+
+## Goal
+
+Зафиксировать усиленный целевой алгоритм AgentMemory как самостоятельного модуля, к которому через broker может подключаться любой внешний инструмент.
+
+AgentMemory должен уметь принимать от AgentWork или CLI один или несколько запросов на естественном языке, например:
+
+- "сообщи, какие файлы необходимы для изменения сервера";
+- "создай память по проекту целиком";
+- "найди ноды и summary, которые нужны для изменения конкретного workflow".
+
+AgentMemory должен всегда завершаться корректно и возвращать результат. Единственный случай, когда допустима ошибка уровня `blocked` / `error`: LLM API недоступно или не может дать валидный ответ после bounded retry. Во всех остальных случаях AgentMemory обязан вернуть `complete` или `partial` с понятной причиной и next step.
+
+AgentMemory должен выполнять не только обход дерева A/B/C/D, но и обход и обогащение memory graph A/B/C/D: иерархические связи, cross-links между C/D, imports/calls/references, evidence-backed links между документацией, конфигами, тестами и кодом.
+
+## Required Current Repo Research
+
+Перед authoring нужно исследовать текущее состояние repo, минимум:
+
+- текущие entrypoints AgentMemory;
+- `ailit memory init`;
+- взаимодействие AgentWork ↔ AgentMemory;
+- существующий `AgentMemoryQueryPipeline`;
+- текущие memory/PAG/KB state models;
+- текущие journal/trace/chat log события;
+- текущие тесты и runtime contracts, связанные с `plan/14-agent-memory-runtime.md`.
+
+Если нужны donor repos, `20_target_doc_synthesizer` должен сам решить и объяснить research jobs.
+
+## Required Target Contracts
+
+Целевой документ обязан зафиксировать следующие контракты.
+
+### 1. AgentWork / CLI / External Initiator → AgentMemory
+
+Описать внешний вход AgentMemory:
+
+- кто инициирует запрос: AgentWork, `ailit memory init`, другой broker client;
+- как передаётся natural language request;
+- как задаются `query_id`, `user_turn_id`, `namespace`, `project_root`, ограничения runtime;
+- как AgentWork может отправить один или несколько memory queries на один пользовательский запрос;
+- что AgentMemory не решает пользовательскую задачу целиком, а возвращает memory result для конкретного memory subgoal.
+
+Нужны schema-like блоки JSON с `required` / `default` / `null` / `empty list` правилами.
+
+### 2. AgentMemory Runtime Flow
+
+Описать целевую state machine AgentMemory:
+
+- intake запроса;
+- проверка существующих данных в БД;
+- выбор следующего шага;
+- запрос к LLM;
+- предоставление LLM доступного slice из БД;
+- обход дерева и graph links A/B/C/D;
+- создание или обновление memory nodes;
+- создание, валидация и обновление typed links между nodes;
+- summarization;
+- finish decision;
+- формирование результата;
+- bounded partial completion;
+- `blocked` only при недоступном LLM API или невозможности получить валидный LLM response после bounded retry.
+
+Запретить бесконечные циклы, silent fallback, неограниченный обход дерева, неограниченное создание links и возврат "успеха" без полезного результата.
+
+### 3. LLM Command Protocol
+
+Чётко разделить runtime и LLM.
+
+Runtime владеет:
+
+- доступом к БД;
+- обходом дерева;
+- чтением файлов;
+- записью A/B/C/D;
+- валидацией node ids, paths и graph links;
+- retry/caps;
+- внешними событиями;
+- финальным envelope ответа.
+
+LLM владеет только решениями в рамках закрытого JSON-протокола:
+
+- какой участок дерева изучить дальше;
+- какие уже известные B/C/D ноды релевантны;
+- какие связи между нодами являются кандидатами;
+- нужно ли запросить summary;
+- достаточно ли данных для finish;
+- как сформулировать compact decision summary.
+
+Документ обязан описать все команды runtime → LLM, например:
+
+- `plan_traversal`;
+- `summarize_b`;
+- `summarize_c`;
+- `propose_links`;
+- `finish_decision`;
+- `repair_invalid_response`, если нужен отдельный режим восстановления формата.
+
+Для каждой команды нужны:
+
+- назначение;
+- входной JSON;
+- выходной JSON;
+- required поля;
+- forbidden поля;
+- пример happy path;
+- пример invalid response и recovery;
+- какие данные runtime имеет право показать LLM;
+- какие данные запрещено показывать или логировать.
+
+### 4. Memory Graph Links: B/C/D Semantic Relations
+
+Целевой алгоритм обязан описать, как AgentMemory создаёт и обновляет связи между memory nodes во время обхода дерева и summarization.
+
+Нужно зафиксировать, что AgentMemory строит не только иерархию A → B → C, но и typed graph links между B/C/D нодами.
+
+Минимальные типы связей:
+
+- `contains`: A содержит B, B содержит B/C.
+- `imports`: B-файл импортирует другой B-файл, package/module/header или внешний dependency.
+- `defines`: B-файл определяет C-ноду, например функцию, класс, тип, markdown section, config block.
+- `calls`: C-нода вызывает другую C-ноду, если это известно из кода или reliable static analysis.
+- `references`: C-нода ссылается на другую C/D/B-ноду, например markdown heading ссылается на кодовый symbol, config ссылается на service, test ссылается на implementation.
+- `summarizes`: D-нода фиксирует итог по конкретному пользовательскому запросу и ссылается на B/C-ноды, на основании которых сделан вывод.
+- `supports_answer`: B/C-нода использована как evidence для D-ноды или финального `agent_memory_result`.
+- `supersedes`: новая D-нода заменяет или уточняет прежнюю D-ноду для того же query/topic, если runtime явно решил обновить query memory.
+
+Для каждой связи нужно описать:
+
+- source node type;
+- target node type;
+- direction;
+- required payload fields;
+- confidence/source: `static_analysis|llm_inferred|runtime_observed|user_request`;
+- правила обновления и удаления;
+- когда связь запрещена;
+- как связь попадает или не попадает во внешний result.
+
+LLM не должна произвольно писать связи в БД. LLM может только предложить link candidates в закрытом JSON-ответе. Runtime обязан валидировать node ids, paths, confidence, source evidence и только затем применять изменения.
+
+Нужны schema-like примеры:
+
+```json
+{
+  "schema_version": "agent_memory_link_candidate.v1",
+  "link_id": "candidate-...",
+  "link_type": "calls|imports|references|summarizes|supports_answer",
+  "source_node_id": "C:...",
+  "target_node_id": "C:...",
+  "source_path": "relative/path",
+  "target_path": "relative/path|null",
+  "evidence": {
+    "kind": "line_range|symbol_name|heading_text|llm_summary",
+    "value": "string",
+    "start_line": 10,
+    "end_line": 20
+  },
+  "confidence": "high|medium|low",
+  "created_by": "static_analysis|llm_inferred|runtime_observed",
+  "reason": "short human-readable explanation"
+}
+```
+
+Правила:
+
+- `calls` разрешён только между C-нодами кода, если есть symbol evidence или reliable runtime/static evidence.
+- `imports` должен связывать B → B, B → external dependency или B → C, если импорт указывает на конкретный symbol.
+- `references` разрешён для документации, markdown headings, config, tests и code comments, если есть явный текстовый или структурный evidence.
+- `summarizes` и `supports_answer` используются для связи D с B/C evidence.
+- Low-confidence LLM links не должны становиться hard facts. Они могут быть advisory и должны быть помечены как `confidence="low"` или отклонены runtime по политике.
+- Нельзя создавать links на абсолютные пути, `..` paths, несуществующие node ids или symbols без evidence.
+
+### 5. Prompting For Multi-Language And Documentation Files
+
+Prompts AgentMemory должны явно объяснять LLM, что project memory состоит не только из Python-кода.
+
+AgentMemory обязан поддерживать как минимум следующие виды файлов:
+
+- source code: Python, Go, C, C++, TypeScript/JavaScript, Rust, Java и другие языки как text/code input;
+- documentation: Markdown, reStructuredText, plain text, design docs;
+- configuration: YAML, JSON, TOML, INI, env examples;
+- build/runtime files: Dockerfile, Makefile, CMake, package manifests, scripts;
+- tests and fixtures.
+
+C-нода означает "semantic chunk", а не только Python function/class.
+
+Примеры C-ноды:
+
+- функция, метод, класс, struct, enum, interface, trait;
+- Go package-level function или type;
+- C/C++ function, class, namespace, header declaration;
+- TypeScript function, class, React component, exported type;
+- Markdown heading section;
+- YAML/JSON config section;
+- Dockerfile stage;
+- Makefile target;
+- test case or test fixture block.
+
+Prompts для LLM должны требовать:
+
+- определить file kind перед анализом;
+- выбирать segmentation policy по file kind;
+- не предполагать Python AST для всех файлов;
+- для неизвестного языка использовать bounded text/heading/symbol heuristics;
+- возвращать `file_kind`, `language`, `semantic_chunk_kind` и `evidence`;
+- отличать factual summary от hypothesis;
+- не создавать `calls` / `imports` links без evidence.
+
+Пример output fragment для C creation/summarization:
+
+```json
+{
+  "file_kind": "source_code|documentation|configuration|build_file|test|unknown_text",
+  "language": "python|go|cpp|c|typescript|markdown|yaml|json|dockerfile|makefile|unknown",
+  "semantic_chunk_kind": "function|class|method|struct|interface|heading_section|config_section|build_target|test_case|text_window",
+  "candidates": [
+    {
+      "stable_name": "Server.start",
+      "start_line": 42,
+      "end_line": 88,
+      "summary": "Starts the server and registers routes.",
+      "link_candidates": []
+    }
+  ]
+}
+```
+
+Runtime должен иметь fallback для неизвестных языков и текстовых файлов: bounded text windows или heading-based sections, но такой fallback обязан быть явно помечен как `semantic_chunk_kind="text_window"` или `heading_section`.
+
+### 6. Prompts
+
+Зафиксировать prompts, которые AgentMemory использует для конфигурации LLM во всех состояниях.
+
+Минимум:
+
+- общий system prompt AgentMemory;
+- prompt для traversal/planning;
+- prompt для B summary;
+- prompt для C summary;
+- prompt для link proposal;
+- prompt для finish decision;
+- prompt для format repair / retry, если используется.
+
+Prompts должны запрещать chain-of-thought в output, произвольные filesystem/tool действия, shell/python execution, абсолютные пути от LLM, `..` paths, raw secrets, большие raw file dumps и создание hard graph links без evidence.
+
+### 7. External Protocol / Events
+
+Зафиксировать внешний протокол сообщений AgentMemory для инициаторов и UI.
+
+Нужны события минимум для:
+
+- heartbeat: AgentMemory жив и работает;
+- progress/state change: текущий runtime state;
+- highlighted nodes: какие B/C/D ноды сейчас анализируются, чтобы Desktop мог подсветить их;
+- link candidates / links updated: какие связи между нодами предложены, подтверждены, отклонены, созданы или изменены;
+- nodes created/updated: какие memory nodes созданы или изменены, чтобы CLI мог логировать, а Desktop мог визуализировать 3D memory;
+- partial result;
+- complete result;
+- blocked/error result.
+
+Для каждого event нужны:
+
+- event type;
+- payload schema;
+- required поля;
+- nullable/default правила;
+- compact human message;
+- что можно писать в logs/journal;
+- что запрещено писать: raw prompt, chain-of-thought, secrets, большие outputs.
+
+### 8. CLI `ailit memory init`
+
+Зафиксировать, что `ailit memory init` запускает человеческий natural language request в AgentMemory.
+
+Нужно описать:
+
+- default request для init по проекту целиком;
+- как CLI получает heartbeat/progress;
+- как CLI показывает created/updated nodes;
+- как CLI показывает created/updated links;
+- как CLI завершает `complete`, `partial`, `blocked`;
+- какие команды проверки должны доказать работоспособность.
+
+### 9. Result Contract
+
+Зафиксировать финальный ответ AgentMemory.
+
+Нужно использовать или усилить `agent_memory_result.v1` из `plan/14-agent-memory-runtime.md`.
+
+Обязательно описать:
+
+- `complete`;
+- `partial`;
+- `blocked`;
+- `decision_summary`;
+- `recommended_next_step`;
+- список найденных summary/read_lines/b_path;
+- список relevant nodes и relevant graph links;
+- runtime trace без raw prompts и secrets;
+- связь результата с AgentWork и CLI.
+
+### 10. Failure / Retry Rules
+
+Описать точные правила:
+
+- LLM API недоступно → `blocked` / error result;
+- LLM вернула invalid JSON → bounded retry/repair;
+- LLM выбрала несуществующую ноду → runtime возвращает structured correction или выбирает bounded partial;
+- LLM предложила invalid graph link → runtime отклоняет link, пишет compact reason и продолжает, если основной memory result возможен;
+- нет данных в БД → runtime может создать/обновить память через разрешённый flow;
+- файл недоступен/удалён → partial с reason;
+- язык файла неизвестен → fallback `unknown_text` / bounded text windows, не crash;
+- превышены caps → partial с reason;
+- нет полного ответа, но есть полезные данные → partial, не crash.
+
+### 11. Examples
+
+Target doc обязан содержать минимум четыре человекочитаемых сценария:
+
+1. Happy path: AgentWork спрашивает "какие файлы нужны для изменения сервера", AgentMemory обходит существующие B/C, при необходимости создаёт summary, links и возвращает relevant files/read_lines.
+2. Init path: CLI `ailit memory init` запускает создание памяти по проекту целиком, AgentMemory отправляет heartbeat/progress/node update/link update events и завершает complete или bounded partial.
+3. Cross-language path: проект содержит Go/C++/TypeScript или другой не-Python код; AgentMemory определяет file kind, создаёт C-ноды и links без Python-only assumptions.
+4. Documentation path: markdown/design doc ссылается на код или config; AgentMemory создаёт `references` links между heading section и relevant B/C.
+5. Failure/recovery path: LLM возвращает invalid JSON или недоступен один файл; runtime делает bounded repair/retry и возвращает partial/blocked по строгим правилам.
+
+### 12. Acceptance Criteria
+
+Документ должен содержать проверяемые критерии:
+
+- future `start-feature` не может реализовать AgentMemory без закрытого LLM command protocol;
+- AgentMemory не может падать при обычных runtime ошибках, кроме недоступности LLM API после bounded retry;
+- все внешние события имеют schema;
+- prompts зафиксированы;
+- result envelope зафиксирован;
+- B/C/D graph links зафиксированы как typed, evidence-backed и runtime-validated;
+- multi-language и documentation file handling зафиксированы без Python-only assumptions;
+- Desktop получает highlighted nodes, node updates и link updates;
+- CLI получает progress, node/link logs и итоговый result;
+- `context/algorithms/INDEX.md` ссылается на canonical AgentMemory docs.
+
+## Out Of Scope
+
+В этом workflow не реализовывать product code, не писать implementation plan, не менять runtime, не создавать тесты реализации. Только target-doc research, draft, verification и user approval.
+
+## Approval
+
+После draft и verification нужно остановиться и попросить мой явный OK. Без моего OK документ остаётся draft.
