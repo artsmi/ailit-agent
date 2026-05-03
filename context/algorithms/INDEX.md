@@ -13,4 +13,4 @@
 
 | Документ | Назначение | Статус |
 |----------|------------|--------|
-| _нет утверждённых target algorithms_ | Первый документ должен быть создан через `start-research`. | — |
+| [agent-memory/INDEX.md](agent-memory/INDEX.md) | Целевой алгоритм **AgentMemory**: broker/CLI, W14, PAG graph, LLM protocol, события, failure/retry. | `approved` (2026-05-03) |
