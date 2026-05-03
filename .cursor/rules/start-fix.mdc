@@ -11,7 +11,7 @@ alwaysApply: false
 
 - `.cursor/agents/01_orchestrator.md`
 - `.cursor/rules/project/project-config.mdc`
-- `.cursor/rules/project/project-agent-models.mdc` *(если существует)*
+- `.cursor/rules/project/project-agent-models.mdc` *(в ailit-agent обязателен: карта `Auto` для Subagents; читать до первого запуска `02+`)*
 - `.cursor/rules/project/project-orchestrator-overrides.mdc`
 - `.cursor/rules/project/project-workflow.mdc`
 - `.cursor/rules/project/project-human-communication.mdc`
