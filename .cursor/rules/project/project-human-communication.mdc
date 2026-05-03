@@ -142,10 +142,22 @@ Target document должен быть человекочитаемым и тех
 - `context/artifacts/target_doc/target_doc_quality_matrix.md` — качество разделов.
 - `context/artifacts/target_doc/open_gaps_and_waivers.md` — gaps, TBD и waiver candidates.
 - `context/artifacts/target_doc/reader_review.md` — решение `23_target_doc_reader_reviewer`.
+- `context/artifacts/target_doc/start_feature_handoff.md` — как безопасно запускать следующий `start-feature`.
 
 User approval должен запрашиваться на **human review packet + target doc**, а не только на технический draft.
 
 Если core section имеет `low` clarity/completeness, approval запрещён без rework или explicit user waiver. Waiver не допускается для отсутствующего source goal, target flow, examples, acceptance criteria или provenance.
+
+Gap taxonomy для `open_gaps_and_waivers.md`:
+
+- `implementation_backlog`: target описан, код ещё не реализован;
+- `doc_incomplete`: документ неполон;
+- `user_decision_needed`: нужен выбор человека;
+- `naming_tbd`: точное имя/ключ/enum ещё не выбрано;
+- `current_target_mismatch`: current reality отличается от target;
+- `verification_gap`: нет проверки или observability proof.
+
+`start_feature_handoff.md` должен рекомендовать маленькие первые slices и явно запрещать broad scope вроде "реализовать весь AgentMemory".
 
 ## Примеры В Target Doc
 
@@ -205,6 +217,7 @@ Target-doc ownership:
 | `context/artifacts/target_doc/target_doc_quality_matrix.md` | `23_target_doc_reader_reviewer` |
 | `context/artifacts/target_doc/open_gaps_and_waivers.md` | `23_target_doc_reader_reviewer` |
 | `context/artifacts/target_doc/reader_review.md` | `23_target_doc_reader_reviewer` |
+| `context/artifacts/target_doc/start_feature_handoff.md` | `23_target_doc_reader_reviewer` |
 | `context/artifacts/target_doc/approval.md` | `18_target_doc_orchestrator` |
 
 Если роль собирается создать чужой артефакт, она обязана остановиться и вернуть blocker/next action для оркестратора.

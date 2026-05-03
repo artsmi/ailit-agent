@@ -26,6 +26,8 @@ description: Решает готовность данных, research jobs, во
 - какой вопрос задать пользователю;
 - можно ли запускать `21_target_doc_author`;
 - какие constraints и decisions должны попасть в целевой документ.
+- какие original request requirement IDs должны быть покрыты в `source_request_coverage.md`;
+- какие small-scope recommendations должны войти в `start_feature_handoff.md`.
 
 ## Границы
 
@@ -73,6 +75,7 @@ description: Решает готовность данных, research jobs, во
 - `user_answers.md` optional
 - `previous_target_doc` optional
 - `previous_synthesis.md` optional
+- `original_request_requirements[]` optional; если отсутствует, создай их в synthesis как `OR-001`, `OR-002`, ...
 - `draft_doc` optional
 - `verification.md` optional
 
@@ -380,6 +383,11 @@ Legacy fallback:
 
 <кратко + ссылка на original_user_request.md>
 
+## Original Request Requirements
+
+| ID | Requirement | Criticality | Expected target-doc section |
+|----|-------------|-------------|-----------------------------|
+
 ## Readiness
 
 <empty|insufficient|needs_user_choice|author_ready>
@@ -421,6 +429,10 @@ G1...
 ## Requirements For 21
 
 <что author обязан включить>
+
+## Requirements For 23
+
+<что reader reviewer обязан проверить в source coverage, quality matrix, gaps/waivers и handoff>
 ```
 
 ## Requirements For `21`
@@ -439,6 +451,8 @@ G1...
 - required commands;
 - observability requirements;
 - acceptance criteria.
+- original request requirement IDs (`OR-*`) and expected target sections.
+- required small-scope recommendations for future `start-feature`.
 
 Если этого нет, не ставь `ready_for_author=true`.
 
@@ -486,6 +500,27 @@ G1...
 - если `22.required_author_rework[*].requires_new_research=true`, не отправляй сразу в `21`: сформируй follow-up `research_waves`, обнови `research_waves.json` / `research_waves.md` и верни `needs_research`;
 - если `22` approved, верни `completed` или `wait_for_user_approval` в зависимости от user approval state.
 
+## Small-Scope Recommendations
+
+Для больших target docs `20` обязан предложить маленькие первые implementation slices. Эти рекомендации потребляет `23` при создании `start_feature_handoff.md`.
+
+Формат в `synthesis.md`:
+
+```markdown
+## Small-Scope Recommendations
+
+| ID | Slice | Why First | Target Doc Sections | Must Not Include |
+|----|-------|-----------|---------------------|------------------|
+| S1 | Prompt contract alignment | Low blast radius, high clarity | `prompts.md`, `llm-commands.md` | graph persistence |
+```
+
+Правила:
+
+- минимум 2-5 slices для большого канона;
+- каждый slice должен быть проверяемым;
+- запрещено рекомендовать "реализовать весь AgentMemory";
+- каждый slice должен иметь `Must Not Include`, чтобы ограничить scope.
+
 ## JSON Schema
 
 ```json
@@ -507,7 +542,9 @@ G1...
     "decisions": ["D1"],
     "examples_required": ["happy path", "partial path", "failure path"],
     "commands_required": ["ailit memory init ./"],
-    "acceptance_criteria_required": ["complete marker in journal"]
+    "acceptance_criteria_required": ["complete marker in journal"],
+    "original_request_requirement_ids": ["OR-001"],
+    "small_scope_recommendations_required": ["S1"]
   },
   "next_action": "run_author",
   "next_role": "21_target_doc_author"
@@ -531,6 +568,7 @@ G1...
 - заставлять `18` самому решать wave grouping или parallelism;
 - возвращать unknown `research_waves[*].jobs[*].kind`;
 - закрывать workflow без `22` и user OK.
+- возвращать `ready_for_author=true` без `Original Request Requirements` и `Small-Scope Recommendations` для большого target doc.
 
 ## Checklist
 
@@ -539,8 +577,10 @@ G1...
 - [ ] Donor reports проверены или явно не нужны.
 - [ ] Facts отделены от hypotheses.
 - [ ] Gaps записаны.
+- [ ] Original request разбит на requirement IDs (`OR-*`) или явно reused previous coverage.
 - [ ] Research waves/jobs имеют `wave_id`, `job_id`, `kind`, `scope/question`, output path и корректный `parallel`.
 - [ ] Если есть research waves, созданы `research_waves.json` и `research_waves.md`.
+- [ ] Для большого target doc есть small-scope recommendations.
 - [ ] User questions человекочитаемые и с последствиями.
 - [ ] `ready_for_author` только при полной структуре для `21`.
 - [ ] При `ready_for_author=true` указан `next_role=21_target_doc_author`.
