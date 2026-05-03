@@ -1,0 +1,396 @@
+Нужно провести ревью результата нового `start-research` / target-doc workflow.
+
+Ты работаешь как reviewer результата агентского workflow. Product code не менять. Prompt/rules не менять. Твоя задача — проверить, что агентская система действительно выполнила target-doc pipeline корректно, без inline-исполнения чужих ролей, с полным human approval package и с готовым каноном для будущего `start-feature` / `start-fix`.
+
+## Input To Replace By User
+
+Перед запуском пользователь должен заменить путь ниже на актуальную исходную постановку:
+
+- **Original request / постановка:** `<REPLACE_WITH_PROMPT_OR_REQUEST_PATH>`
+
+Пример:
+
+- `prompts/agent-memory-start-research.txt`
+- `prompts/agent-memory-rework-target-doc.txt`
+- `context/artifacts/target_doc/original_user_request.md`
+
+## Expected Scope
+
+Проверь результат в этих областях:
+
+- `context/artifacts/target_doc/`
+- `context/algorithms/`
+- `.cursor/rules/start-research.mdc`
+- `.cursor/agents/18_target_doc_orchestrator.md`
+- `.cursor/agents/20_target_doc_synthesizer.md`
+- `.cursor/agents/21_target_doc_author.md`
+- `.cursor/agents/22_target_doc_verifier.md`
+- `.cursor/agents/23_target_doc_reader_reviewer.md`
+
+Не исправляй файлы. Только читай и делай review.
+
+## Main Questions
+
+Ответ должен закрыть три вопроса:
+
+1. Релевантен ли результат исходной постановке?
+2. Можно ли считать target-doc workflow корректно выполненным?
+3. Можно ли использовать результат как вход для `start-feature` / `start-fix`?
+
+## Required Review Method
+
+Проверяй не "на глаз", а по артефактам.
+
+Для каждого пункта ниже укажи:
+
+- `pass` / `fail` / `partial` / `not_applicable`;
+- source path;
+- короткое объяснение;
+- required fix, если не `pass`.
+
+## 1. Intake / preflight
+
+Проверь:
+
+- `context/artifacts/target_doc/original_user_request.md` существует.
+- Если это rework, есть отдельный файл follow-up request или понятная секция rework request.
+- `preflight.md` существует.
+- `preflight.md` содержит `Produced by: 18_target_doc_orchestrator`.
+- `preflight.md` перечисляет allowed reads и forbidden reads для `18`.
+- `preflight.md` указывает первый Subagent: `20_target_doc_synthesizer`.
+- `18` не читал product/runtime source для анализа.
+
+Плохой признак:
+
+```text
+18 пишет "читаю plan/14", "исследую tools/**", "выполняю роль 19" до запуска Subagent.
+```
+
+Хороший признак:
+
+```text
+18 сохранил request, создал preflight, запустил 20 через Subagent.
+```
+
+## 2. Subagent ledger
+
+Проверь:
+
+- `subagent_ledger.md` существует.
+- Есть записи для `20`.
+- Если были research waves, есть записи для всех `19` / `14`.
+- Есть записи для `21`, `22`, `23`.
+- Для каждой записи указаны role, subagent type, input, output, status.
+- Нет признаков inline-исполнения ролей.
+
+Если ledger отсутствует — `fail`: новый workflow не доказал, что роли запускались как Subagents.
+
+## 3. Research waves
+
+Проверь:
+
+- Если `20` вернул research, существуют:
+  - `research_waves.json`
+  - `research_waves.md`
+  - `wave_execution_report.md`
+- `research_waves.json` содержит `produced_by: 20_target_doc_synthesizer`.
+- `research_waves.md` содержит `Produced by: 20_target_doc_synthesizer`.
+- `wave_execution_report.md` содержит `Produced by: 18_target_doc_orchestrator`.
+- `18` исполнил waves из `research_waves.json`, а не из собственной логики.
+- `parallel=true` waves запускались одной пачкой Subagent calls.
+- `parallel=false` waves запускались последовательно.
+- `wave_id`, `job_id`, `output_file` уникальны.
+
+Плохой признак:
+
+```text
+20 вернул 6 jobs, но нет research_waves.json.
+```
+
+Хороший признак:
+
+```text
+20 создал research_waves.json/md; 18 создал wave_execution_report.md; ledger показывает batch launch.
+```
+
+## 4. Current repo research reports
+
+Проверь каждый `context/artifacts/target_doc/current_state/*.md`:
+
+- содержит `Produced by: 19_current_repo_researcher`;
+- имеет job id/scope/questions;
+- содержит findings с source/evidence;
+- отделяет current reality от target behavior;
+- не пишет target doc;
+- не запускает других агентов.
+
+Если report содержит выводы без source path/symbol — `partial` или `fail`.
+
+## 5. Donor reports
+
+Если есть `context/artifacts/target_doc/donor/*.md`, проверь:
+
+- содержит `Produced by: 14_donor_researcher`;
+- есть donor repo path;
+- есть research question;
+- есть source-backed findings;
+- есть no-copy/adaptation boundary;
+- rejected patterns зафиксированы;
+- donor pattern не принят как product decision без `20`.
+
+Если donor не использовался, это может быть `not_applicable`, если `20` явно сказал, что donor не нужен.
+
+## 6. Synthesis by 20
+
+Проверь `synthesis.md`:
+
+- содержит `Produced by: 20_target_doc_synthesizer`;
+- содержит Source Request;
+- содержит Readiness;
+- содержит Current Repo Facts;
+- содержит Donor Facts или объяснение, почему donor не нужен;
+- содержит What Is Missing;
+- содержит Original Request Requirements с IDs `OR-*`;
+- содержит Requirements For 21;
+- содержит Requirements For 23;
+- содержит Small-Scope Recommendations для большого target doc;
+- если есть research waves, ссылается на `research_waves.json/md`.
+
+Плохой признак:
+
+```text
+20 пишет "документ готов", но не разбил original request на OR-*.
+```
+
+Хороший признак:
+
+```text
+20 связывает OR-001..OR-N с future target sections and author inputs.
+```
+
+## 7. Author draft by 21
+
+Проверь `target_algorithm_draft.md` или canonical target doc:
+
+- содержит `Produced by: 21_target_doc_author`;
+- содержит `Source synthesis`;
+- не содержит признаков чтения product source самим `21`;
+- содержит Source User Goal;
+- содержит Scope / Out of Scope;
+- разделяет Current Reality и Target Behavior;
+- содержит Target Flow;
+- содержит Examples: happy, partial/recovery, failure/blocked;
+- содержит Inputs/Outputs;
+- содержит State Lifecycle;
+- содержит Commands / proof;
+- содержит Observability;
+- содержит Failure/retry rules;
+- содержит Acceptance Criteria;
+- содержит Do Not Implement This As;
+- содержит How start-feature / start-fix Must Use This.
+
+Если есть thin core section, например `prompts.md` на 20 строк при исходном требовании "prompts для всех состояний", это `fail`.
+
+## 8. Technical verification by 22
+
+Проверь `verification.md`:
+
+- содержит `Produced by: 22_target_doc_verifier`;
+- проверяет draft producer marker;
+- проверяет synthesis producer marker;
+- проверяет current/donor reports producer markers;
+- findings имеют section/problem/required_change;
+- если finding требует новых facts, указано `requires_new_research: true`;
+- если `approved`, нет BLOCKING/MAJOR;
+- `ready_for_user_approval=true` только после технической полноты.
+
+Плохой признак:
+
+```text
+22 approved, но prompts.md thin или source_request_coverage.md missing.
+```
+
+## 9. Reader review by 23
+
+Проверь, что существуют:
+
+- `human_review_packet.md`
+- `source_request_coverage.md`
+- `target_doc_quality_matrix.md`
+- `open_gaps_and_waivers.md`
+- `reader_review.md`
+- `start_feature_handoff.md`
+
+Каждый файл должен иметь:
+
+```text
+Produced by: 23_target_doc_reader_reviewer
+```
+
+Проверь `source_request_coverage.md`:
+
+- есть original request blocks или `OR-*`;
+- есть depth: `full|partial|thin|missing`;
+- нет critical `missing`;
+- нет critical `thin`.
+
+Проверь `target_doc_quality_matrix.md`:
+
+- core sections имеют не ниже `medium`;
+- no core `low`;
+- verdict согласован с reader_review.
+
+Проверь `open_gaps_and_waivers.md`:
+
+- каждый gap имеет type;
+- каждый gap имеет severity;
+- waivers не используются для запрещённых категорий.
+
+Проверь `reader_review.md`:
+
+- verdict `approved_for_user_review` only if package complete;
+- findings concrete;
+- no vague approval.
+
+## 10. Artifact validation
+
+Проверь:
+
+- `artifact_validation.md` существует;
+- содержит `Produced by: 18_target_doc_orchestrator`;
+- проверяет все required artifacts;
+- проверяет producer markers;
+- проверяет links/file existence;
+- итог `pass` только если всё реально существует.
+
+Если artifact_validation отсутствует — `fail`, даже если остальные файлы выглядят хорошо.
+
+## 11. Approval state
+
+Проверь:
+
+- до user OK: `status.md` должен быть `awaiting_user_approval` / `completion_allowed=false`;
+- после user OK:
+  - есть `approval_primary.md` или `approval_rework_<id>.md`;
+  - есть `approval_latest.md`;
+  - `status.md` completion true;
+  - canonical target doc exists.
+
+Если старый `approval.md` маскирует новый rework, это `fail`.
+
+## 12. Start-feature handoff
+
+Проверь `start_feature_handoff.md`:
+
+- есть `Produced by: 23_target_doc_reader_reviewer`;
+- есть Recommended First Slices;
+- есть Forbidden Broad Scope;
+- есть Required Inputs For start-feature;
+- есть Required Final Evidence;
+- есть Known Gaps To Consider;
+- есть small-scope recommendations.
+
+Плохой признак:
+
+```text
+Запустить start-feature по всему AgentMemory.
+```
+
+Хороший признак:
+
+```text
+Первый slice: prompt contract alignment. Must not include graph persistence.
+```
+
+## 13. Human clarity / anti-AI check
+
+Проверь sample sections in target doc and approval package:
+
+- нет generic praise;
+- нет vague claims;
+- actor/action/artifact named;
+- no chatbot artifacts;
+- no "документ готов" without evidence;
+- no "улучшить" without concrete change.
+
+Если есть AI-ish vague sections, укажи exact file/line/section and fix.
+
+## 14. Final answer format
+
+Ответь структурой:
+
+```markdown
+## Verdict
+
+`ready_for_start_feature` | `needs_rework` | `blocked`
+
+## Summary
+
+<коротко>
+
+## Findings
+
+### F1: <title>
+
+Severity: BLOCKING | MAJOR | MINOR
+Area:
+Source:
+Problem:
+Required fix:
+
+## Can this be used for start-feature?
+
+<yes/no/yes-with-limits>
+
+## Recommended next action
+
+<что делать дальше>
+
+## Required agent-system fixes
+
+Если ревью нашло проблемы workflow, обязательно заверши отчёт отдельным разделом:
+
+| Fix ID | Area | Problem in workflow | Required change in agents/rules | Priority |
+|--------|------|---------------------|---------------------------------|----------|
+
+Минимум проверь, нужны ли правки в:
+
+- `.cursor/agents/18_target_doc_orchestrator.md`
+- `.cursor/agents/20_target_doc_synthesizer.md`
+- `.cursor/agents/21_target_doc_author.md`
+- `.cursor/agents/22_target_doc_verifier.md`
+- `.cursor/agents/23_target_doc_reader_reviewer.md`
+- `.cursor/rules/start-research.mdc`
+- `.cursor/rules/project/project-human-communication.mdc`
+
+Если проблем workflow нет, напиши:
+
+```markdown
+## Required agent-system fixes
+
+Нет. Найденные замечания относятся только к конкретному target doc / input data, не к агентской системе.
+```
+
+Плохой пример:
+
+```markdown
+Нужно улучшить агента 18.
+```
+
+Хороший пример:
+
+```markdown
+| Fix ID | Area | Problem in workflow | Required change in agents/rules | Priority |
+|--------|------|---------------------|---------------------------------|----------|
+| AF-1 | `18` artifact validation | `human_review_packet.md` ссылается на отсутствующий `source_request_coverage.md`, но `18` всё равно запросил approval | В `18_target_doc_orchestrator.md` запретить approval, если любой link из human packet отсутствует; добавить check в `artifact_validation.md` | high |
+```
+```
+
+## Important Rules
+
+- Не исправляй файлы.
+- Не запускай product code.
+- Не делай commit.
+- Не засчитывай отсутствующий файл как pass.
+- Не засчитывай старый approval как approval нового rework.
+- Если source request path placeholder не заменён пользователем — верни input blocker.
