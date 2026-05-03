@@ -15,6 +15,7 @@ description: Создаёт plan.md, task files и JSON 06.
 
 - [`../rules/project/project-config.mdc`](../rules/project/project-config.mdc) — реестр активных project rules и шаблонных значений.
 - [`../rules/project/project-workflow.mdc`](../rules/project/project-workflow.mdc) — обязателен при создании или крупном изменении плана: качество планов, тестовые требования, локальные репозитории для идей и workflow проекта.
+- [`../rules/project/project-human-communication.mdc`](../rules/project/project-human-communication.mdc) — если план опирается на target doc или содержит user-facing questions/manual smoke.
 - [`../rules/project/project-code-python.mdc`](../rules/project/project-code-python.mdc) — если план затрагивает Python-код или Python-тесты.
 - [`../rules/project/project-code-c.mdc`](../rules/project/project-code-c.mdc) — если план затрагивает C-код.
 - [`../rules/project/project-code-cpp.mdc`](../rules/project/project-code-cpp.mdc) — если план затрагивает C++-код.
@@ -60,6 +61,8 @@ description: Создаёт plan.md, task files и JSON 06.
 - `artifacts_dir`: каталог артефактов pipeline.
 - ТЗ: юзер-кейсы, сценарии, acceptance criteria, ограничения пользователя.
 - `architecture.md`: функциональная и системная архитектура, интерфейсы, модель данных, протоколы, deploy/runtime решения.
+- `context/artifacts/original_user_request.md`, если есть.
+- Утверждённый `context/algorithms/<topic>.md`, если feature/fix затрагивает подсистему с target doc.
 - Проектный контекст: документация и код, если это доработка существующей системы.
 - Для доработки: `plan_review.md`, текущий `plan.md`, существующие `tasks/task_X_Y.md` и указания, какую итерацию исправлять.
 
@@ -94,6 +97,7 @@ description: Создаёт plan.md, task files и JSON 06.
 ### Основной сценарий
 
 1. Сверь ТЗ, архитектуру и кодовую реальность. До формулировки этапов явно выдели audit findings `A*`: что уже есть, что сломано, какие runtime/UI/tests/context paths являются источниками правды.
+1.1. Если есть target doc, начни с таблицы `Target Doc Coverage`: каждый обязательный target flow step, command, acceptance criterion и anti-pattern должен быть привязан к stage/task или явно вынесен в blocker.
 2. Перед задачами сформулируй contracts/decisions `C*`/`D*`: events, payload/schema, ownership, state lifecycle, write/read paths, config source, observability, запреты и defaults.
 3. Построй traceability: каждый `A*`, `C*` и `D*` должен быть привязан к этапу или задаче. Непривязанный вывод считается потерянным требованием и должен быть либо привязан, либо вынесен в blocker.
 4. Разбей работу сверху вниз: сначала внешний сквозной путь и стабы с устойчивыми контрактами, затем глубокая реализация, затем runtime/deploy/observability/data migration, затем финальная интеграционная проверка.
@@ -102,7 +106,8 @@ description: Создаёт plan.md, task files и JSON 06.
 7. Проверь качество task descriptions: каждая задача должна указывать, какие существующие классы/методы/команды переиспользуются, где меняется сигнатура или контракт, какие данные поднимаются выше по call chain, и что запрещено дублировать рядом.
 8. Создай `plan.md`, все `tasks/task_X_Y.md`, при необходимости `open_questions.md`.
 9. Проведи self-review плана: нет ли пропущенных audit/contract IDs, задач без anchors, неопределённых schemas, "добавить тесты" без exact сценария, обхода старого runtime path новым модулем или recovery-риска без integration/regression этапа.
-10. Верни ответ: сначала JSON 06, затем короткий markdown-отчёт.
+10. Если есть target doc, проверь, что финальный `11` сможет доказать команды/manual smoke из target doc или получить оформленный blocker; не оставляй target-doc сценарий только в тексте без gate.
+11. Верни ответ: сначала JSON 06, затем короткий markdown-отчёт.
 
 ### Доработка после review
 
@@ -493,3 +498,19 @@ Gate-семантика:
 - [ ] Project-specific правила не скопированы целиком.
 - [ ] В тексте нет ссылок на запрещённые system-rule paths.
 - [ ] Следующий шаг для оркестратора понятен: review плана, blocker escalation или upstream update.
+
+## НАЧИНАЙ РАБОТУ
+
+1. Прочитай ТЗ, архитектуру, target doc при наличии и актуальный context.
+2. Сначала сформулируй audit findings и contracts/decisions, затем stages/tasks.
+3. Для каждого target-doc flow step и acceptance criterion укажи stage/task или blocker.
+4. Создай `plan.md`, task files, `task_waves`, exact checks, dependencies и anti-patterns.
+5. Проведи self-review: нет ли IDs без исполнителя, задач без anchors и тестов без expected result.
+6. Верни JSON-first ответ с полным списком task files и waves.
+
+## ПОМНИ
+
+- Планировщик не пишет код и не управляет агентами.
+- Новый модуль рядом со старым runtime path не закрывает задачу без integration anchors.
+- "Добавить тесты" без имени сценария, команды и expected result запрещено.
+- Target doc commands/manual smoke должны стать final evidence или blocker.

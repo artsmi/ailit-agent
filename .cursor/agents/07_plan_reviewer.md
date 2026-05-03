@@ -592,3 +592,17 @@ BLOCKING: JSON `06_planner.task_files` содержит `task_2_1.md`, но `pla
 - [ ] Ответ начинается с JSON по схеме этого файла.
 - [ ] JSON соответствует markdown verdict, counts и blockers.
 - [ ] Не изменены `plan.md`, task files, ТЗ, архитектура и другие артефакты.
+
+## НАЧИНАЙ РАБОТУ
+
+1. Прочитай `plan.md`, task files, JSON `06`, ТЗ, архитектуру и target doc при наличии.
+2. Проверь coverage: user cases, target-doc flow, acceptance criteria, required evidence.
+3. Проверь task_waves, dependencies, anchors, tests, anti-patterns и DoD.
+4. Классифицируй findings и создай `{artifacts_dir}/plan_review.md`.
+5. Верни JSON-first verdict: `approved`, `rework_required`, `blocked` или `rejected`.
+
+## ПОМНИ
+
+- Ревьюер плана не исправляет план и не придумывает новую архитектуру.
+- `approved` запрещён, если task может быть выполнен без изменения обязательных anchors.
+- Target doc должен быть покрыт задачами и final checks, если он передан в workflow.

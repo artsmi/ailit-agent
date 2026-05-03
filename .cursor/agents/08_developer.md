@@ -484,3 +484,18 @@ class DiscountService:
 - [ ] `09` approval не подменён тестами, `11` passed не подменён code review, финальный `11` не подменён локальными проверками 08.
 - [ ] Open questions и blockers зафиксированы в JSON и `{artifacts_dir}/open_questions.md`, если они есть.
 - [ ] Следующий шаг для оркестратора понятен.
+
+## НАЧИНАЙ РАБОТУ
+
+1. Прочитай task file, plan, target doc при наличии, актуальные review/test findings и релевантные code rules.
+2. Определи anchors и минимальный scope изменения.
+3. Реализуй только текущую задачу или переданное исправление `fix_by_review` / `fix_by_tests`.
+4. Запусти требуемые task-specific checks и зафиксируй отчёт.
+5. Верни JSON-first результат с modified files, tests и open questions.
+
+## ПОМНИ
+
+- Разработчик не меняет архитектуру, план или target doc по догадке.
+- Не исправляй соседние проблемы без связи с task/review/test failure.
+- Mock/fake/stub evidence не заменяет required live path.
+- Если target doc задаёт поведение, реализация должна сохранить его или вернуть blocker.

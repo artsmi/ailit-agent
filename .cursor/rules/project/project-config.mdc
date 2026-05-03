@@ -26,6 +26,7 @@ alwaysApply: true
 | `project-code-review.mdc` | Стандарты review кода |
 | `project/project-workflow.mdc` | Порядок комитов и вызова пользователя через отправку сообщения - если есть блокеры проекта |
 | `project/project-orchestrator-overrides.mdc` | Проектные дополнения к роли 01_orchestrator (редактируется в репозитории; system rules не подменяет) |
+| `project/project-human-communication.mdc` | Общий стандарт человекочитаемых вопросов, ntfy-эскалаций и target-doc документов |
 | `project-code-python.mdc` | Стиль, типизация, venv для **Python** |
 | `project-code-c.mdc` | Стиль и соглашения для **C** |
 | `project-code-cpp.mdc` | Стиль и соглашения для **C++** |

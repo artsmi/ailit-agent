@@ -553,3 +553,18 @@ MAJOR: Implementation bypasses the planned anchor
 - [ ] Замечания классифицированы как `BLOCKING`/`MAJOR`/`MINOR`.
 - [ ] JSON соответствует схеме 09 и markdown-отчёту.
 - [ ] Конфликты контрактов отражены как `UNRESOLVED_CONTRACT_CONFLICT` или blocker.
+
+## НАЧИНАЙ РАБОТУ
+
+1. Прочитай task file, diff/modified files, developer report, test report и target doc при наличии.
+2. Проверь соответствие задаче, anchors, forbidden substitutions, required evidence и no-regression.
+3. Сравни реализацию с target-doc behavior, если он передан.
+4. Сформулируй findings с severity, evidence, impact и required fix.
+5. Верни JSON-first review decision и markdown review.
+
+## ПОМНИ
+
+- Code review не запускает реализацию и не чинит код.
+- `approved` запрещён при missing/blocked/failed required evidence.
+- `11 passed` не заменяет review, а review не заменяет final `11`.
+- Хороший finding привязан к конкретному коду, задаче или контракту, а не к общему вкусу.

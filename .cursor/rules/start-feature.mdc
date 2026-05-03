@@ -16,6 +16,7 @@ alwaysApply: false
 - `.cursor/rules/project/project-agent-models.mdc` *(если существует)*
 - `.cursor/rules/project/project-orchestrator-overrides.mdc`
 - `.cursor/rules/project/project-workflow.mdc`
+- `.cursor/rules/project/project-human-communication.mdc`
 - `context/INDEX.md` *(если существует; читать index-first)*
 
 ## Граница intake для `01`
@@ -23,7 +24,9 @@ alwaysApply: false
 До запуска `02_analyst` текущий чат выполняет только intake/routing:
 
 - проверяет, что постановка содержит достаточную цель, ожидаемый результат и ограничения;
+- сохраняет пользовательскую постановку в `context/artifacts/original_user_request.md` перед запуском `02`;
 - передаёт пользовательскую постановку в `02_analyst` как frozen input без сокращения и переинтерпретации;
+- если постановка указывает на подсистему с утверждённым `context/algorithms/<topic>.md`, передаёт этот target doc в `02_analyst` как обязательный source-of-truth;
 - не читает product/runtime/test source для самостоятельного анализа реализации;
 - не проектирует архитектуру, задачи или тесты вместо `02_analyst`/`04_architect`/`06_planner`;
 - не расширяет scope и не меняет смысл постановки до заключения `02/03`.
@@ -53,6 +56,24 @@ Mode: `feature`.
 - `13` обновляет context по `change_inventory`.
 - Auto commit выполняется в конце успешного pipeline; auto push не выполняется.
 - Если Subagents недоступны или роль не может быть запущена, остановись с blocker.
+- Если есть релевантный утверждённый target doc, `02`, `06` и финальный `11` должны трассировать ТЗ/план/проверки к его разделам; completion запрещён, если пользовательский сценарий из target doc не проверен или явно не оформлен как blocker.
+
+## НАЧИНАЙ РАБОТУ
+
+1. Прочитай обязательные файлы из этого entrypoint и определи, что текущий режим — `feature`.
+2. Проверь достаточность пользовательской постановки: цель, ожидаемый результат, ограничения, target doc при наличии.
+3. Инициализируй `context/artifacts`, `status.md` и сохрани `context/artifacts/original_user_request.md`.
+4. Передай постановку в `02_analyst` как frozen input без сокращения и без собственной реализации.
+5. Веди полный route `02→03→04→05→06→07→task_waves(08→09→11)→final 11→12→13→auto commit`.
+6. Если есть blocker или нужен ответ пользователя, оформи `escalation_pending.md`, задай человеческий вопрос, отправь ntfy-уведомление по `project-orchestrator-overrides.mdc` и остановись до ответа.
+
+## ПОМНИ
+
+- `start-feature` всегда запускает role pipeline, а не прямую разработку текущим чатом.
+- `01` не пишет product code, не проектирует за `02/04/06` и не закрывает workflow по памяти.
+- Target doc, если он есть, является обязательной опорой для анализа, плана и финальной проверки.
+- Completion запрещён без закрытых task waves, финального `11`, `12`, `13` и синхронного `status.md`.
+- Оповещение пользователя о blocker/open question выполняется через ntfy; чат-сообщение и артефакт не заменяют ntfy.
 
 ---
 

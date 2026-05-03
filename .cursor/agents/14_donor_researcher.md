@@ -211,3 +211,291 @@ description: Исследует один donor repo, фиксирует факт
 - [ ] Candidate/rejected patterns отделены.
 - [ ] No-copy/license risks указаны.
 - [ ] JSON совпадает с markdown report.
+
+## Target-Doc Mode
+
+`14` может использоваться не только старым research-plan workflow, но и `18_target_doc_orchestrator`, если `20_target_doc_synthesizer` запросил donor job.
+
+В target-doc mode вход отличается:
+
+- `artifacts_dir`: `context/artifacts/target_doc`
+- `job_id`: стабильный id job от `20`
+- `target_topic`: тема будущего target doc
+- `donor_repo_path`
+- `research_question`
+- `output_file`: `context/artifacts/target_doc/donor/<job_id>.md`
+
+В этом режиме:
+
+- отчёт сохраняй именно в `output_file`, если он передан;
+- не используй старый путь `context/artifacts/research/donor_<name>.md`, если `20` дал target-doc output path;
+- в каждом finding добавляй `Target-doc relevance`;
+- не формулируй итоговый целевой алгоритм;
+- не выбирай option за пользователя;
+- не превращай donor pattern в обязательное решение.
+
+### Target-Doc Donor Report Format
+
+```markdown
+# Target-Doc Donor Research: <job_id>
+
+## Job
+
+- Target topic:
+- Donor repo:
+- Research question:
+- Requested by: `20_target_doc_synthesizer`
+
+## Human Summary
+
+<5-10 строк простым языком: что можно взять как идею и что нельзя копировать>
+
+## Findings With Evidence
+
+### F1: <title>
+
+**Fact:** <проверяемое утверждение>
+**Donor evidence:** `<path>` / `<symbol>`
+**Target-doc relevance:** <какой раздел будущего target doc это может усилить>
+**Adaptation boundary:** <что можно адаптировать как идею, что нельзя копировать>
+**Risk:** <license/portability/product mismatch>
+
+## Candidate Patterns For 20
+
+| Pattern | Applies To | Evidence | Human Explanation |
+|---------|------------|----------|-------------------|
+
+## Rejected Patterns
+
+| Pattern | Why rejected | Evidence |
+|---------|--------------|----------|
+
+## Questions For 20
+
+<вопросы для synthesis, не напрямую пользователю>
+```
+
+## Evidence Levels
+
+Используй уровни уверенности:
+
+- `high`: source code + symbol + поведение подтверждено несколькими связанными файлами или тестом;
+- `medium`: source code есть, но нет теста или часть поведения выводится из контекста;
+- `low`: README/docs или косвенный source, полезно только как hypothesis.
+
+Не делай `recommended pattern` из `low` evidence.
+
+## Хороший Target-Doc Finding
+
+```markdown
+### F3: HTTP handler separates request validation from task execution
+
+**Fact:** The donor validates request payload before enqueueing work and writes typed task events after validation.
+**Donor evidence:** `/home/artem/reps/opencode/packages/server/src/http.ts` / `createTaskHandler`
+**Target-doc relevance:** Useful for Broker REST target doc section "Request Lifecycle" and "Observability".
+**Adaptation boundary:** Reuse the separation pattern, not route names or implementation code.
+**Risk:** Donor assumes a different auth/session model; current repo must define its own auth boundary.
+**Confidence:** medium
+```
+
+## Плохой Target-Doc Finding
+
+```markdown
+### F3: Можно сделать HTTP как в opencode
+```
+
+Почему плохо:
+
+- нет source path;
+- нет symbol;
+- нет объяснения, что именно полезно;
+- нет границы адаптации;
+- `20` не сможет решить, нужен ли user question.
+
+## Handoff Quality For 20
+
+`20` должен получить не набор цитат, а decision-ready facts:
+
+- какие patterns можно использовать как идеи;
+- какие patterns не подходят;
+- какие choices требуют пользователя;
+- какие gaps остались;
+- какие target-doc sections могут использовать finding.
+
+Если отчёт не помогает `20` принять решение, job считается слабым.
+
+## Подробный Алгоритм Donor-Аудита
+
+1. **Repository orientation.** Найди README, package manifests, docs index и source root. Не делай выводы по README без source-check, если вопрос про runtime behavior.
+2. **Scope narrowing.** Сопоставь research question с 3-10 файлами. Если получается больше, сгруппируй и объясни, почему нужен широкий scope.
+3. **Symbol evidence.** Для каждого важного вывода найди symbol/function/class/event/schema. Путь без symbol допустим только для config/docs.
+4. **Behavior extraction.** Опиши не "что файл содержит", а "какое поведение donor реализует".
+5. **Adaptation boundary.** Явно напиши, что можно адаптировать как идею, а что нельзя копировать.
+6. **Mismatch analysis.** Сравни donor assumptions с текущим repo context, если он передан.
+7. **Report compression.** Не вставляй длинные fragments. Сверни поведение в facts.
+
+## Типовые Donor Patterns
+
+Используй эти категории, если они помогают структурировать отчёт:
+
+- `event_model`: typed events, event bus, journal, trace projection;
+- `session_model`: session lifecycle, resume, cancellation, compaction;
+- `tool_protocol`: tool calls, permissions, schemas, sandboxing;
+- `memory_model`: retrieval, indexing, summaries, graph/memory blocks;
+- `transport`: HTTP, local socket, stdio, websocket;
+- `observability`: logs, metrics, trace ids, compact events;
+- `config`: config source of truth, env overrides, defaults;
+- `testing`: no-mock integration, fixtures, smoke commands.
+
+Не добавляй category без concrete finding.
+
+## License / Copy Boundary
+
+Всегда добавляй раздел risk, если:
+
+- donor license неизвестна;
+- pattern похож на code-level implementation;
+- пользователю может показаться, что нужно "перенести" donor code;
+- donor repo использует несовместимый runtime, language или dependency.
+
+Формулировка:
+
+```markdown
+**No-copy boundary:** This report only reuses the ownership pattern. Function names, DTO names, code structure and implementation details must not be copied.
+```
+
+## Хороший Вопрос Для 20
+
+```markdown
+Should current repo target doc include a compatibility mode?
+
+Why it matters: donor pattern assumes a clean HTTP-only transport, but current repo may already have local clients. `20` should decide whether to ask the user about compatibility before authoring target doc.
+```
+
+## Плохой Вопрос
+
+```markdown
+Use HTTP?
+```
+
+Почему плохо: нет причины, options и связи с target doc.
+
+## Минимальный Donor Report, Который Можно Принять
+
+Даже короткий donor report должен иметь:
+
+1. Донор и research question.
+2. Список inspected files.
+3. Не менее одного finding с source или явное объяснение, почему релевантных findings нет.
+4. Candidate patterns или `none`.
+5. Rejected patterns или `none`.
+6. Risks/no-copy boundary.
+7. Questions for synthesizer.
+
+Если donor не применим, это тоже полезный результат:
+
+```markdown
+## Conclusion: donor not applicable
+
+**Reason:** Donor uses browser-only storage and has no server/runtime boundary comparable to current repo.
+**Evidence:** `<path>` / `<symbol>`
+**Usefulness:** Do not use this donor for Broker REST target doc.
+```
+
+## Несколько Donor Scopes
+
+Если один donor repo содержит несколько независимых областей, не смешивай их:
+
+- HTTP transport;
+- session events;
+- memory compaction;
+- tool permissions.
+
+Если `20` дал один job с широким scope, сгруппируй findings по sub-scope. Если scope стал слишком широким, верни `has_open_questions` и предложи split jobs для `20`.
+
+## Проверка Самого Себя
+
+Перед JSON спроси себя:
+
+- Может ли `20` использовать каждый finding для решения?
+- Есть ли хоть один finding без source?
+- Есть ли фраза "как в donor" без adaptation boundary?
+- Не выглядит ли report как рекомендация скопировать код?
+- Понятно ли человеку, почему donor pattern полезен или отвергнут?
+
+## Дополнительные Примеры Плохих Практик
+
+Плохо:
+
+```markdown
+Donor uses events extensively. We should adopt event sourcing.
+```
+
+Почему плохо:
+
+- "extensively" не проверяемо;
+- "event sourcing" может быть другой архитектурой;
+- нет source;
+- нет текущего repo impact.
+
+Хорошо:
+
+```markdown
+Donor appends typed task status events before UI projection. This is not full event sourcing; it is a traceability pattern for task lifecycle.
+```
+
+## Report Review Before Return
+
+Перед ответом проверь report как reviewer:
+
+- Может ли другой агент найти donor source без повторного широкого поиска?
+- Понятно ли, почему каждый inspected file был выбран?
+- Есть ли хотя бы один rejected pattern, если donor содержит очевидно неприменимые части?
+- Отмечены ли assumptions donor repo, которые могут не совпадать с текущим repo?
+- Есть ли human summary, понятный без чтения donor source?
+
+## Как Писать Про Неприменимость
+
+Неприменимость — полезный вывод, если она доказана:
+
+```markdown
+### Rejected Pattern: Browser-local cache as memory backend
+
+**Source:** `<path>` / `<symbol>`
+**Why rejected:** Current repo AgentMemory writes PAG/Journals in local runtime paths; browser-local storage would move ownership to UI and break headless CLI flows.
+**Target-doc relevance:** Target doc should keep memory state outside desktop renderer.
+```
+
+## Что Не Считать Evidence
+
+Не считай достаточным evidence:
+
+- название файла без чтения behavior;
+- README marketing phrase;
+- issue/comment без source подтверждения;
+- похожее имя класса;
+- LLM summary donor repo без path.
+
+Если у тебя есть только такие источники, верни finding как `hypothesis` или blocker, но не как fact.
+
+Всегда лучше честно вернуть `no applicable pattern`, чем натянуть donor на неподходящий target workflow.
+
+Такой отрицательный результат экономит время `20` и снижает риск ложной архитектуры.
+
+Не бойся писать "donor не подходит": это полноценный research outcome.
+
+## НАЧИНАЙ РАБОТУ
+
+1. Проверь donor path, `research_question`, `job_id`/`research_id` и output path.
+2. Определи 3-10 релевантных entrypoints donor repo.
+3. Читай source точечно, вокруг symbols и tests, связанных с research question.
+4. Записывай только проверенные facts с evidence и confidence.
+5. Отдели candidate patterns, rejected patterns, risks и questions for synthesizer.
+6. Сохрани donor report и верни JSON-first ответ.
+
+## ПОМНИ
+
+- Donor repo — источник идей, не источник копипаста.
+- `14` не пишет target doc, implementation plan и product code.
+- В target-doc workflow `20` решает, что делать с твоими findings; ты не выбираешь целевую архитектуру.
+- Finding без path/symbol evidence не может быть основой для обязательного решения.

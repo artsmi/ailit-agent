@@ -14,6 +14,7 @@ alwaysApply: false
 - `.cursor/rules/project/project-agent-models.mdc` *(если существует)*
 - `.cursor/rules/project/project-orchestrator-overrides.mdc`
 - `.cursor/rules/project/project-workflow.mdc`
+- `.cursor/rules/project/project-human-communication.mdc`
 - `context/INDEX.md` *(если существует; читать index-first)*
 
 ## Вход
@@ -27,7 +28,9 @@ alwaysApply: false
 До запуска `02_analyst` текущий чат выполняет только intake/routing:
 
 - проверяет, что bug report содержит достаточные observed/expected/repro/evidence pointers;
+- сохраняет полный bug report в `context/artifacts/original_user_request.md` перед запуском `02`;
 - передаёт пользовательский bug report в `02_analyst` как frozen input без сокращения и переинтерпретации;
+- если bug report касается подсистемы с утверждённым `context/algorithms/<topic>.md`, передаёт этот target doc в `02_analyst` как обязательный source-of-truth;
 - не читает product/runtime/test source для самостоятельной проверки гипотез;
 - не читает логи/артефакты для triage, если вход уже содержит достаточные ссылки на них;
 - не формулирует технические выводы вместо `02_analyst`.
@@ -58,6 +61,25 @@ Mode: `fix`.
 При сомнении запускай полный route с `04/05`.
 
 Auto commit выполняется в конце успешного pipeline; auto push не выполняется.
+
+Если есть релевантный утверждённый target doc, fix должен сохранять его целевой алгоритм: `02` трассирует observed/expected к target behavior, `06` привязывает regression tasks к target flow, финальный `11` проверяет команды/manual smoke из target doc или оформляет blocker.
+
+## НАЧИНАЙ РАБОТУ
+
+1. Прочитай обязательные файлы из этого entrypoint и определи, что текущий режим — `fix`.
+2. Проверь bug report: observed behavior, expected behavior, reproduction, logs/commands/evidence.
+3. Инициализируй `context/artifacts`, `status.md` и сохрани `context/artifacts/original_user_request.md`.
+4. Запусти `02_analyst`, затем `03_tz_reviewer`; не читай код/логи самостоятельно, если вход уже достаточен для `02`.
+5. После `02/03` выбери короткий или полный route строго по критериям этого файла.
+6. Доведи route до `final 11 → 12 → 13 → auto commit` либо оформи blocker с human-readable вопросом и ntfy-уведомлением по `project-orchestrator-overrides.mdc`.
+
+## ПОМНИ
+
+- `fix` чинит воспроизводимый bug report, а не расширяет scope до новой feature без решения пользователя.
+- При сомнении в архитектурной границе запускай полный route с `04/05`.
+- Target doc нельзя ломать локальным fix; если fix требует изменить целевой алгоритм, нужен blocker или target-doc update.
+- `blocked_by_environment`, missing smoke или непроверенный repro не считаются successful fix.
+- Оповещение пользователя о blocker/open question выполняется через ntfy; чат-сообщение и артефакт не заменяют ntfy.
 
 ---
 
