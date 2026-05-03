@@ -1,0 +1,242 @@
+Нужно запустить `start-research` / target-doc workflow для **переработки уже опубликованного описания алгоритма AgentMemory**, а не создавать документ с нуля.
+
+Ты — `18_target_doc_orchestrator`, работаешь строго по правилу `.cursor/rules/start-research.mdc`.
+
+Product code не менять. Product tests не менять. Runtime/config не менять. Результат — обновлённый, более полный и человекочитаемый target-doc canon по AgentMemory, пригодный как опора для будущих `start-feature` / `start-fix`.
+
+Не забывай звать пользователя на вопросы и approval через ntfy.
+
+## Existing Target Doc To Rework
+
+Текущий опубликованный канон:
+
+- `context/algorithms/agent-memory/INDEX.md`
+- `context/algorithms/agent-memory/runtime-flow.md`
+- `context/algorithms/agent-memory/memory-graph-links.md`
+- `context/algorithms/agent-memory/llm-commands.md`
+- `context/algorithms/agent-memory/prompts.md`
+- `context/algorithms/agent-memory/external-protocol.md`
+- `context/algorithms/agent-memory/failure-retry-observability.md`
+
+Исходные target-doc артефакты:
+
+- `context/artifacts/target_doc/original_user_request.md`
+- `context/artifacts/target_doc/synthesis.md`
+- `context/artifacts/target_doc/target_algorithm_draft.md`
+- `context/artifacts/target_doc/verification.md`
+
+## Why Rework Is Needed
+
+Текущий результат полезен как навигационный канон, но недостаточно полный и прозрачный для человека.
+
+Главные замеченные слабости:
+
+1. `context/algorithms/agent-memory/prompts.md` слишком тонкий: он не раскрывает prompts AgentMemory для всех состояний, хотя это было требованием исходной постановки.
+2. Не хватает human approval package:
+   - что пользователь утверждает;
+   - что не утверждается;
+   - где разделы thin/partial;
+   - какие gaps и TBD остаются;
+   - какие waivers нужны или запрещены.
+3. Не хватает строгой source request coverage matrix:
+   - каждый блок исходного запроса → раздел документа → глубина покрытия → gaps.
+4. Не хватает target doc quality matrix:
+   - human clarity;
+   - technical completeness;
+   - examples;
+   - commands/proof;
+   - gaps;
+   - verdict.
+5. Некоторые разделы смешивают current reality, target behavior и implementation backlog; это нужно сделать более прозрачным для человека.
+6. Некоторые target/TBD элементы допустимы, но должны быть вынесены в явный `open_gaps_and_waivers.md`, а не теряться в тексте.
+
+## Required Workflow Discipline
+
+`18` не должен читать product source для research и не должен писать draft сам.
+
+Обязательный порядок:
+
+1. Сохрани этот prompt как новый `original_user_request.md` или как update request рядом с текущим `target_doc` artifacts.
+2. Первым содержательным шагом запусти `20_target_doc_synthesizer` через Cursor Subagent tool call.
+3. `20` должен решить, достаточно ли текущих reports или нужны follow-up `research_waves`.
+4. Если нужны follow-up facts, `20` должен создать:
+   - `context/artifacts/target_doc/research_waves.json`
+   - `context/artifacts/target_doc/research_waves.md`
+5. `18` исполняет waves только из `research_waves.json`.
+6. `21_target_doc_author` правит документы только по `synthesis.md`, reports, verifier/reader findings. `21` не читает `tools/**`, `tests/**`, `plan/**`, `context/proto/**` для добычи новых фактов.
+7. `22_target_doc_verifier` проверяет техническую полноту.
+8. `23_target_doc_reader_reviewer` обязательно проверяет документ как человек и создаёт human approval package.
+9. User approval запрашивается только после `22 approved` и `23 approved_for_user_review`, через ntfy.
+
+## Required Rework Outcomes
+
+### 1. Human Approval Package
+
+Обязательно создать или обновить:
+
+- `context/artifacts/target_doc/human_review_packet.md`
+- `context/artifacts/target_doc/source_request_coverage.md`
+- `context/artifacts/target_doc/target_doc_quality_matrix.md`
+- `context/artifacts/target_doc/open_gaps_and_waivers.md`
+- `context/artifacts/target_doc/reader_review.md`
+
+Эти файлы должны быть produced by `23_target_doc_reader_reviewer`.
+
+### 2. Prompts Section Must Be Expanded
+
+`context/algorithms/agent-memory/prompts.md` должен быть существенно усилен.
+
+Минимально он должен описывать:
+
+- system prompt для AgentMemory;
+- planner / `plan_traversal` prompt;
+- `summarize_b` prompt;
+- `summarize_c` prompt;
+- `finish_decision` prompt;
+- `propose_links` target prompt;
+- repair / invalid response prompt;
+- prompts для multi-language и documentation files;
+- forbidden outputs;
+- examples good/bad;
+- invalid output + recovery examples;
+- what runtime may show to LLM;
+- what runtime must never show to LLM;
+- schema-like input/output contract for every prompt role.
+
+Если для части prompts current code не содержит отдельной константы, это нужно явно пометить как:
+
+- `Current reality`: где это сейчас находится или отсутствует;
+- `Target behavior`: какой prompt contract должен появиться;
+- `Gap / start-feature implication`: что должен реализовать будущий feature.
+
+### 3. Source Request Coverage
+
+`source_request_coverage.md` должен покрыть исходный запрос из `context/artifacts/target_doc/original_user_request.md`.
+
+Таблица должна иметь минимум:
+
+| Original request block | Covered in | Depth | Missing | Needs user decision |
+
+Depth:
+
+- `full`
+- `partial`
+- `thin`
+- `missing`
+
+Если раздел `prompts` остаётся `thin`, approval запрещён без явного user waiver. Для этого конкретного rework user waiver на `prompts.md` **нежелателен**: ожидание пользователя — получить полный и прозрачный prompt contract.
+
+### 4. Quality Matrix
+
+`target_doc_quality_matrix.md` должен оценить каждый файл:
+
+- `INDEX.md`
+- `runtime-flow.md`
+- `memory-graph-links.md`
+- `llm-commands.md`
+- `prompts.md`
+- `external-protocol.md`
+- `failure-retry-observability.md`
+
+Колонки:
+
+| Section/File | Human clarity | Technical completeness | Examples | Commands / proof | Gaps | Verdict |
+
+Если core section имеет `low`, `23` не должен давать `approved_for_user_review`.
+
+### 5. Gaps And Waivers
+
+`open_gaps_and_waivers.md` должен явно перечислить:
+
+- implementation backlog;
+- target event names TBD;
+- current-vs-target gaps;
+- sections that need future `start-feature`;
+- waivers, если предлагаются.
+
+Waiver запрещён для:
+
+- отсутствующего Source User Goal;
+- отсутствующего Target Flow;
+- отсутствующих examples для workflow;
+- отсутствующих Acceptance Criteria;
+- отсутствующего prompts contract по исходному требованию;
+- отсутствующего provenance.
+
+### 6. Canonical Docs Must Stay Discoverable
+
+Если target docs обновляются, сохранить layout:
+
+- `context/algorithms/agent-memory/INDEX.md` как главный вход;
+- ссылка из `context/algorithms/INDEX.md`;
+- понятный "How to read this document";
+- "How start-feature / start-fix must use this";
+- glossary / terms, если нужно.
+
+## What 20 Should Decide
+
+`20_target_doc_synthesizer` должен решить:
+
+- достаточно ли текущих artifacts для rework;
+- нужны ли follow-up `19_current_repo_researcher` jobs;
+- нужны ли donor jobs;
+- какие `research_waves` нужны;
+- какие sections must be re-authored by `21`;
+- какие user questions/waivers нужны.
+
+`20` не должен просить `18` самому решить parallelism.
+
+## What 21 Should Do
+
+`21_target_doc_author` должен:
+
+- не читать product source;
+- не добывать новые facts;
+- переписать/усилить target docs на основе synthesis/reports;
+- особенно усилить `prompts.md`;
+- добавить human-readable navigation and examples;
+- сохранить producer marker.
+
+## What 22 Should Do
+
+`22_target_doc_verifier` должен:
+
+- проверить technical completeness;
+- не пропустить thin `prompts.md`;
+- использовать `requires_new_research=true`, если нужно добыть новые facts;
+- вернуть `approved` только если документ технически готов.
+
+## What 23 Should Do
+
+`23_target_doc_reader_reviewer` должен:
+
+- проверить документ как человек;
+- создать human approval package;
+- построить source coverage;
+- построить quality matrix;
+- явно отметить weak/thin sections;
+- запретить approval, если человек не сможет понять, что он утверждает.
+
+## Completion Criteria
+
+Workflow можно завершить только если:
+
+- `22` approved;
+- `23` approved_for_user_review;
+- `human_review_packet.md` ясно объясняет, что утверждается;
+- `source_request_coverage.md` не имеет critical `missing` / `thin`;
+- `target_doc_quality_matrix.md` не имеет core `low`;
+- `open_gaps_and_waivers.md` явно фиксирует допустимые gaps;
+- пользователь дал явный OK через чат после ntfy.
+
+## Expected User Approval Request
+
+Когда всё готово, `18` должен попросить пользователя читать не только target docs, а именно:
+
+- `context/artifacts/target_doc/human_review_packet.md`
+- `context/artifacts/target_doc/source_request_coverage.md`
+- `context/artifacts/target_doc/target_doc_quality_matrix.md`
+- `context/artifacts/target_doc/open_gaps_and_waivers.md`
+- обновлённый `context/algorithms/agent-memory/INDEX.md`
+
+И только потом дать OK.
