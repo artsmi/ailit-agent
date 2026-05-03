@@ -131,6 +131,22 @@ Target document должен быть человекочитаемым и тех
 - anti-patterns;
 - как `start-feature` / `start-fix` обязаны использовать документ.
 
+## Human Approval Gate Package
+
+Перед запросом пользовательского OK target-doc workflow должен подготовить не только сам target document, но и human approval package.
+
+Обязательные файлы:
+
+- `context/artifacts/target_doc/human_review_packet.md` — что человек утверждает и не утверждает.
+- `context/artifacts/target_doc/source_request_coverage.md` — покрытие исходного запроса.
+- `context/artifacts/target_doc/target_doc_quality_matrix.md` — качество разделов.
+- `context/artifacts/target_doc/open_gaps_and_waivers.md` — gaps, TBD и waiver candidates.
+- `context/artifacts/target_doc/reader_review.md` — решение `23_target_doc_reader_reviewer`.
+
+User approval должен запрашиваться на **human review packet + target doc**, а не только на технический draft.
+
+Если core section имеет `low` clarity/completeness, approval запрещён без rework или explicit user waiver. Waiver не допускается для отсутствующего source goal, target flow, examples, acceptance criteria или provenance.
+
 ## Примеры В Target Doc
 
 Примеры обязательны, если документ описывает алгоритм или workflow.
@@ -184,6 +200,11 @@ Target-doc ownership:
 | `context/artifacts/target_doc/synthesis.md` | `20_target_doc_synthesizer` |
 | `context/artifacts/target_doc/target_algorithm_draft.md` | `21_target_doc_author` |
 | `context/artifacts/target_doc/verification.md` | `22_target_doc_verifier` |
+| `context/artifacts/target_doc/human_review_packet.md` | `23_target_doc_reader_reviewer` |
+| `context/artifacts/target_doc/source_request_coverage.md` | `23_target_doc_reader_reviewer` |
+| `context/artifacts/target_doc/target_doc_quality_matrix.md` | `23_target_doc_reader_reviewer` |
+| `context/artifacts/target_doc/open_gaps_and_waivers.md` | `23_target_doc_reader_reviewer` |
+| `context/artifacts/target_doc/reader_review.md` | `23_target_doc_reader_reviewer` |
 | `context/artifacts/target_doc/approval.md` | `18_target_doc_orchestrator` |
 
 Если роль собирается создать чужой артефакт, она обязана остановиться и вернуть blocker/next action для оркестратора.
@@ -202,4 +223,6 @@ Target-doc ownership:
 - скрывать product choice в assumptions;
 - считать отсутствие вопросов approval;
 - писать target-doc без examples;
+- просить user approval без human approval package;
+- считать файл раздела достаточным, если reader review показывает `thin` или `low`;
 - закрывать workflow без явного user approval, если approval gate требуется.
