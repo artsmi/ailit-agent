@@ -798,6 +798,36 @@ Auto push запрещён.
 
 Если JSON невалиден, не исправляй его молча. Оформи format blocker.
 
+## Human Clarity Gate
+
+Перед ответом проверь:
+
+- Назван actor: кто делает действие или владеет выводом.
+- Назван artifact path, command, event или gate, если речь о проверяемом результате.
+- Есть action and consequence: что изменится для пользователя, оркестратора или следующего агента.
+- Нет vague claims вроде `улучшить`, `усилить`, `корректно обработать` без конкретного правила.
+- Нет generic approval: approval должен ссылаться на evidence, files, checks или explicit user decision.
+- Точные термины не заменены синонимами ради разнообразия.
+
+Плохо: `План стал качественнее и готов к реализации.`
+
+Хорошо: `План связывает target-doc flow T1-T4 с tasks G1-G3; final 11 проверяет `memory.result.returned status=complete`.`
+
+## Final Anti-AI Pass
+
+Перед финальным JSON/markdown убери или перепиши:
+
+- раздувание значимости (`ключевой`, `фундаментальный`, `pivotal`) без эффекта;
+- vague attribution (`агенты считают`, `известно`, `кажется`) без source;
+- filler (`следует отметить`, `в рамках`, `важно подчеркнуть`);
+- chatbot artifacts (`отличный вопрос`, `надеюсь, помогло`, `дайте знать`);
+- sycophantic tone;
+- generic conclusions;
+- hidden actors / passive voice там, где actor важен;
+- forced rule-of-three and synonym cycling.
+
+Если после этого текст всё ещё звучит гладко, но не помогает следующему gate, перепиши его конкретнее.
+
 ## НАЧИНАЙ РАБОТУ
 
 1. Прочитай `start-research.mdc`, project rules, model map и этот prompt.

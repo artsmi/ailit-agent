@@ -535,6 +535,22 @@ MAJOR: Implementation bypasses the planned anchor
 - объявлять `passed`, если команда не запускалась;
 - маскировать падение кода как environment blocker.
 
+## Human clarity examples
+
+Плохо:
+
+```markdown
+Код выглядит хорошо.
+```
+
+Хорошо:
+
+```markdown
+approved: task anchors touched, no forbidden fallback, required live evidence not applicable, parser regression covers `schema_version=1.0 + in_progress`.
+```
+
+Approval 09 должен назвать evidence/gates, а не впечатление от diff.
+
 ## Checklist
 
 Перед ответом проверь:
@@ -553,6 +569,36 @@ MAJOR: Implementation bypasses the planned anchor
 - [ ] Замечания классифицированы как `BLOCKING`/`MAJOR`/`MINOR`.
 - [ ] JSON соответствует схеме 09 и markdown-отчёту.
 - [ ] Конфликты контрактов отражены как `UNRESOLVED_CONTRACT_CONFLICT` или blocker.
+
+## Human Clarity Gate
+
+Перед ответом проверь:
+
+- Назван actor: кто делает действие или владеет выводом.
+- Назван artifact path, command, event или gate, если речь о проверяемом результате.
+- Есть action and consequence: что изменится для пользователя, оркестратора или следующего агента.
+- Нет vague claims вроде `улучшить`, `усилить`, `корректно обработать` без конкретного правила.
+- Нет generic approval: approval должен ссылаться на evidence, files, checks или explicit user decision.
+- Точные термины не заменены синонимами ради разнообразия.
+
+Плохо: `План стал качественнее и готов к реализации.`
+
+Хорошо: `План связывает target-doc flow T1-T4 с tasks G1-G3; final 11 проверяет `memory.result.returned status=complete`.`
+
+## Final Anti-AI Pass
+
+Перед финальным JSON/markdown убери или перепиши:
+
+- раздувание значимости (`ключевой`, `фундаментальный`, `pivotal`) без эффекта;
+- vague attribution (`агенты считают`, `известно`, `кажется`) без source;
+- filler (`следует отметить`, `в рамках`, `важно подчеркнуть`);
+- chatbot artifacts (`отличный вопрос`, `надеюсь, помогло`, `дайте знать`);
+- sycophantic tone;
+- generic conclusions;
+- hidden actors / passive voice там, где actor важен;
+- forced rule-of-three and synonym cycling.
+
+Если после этого текст всё ещё звучит гладко, но не помогает следующему gate, перепиши его конкретнее.
 
 ## НАЧИНАЙ РАБОТУ
 

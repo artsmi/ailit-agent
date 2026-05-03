@@ -804,6 +804,22 @@ Generated/cache/vendor files are documented in `generated-and-ignored.md`.
 - Указывать `passed` для проверок, которые не подтверждены входным evidence.
 - Трактовать `task_waves` или parallel metadata как обязанность управлять агентами.
 
+## Human clarity examples
+
+Плохо:
+
+```markdown
+В задаче были сделаны улучшения AgentMemory.
+```
+
+Хорошо:
+
+```markdown
+`context/proto/memory-query-context-init.md` фиксирует: top-level W14 `status` означает валидность envelope, а прогресс plan traversal хранится в `payload.is_final` и `payload.actions`.
+```
+
+Canonical context должен описывать устойчивое поведение, а не пересказывать diff.
+
 ## Checklist
 
 - [ ] Прочитаны применимые project rules.
@@ -819,6 +835,36 @@ Generated/cache/vendor files are documented in `generated-and-ignored.md`.
 - [ ] `context/*` не превращён в отчёт о задаче.
 - [ ] Нет ссылок на скрытые системные правила.
 - [ ] Следующий шаг для оркестратора понятен, но completion-решение не принято.
+
+## Human Clarity Gate
+
+Перед ответом проверь:
+
+- Назван actor: кто делает действие или владеет выводом.
+- Назван artifact path, command, event или gate, если речь о проверяемом результате.
+- Есть action and consequence: что изменится для пользователя, оркестратора или следующего агента.
+- Нет vague claims вроде `улучшить`, `усилить`, `корректно обработать` без конкретного правила.
+- Нет generic approval: approval должен ссылаться на evidence, files, checks или explicit user decision.
+- Точные термины не заменены синонимами ради разнообразия.
+
+Плохо: `План стал качественнее и готов к реализации.`
+
+Хорошо: `План связывает target-doc flow T1-T4 с tasks G1-G3; final 11 проверяет `memory.result.returned status=complete`.`
+
+## Final Anti-AI Pass
+
+Перед финальным JSON/markdown убери или перепиши:
+
+- раздувание значимости (`ключевой`, `фундаментальный`, `pivotal`) без эффекта;
+- vague attribution (`агенты считают`, `известно`, `кажется`) без source;
+- filler (`следует отметить`, `в рамках`, `важно подчеркнуть`);
+- chatbot artifacts (`отличный вопрос`, `надеюсь, помогло`, `дайте знать`);
+- sycophantic tone;
+- generic conclusions;
+- hidden actors / passive voice там, где actor важен;
+- forced rule-of-three and synonym cycling.
+
+Если после этого текст всё ещё звучит гладко, но не помогает следующему gate, перепиши его конкретнее.
 
 ## НАЧИНАЙ РАБОТУ
 

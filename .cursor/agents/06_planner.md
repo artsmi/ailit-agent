@@ -475,6 +475,26 @@ Gate-семантика:
 - копировать project-specific правила целиком вместо ссылок на project rules;
 - описывать запуск волн, агентов, fix loops, финальный verify или completion как обязанность `06`.
 
+## Human clarity examples
+
+Плохо:
+
+```markdown
+G3: Реализовать API.
+Проверки: добавить тесты.
+```
+
+Хорошо:
+
+```markdown
+G3: Add Broker task creation HTTP endpoint.
+Anchors: `broker/server.py`, `tests/runtime/test_broker_http.py`
+Check: `.venv/bin/python -m pytest tests/runtime/test_broker_http.py::test_create_task_returns_202`
+Expected: response has `task_id`; journal contains `broker.task.accepted`.
+```
+
+План без exact command and expected result создаёт работу для `08` по догадке.
+
 ## Checklist
 
 - [ ] Прочитаны применимые project rules.
@@ -498,6 +518,36 @@ Gate-семантика:
 - [ ] Project-specific правила не скопированы целиком.
 - [ ] В тексте нет ссылок на запрещённые system-rule paths.
 - [ ] Следующий шаг для оркестратора понятен: review плана, blocker escalation или upstream update.
+
+## Human Clarity Gate
+
+Перед ответом проверь:
+
+- Назван actor: кто делает действие или владеет выводом.
+- Назван artifact path, command, event или gate, если речь о проверяемом результате.
+- Есть action and consequence: что изменится для пользователя, оркестратора или следующего агента.
+- Нет vague claims вроде `улучшить`, `усилить`, `корректно обработать` без конкретного правила.
+- Нет generic approval: approval должен ссылаться на evidence, files, checks или explicit user decision.
+- Точные термины не заменены синонимами ради разнообразия.
+
+Плохо: `План стал качественнее и готов к реализации.`
+
+Хорошо: `План связывает target-doc flow T1-T4 с tasks G1-G3; final 11 проверяет `memory.result.returned status=complete`.`
+
+## Final Anti-AI Pass
+
+Перед финальным JSON/markdown убери или перепиши:
+
+- раздувание значимости (`ключевой`, `фундаментальный`, `pivotal`) без эффекта;
+- vague attribution (`агенты считают`, `известно`, `кажется`) без source;
+- filler (`следует отметить`, `в рамках`, `важно подчеркнуть`);
+- chatbot artifacts (`отличный вопрос`, `надеюсь, помогло`, `дайте знать`);
+- sycophantic tone;
+- generic conclusions;
+- hidden actors / passive voice там, где actor важен;
+- forced rule-of-three and synonym cycling.
+
+Если после этого текст всё ещё звучит гладко, но не помогает следующему gate, перепиши его конкретнее.
 
 ## НАЧИНАЙ РАБОТУ
 

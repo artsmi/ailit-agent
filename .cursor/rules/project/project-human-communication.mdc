@@ -9,6 +9,8 @@ alwaysApply: true
 
 Цель: человек, управляющий агентской системой, должен понимать смысл вопросов и документов без дополнительного устного перевода от агентов.
 
+Источник идей для anti-AI writing gate: `/home/artem/reps/humanizer` (`SKILL.md` — source of truth, MIT). Мы переносим taxonomy и подход к before/after examples, не копируем branding или runtime packaging skill.
+
 ## Общий Принцип
 
 Техническая точность обязательна, но она не заменяет человеческое объяснение.
@@ -28,6 +30,82 @@ alwaysApply: true
 - как выглядит partial/failure path;
 - какие команды доказывают работоспособность;
 - что нельзя ломать при последующих `start-feature` / `start-fix`.
+
+## Human Clarity / Anti-AI Writing Gate
+
+Перед тем как агент возвращает JSON, markdown-artifact, blocker, review или status, он делает human clarity pass.
+
+Главное правило:
+
+> Не пиши убедительно. Пиши проверяемо.
+
+Каждое важное утверждение должно иметь:
+
+- **actor:** кто действует (`18`, `20`, `AgentMemoryWorker`, `11_test_runner`);
+- **action:** что делает;
+- **artifact:** какой файл, event, command или path меняется/проверяется;
+- **evidence/check:** как это проверить;
+- **consequence:** что это меняет для человека, следующего агента или gate.
+
+Плохо:
+
+```text
+Документ значительно улучшает качество взаимодействия агентов и формирует важную основу для будущего развития системы.
+```
+
+Хорошо:
+
+```text
+`23_target_doc_reader_reviewer` создаёт `source_request_coverage.md`. `18` не может запросить approval, если этот файл отсутствует или не содержит `Produced by: 23_target_doc_reader_reviewer`.
+```
+
+## Anti-AI Patterns For Agents
+
+Адаптация паттернов из `/home/artem/reps/humanizer`:
+
+| Pattern | Плохо | Хорошо |
+|---------|-------|--------|
+| Significance inflation | "ключевой этап эволюции workflow" | "`18` теперь проверяет `artifact_validation.md` перед approval" |
+| Vague attribution | "агенты считают документ готовым" | "`22` вернул `approved`; `23` вернул `approved_for_user_review`" |
+| Superficial `-ing` | "усиливая прозрачность и обеспечивая качество" | "добавлен `subagent_ledger.md`; он фиксирует role, input, output, status" |
+| Promotional language | "мощный и гибкий pipeline" | "pipeline создаёт `research_waves.json`, `reader_review.md`, `approval_latest.md`" |
+| AI vocabulary | "crucial/pivotal/robust/seamless" | "required/blocking/optional с причиной" |
+| Copula avoidance | "модуль выступает механизмом" | "модуль хранит PAG и возвращает `agent_memory_result.v1`" |
+| Negative parallelism | "это не просто документ, это канон" | "документ является target doc; `start-feature` использует его как source-of-truth" |
+| Rule of three | "быстро, надёжно и удобно" | перечислить реальные свойства, сколько их есть |
+| Synonym cycling | "канон/док/материал/артефакт" | повторять точный термин `target doc`, если речь о нём |
+| False ranges | "от runtime до UX" | "runtime flow, LLM command protocol, external events" |
+| Hidden actor/passive | "создаётся отчёт" | "`23` создаёт `reader_review.md`" |
+| Em dash overuse | драматические вставки через тире | точка, двоеточие или короткое предложение |
+| Boldface overuse | выделять каждое важное слово | выделять только gate/status, если нужно |
+| Inline-header list | `**Качество:** качество улучшено` | "`22` проверяет `target_doc_quality_matrix.md`" |
+| Title Case headings | `## Target Doc Quality Matrix` в русском документе | `## Матрица качества target doc` |
+| Emojis | любые декоративные emoji | не использовать |
+| Chatbot artifacts | "отличный вопрос", "надеюсь, помогло" | отвечать сразу по сути |
+| Cutoff disclaimers | "насколько известно" | "source не найден; gap `verification_gap`" |
+| Sycophantic tone | "вы абсолютно правы" | "да, это нарушение роли `18`" |
+| Filler | "следует отметить", "в рамках" | удалить или заменить фактом |
+| Excessive hedging | "может потенциально" | "может", если действительно неопределённо |
+| Generic conclusion | "workflow готов к развитию" | "следующий slice: `prompts.md` contract alignment" |
+| Persuasive framing | "на самом деле главное" | "blocker: `source_request_coverage.md` отсутствует" |
+| Signposting | "давайте разберём" | начать с результата |
+| Fragmented header | `## Проверки` + "Проверки важны" | сразу список проверок |
+
+## Final Anti-AI Pass
+
+Перед ответом или записью артефакта агент проверяет:
+
+- нет ли раздувания значимости;
+- нет ли vague claims без source;
+- назван ли actor;
+- назван ли artifact path;
+- есть ли проверяемый next step;
+- нет ли chatbot artifacts;
+- нет ли generic approval или generic conclusion;
+- точные термины не заменены синонимами;
+- если есть uncertainty, она оформлена как gap/blocker/assumption с причиной.
+
+Если предложение звучит уверенно, но не говорит, кто что делает, где это проверить и что меняется для человека или следующего агента, перепиши его.
 
 ## Вопросы Пользователю
 

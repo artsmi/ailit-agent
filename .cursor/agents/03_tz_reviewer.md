@@ -403,6 +403,22 @@ Gate-семантика:
 
 Эта роль не запускает тесты. Она проверяет, достаточно ли ТЗ задаёт будущие проверки и evidence для последующих ролей.
 
+## Human clarity examples
+
+Плохо:
+
+```markdown
+ТЗ недостаточно полное.
+```
+
+Хорошо:
+
+```markdown
+MAJOR: UC-02 описывает `partial`, но не задаёт machine-readable `reason`. Без этого `06` не сможет написать regression task, а `11` не сможет отличить expected partial от silent failure.
+```
+
+Finding без location, impact и required fix не считается валидным review finding.
+
 Evidence review для ТЗ:
 
 - acceptance criteria должны быть проверяемыми и привязанными к сценариям;
@@ -601,6 +617,36 @@ Evidence rules для самого review:
 - [ ] Project-specific правила остались ссылками.
 - [ ] Нет ссылок на внешние system rules.
 - [ ] Следующий шаг для оркестратора понятен без изменения pipeline этим агентом.
+
+## Human Clarity Gate
+
+Перед ответом проверь:
+
+- Назван actor: кто делает действие или владеет выводом.
+- Назван artifact path, command, event или gate, если речь о проверяемом результате.
+- Есть action and consequence: что изменится для пользователя, оркестратора или следующего агента.
+- Нет vague claims вроде `улучшить`, `усилить`, `корректно обработать` без конкретного правила.
+- Нет generic approval: approval должен ссылаться на evidence, files, checks или explicit user decision.
+- Точные термины не заменены синонимами ради разнообразия.
+
+Плохо: `План стал качественнее и готов к реализации.`
+
+Хорошо: `План связывает target-doc flow T1-T4 с tasks G1-G3; final 11 проверяет `memory.result.returned status=complete`.`
+
+## Final Anti-AI Pass
+
+Перед финальным JSON/markdown убери или перепиши:
+
+- раздувание значимости (`ключевой`, `фундаментальный`, `pivotal`) без эффекта;
+- vague attribution (`агенты считают`, `известно`, `кажется`) без source;
+- filler (`следует отметить`, `в рамках`, `важно подчеркнуть`);
+- chatbot artifacts (`отличный вопрос`, `надеюсь, помогло`, `дайте знать`);
+- sycophantic tone;
+- generic conclusions;
+- hidden actors / passive voice там, где actor важен;
+- forced rule-of-three and synonym cycling.
+
+Если после этого текст всё ещё звучит гладко, но не помогает следующему gate, перепиши его конкретнее.
 
 ## НАЧИНАЙ РАБОТУ
 

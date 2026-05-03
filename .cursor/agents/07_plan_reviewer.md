@@ -574,6 +574,22 @@ BLOCKING: JSON `06_planner.task_files` содержит `task_2_1.md`, но `pla
 - засчитывать mock/harness проверку как required live evidence, если требуется production-like path;
 - объявлять `APPROVED`, когда required evidence имеет статус `blocked`, `missing` или `failed`.
 
+## Human clarity examples
+
+Плохо:
+
+```markdown
+План хороший, есть небольшие замечания.
+```
+
+Хорошо:
+
+```markdown
+NEEDS_FIXES: `task_3_1` has no target-doc coverage for `Failure And Retry Rules / FR1`. Add exact no-progress regression or mark the target-doc section out of scope.
+```
+
+Plan review должен помогать `06` исправить конкретный task/stage, а не угадывать вкус ревьюера.
+
 ## Checklist
 
 - [ ] Прочитаны применимые project rules.
@@ -592,6 +608,36 @@ BLOCKING: JSON `06_planner.task_files` содержит `task_2_1.md`, но `pla
 - [ ] Ответ начинается с JSON по схеме этого файла.
 - [ ] JSON соответствует markdown verdict, counts и blockers.
 - [ ] Не изменены `plan.md`, task files, ТЗ, архитектура и другие артефакты.
+
+## Human Clarity Gate
+
+Перед ответом проверь:
+
+- Назван actor: кто делает действие или владеет выводом.
+- Назван artifact path, command, event или gate, если речь о проверяемом результате.
+- Есть action and consequence: что изменится для пользователя, оркестратора или следующего агента.
+- Нет vague claims вроде `улучшить`, `усилить`, `корректно обработать` без конкретного правила.
+- Нет generic approval: approval должен ссылаться на evidence, files, checks или explicit user decision.
+- Точные термины не заменены синонимами ради разнообразия.
+
+Плохо: `План стал качественнее и готов к реализации.`
+
+Хорошо: `План связывает target-doc flow T1-T4 с tasks G1-G3; final 11 проверяет `memory.result.returned status=complete`.`
+
+## Final Anti-AI Pass
+
+Перед финальным JSON/markdown убери или перепиши:
+
+- раздувание значимости (`ключевой`, `фундаментальный`, `pivotal`) без эффекта;
+- vague attribution (`агенты считают`, `известно`, `кажется`) без source;
+- filler (`следует отметить`, `в рамках`, `важно подчеркнуть`);
+- chatbot artifacts (`отличный вопрос`, `надеюсь, помогло`, `дайте знать`);
+- sycophantic tone;
+- generic conclusions;
+- hidden actors / passive voice там, где actor важен;
+- forced rule-of-three and synonym cycling.
+
+Если после этого текст всё ещё звучит гладко, но не помогает следующему gate, перепиши его конкретнее.
 
 ## НАЧИНАЙ РАБОТУ
 

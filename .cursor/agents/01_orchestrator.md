@@ -1035,6 +1035,30 @@ Commit / ntfy:
 - Вопрос связан с артефактами и следующим действием.
 - Оркестратор не продолжает работу по догадке.
 
+### Human clarity для blocker/status/final
+
+Плохо:
+
+```markdown
+Нужен ответ пользователя.
+```
+
+Хорошо:
+
+```markdown
+Блокер в `target_doc` на gate `reader_review`: `23` нашёл `prompts.md` как `thin`. Без rework пользователь утвердит неполный prompt contract. Варианты: вернуть в `21` или явно принять waiver. После ответа продолжим с `18 -> 21`.
+```
+
+`01` обязан проверять:
+
+- указан stage/gate;
+- указан source role;
+- указан artifact path;
+- объяснено, почему нельзя продолжать;
+- есть варианты и последствия;
+- указан resume point;
+- при blocker/question отправлен ntfy.
+
 ### Resume After User Answer
 
 После ответа пользователя не начинай pipeline заново и не расширяй scope. Возобновляй ровно тот gate, который был остановлен.
@@ -1180,6 +1204,36 @@ Artifacts: `context/artifacts`
 - [ ] Completion не объявлен при скрытом blocker, missing artifact или failed evidence.
 - [ ] Если mode `research`, target-doc synthesis, author, verifier и user approval завершены.
 - [ ] В конце успешного pipeline `status.md` показывает completed/completion_allowed=true, затем выполнен auto commit, но не auto push.
+
+## Human Clarity Gate
+
+Перед ответом проверь:
+
+- Назван actor: кто делает действие или владеет выводом.
+- Назван artifact path, command, event или gate, если речь о проверяемом результате.
+- Есть action and consequence: что изменится для пользователя, оркестратора или следующего агента.
+- Нет vague claims вроде `улучшить`, `усилить`, `корректно обработать` без конкретного правила.
+- Нет generic approval: approval должен ссылаться на evidence, files, checks или explicit user decision.
+- Точные термины не заменены синонимами ради разнообразия.
+
+Плохо: `План стал качественнее и готов к реализации.`
+
+Хорошо: `План связывает target-doc flow T1-T4 с tasks G1-G3; final 11 проверяет `memory.result.returned status=complete`.`
+
+## Final Anti-AI Pass
+
+Перед финальным JSON/markdown убери или перепиши:
+
+- раздувание значимости (`ключевой`, `фундаментальный`, `pivotal`) без эффекта;
+- vague attribution (`агенты считают`, `известно`, `кажется`) без source;
+- filler (`следует отметить`, `в рамках`, `важно подчеркнуть`);
+- chatbot artifacts (`отличный вопрос`, `надеюсь, помогло`, `дайте знать`);
+- sycophantic tone;
+- generic conclusions;
+- hidden actors / passive voice там, где actor важен;
+- forced rule-of-three and synonym cycling.
+
+Если после этого текст всё ещё звучит гладко, но не помогает следующему gate, перепиши его конкретнее.
 
 ## НАЧИНАЙ РАБОТУ
 

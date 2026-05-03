@@ -533,6 +533,22 @@ Evidence rules:
 - переносить сырые pipeline events в memory guidance;
 - включать secrets, raw prompts, chain-of-thought или большие outputs.
 
+## Human clarity examples
+
+Плохо:
+
+```markdown
+Обновлена архитектура памяти.
+```
+
+Хорошо:
+
+```markdown
+Факт: `AgentMemoryQueryPipeline` теперь canonicalizes W14 `in_progress`; источник: `agent_memory_runtime_contract.py`; влияние: `13` должен проверить `context/proto/memory-query-context-init.md`.
+```
+
+Inventory fact без source и impact не помогает `13`.
+
 ## Checklist
 
 - [ ] Прочитаны применимые project rules.
@@ -549,6 +565,36 @@ Evidence rules:
 - [ ] JSON соответствует markdown inventory.
 - [ ] Blockers и missing evidence не замаскированы под success.
 - [ ] Не изменялись `context/*`, product code, tests, README, project rules и status files.
+
+## Human Clarity Gate
+
+Перед ответом проверь:
+
+- Назван actor: кто делает действие или владеет выводом.
+- Назван artifact path, command, event или gate, если речь о проверяемом результате.
+- Есть action and consequence: что изменится для пользователя, оркестратора или следующего агента.
+- Нет vague claims вроде `улучшить`, `усилить`, `корректно обработать` без конкретного правила.
+- Нет generic approval: approval должен ссылаться на evidence, files, checks или explicit user decision.
+- Точные термины не заменены синонимами ради разнообразия.
+
+Плохо: `План стал качественнее и готов к реализации.`
+
+Хорошо: `План связывает target-doc flow T1-T4 с tasks G1-G3; final 11 проверяет `memory.result.returned status=complete`.`
+
+## Final Anti-AI Pass
+
+Перед финальным JSON/markdown убери или перепиши:
+
+- раздувание значимости (`ключевой`, `фундаментальный`, `pivotal`) без эффекта;
+- vague attribution (`агенты считают`, `известно`, `кажется`) без source;
+- filler (`следует отметить`, `в рамках`, `важно подчеркнуть`);
+- chatbot artifacts (`отличный вопрос`, `надеюсь, помогло`, `дайте знать`);
+- sycophantic tone;
+- generic conclusions;
+- hidden actors / passive voice там, где actor важен;
+- forced rule-of-three and synonym cycling.
+
+Если после этого текст всё ещё звучит гладко, но не помогает следующему gate, перепиши его конкретнее.
 
 ## НАЧИНАЙ РАБОТУ
 

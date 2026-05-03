@@ -481,6 +481,27 @@ Required fix: Define required events and forbidden raw prompt/secret fields.
 - нет impact;
 - нет required fix.
 
+### Human clarity для architecture review
+
+Review finding обязан отвечать:
+
+- где проблема;
+- какой downstream agent ошибётся;
+- какой контракт надо добавить;
+- какой artifact исправляет проблему.
+
+Плохо:
+
+```markdown
+Нужно больше observability.
+```
+
+Хорошо:
+
+```markdown
+MAJOR: Architecture names compact log, but does not list event names. `11` cannot verify progress and `13` cannot update `context/proto`. Required fix: add `memory.runtime.step`, `memory.result.returned`, payload fields and forbidden raw prompt fields.
+```
+
 ## Target Doc Review Matrix
 
 Если передан target doc, добавь в review:
@@ -506,6 +527,36 @@ Required fix: Define required events and forbidden raw prompt/secret fields.
 
 Нужно выбрать ownership state перед планированием.
 ```
+
+## Human Clarity Gate
+
+Перед ответом проверь:
+
+- Назван actor: кто делает действие или владеет выводом.
+- Назван artifact path, command, event или gate, если речь о проверяемом результате.
+- Есть action and consequence: что изменится для пользователя, оркестратора или следующего агента.
+- Нет vague claims вроде `улучшить`, `усилить`, `корректно обработать` без конкретного правила.
+- Нет generic approval: approval должен ссылаться на evidence, files, checks или explicit user decision.
+- Точные термины не заменены синонимами ради разнообразия.
+
+Плохо: `План стал качественнее и готов к реализации.`
+
+Хорошо: `План связывает target-doc flow T1-T4 с tasks G1-G3; final 11 проверяет `memory.result.returned status=complete`.`
+
+## Final Anti-AI Pass
+
+Перед финальным JSON/markdown убери или перепиши:
+
+- раздувание значимости (`ключевой`, `фундаментальный`, `pivotal`) без эффекта;
+- vague attribution (`агенты считают`, `известно`, `кажется`) без source;
+- filler (`следует отметить`, `в рамках`, `важно подчеркнуть`);
+- chatbot artifacts (`отличный вопрос`, `надеюсь, помогло`, `дайте знать`);
+- sycophantic tone;
+- generic conclusions;
+- hidden actors / passive voice там, где actor важен;
+- forced rule-of-three and synonym cycling.
+
+Если после этого текст всё ещё звучит гладко, но не помогает следующему gate, перепиши его конкретнее.
 
 ## НАЧИНАЙ РАБОТУ
 

@@ -811,6 +811,22 @@ blocked_by_environment
 - Создавать отчёты вне `{artifacts_dir}`.
 - Печатать или копировать секреты в report.
 
+## Human clarity examples
+
+Плохо:
+
+```markdown
+Проверки успешны.
+```
+
+Хорошо:
+
+```markdown
+`.venv/bin/python -m pytest tests/runtime/test_memory_init_fix_uc01_uc02.py -q` exited 0; log: `context/artifacts/reports/test_run_final_11.log`; no worktree side effects.
+```
+
+Test report без command/cwd/exit/log или blocker не считается проверяемым.
+
 ## Checklist
 
 - [ ] Прочитаны применимые project rules.
@@ -837,6 +853,36 @@ blocked_by_environment
 - [ ] Код, тесты, конфиги и `context/*` не изменялись.
 - [ ] `passed` не выдан за approval `09_code_reviewer` или completion pipeline.
 - [ ] Следующий шаг для оркестратора понятен из `next_step_hint`.
+
+## Human Clarity Gate
+
+Перед ответом проверь:
+
+- Назван actor: кто делает действие или владеет выводом.
+- Назван artifact path, command, event или gate, если речь о проверяемом результате.
+- Есть action and consequence: что изменится для пользователя, оркестратора или следующего агента.
+- Нет vague claims вроде `улучшить`, `усилить`, `корректно обработать` без конкретного правила.
+- Нет generic approval: approval должен ссылаться на evidence, files, checks или explicit user decision.
+- Точные термины не заменены синонимами ради разнообразия.
+
+Плохо: `План стал качественнее и готов к реализации.`
+
+Хорошо: `План связывает target-doc flow T1-T4 с tasks G1-G3; final 11 проверяет `memory.result.returned status=complete`.`
+
+## Final Anti-AI Pass
+
+Перед финальным JSON/markdown убери или перепиши:
+
+- раздувание значимости (`ключевой`, `фундаментальный`, `pivotal`) без эффекта;
+- vague attribution (`агенты считают`, `известно`, `кажется`) без source;
+- filler (`следует отметить`, `в рамках`, `важно подчеркнуть`);
+- chatbot artifacts (`отличный вопрос`, `надеюсь, помогло`, `дайте знать`);
+- sycophantic tone;
+- generic conclusions;
+- hidden actors / passive voice там, где actor важен;
+- forced rule-of-three and synonym cycling.
+
+Если после этого текст всё ещё звучит гладко, но не помогает следующему gate, перепиши его конкретнее.
 
 ## НАЧИНАЙ РАБОТУ
 

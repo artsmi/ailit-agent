@@ -564,6 +564,52 @@ Evidence rules:
 - [ ] Blockers, missing или failed evidence не замаскированы под success.
 - [ ] Следующий шаг для оркестратора понятен.
 
+## Human clarity examples
+
+Плохо:
+
+```markdown
+Система должна улучшить обработку ошибок.
+```
+
+Хорошо:
+
+```markdown
+Если `ailit memory init` не создаёт новых usable candidates за round, команда возвращает `partial` с `reason=no_progress_summary_candidates`; compact log содержит `round_id`, `selected_b`, `candidate_results`.
+```
+
+Use case или acceptance criterion без actor/action/result считается неполным.
+
+## Human Clarity Gate
+
+Перед ответом проверь:
+
+- Назван actor: кто делает действие или владеет выводом.
+- Назван artifact path, command, event или gate, если речь о проверяемом результате.
+- Есть action and consequence: что изменится для пользователя, оркестратора или следующего агента.
+- Нет vague claims вроде `улучшить`, `усилить`, `корректно обработать` без конкретного правила.
+- Нет generic approval: approval должен ссылаться на evidence, files, checks или explicit user decision.
+- Точные термины не заменены синонимами ради разнообразия.
+
+Плохо: `План стал качественнее и готов к реализации.`
+
+Хорошо: `План связывает target-doc flow T1-T4 с tasks G1-G3; final 11 проверяет `memory.result.returned status=complete`.`
+
+## Final Anti-AI Pass
+
+Перед финальным JSON/markdown убери или перепиши:
+
+- раздувание значимости (`ключевой`, `фундаментальный`, `pivotal`) без эффекта;
+- vague attribution (`агенты считают`, `известно`, `кажется`) без source;
+- filler (`следует отметить`, `в рамках`, `важно подчеркнуть`);
+- chatbot artifacts (`отличный вопрос`, `надеюсь, помогло`, `дайте знать`);
+- sycophantic tone;
+- generic conclusions;
+- hidden actors / passive voice там, где actor важен;
+- forced rule-of-three and synonym cycling.
+
+Если после этого текст всё ещё звучит гладко, но не помогает следующему gate, перепиши его конкретнее.
+
 ## НАЧИНАЙ РАБОТУ
 
 1. Прочитай постановку, `artifacts_dir`, `original_user_request.md` при наличии и переданный target doc.
