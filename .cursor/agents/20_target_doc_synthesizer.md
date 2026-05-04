@@ -269,6 +269,12 @@ If you cannot prove jobs are independent, set `parallel=false`.
 
 `research_waves.json` — source of truth для `18`. Он должен совпадать с JSON response по `wave_id`, `parallel`, `depends_on`, `barrier`, `job_id`, `kind`, `agent`, `output_file`.
 
+### Сохранение истории waves (обязательно)
+
+- После того как `18` исполнил волны и barrier закрыт, **запрещено** перезаписывать `research_waves.json` пустым `"research_waves": []`, если в этом прогоне реально выполнялись jobs.
+- На втором и последующих вызовах `20` (например `ready_for_author=true`): либо **не трогай** `research_waves.json` / `research_waves.md`, либо добавь новое поле верхнего уровня `follow_up_waves` для *новых* jobs, **не удаляя** исполненные волны из `research_waves`.
+- `research_waves.md` должен оставаться согласованным с JSON (таблица волн не «пустая», если волны были).
+
 Формат:
 
 ```json

@@ -276,12 +276,17 @@ approved | rework_required | needs_user_answer | blocked | rejected
 ```markdown
 ## Message For User Approval
 
-Документ готов к ревью: `<path>`.
+Пути для ревью (проверяемые артефакты):
+- Канон: `<path к INDEX.md или пакету>`
+- Сводный draft: `context/artifacts/target_doc/target_algorithm_draft.md`
 
-Он фиксирует:
-- <3-5 пунктов>
+Факты, зафиксированные текстом (3–5 маркеров проверки):
+- <bullet с измеримым критерием>
+- …
 
-Пожалуйста, ответьте в чат любой явной формой согласия (`ок`, `утверждаю`, `согласовано`) или напишите замечания.
+Дальше: Subagent `24` запишет `start_feature_execution_plan.md` в `context/algorithms/…` до запроса вашего OK.
+
+Пожалуйста, ответьте в чат **одной из явных форм** согласия из `project-human-communication.mdc` (`ок`, `утверждаю`, `согласовано`, `approved`, `да, это целевое состояние`) или напишите замечания.
 ```
 
 `18` использует это для ntfy/chat.
@@ -392,15 +397,19 @@ Notes: Нужно потом добавить failure rules.
 Хорошо:
 
 ```markdown
-Документ готов к ревью: `context/algorithms/agent-memory.md`.
+## Message For User Approval
 
-Он фиксирует:
-- как `ailit memory init` должен завершаться complete/partial;
-- какие события compact/journal доказывают прогресс;
-- почему повтор одного batch без новых кандидатов запрещён;
-- какие команды должен проверять будущий start-fix.
+Канон: `context/algorithms/agent-memory/INDEX.md` + файлы пакета; draft: `context/artifacts/target_doc/target_algorithm_draft.md`.
 
-Ответьте `ок/утверждаю`, если это целевое состояние, или напишите замечания.
+Проверяемые утверждения:
+- `ailit memory init` — ожидаемые `complete`/`partial`/`blocked` и маркер `memory.result.returned` (см. draft §Commands);
+- compact/journal — какие `event_type` доказывают прогресс без raw prompts;
+- bounded repair / no-progress — явное правило в draft + `failure-retry-observability.md`;
+- downstream: роли `02`/`06`/`08`/`11`/`13` названы в draft.
+
+После reader review `23` будет запущен `24` и появится `start_feature_execution_plan.md` в `context/algorithms/agent-memory/` до вашего OK.
+
+Ответьте одной из форм whitelist (`ок`, `утверждаю`, …) или замечаниями.
 ```
 
 Плохо:

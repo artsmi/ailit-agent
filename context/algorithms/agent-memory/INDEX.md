@@ -14,6 +14,7 @@
 
 | Файл | Содержание |
 |------|------------|
+| [`start_feature_execution_plan.md`](start_feature_execution_plan.md) | Порядок работ для `start-feature`/`start-fix`, риски отклонений, полные копии human approval gate и research waves (`24_start_feature_execution_planner`). |
 | [`runtime-flow.md`](runtime-flow.md) | Целевая state machine, intake → DB → LLM → slice → обход → nodes/links → summarization → finish → bounded partial; **нормативный** выбор: явные состояния + маппинг journal. |
 | [`memory-graph-links.md`](memory-graph-links.md) | Типы связей (`contains`, `imports`, …), evidence/confidence, runtime validation vs LLM candidates, baseline `derived_from`. |
 | [`llm-commands.md`](llm-commands.md) | Команды runtime→LLM: envelope vs `plan_traversal.actions`, repair как фаза, целевая `propose_links`. |
