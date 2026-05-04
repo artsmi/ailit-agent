@@ -32,6 +32,10 @@ from agent_core.runtime.agent_memory_runtime_contract import (
 )
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 
+# Запись summarize_c / summarize_b в PAG не зависит от пользовательского goal;
+# см. ``context/proto/pag-stable-indexing.md``.
+PAG_NEUTRAL_USER_SUBGOAL: str = ""
+
 
 # --- Fingerprint: одна правка логики — тут (G14R.5) ------------------------
 

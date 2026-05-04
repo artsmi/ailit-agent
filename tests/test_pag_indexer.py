@@ -76,6 +76,48 @@ def test_pag_indexer_whole_file_ingest_python_symbols(tmp_path: Path) -> None:
     )
 
 
+def test_pag_incremental_sync_preserves_c_llm_attrs(tmp_path: Path) -> None:
+    """Reindex merge keeps summary_fingerprint when chunk is unchanged."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "a.py").write_text("def f():\n    return 1\n", encoding="utf-8")
+
+    db = tmp_path / "pag.sqlite3"
+    store = SqlitePagStore(db)
+    idx = PagIndexer(store)
+    ns = idx.index_project(PagIndexConfig(project_root=root, db_path=db))
+
+    c_nodes = store.list_nodes(namespace=ns, level="C", limit=1000)
+    assert c_nodes
+    cn = c_nodes[0]
+    merged_attrs = dict(cn.attrs) if isinstance(cn.attrs, dict) else {}
+    merged_attrs["summary_fingerprint"] = "c_sum_v1:sha256-preserved"
+    store.upsert_node(
+        namespace=ns,
+        node_id=cn.node_id,
+        level=cn.level,
+        kind=cn.kind,
+        path=cn.path,
+        title=cn.title,
+        summary="LLM summary text",
+        attrs=merged_attrs,
+        fingerprint=cn.fingerprint,
+        staleness_state=cn.staleness_state,
+        source_contract=cn.source_contract,
+    )
+
+    idx.sync_changes(
+        namespace=ns,
+        project_root=root,
+        changed_paths=["a.py"],
+    )
+    again = store.fetch_node(namespace=ns, node_id=cn.node_id)
+    assert again is not None
+    a2 = again.attrs if isinstance(again.attrs, dict) else {}
+    assert a2.get("summary_fingerprint") == "c_sum_v1:sha256-preserved"
+    assert again.summary == "LLM summary text"
+
+
 def test_pag_indexer_incremental_sync_updates_symbols(tmp_path: Path) -> None:
     root = tmp_path / "proj"
     root.mkdir()

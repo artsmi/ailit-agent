@@ -41,6 +41,7 @@ from agent_core.runtime.agent_memory_w14_observability import (
 )
 from agent_core.runtime.agent_memory_summary_service import (
     AgentMemorySummaryService,
+    PAG_NEUTRAL_USER_SUBGOAL,
     SummarizeCNodeInputV1,
     SummarizeCLocator,
     W14CommandLimits,
@@ -1186,7 +1187,6 @@ class AgentMemoryQueryPipeline:
                 namespace=nspace,
                 root=root,
                 c_nodes=c_nodes,
-                goal=goal,
                 limits=limits,
             )
             summarized_b = self._summarize_b_nodes(
@@ -1196,7 +1196,6 @@ class AgentMemoryQueryPipeline:
                 svc=svc,
                 namespace=nspace,
                 paths=selected_b,
-                goal=goal,
                 limits=limits,
             )
         candidates = self._candidate_results_from_c_nodes(summarized_c)
@@ -1498,6 +1497,13 @@ class AgentMemoryQueryPipeline:
         phase: str,
         raw_input: str,
     ) -> str:
+        sys_extra = ""
+        if phase in ("summarize_c", "summarize_b"):
+            sys_extra = (
+                " Резюме нейтральное: опиши содержимое чанка/файла для "
+                "индекса памяти репозитория. Не привязывайся к вопросу "
+                "пользователя."
+            )
         c_req = self._policy.apply_chat_request(
             ChatRequest(
                 messages=(
@@ -1506,6 +1512,7 @@ class AgentMemoryQueryPipeline:
                         content=(
                             "Ты выполняешь команду AgentMemory. Верни только "
                             "JSON agent_memory_command_output.v1 без markdown."
+                            + sys_extra
                         ),
                     ),
                     ChatMessage(role=MessageRole.USER, content=raw_input),
@@ -1540,7 +1547,6 @@ class AgentMemoryQueryPipeline:
         namespace: str,
         root: Path,
         c_nodes: Sequence[Any],
-        goal: str,
         limits: W14RuntimeLimits,
     ) -> list[Any]:
         out: list[Any] = []
@@ -1573,7 +1579,7 @@ class AgentMemoryQueryPipeline:
                 svc.summarize_c_call_llm(
                     namespace=namespace,
                     c_input=c_input,
-                    user_subgoal=goal,
+                    user_subgoal=PAG_NEUTRAL_USER_SUBGOAL,
                     limits=lim,
                     command_id=_sc_cid,
                     query_id=qid_log,
@@ -1605,7 +1611,6 @@ class AgentMemoryQueryPipeline:
         svc: AgentMemorySummaryService,
         namespace: str,
         paths: Sequence[str],
-        goal: str,
         limits: W14RuntimeLimits,
     ) -> list[Any]:
         out: list[Any] = []
@@ -1635,6 +1640,24 @@ class AgentMemoryQueryPipeline:
             coverage = len(fresh) / max(1, len(children))
             if coverage < limits.min_child_summary_coverage:
                 continue
+            current_basis = (
+                AgentMemorySummaryService.compute_b_child_basis_from_nodes(
+                    fresh,
+                )
+            )
+            b_attrs = (
+                b_node.attrs if isinstance(b_node.attrs, dict) else {}
+            )
+            if (
+                str(b_attrs.get("summary_fingerprint", "") or "").strip()
+                and str(b_node.summary or "").strip()
+                and not AgentMemorySummaryService.is_b_summary_stale(
+                    b_node=b_node,
+                    current_child_basis=current_basis,
+                )
+            ):
+                out.append(b_node)
+                continue
             _sb_cid = f"{qid_log}:summarize_b:{len(out) + 1}"
             try:
                 svc.summarize_b_call_llm(
@@ -1643,7 +1666,7 @@ class AgentMemoryQueryPipeline:
                     path=rel,
                     kind=b_node.kind,
                     child_nodes=fresh,
-                    user_subgoal=goal,
+                    user_subgoal=PAG_NEUTRAL_USER_SUBGOAL,
                     limits=lim,
                     command_id=_sb_cid,
                     query_id=qid_log,

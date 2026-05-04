@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 
-from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_core.memory.pag_slice_caps import PAG_SLICE_MAX_NODES
+from agent_core.memory.sqlite_pag import PagNode, SqlitePagStore
 from agent_core.runtime.agent_memory_config import (
     ArtifactsSubConfig,
     MemoryLlmSubConfig,
@@ -73,6 +74,20 @@ class ChangedRange:
     path: str
     start_line: int
     end_line: int
+
+
+def _merge_b_file_index_attrs(
+    old_attrs: Mapping[str, Any],
+    new_attrs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Structural fields from ``new_attrs``; keep B LLM / summary metadata."""
+    out = dict(new_attrs)
+    for k, v in dict(old_attrs).items():
+        if k in ("summary_fingerprint", "child_basis_fingerprint"):
+            out[k] = v
+        elif str(k).startswith("w14_"):
+            out[k] = v
+    return out
 
 
 class GitignoreMatcher:
@@ -234,23 +249,50 @@ class PagIndexer:
         max_bytes: int,
         module_to_rel: Mapping[str, str] | None = None,
     ) -> None:
+        """Incremental C sync: merge LLM attrs; drop removed chunks."""
         b_id = self._b_node_id(rel)
-        self._store.delete_edges_touching_node_ids(
+        old_nodes = self._store.list_nodes_for_path(
             namespace=ns,
-            node_ids=[b_id],
-        )
-        self._store.delete_nodes_by_level_and_path(
-            namespace=ns,
-            level="C",
             path=rel,
+            level="C",
+            limit=PAG_SLICE_MAX_NODES,
         )
-        self._read_and_upsert_c_decomposition(
-            ns,
-            root,
+        old_by_id: dict[str, PagNode] = {n.node_id: n for n in old_nodes}
+        got = self._read_file_text_and_len(root, rel, max_bytes)
+        if got is None:
+            return
+        text, raw_len = got
+        bounds = self._b2c.decompose_b_to_c(
             rel,
-            max_bytes,
-            module_to_rel=module_to_rel,
+            text,
+            size_bytes=raw_len,
+            policy=self._ingest_policy,
+            llm=self._llm_mem,
+            source_truncated=raw_len > max_bytes,
         )
+        new_ids = {bb.c_node_id() for bb in bounds}
+        stale_ids = sorted(nid for nid in old_by_id if nid not in new_ids)
+        if stale_ids:
+            _ = self._store.delete_nodes_by_ids(
+                namespace=ns,
+                node_ids=stale_ids,
+            )
+        _ = self._store.delete_outgoing_edges(
+            namespace=ns,
+            from_node_id=b_id,
+            edge_class="cross_link",
+            edge_type="imports",
+        )
+        for bb in bounds:
+            old_n = old_by_id.get(bb.c_node_id())
+            self._upsert_c_boundary_node(
+                ns,
+                b_id,
+                rel,
+                bb,
+                old_node=old_n,
+            )
+        self._upsert_py_import_edges(ns, b_id, text, module_to_rel)
 
     def _upsert_project_node(
         self,
@@ -275,6 +317,9 @@ class PagIndexer:
         fp = str(getattr(rc, "commit", None) or "") if rc is not None else ""
         if not fp:
             fp = "not_git"
+        existing = self._store.fetch_node(namespace=ns, node_id=a_node_id)
+        if existing is not None and isinstance(existing.attrs, dict):
+            attrs = {**existing.attrs, **attrs}
         self._write.upsert_node(
             namespace=ns,
             node_id=a_node_id,
@@ -445,20 +490,37 @@ class PagIndexer:
         raw = p.read_bytes()
         h = hashlib.sha1(raw).hexdigest()
         lang = self._language_for(p)
-        attrs = {
+        attrs: dict[str, Any] = {
             "language": lang,
             "size_bytes": int(st.st_size),
             "mtime": float(st.st_mtime),
             "hash": h,
         }
+        summary = "File"
+        nid = self._b_node_id(rel_file)
+        existing = self._store.fetch_node(namespace=ns, node_id=nid)
+        if (
+            existing is not None
+            and existing.level == "B"
+            and existing.kind == "file"
+        ):
+            prev = (
+                dict(existing.attrs)
+                if isinstance(existing.attrs, dict)
+                else {}
+            )
+            attrs = _merge_b_file_index_attrs(prev, attrs)
+            sfp = str(prev.get("summary_fingerprint", "") or "").strip()
+            if sfp and str(existing.summary or "").strip():
+                summary = str(existing.summary)
         self._write.upsert_node(
             namespace=ns,
-            node_id=self._b_node_id(rel_file),
+            node_id=nid,
             level="B",
             kind="file",
             path=rel_file,
             title=p.name,
-            summary="File",
+            summary=summary,
             attrs=attrs,
             fingerprint=h,
             staleness_state="fresh",
@@ -507,6 +569,57 @@ class PagIndexer:
                 module_to_rel=None,
             )
 
+    def _read_file_text_and_len(
+        self,
+        root: Path,
+        rel: str,
+        max_bytes: int,
+    ) -> tuple[str, int] | None:
+        p = (root / rel).resolve()
+        try:
+            raw = p.read_bytes()
+        except OSError:
+            return None
+        if len(raw) > max_bytes:
+            text = raw[:max_bytes].decode("utf-8", errors="replace")
+        else:
+            text = raw.decode("utf-8", errors="replace")
+        return text, len(raw)
+
+    def _upsert_py_import_edges(
+        self,
+        ns: str,
+        b_id: str,
+        text: str,
+        module_to_rel: Mapping[str, str] | None,
+    ) -> None:
+        if module_to_rel is None:
+            return
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            tree = ast.Module(body=[], type_ignores=[])
+        for mod in self._py_imports(tree):
+            target = module_to_rel.get(mod)
+            if target is None:
+                continue
+            to_b = self._b_node_id(target)
+            self._write.upsert_edge(
+                namespace=ns,
+                edge_id=self._edge_id(
+                    "cross_link",
+                    "imports",
+                    b_id,
+                    to_b,
+                ),
+                edge_class="cross_link",
+                edge_type="imports",
+                from_node_id=b_id,
+                to_node_id=to_b,
+                confidence=0.6,
+                source_contract="ailit_pag_store_v1",
+            )
+
     def _read_and_upsert_c_decomposition(
         self,
         ns: str,
@@ -515,52 +628,34 @@ class PagIndexer:
         max_bytes: int,
         *,
         module_to_rel: Mapping[str, str] | None = None,
+        existing_c_by_id: Mapping[str, PagNode] | None = None,
     ) -> None:
-        p = (root / rel).resolve()
-        try:
-            raw = p.read_bytes()
-        except OSError:
+        got = self._read_file_text_and_len(root, rel, max_bytes)
+        if got is None:
             return
-        if len(raw) > max_bytes:
-            text = raw[:max_bytes].decode("utf-8", errors="replace")
-        else:
-            text = raw.decode("utf-8", errors="replace")
+        text, raw_len = got
         b_id = self._b_node_id(rel)
         bounds = self._b2c.decompose_b_to_c(
             rel,
             text,
-            size_bytes=len(raw),
+            size_bytes=raw_len,
             policy=self._ingest_policy,
             llm=self._llm_mem,
-            source_truncated=len(raw) > max_bytes,
+            source_truncated=raw_len > max_bytes,
+        )
+        lookup: Mapping[str, PagNode] = (
+            existing_c_by_id if existing_c_by_id is not None else {}
         )
         for b in bounds:
-            self._upsert_c_boundary_node(ns, b_id, rel, b)
-        if rel.lower().endswith(".py") and module_to_rel is not None:
-            try:
-                tree = ast.parse(text)
-            except SyntaxError:
-                tree = ast.Module(body=[], type_ignores=[])
-            for mod in self._py_imports(tree):
-                target = module_to_rel.get(mod)
-                if target is None:
-                    continue
-                to_b = self._b_node_id(target)
-                self._write.upsert_edge(
-                    namespace=ns,
-                    edge_id=self._edge_id(
-                        "cross_link",
-                        "imports",
-                        b_id,
-                        to_b,
-                    ),
-                    edge_class="cross_link",
-                    edge_type="imports",
-                    from_node_id=b_id,
-                    to_node_id=to_b,
-                    confidence=0.6,
-                    source_contract="ailit_pag_store_v1",
-                )
+            old_n = lookup.get(b.c_node_id())
+            self._upsert_c_boundary_node(
+                ns,
+                b_id,
+                rel,
+                b,
+                old_node=old_n,
+            )
+        self._upsert_py_import_edges(ns, b_id, text, module_to_rel)
 
     def _upsert_c_boundary_node(
         self,
@@ -568,8 +663,43 @@ class PagIndexer:
         b_id: str,
         rel: str,
         b: CNodeBoundary,
+        *,
+        old_node: PagNode | None = None,
     ) -> str:
         c_id = b.c_node_id()
+        default_summary = f"{b.semantic_kind} {b.title}"
+        base_attrs: dict[str, Any] = {
+            "name": b.title,
+            "kind": b.pag_kind,
+            "semantic_kind": b.semantic_kind,
+            "start_line": b.start_line,
+            "end_line": b.end_line,
+            "symbol_key": b.symbol_key,
+            "content_fingerprint": b.content_sha256,
+            "truncated_source": b.source_truncated,
+        }
+        summary = default_summary
+        attrs = dict(base_attrs)
+        if old_node is not None:
+            old_fp = str(
+                (old_node.attrs or {}).get("content_fingerprint", "")
+                or old_node.fingerprint
+                or "",
+            ).strip()
+            if old_fp == b.content_sha256:
+                prev = (
+                    dict(old_node.attrs)
+                    if isinstance(old_node.attrs, dict)
+                    else {}
+                )
+                merged = dict(base_attrs)
+                for k, v in prev.items():
+                    if str(k).startswith("w14_") or k == "summary_fingerprint":
+                        merged[k] = v
+                attrs = merged
+                sfp = str(attrs.get("summary_fingerprint", "") or "").strip()
+                if sfp and str(old_node.summary or "").strip():
+                    summary = str(old_node.summary)
         self._write.upsert_node(
             namespace=ns,
             node_id=c_id,
@@ -577,17 +707,8 @@ class PagIndexer:
             kind=b.pag_kind,
             path=rel,
             title=b.title,
-            summary=f"{b.semantic_kind} {b.title}",
-            attrs={
-                "name": b.title,
-                "kind": b.pag_kind,
-                "semantic_kind": b.semantic_kind,
-                "start_line": b.start_line,
-                "end_line": b.end_line,
-                "symbol_key": b.symbol_key,
-                "content_fingerprint": b.content_sha256,
-                "truncated_source": b.source_truncated,
-            },
+            summary=summary,
+            attrs=attrs,
             fingerprint=b.content_sha256,
             staleness_state="fresh",
             source_contract="ailit_pag_store_v1",

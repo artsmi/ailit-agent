@@ -161,6 +161,59 @@ def test_pag_mark_stale_and_delete_stale_deletes_edges(tmp_path: Path) -> None:
     assert s.list_edges_touching(namespace="n", node_ids=["B:b"]) == []
 
 
+def test_pag_delete_outgoing_edges_and_delete_nodes_by_ids(
+    tmp_path: Path,
+) -> None:
+    db = tmp_path / "pag.sqlite3"
+    s = SqlitePagStore(db)
+    for nid, level, path in (
+        ("B:f", "B", "a.py"),
+        ("C:1", "C", "a.py"),
+        ("C:2", "C", "a.py"),
+    ):
+        s.upsert_node(
+            namespace="n",
+            node_id=nid,
+            level=level,
+            kind="x",
+            path=path,
+            title=nid,
+            summary="s",
+            attrs={},
+            fingerprint="h",
+        )
+    s.upsert_edge(
+        namespace="n",
+        edge_id="e_imp",
+        edge_class="cross_link",
+        edge_type="imports",
+        from_node_id="B:f",
+        to_node_id="B:other",
+        confidence=0.5,
+    )
+    s.upsert_edge(
+        namespace="n",
+        edge_id="e_c",
+        edge_class="containment",
+        edge_type="contains",
+        from_node_id="B:f",
+        to_node_id="C:1",
+        confidence=1.0,
+    )
+    de = s.delete_outgoing_edges(
+        namespace="n",
+        from_node_id="B:f",
+        edge_class="cross_link",
+        edge_type="imports",
+    )
+    assert de == 1
+    dn, dne = s.delete_nodes_by_ids(namespace="n", node_ids=["C:2"])
+    assert dn == 1
+    assert dne == 0
+    assert s.fetch_node(namespace="n", node_id="C:2") is None
+    assert s.fetch_node(namespace="n", node_id="C:1") is not None
+
+
 def test_pag_delete_nodes_by_level_and_path_and_edges_touching(
     tmp_path: Path,
 ) -> None:

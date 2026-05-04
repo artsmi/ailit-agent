@@ -1069,6 +1069,72 @@ class SqlitePagStore:
             )
             return int(getattr(cur, "rowcount", 0) or 0)
 
+    def delete_outgoing_edges(
+        self,
+        *,
+        namespace: str,
+        from_node_id: str,
+        edge_class: str | None = None,
+        edge_type: str | None = None,
+    ) -> int:
+        """Delete edges from ``from_node_id``; optional class/type filter."""
+        ns = str(namespace).strip()
+        fid = str(from_node_id or "").strip()
+        if not ns or not fid:
+            return 0
+        where = ["namespace = ?", "from_node_id = ?"]
+        params: list[object] = [ns, fid]
+        if edge_class is not None:
+            where.append("edge_class = ?")
+            params.append(str(edge_class).strip())
+        if edge_type is not None:
+            where.append("edge_type = ?")
+            params.append(str(edge_type).strip())
+        sql = "DELETE FROM pag_edges WHERE " + " AND ".join(where)
+        with self._connect() as con:
+            cur = con.execute(sql, tuple(params))
+            return int(getattr(cur, "rowcount", 0) or 0)
+
+    def delete_nodes_by_ids(
+        self,
+        *,
+        namespace: str,
+        node_ids: Sequence[str],
+    ) -> tuple[int, int]:
+        """Delete nodes by id and edges touching them.
+
+        Returns:
+            (deleted_nodes, deleted_edges)
+        """
+        ns = str(namespace).strip()
+        if not ns:
+            return 0, 0
+        ids = tuple(str(x).strip() for x in node_ids if str(x).strip())
+        if not ids:
+            return 0, 0
+        ph = ",".join(["?"] * len(ids))
+        with self._connect() as con:
+            cur_e = con.execute(
+                """
+                DELETE FROM pag_edges
+                WHERE namespace = ?
+                  AND (from_node_id IN ("""
+                + ph
+                + ") OR to_node_id IN ("
+                + ph
+                + "))",
+                (ns, *ids, *ids),
+            )
+            deleted_edges = int(getattr(cur_e, "rowcount", 0) or 0)
+            cur_n = con.execute(
+                "DELETE FROM pag_nodes WHERE namespace = ? AND node_id IN ("
+                + ph
+                + ")",
+                (ns, *ids),
+            )
+            deleted_nodes = int(getattr(cur_n, "rowcount", 0) or 0)
+        return deleted_nodes, deleted_edges
+
     @staticmethod
     def _row_to_pending(row: sqlite3.Row) -> PagPendingLinkClaim:
         return PagPendingLinkClaim(
