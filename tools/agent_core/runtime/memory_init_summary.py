@@ -20,6 +20,8 @@ _LABELLED_AGGREGATION_EVENTS: Final[frozenset[str]] = frozenset(
         "memory.why_llm",
         "memory.pag_graph",
         "memory.w14_graph_highlight",
+        "memory.link_candidates",
+        "memory.links_updated",
     },
 )
 
@@ -149,20 +151,26 @@ class MemoryInitSummaryFormatter:
             norm = normalize_compact_event_name(raw_ev)
             if norm == "memory.pag_graph":
                 op = fields.get("op", "").strip()
-                if op in ("node", "edge"):
+                if op in ("node", "edge", "edge_batch"):
                     parts = [f"op={op}"]
-                    for key in ("namespace", "rev", "request_id"):
+                    for key in (
+                        "ns",
+                        "rev",
+                        "subject",
+                        "count",
+                        "first",
+                        "last",
+                    ):
                         if key in fields:
                             parts.append(f"{key}={fields[key]}")
                     out.append(f"  graph {' '.join(parts)}")
             elif norm == "memory.w14_graph_highlight":
-                parts: list[str] = []
+                parts = []
                 for key in (
                     "query_id",
                     "w14_command",
                     "n_node",
                     "n_edge",
-                    "request_id",
                 ):
                     if key in fields:
                         parts.append(f"{key}={fields[key]}")
@@ -170,6 +178,20 @@ class MemoryInitSummaryFormatter:
                     out.append(f"  w14 highlight {' '.join(parts)}")
                 else:
                     out.append("  w14 highlight")
+            elif norm == "memory.link_candidates":
+                parts_lc = []
+                for key in ("query_id", "n_cand"):
+                    if key in fields:
+                        parts_lc.append(f"{key}={fields[key]}")
+                if parts_lc:
+                    out.append(f"  {norm} {' '.join(parts_lc)}")
+            elif norm == "memory.links_updated":
+                parts_lu = []
+                for key in ("query_id", "n_applied", "n_rejected"):
+                    if key in fields:
+                        parts_lu.append(f"{key}={fields[key]}")
+                if parts_lu:
+                    out.append(f"  {norm} {' '.join(parts_lu)}")
         if not out:
             return ["  (no graph / highlight rows)"]
         return out

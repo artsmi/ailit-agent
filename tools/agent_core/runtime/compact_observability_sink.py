@@ -69,6 +69,145 @@ def build_compact_line(
     return line + "\n"
 
 
+def build_memory_llm_completed_compact_line(
+    *,
+    timestamp: str,
+    duration_ms: int,
+    phase: str,
+    reason: str,
+    node: str | None = None,
+    lines: str | None = None,
+) -> str:
+    """Минимальная строка ``memory.llm.completed`` без init_session/chat_id."""
+    norm_event = normalize_compact_event_name("memory.llm.completed")
+    parts: list[str] = [
+        _fmt_kv("timestamp", timestamp),
+        _fmt_kv("event", norm_event),
+        _fmt_kv("duration_ms", _scalar_to_compact_value(duration_ms)),
+        _fmt_kv("phase", _scalar_to_compact_value(phase)),
+        _fmt_kv("reason", _scalar_to_compact_value(reason)),
+    ]
+    ns = str(node or "").strip()
+    if ns:
+        parts.append(_fmt_kv("node", _scalar_to_compact_value(ns)))
+    ls = str(lines or "").strip()
+    if ls:
+        parts.append(_fmt_kv("lines", _scalar_to_compact_value(ls)))
+    line = " ".join(p for p in parts if p)
+    if "\n" in line:
+        line = line.replace("\n", " ")
+    return line + "\n"
+
+
+def _clip_compact_token(value: str, max_len: int = 420) -> str:
+    s = str(value).replace("\n", " ").replace("\r", " ").strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 3] + "..."
+
+
+def build_memory_pag_graph_compact_line(
+    *,
+    timestamp: str,
+    op: str,
+    rev: int,
+    namespace: str | None = None,
+    subject: str | None = None,
+    count: int | None = None,
+    first: str | None = None,
+    last: str | None = None,
+) -> str:
+    """Минимальная строка ``memory.pag_graph`` (node / edge / edge_batch)."""
+    norm_event = normalize_compact_event_name("memory.pag_graph")
+    parts: list[str] = [
+        _fmt_kv("timestamp", timestamp),
+        _fmt_kv("event", norm_event),
+        _fmt_kv("op", _scalar_to_compact_value(op)),
+        _fmt_kv("rev", _scalar_to_compact_value(int(max(0, rev)))),
+    ]
+    ns = str(namespace or "").strip()
+    if ns:
+        parts.append(_fmt_kv("ns", _clip_compact_token(ns, 240)))
+    subj = str(subject or "").strip()
+    if subj:
+        parts.append(_fmt_kv("subject", _clip_compact_token(subj, 420)))
+    if count is not None:
+        parts.append(_fmt_kv("count", _scalar_to_compact_value(int(count))))
+    fst = str(first or "").strip()
+    if fst:
+        parts.append(_fmt_kv("first", _clip_compact_token(fst, 120)))
+    lst = str(last or "").strip()
+    if lst:
+        parts.append(_fmt_kv("last", _clip_compact_token(lst, 120)))
+    line = " ".join(p for p in parts if p)
+    if "\n" in line:
+        line = line.replace("\n", " ")
+    return line + "\n"
+
+
+def build_memory_w14_graph_highlight_compact_line(
+    *,
+    timestamp: str,
+    query_id: str,
+    w14_command: str,
+    n_node: int,
+    n_edge: int,
+) -> str:
+    """Минимальная строка ``memory.w14_graph_highlight``."""
+    norm_event = normalize_compact_event_name("memory.w14.graph_highlight")
+    parts: list[str] = [
+        _fmt_kv("timestamp", timestamp),
+        _fmt_kv("event", norm_event),
+        _fmt_kv("query_id", _clip_compact_token(str(query_id), 200)),
+        _fmt_kv("w14_command", _clip_compact_token(str(w14_command), 120)),
+        _fmt_kv("n_node", _scalar_to_compact_value(int(max(0, n_node)))),
+        _fmt_kv("n_edge", _scalar_to_compact_value(int(max(0, n_edge)))),
+    ]
+    line = " ".join(p for p in parts if p)
+    if "\n" in line:
+        line = line.replace("\n", " ")
+    return line + "\n"
+
+
+def build_memory_link_candidates_compact_line(
+    *,
+    timestamp: str,
+    query_id: str,
+    n_cand: int,
+) -> str:
+    """Компактная строка wire ``link_candidates`` (без списка кандидатов)."""
+    parts: list[str] = [
+        _fmt_kv("timestamp", timestamp),
+        _fmt_kv("event", "memory.link_candidates"),
+        _fmt_kv("query_id", _clip_compact_token(str(query_id), 200)),
+        _fmt_kv("n_cand", _scalar_to_compact_value(int(max(0, n_cand)))),
+    ]
+    line = " ".join(p for p in parts if p)
+    return line + "\n"
+
+
+def build_memory_links_updated_compact_line(
+    *,
+    timestamp: str,
+    query_id: str,
+    n_applied: int,
+    n_rejected: int,
+) -> str:
+    """Компактная строка wire ``links_updated``."""
+    parts: list[str] = [
+        _fmt_kv("timestamp", timestamp),
+        _fmt_kv("event", "memory.links_updated"),
+        _fmt_kv("query_id", _clip_compact_token(str(query_id), 200)),
+        _fmt_kv("n_applied", _scalar_to_compact_value(int(max(0, n_applied)))),
+        _fmt_kv(
+            "n_rejected",
+            _scalar_to_compact_value(int(max(0, n_rejected))),
+        ),
+    ]
+    line = " ".join(p for p in parts if p)
+    return line + "\n"
+
+
 class CompactObservabilitySink:
     """Append-only ``compact.log`` и полная строка на stderr (D2)."""
 
@@ -114,6 +253,101 @@ class CompactObservabilitySink:
             chat_id=cid,
             event=event,
             fields=extra,
+        )
+        self._write_line(line)
+
+    def emit_memory_llm_completed(
+        self,
+        *,
+        duration_ms: int,
+        phase: str,
+        reason: str,
+        node: str | None = None,
+        lines: str | None = None,
+    ) -> None:
+        """timestamp, event, duration_ms, phase, reason; опц. node/lines."""
+        ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        line = build_memory_llm_completed_compact_line(
+            timestamp=ts,
+            duration_ms=int(max(0, duration_ms)),
+            phase=phase,
+            reason=reason,
+            node=node,
+            lines=lines,
+        )
+        self._write_line(line)
+
+    def emit_memory_pag_graph(
+        self,
+        *,
+        op: str,
+        rev: int,
+        namespace: str | None = None,
+        subject: str | None = None,
+        count: int | None = None,
+        first: str | None = None,
+        last: str | None = None,
+    ) -> None:
+        """Минимальный ``memory.pag_graph`` (node/edge/edge_batch)."""
+        ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        line = build_memory_pag_graph_compact_line(
+            timestamp=ts,
+            op=str(op).strip(),
+            rev=int(max(0, rev)),
+            namespace=namespace,
+            subject=subject,
+            count=count,
+            first=first,
+            last=last,
+        )
+        self._write_line(line)
+
+    def emit_memory_w14_graph_highlight_compact(
+        self,
+        *,
+        query_id: str,
+        w14_command: str,
+        n_node: int,
+        n_edge: int,
+    ) -> None:
+        """Минимальный ``memory.w14_graph_highlight``."""
+        ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        line = build_memory_w14_graph_highlight_compact_line(
+            timestamp=ts,
+            query_id=str(query_id or "").strip(),
+            w14_command=str(w14_command or "").strip(),
+            n_node=int(max(0, n_node)),
+            n_edge=int(max(0, n_edge)),
+        )
+        self._write_line(line)
+
+    def emit_memory_link_candidates(
+        self,
+        *,
+        query_id: str,
+        n_cand: int,
+    ) -> None:
+        ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        line = build_memory_link_candidates_compact_line(
+            timestamp=ts,
+            query_id=str(query_id or "").strip(),
+            n_cand=int(max(0, n_cand)),
+        )
+        self._write_line(line)
+
+    def emit_memory_links_updated(
+        self,
+        *,
+        query_id: str,
+        n_applied: int,
+        n_rejected: int,
+    ) -> None:
+        ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        line = build_memory_links_updated_compact_line(
+            timestamp=ts,
+            query_id=str(query_id or "").strip(),
+            n_applied=int(max(0, n_applied)),
+            n_rejected=int(max(0, n_rejected)),
         )
         self._write_line(line)
 

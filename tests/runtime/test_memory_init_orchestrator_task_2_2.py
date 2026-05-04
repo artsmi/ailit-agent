@@ -28,17 +28,14 @@ def test_tc_2_2_summary_counts_d4(tmp_path: Path) -> None:
     p = tmp_path / "compact.log"
     ln1 = "timestamp=t init_session_id=u chat_id=c event=memory.why_llm x=1\n"
     ln2 = (
-        "timestamp=t init_session_id=u chat_id=c "
-        "event=memory.pag_graph op=node\n"
+        "timestamp=t event=memory.pag_graph op=node rev=1 "
+        "subject=p#L:n\n"
     )
     ln3 = (
-        "timestamp=t init_session_id=u chat_id=c "
-        "event=memory.w14_graph_highlight n=1\n"
+        "timestamp=t event=memory.w14_graph_highlight query_id=q "
+        "w14_command=c n_node=1 n_edge=0\n"
     )
-    ln4 = (
-        "timestamp=t init_session_id=u chat_id=c "
-        "event=memory.pag_graph op=edge\n"
-    )
+    ln4 = "timestamp=t event=memory.pag_graph op=edge rev=2 subject=x\n"
     lines = [ln1, ln2, ln3, ln4]
     p.write_text("".join(lines), encoding="utf-8")
     assert count_compact_d4_summary_lines(p) == (1, 1, 1)

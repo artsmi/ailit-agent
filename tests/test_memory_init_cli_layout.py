@@ -123,20 +123,23 @@ def test_memory_init_compact_fixture_d4_summary_three_counters(
             "chat_id=c event=memory.why_llm"
         ),
         (
-            "timestamp=2026-05-01T10:00:02+00:00 init_session_id=s "
-            "chat_id=c event=memory.pag_graph op=node"
+            "timestamp=2026-05-01T10:00:02+00:00 event=memory.pag_graph "
+            "op=node rev=1 ns=n subject=p#L:x"
         ),
         (
-            "timestamp=2026-05-01T10:00:03+00:00 init_session_id=s "
-            "chat_id=c event=memory.w14_graph_highlight"
+            "timestamp=2026-05-01T10:00:03+00:00 "
+            "event=memory.w14_graph_highlight query_id=q w14_command=x "
+            "n_node=0 n_edge=0"
         ),
         (
-            "timestamp=2026-05-01T10:00:04+00:00 init_session_id=s "
-            "chat_id=c event=memory.w14_graph_highlight"
+            "timestamp=2026-05-01T10:00:04+00:00 "
+            "event=memory.w14_graph_highlight query_id=q w14_command=x "
+            "n_node=0 n_edge=0"
         ),
         (
-            "timestamp=2026-05-01T10:00:05+00:00 init_session_id=s "
-            "chat_id=c event=memory.w14_graph_highlight"
+            "timestamp=2026-05-01T10:00:05+00:00 "
+            "event=memory.w14_graph_highlight query_id=q w14_command=x "
+            "n_node=0 n_edge=0"
         ),
     ]
     compact_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

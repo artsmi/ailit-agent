@@ -7,9 +7,6 @@ import sys
 import uuid
 from typing import Any, Mapping, TYPE_CHECKING
 
-from agent_core.runtime.agent_memory_external_events import (
-    map_stdout_internal_to_compact_event,
-)
 from agent_core.runtime.models import (
     RuntimeIdentity,
     RuntimeRequestEnvelope,
@@ -20,6 +17,74 @@ from agent_core.runtime.models import (
 if TYPE_CHECKING:
     from agent_core.runtime.compact_observability_sink import (
         CompactObservabilitySink,
+    )
+
+
+def _emit_memory_pag_graph_compact(
+    *,
+    event_name: str,
+    inner_payload: Mapping[str, Any],
+    compact_sink: CompactObservabilitySink,
+) -> None:
+    """Одна минимальная строка ``memory.pag_graph`` в ``compact.log``."""
+    rev_v = inner_payload.get("rev", 0)
+    try:
+        rev = int(rev_v)
+    except (TypeError, ValueError):
+        rev = 0
+    ns_raw = str(inner_payload.get("namespace", "") or "").strip()
+    ns: str | None = ns_raw or None
+    en = str(event_name or "").strip()
+
+    if en == "pag.node.upsert":
+        node = inner_payload.get("node")
+        subject: str | None = None
+        if isinstance(node, dict):
+            path = str(node.get("path", "") or "").strip()
+            level = str(node.get("level", "") or "").strip()
+            nid = str(node.get("node_id", "") or "").strip()
+            if path or level or nid:
+                subject = f"{path}#{level}:{nid}"
+        compact_sink.emit_memory_pag_graph(
+            op="node",
+            rev=rev,
+            namespace=ns,
+            subject=subject,
+        )
+        return
+
+    if en != "pag.edge.upsert":
+        return
+    raw_edges = inner_payload.get("edges")
+    if not isinstance(raw_edges, list) or not raw_edges:
+        return
+    dict_edges = [e for e in raw_edges if isinstance(e, dict)]
+    if not dict_edges:
+        return
+    if len(dict_edges) == 1:
+        e = dict_edges[0]
+        eid = str(e.get("edge_id", "") or "").strip()
+        ec = str(e.get("edge_class", "") or "").strip()
+        et = str(e.get("edge_type", "") or "").strip()
+        fr = str(e.get("from_node_id", "") or "").strip()
+        to = str(e.get("to_node_id", "") or "").strip()
+        subj = f"{eid}:{ec}:{et}:{fr}->{to}"
+        compact_sink.emit_memory_pag_graph(
+            op="edge",
+            rev=rev,
+            namespace=ns,
+            subject=subj,
+        )
+        return
+    first_e = str(dict_edges[0].get("edge_id", "") or "").strip()
+    last_e = str(dict_edges[-1].get("edge_id", "") or "").strip()
+    compact_sink.emit_memory_pag_graph(
+        op="edge_batch",
+        rev=rev,
+        namespace=ns,
+        count=len(dict_edges),
+        first=first_e or None,
+        last=last_e or None,
     )
 
 
@@ -61,27 +126,14 @@ def emit_pag_graph_trace_row(
     )
     sys.stdout.write(line + "\n")
     sys.stdout.flush()
-    if (
-        compact_sink is not None
-        and str(event_name) == "pag.node.upsert"
+    if compact_sink is not None and str(event_name) in (
+        "pag.node.upsert",
+        "pag.edge.upsert",
     ):
-        rid = str(request_id or "").strip()
-        fields: dict[str, str | int | bool] = {"op": "node"}
-        if rid:
-            fields["request_id"] = rid
-        ns = str(inner_payload.get("namespace", "") or "").strip()
-        if ns:
-            fields["namespace"] = ns
-        rev_v = inner_payload.get("rev", 0)
-        try:
-            fields["rev"] = int(rev_v)
-        except (TypeError, ValueError):
-            fields["rev"] = 0
-        compact_sink.emit(
-            req=req,
-            chat_id=req.chat_id,
-            event=map_stdout_internal_to_compact_event("pag.node.upsert"),
-            fields=fields,
+        _emit_memory_pag_graph_compact(
+            event_name=str(event_name),
+            inner_payload=inner_payload,
+            compact_sink=compact_sink,
         )
 
 
@@ -133,27 +185,15 @@ def emit_memory_w14_graph_highlight_row(
     sys.stdout.flush()
     if compact_sink is not None:
         pl = dict(inner_payload)
-        rid = str(request_id or "").strip()
-        fields: dict[str, str | int | bool] = {}
-        if rid:
-            fields["request_id"] = rid
         qid = str(pl.get("query_id", "") or "").strip()
-        if qid:
-            fields["query_id"] = qid
         w14c = str(pl.get("w14_command", "") or "").strip()
-        if w14c:
-            fields["w14_command"] = w14c
         n_node = pl.get("node_ids")
-        if isinstance(n_node, list):
-            fields["n_node"] = len(n_node)
+        n_node_ct = len(n_node) if isinstance(n_node, list) else 0
         n_edge = pl.get("edge_ids")
-        if isinstance(n_edge, list):
-            fields["n_edge"] = len(n_edge)
-        compact_sink.emit(
-            req=req,
-            chat_id=req.chat_id,
-            event=map_stdout_internal_to_compact_event(
-                MEMORY_W14_GRAPH_HIGHLIGHT_EVENT,
-            ),
-            fields=fields,
+        n_edge_ct = len(n_edge) if isinstance(n_edge, list) else 0
+        compact_sink.emit_memory_w14_graph_highlight_compact(
+            query_id=qid,
+            w14_command=w14c,
+            n_node=n_node_ct,
+            n_edge=n_edge_ct,
         )

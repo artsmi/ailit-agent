@@ -477,38 +477,30 @@ class AgentMemoryWorker:
 
     def log_memory_llm_compact(
         self,
-        req: RuntimeRequestEnvelope,
-        request_id: str,
+        _req: RuntimeRequestEnvelope,
         *,
         phase: str,
-        model: str,
         duration_ms: int,
         reason: str,
-        ok: bool,
-        service: str = "memory.query_context",
-        change_batch_id: str | None = None,
+        node: str | None = None,
+        lines: str | None = None,
     ) -> None:
-        """Строка compact.log на LLM-вызов (без текста prompt/ответа)."""
+        """Минимальная строка ``memory.llm.completed`` (см. compact sink)."""
         sk: CompactObservabilitySink | None = self._get_compact_sink()
         if sk is None:
             return
-        cfields: dict[str, str | int | bool] = {
-            "request_id": str(request_id)[:200],
-            "phase": str(phase)[:120],
-            "model": str(model)[:120],
-            "duration_ms": int(max(0, duration_ms)),
-            "reason": str(reason)[:300],
-            "ok": bool(ok),
-        }
-        if str(service or "").strip():
-            cfields["service"] = str(service).strip()
-        if change_batch_id is not None and str(change_batch_id).strip():
-            cfields["change_batch_id"] = str(change_batch_id)[:200]
-        sk.emit(
-            req=req,
-            chat_id=req.chat_id,
-            event="memory.llm.completed",
-            fields=cfields,
+        node_s = str(node or "").strip()
+        if len(node_s) > 400:
+            node_s = node_s[:397] + "..."
+        lines_s = str(lines or "").strip()
+        if len(lines_s) > 80:
+            lines_s = lines_s[:77] + "..."
+        sk.emit_memory_llm_completed(
+            duration_ms=int(max(0, duration_ms)),
+            phase=str(phase)[:120],
+            reason=str(reason)[:300],
+            node=node_s or None,
+            lines=lines_s or None,
         )
 
     def log_memory_why_llm(
@@ -841,6 +833,31 @@ class AgentMemoryWorker:
             request_id=request_id,
             payload=dict(envelope),
         )
+        sk = self._get_compact_sink()
+        if sk is not None:
+            qid = str(envelope.get("query_id") or "").strip()
+            if et == "link_candidates":
+                pl = envelope.get("payload")
+                n_c = 0
+                if isinstance(pl, dict):
+                    cand = pl.get("candidates")
+                    if isinstance(cand, list):
+                        n_c = len(cand)
+                sk.emit_memory_link_candidates(query_id=qid, n_cand=n_c)
+            elif et == "links_updated":
+                pl = envelope.get("payload")
+                na = 0
+                nr = 0
+                if isinstance(pl, dict):
+                    ap = pl.get("applied")
+                    rj = pl.get("rejected")
+                    na = len(ap) if isinstance(ap, list) else 0
+                    nr = len(rj) if isinstance(rj, list) else 0
+                sk.emit_memory_links_updated(
+                    query_id=qid,
+                    n_applied=na,
+                    n_rejected=nr,
+                )
 
     def log_memory_graph_write(
         self,

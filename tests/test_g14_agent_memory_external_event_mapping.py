@@ -14,10 +14,15 @@ from agent_core.runtime.agent_memory_external_events import (
 def test_stdout_to_compact_golden_mapping_table() -> None:
     assert STDOUT_INTERNAL_TO_COMPACT_EVENT == {
         "pag.node.upsert": "memory.pag_graph",
+        "pag.edge.upsert": "memory.pag_graph",
         "memory.w14.graph_highlight": "memory.w14_graph_highlight",
     }
     assert (
         map_stdout_internal_to_compact_event("pag.node.upsert")
+        == "memory.pag_graph"
+    )
+    assert (
+        map_stdout_internal_to_compact_event("pag.edge.upsert")
         == "memory.pag_graph"
     )
     assert (

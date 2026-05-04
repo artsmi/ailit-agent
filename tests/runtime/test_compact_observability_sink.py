@@ -10,6 +10,7 @@ import pytest
 from agent_core.runtime.compact_observability_sink import (
     CompactObservabilitySink,
     build_compact_line,
+    build_memory_pag_graph_compact_line,
     normalize_compact_event_name,
 )
 from agent_core.runtime.models import (
@@ -38,6 +39,23 @@ def _minimal_req(*, chat_id: str = "c1", message_id: str = "m1") -> object:
         payload={"service": "memory.query_context"},
         now=RuntimeNow(),
     )
+
+
+def test_memory_pag_graph_compact_line_order() -> None:
+    line = build_memory_pag_graph_compact_line(
+        timestamp="2026-05-04T10:00:00+00:00",
+        op="node",
+        rev=110,
+        namespace="ns1",
+        subject="src/a.py#B:b1",
+    )
+    assert line.startswith(
+        "timestamp=2026-05-04T10:00:00+00:00 event=memory.pag_graph "
+        "op=node rev=110",
+    )
+    assert "ns=ns1" in line
+    assert "subject=src/a.py#B:b1" in line
+    assert line.endswith("\n")
 
 
 def test_tc_1_2_normalize_highlight() -> None:

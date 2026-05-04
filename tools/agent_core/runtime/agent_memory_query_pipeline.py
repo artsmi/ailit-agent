@@ -448,12 +448,9 @@ class AgentMemoryQueryPipeline:
             _pl_ms = int((time.perf_counter() - _pl_t0) * 1000)
             self._w.log_memory_llm_compact(  # noqa: SLF001
                 req,
-                request_id,
                 phase="planner",
-                model=str(c_req.model or "mock-memory"),
                 duration_ms=_pl_ms,
                 reason=f"planner_exc:{type(exc).__name__}",
-                ok=False,
             )
             self._w.log_memory_llm_verbose(  # noqa: SLF001
                 req,
@@ -467,12 +464,9 @@ class AgentMemoryQueryPipeline:
         _pl_ms_ok = int((time.perf_counter() - _pl_t0) * 1000)
         self._w.log_memory_llm_compact(  # noqa: SLF001
             req,
-            request_id,
             phase="planner",
-            model=str(c_req.model or "mock-memory"),
             duration_ms=_pl_ms_ok,
             reason="planner_ok",
-            ok=True,
         )
         self._w.log_memory_llm_verbose(  # noqa: SLF001
             req,
@@ -703,12 +697,9 @@ class AgentMemoryQueryPipeline:
             _rp_ms = int((time.perf_counter() - _rp_t0) * 1000)
             self._w.log_memory_llm_compact(  # noqa: SLF001
                 req,
-                request_id,
                 phase="planner_repair",
-                model=str(repair_req.model or "mock-memory"),
                 duration_ms=_rp_ms,
                 reason=f"planner_repair_exc:{type(exc).__name__}",
-                ok=False,
             )
             self._w.log_memory_llm_verbose(  # noqa: SLF001
                 req,
@@ -722,12 +713,9 @@ class AgentMemoryQueryPipeline:
         _rp_ms_ok = int((time.perf_counter() - _rp_t0) * 1000)
         self._w.log_memory_llm_compact(  # noqa: SLF001
             req,
-            request_id,
             phase="planner_repair",
-            model=str(repair_req.model or "mock-memory"),
             duration_ms=_rp_ms_ok,
             reason="planner_repair_ok",
-            ok=True,
         )
         self._w.log_memory_llm_verbose(  # noqa: SLF001
             req,
@@ -1538,6 +1526,8 @@ class AgentMemoryQueryPipeline:
         request_id: str,
         phase: str,
         raw_input: str,
+        llm_node: str | None = None,
+        llm_lines: str | None = None,
     ) -> str:
         sys_extra = ""
         if phase in ("summarize_c", "summarize_b"):
@@ -1575,23 +1565,21 @@ class AgentMemoryQueryPipeline:
             _w14_ms = int((time.perf_counter() - _w14_t0) * 1000)
             self._w.log_memory_llm_compact(  # noqa: SLF001
                 req,
-                request_id,
                 phase=str(phase),
-                model=str(c_req.model or "mock-memory"),
                 duration_ms=_w14_ms,
                 reason=f"w14_{phase}_exc:{type(exc).__name__}",
-                ok=False,
+                node=llm_node,
+                lines=llm_lines,
             )
             raise
         _w14_ms_ok = int((time.perf_counter() - _w14_t0) * 1000)
         self._w.log_memory_llm_compact(  # noqa: SLF001
             req,
-            request_id,
             phase=str(phase),
-            model=str(c_req.model or "mock-memory"),
             duration_ms=_w14_ms_ok,
             reason=f"w14_{phase}_ok",
-            ok=True,
+            node=llm_node,
+            lines=llm_lines,
         )
         self._w.log_memory_llm_verbose(  # noqa: SLF001
             req,
@@ -1641,6 +1629,22 @@ class AgentMemoryQueryPipeline:
                 ),
             )
             _sc_cid = f"{qid_log}:summarize_c:{len(out) + 1}"
+
+            def _c_complete(raw: str) -> str:
+                return self._complete_w14_subcommand(
+                    req=req,
+                    request_id=request_id,
+                    phase="summarize_c",
+                    raw_input=raw,
+                    llm_node=(
+                        f"{c_input.path}#c_node:{c_input.c_node_id}"
+                    ),
+                    llm_lines=(
+                        f"{c_input.locator.start_line}-"
+                        f"{c_input.locator.end_line}"
+                    ),
+                )
+
             try:
                 svc.summarize_c_call_llm(
                     namespace=namespace,
@@ -1649,14 +1653,7 @@ class AgentMemoryQueryPipeline:
                     limits=lim,
                     command_id=_sc_cid,
                     query_id=qid_log,
-                    complete=lambda raw, phase="summarize_c": (
-                        self._complete_w14_subcommand(
-                            req=req,
-                            request_id=request_id,
-                            phase=phase,
-                            raw_input=raw,
-                        )
-                    ),
+                    complete=_c_complete,
                 )
             except Exception:  # noqa: BLE001
                 pass
@@ -1725,6 +1722,17 @@ class AgentMemoryQueryPipeline:
                 out.append(b_node)
                 continue
             _sb_cid = f"{qid_log}:summarize_b:{len(out) + 1}"
+
+            def _b_complete(raw: str) -> str:
+                return self._complete_w14_subcommand(
+                    req=req,
+                    request_id=request_id,
+                    phase="summarize_b",
+                    raw_input=raw,
+                    llm_node=f"{rel}#b_node:{b_id}",
+                    llm_lines=None,
+                )
+
             try:
                 svc.summarize_b_call_llm(
                     namespace=namespace,
@@ -1736,14 +1744,7 @@ class AgentMemoryQueryPipeline:
                     limits=lim,
                     command_id=_sb_cid,
                     query_id=qid_log,
-                    complete=lambda raw, phase="summarize_b": (
-                        self._complete_w14_subcommand(
-                            req=req,
-                            request_id=request_id,
-                            phase=phase,
-                            raw_input=raw,
-                        )
-                    ),
+                    complete=_b_complete,
                 )
             except Exception:  # noqa: BLE001
                 pass

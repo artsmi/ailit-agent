@@ -34,7 +34,7 @@ Durable vs ephemeral (внешний конверт ``agent_memory.external_even
 
 Golden stdout → ``compact.log`` (``failure-retry-observability.md``):
 
-- ``pag.node.upsert`` → ``memory.pag_graph``
+- ``pag.node.upsert`` / ``pag.edge.upsert`` → ``memory.pag_graph``
 - ``memory.w14.graph_highlight`` → ``memory.w14_graph_highlight``
 """
 
@@ -48,6 +48,7 @@ AGENT_MEMORY_EXTERNAL_EVENT_V1: Final[str] = "agent_memory.external_event.v1"
 # stdout/wire (topic.publish) → нормализованное имя compact.log
 STDOUT_INTERNAL_TO_COMPACT_EVENT: Final[dict[str, str]] = {
     "pag.node.upsert": "memory.pag_graph",
+    "pag.edge.upsert": "memory.pag_graph",
     "memory.w14.graph_highlight": "memory.w14_graph_highlight",
 }
 
