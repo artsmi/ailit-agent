@@ -21,7 +21,7 @@ alwaysApply: true
 
 | Файл | Назначение |
 |------|------------|
-| `project-agent-models.mdc` | **Обязателен в ailit-agent**: карта моделей Cursor Subagents для ролей `02+` и `14`, `19`–`24`; только значения из файла, по умолчанию везде `Auto` без явного `model` в tool call |
+| `project-agent-models.mdc` | **Обязателен в ailit-agent**: карта моделей Cursor Subagents для ролей `02+` и `14`, `19`–`23`; только значения из файла, по умолчанию везде `Auto` без явного `model` в tool call |
 | `project-architecture-review.mdc` | Критерии review архитектуры для этого репо |
 | `project-code-review.mdc` | Стандарты review кода |
 | `project/project-workflow.mdc` | Порядок комитов и вызова пользователя через отправку сообщения - если есть блокеры проекта |

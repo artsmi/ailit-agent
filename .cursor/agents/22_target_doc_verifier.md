@@ -284,7 +284,7 @@ approved | rework_required | needs_user_answer | blocked | rejected
 - <bullet с измеримым критерием>
 - …
 
-Дальше: Subagent `24` запишет `start_feature_execution_plan.md` в `context/algorithms/…` до запроса вашего OK.
+Дальше: `18` запускает `23_target_doc_reader_reviewer` (human approval package), затем запросит ваш OK по whitelist.
 
 Пожалуйста, ответьте в чат **одной из явных форм** согласия из `project-human-communication.mdc` (`ок`, `утверждаю`, `согласовано`, `approved`, `да, это целевое состояние`) или напишите замечания.
 ```
@@ -407,7 +407,7 @@ Notes: Нужно потом добавить failure rules.
 - bounded repair / no-progress — явное правило в draft + `failure-retry-observability.md`;
 - downstream: роли `02`/`06`/`08`/`11`/`13` названы в draft.
 
-После reader review `23` будет запущен `24` и появится `start_feature_execution_plan.md` в `context/algorithms/agent-memory/` до вашего OK.
+Далее `18` запускает `23` для human approval package и запрашивает ваш OK.
 
 Ответьте одной из форм whitelist (`ок`, `утверждаю`, …) или замечаниями.
 ```

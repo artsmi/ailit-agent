@@ -27,7 +27,6 @@ alwaysApply: false
 - сохраняет пользовательскую постановку в `context/artifacts/original_user_request.md` перед запуском `02`;
 - передаёт пользовательскую постановку в `02_analyst` как frozen input без сокращения и переинтерпретации;
 - если постановка указывает на подсистему с утверждённым `context/algorithms/<topic>.md`, передаёт этот target doc в `02_analyst` как обязательный source-of-truth;
-- если существует `context/algorithms/<topic>/start_feature_execution_plan.md` (выход `24` после target-doc), передаёт его в `02_analyst` и `06_planner` вместе с каноном: порядок slices, риски, замороженные копии gate;
 - не читает product/runtime/test source для самостоятельного анализа реализации;
 - не проектирует архитектуру, задачи или тесты вместо `02_analyst`/`04_architect`/`06_planner`;
 - не расширяет scope и не меняет смысл постановки до заключения `02/03`.
