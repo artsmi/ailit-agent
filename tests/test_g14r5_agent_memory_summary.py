@@ -11,6 +11,7 @@ from agent_core.memory.sqlite_pag import SqlitePagStore
 from agent_core.runtime.agent_memory_runtime_contract import (
     AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
     AgentMemoryCommandName,
+    normalize_malformed_internal_summarize_envelope,
     parse_w14_internal_command_output_llm_text_result,
 )
 from agent_core.runtime.agent_memory_summary_service import (
@@ -98,6 +99,7 @@ def test_summarize_c_accepts_legacy_schema_version_via_canonicalization(
     pr = parse_w14_internal_command_output_llm_text_result(
         j,
         runtime_command_id="cmd-legacy",
+        expected_envelope_command=AgentMemoryCommandName.SUMMARIZE_C.value,
     )
     assert pr.normalized is True
     assert pr.obj["schema_version"] == AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
@@ -111,6 +113,81 @@ def test_summarize_c_accepts_legacy_schema_version_via_canonicalization(
         llm_json=j,
     )
     assert r.summary == sum_text
+
+
+def test_summarize_c_normalizes_root_summary_and_schema_wrapper(
+    tmp_path: Path,
+) -> None:
+    """Частые ошибки LLM: summary на корне; ключ с именем schema_version."""
+    p = tmp_path / "malformed.sqlite3"
+    svc, namespace = _open_store(p)
+    c_id = "C:x.py:block:z"
+    gw = PagGraphWriteService(svc.store)
+    _ = gw.upsert_node(
+        namespace=namespace,
+        node_id=c_id,
+        level="C",
+        kind="block",
+        path="x.py",
+        title="z",
+        summary="",
+        attrs={"content_fingerprint": "cfp-m"},
+        fingerprint="bfp",
+    )
+    c_in = SummarizeCNodeInputV1(
+        c_node_id=c_id,
+        path="x.py",
+        semantic_kind="block",
+        text="t",
+        locator=SummarizeCLocator(start_line=1, end_line=2, symbol="z"),
+    )
+    bad_root = {
+        "schema_version": AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
+        "command": "summarize_c",
+        "command_id": "cid-m",
+        "status": "ok",
+        "summary": "корень",
+        "claims": [],
+        "decision_summary": "d",
+        "violations": [],
+    }
+    j1 = json.dumps(bad_root, ensure_ascii=False)
+    n1 = normalize_malformed_internal_summarize_envelope(
+        json.loads(j1),
+        runtime_command_id="cid-m",
+        expected_command=AgentMemoryCommandName.SUMMARIZE_C.value,
+    )
+    assert "summary" not in n1
+    assert isinstance(n1.get("payload"), dict)
+    assert n1["payload"].get("summary") == "корень"
+    r1 = svc.apply_summarize_c(
+        namespace=namespace,
+        c_input=c_in,
+        user_subgoal="g",
+        limits=W14CommandLimits(500, max_claims=4),
+        command_id="cid-m",
+        query_id="q-m",
+        llm_json=j1,
+    )
+    assert r1.summary == "корень"
+
+    inner_only = {
+        AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA: {
+            "summary": "внутри ключа схемы",
+            "claims": [],
+        },
+    }
+    j2 = json.dumps(inner_only, ensure_ascii=False)
+    r2 = svc.apply_summarize_c(
+        namespace=namespace,
+        c_input=c_in,
+        user_subgoal="g",
+        limits=W14CommandLimits(500, max_claims=4),
+        command_id="cid-m2",
+        query_id="q-m2",
+        llm_json=j2,
+    )
+    assert r2.summary == "внутри ключа схемы"
 
 
 def test_summarize_c_writes_summary_and_summary_fingerprint(

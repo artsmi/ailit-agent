@@ -273,6 +273,103 @@ _W14_COMMAND_OUTPUT_KEYS: Final[frozenset[str]] = frozenset(
     )
 )
 
+# LLM часто кладёт поля summarize на корень или оборачивает ответ в ключ
+# с именем schema_version (строка схемы).
+_SUMMARIZE_C_PAYLOAD_ROOT_KEYS: Final[frozenset[str]] = frozenset(
+    (
+        "summary",
+        "semantic_tags",
+        "important_lines",
+        "claims",
+        "refusal_reason",
+    ),
+)
+_SUMMARIZE_B_PAYLOAD_ROOT_KEYS: Final[frozenset[str]] = frozenset(
+    (
+        "summary",
+        "child_refs",
+        "missing_children",
+        "confidence",
+        "refusal_reason",
+    ),
+)
+
+
+def normalize_malformed_internal_summarize_envelope(
+    obj: dict[str, Any],
+    *,
+    runtime_command_id: str,
+    expected_command: str,
+) -> dict[str, Any]:
+    """
+    Механическая правка частых ошибок LLM до ``validate_or_canonicalize``.
+
+    - ``{"agent_memory_command_output.v1": {...}}`` — разворачивает вложение.
+    - ``summary`` / ``claims`` / … на корне — переносит в ``payload``.
+    """
+    cmd = str(expected_command or "").strip()
+    o: dict[str, Any] = {str(k): v for k, v in obj.items()}
+    if cmd not in (
+        AgentMemoryCommandName.SUMMARIZE_C.value,
+        AgentMemoryCommandName.SUMMARIZE_B.value,
+    ):
+        return o
+    sk = AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
+    keys_move = (
+        _SUMMARIZE_C_PAYLOAD_ROOT_KEYS
+        if cmd == AgentMemoryCommandName.SUMMARIZE_C.value
+        else _SUMMARIZE_B_PAYLOAD_ROOT_KEYS
+    )
+
+    if sk in o and isinstance(o.get(sk), dict):
+        inner_raw = o.pop(sk)
+        inner: dict[str, Any] = {
+            str(k): v for k, v in inner_raw.items()
+        }
+        inner_cmd = str(inner.get("command", "") or "").strip()
+        if inner_cmd == cmd and isinstance(inner.get("payload"), dict):
+            o = inner
+        else:
+            if isinstance(inner.get("payload"), dict):
+                payload_part: dict[str, Any] = dict(inner["payload"])
+            else:
+                payload_part = {
+                    kk: inner[kk]
+                    for kk in inner
+                    if kk in keys_move
+                }
+            if isinstance(o.get("payload"), dict):
+                merged = dict(o["payload"])
+                merged.update(payload_part)
+                o["payload"] = merged
+            else:
+                o["payload"] = payload_part
+
+    to_move = [k for k in keys_move if k in o]
+    if to_move:
+        pl0: dict[str, Any] = (
+            dict(o["payload"]) if isinstance(o.get("payload"), dict) else {}
+        )
+        for k in to_move:
+            pl0[k] = o.pop(k)
+        o["payload"] = pl0
+
+    if not str(o.get("schema_version", "") or "").strip():
+        o["schema_version"] = sk
+    if not str(o.get("command", "") or "").strip():
+        o["command"] = cmd
+    if not str(o.get("command_id", "") or "").strip():
+        o["command_id"] = str(runtime_command_id or "").strip()
+    if not str(o.get("status", "") or "").strip():
+        o["status"] = "ok"
+    if "decision_summary" not in o:
+        o["decision_summary"] = ""
+    elif not isinstance(o.get("decision_summary"), str):
+        o["decision_summary"] = str(o.get("decision_summary", ""))
+    if "violations" not in o or not isinstance(o.get("violations"), list):
+        o["violations"] = []
+    return o
+
 
 def _is_w14_command_envelope_object(obj: Any) -> bool:
     if not isinstance(obj, dict):
@@ -706,10 +803,14 @@ def parse_w14_internal_command_output_llm_text_result(
     text: str,
     *,
     runtime_command_id: str,
+    expected_envelope_command: str | None = None,
 ) -> W14CommandParseResult:
     """
     summarize_c / summarize_b: ``json.loads`` на всю строку + UC-01
     канонизация envelope (как у планера), без ``assert_planner_round``.
+
+    При ``expected_envelope_command`` — механическая нормализация частых
+    ошибок формы (корневые поля payload, ключ с именем schema_version).
     """
     t = (text or "").strip()
     if not t:
@@ -720,7 +821,14 @@ def parse_w14_internal_command_output_llm_text_result(
         raise W14CommandParseError("invalid json") from exc
     if not isinstance(o, dict):
         raise W14CommandParseError("envelope must be an object")
+    o_dict: dict[str, Any] = {str(k): v for k, v in o.items()}
+    if expected_envelope_command is not None:
+        o_dict = normalize_malformed_internal_summarize_envelope(
+            o_dict,
+            runtime_command_id=runtime_command_id,
+            expected_command=expected_envelope_command,
+        )
     return validate_or_canonicalize_w14_command_envelope_object(
-        o,
+        o_dict,
         runtime_command_id=runtime_command_id,
     )

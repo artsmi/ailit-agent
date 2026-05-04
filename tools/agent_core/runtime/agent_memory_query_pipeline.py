@@ -121,6 +121,27 @@ W14_PLAN_TRAVERSAL_SYSTEM: str = (
     "См. plan/14-agent-memory-runtime.md C14R.5 для полной схемы."
 )
 
+# summarize_c / summarize_b: явная форма envelope (anti wrong nesting).
+W14_INTERNAL_SUMMARIZE_ENVELOPE_SHAPE_HINT: str = (
+    " Строго на корне JSON только ключи: schema_version, command, "
+    "command_id, status, payload, decision_summary, violations. "
+    "Для summarize_c поля summary, claims, semantic_tags, important_lines, "
+    "refusal_reason — только внутри объекта payload, не на корне. "
+    "Для summarize_b: summary, child_refs, missing_children, confidence, "
+    "refusal_reason — только внутри payload. "
+    "Строка agent_memory_command_output.v1 — только значение поля "
+    "schema_version, не имя ключа-обёртки."
+)
+
+W14_REPAIR_SUMMARIZE_ENVELOPE_APPEND: str = (
+    " Фаза summarize: верни валидный envelope с command summarize_c "
+    "или summarize_b. Пример summarize_c (одна строка JSON): "
+    '{"schema_version":"agent_memory_command_output.v1",'
+    '"command":"summarize_c","command_id":"RUN_ID","status":"ok",'
+    '"payload":{"summary":"…","semantic_tags":[],"important_lines":[],'
+    '"claims":[],"refusal_reason":""},"decision_summary":"","violations":[]}'
+)
+
 
 def _w14_repair_error_targets_in_progress_legacy_status(
     validation_error: str,
@@ -130,46 +151,63 @@ def _w14_repair_error_targets_in_progress_legacy_status(
     return "unknown_legacy_w14_status" in low and "in_progress" in low
 
 
-def _w14_repair_system_message(validation_error: str) -> str:
+def _w14_repair_system_message(
+    validation_error: str,
+    *,
+    summarize_subcommand: bool = False,
+) -> str:
     """Текст system-сообщения для repair W14 (C4 при legacy in_progress)."""
     base = (
         "Исправь JSON ответа AgentMemory. Верни только "
         "валидный agent_memory_command_output.v1 JSON. "
         "Не меняй смысл команды без необходимости."
     )
-    if not _w14_repair_error_targets_in_progress_legacy_status(
+    if _w14_repair_error_targets_in_progress_legacy_status(
         validation_error,
     ):
-        return base
-    return (
-        f"{base} "
-        "UC-03 (plan_traversal, C4): если validation_error про недопустимый "
-        "legacy top-level status `in_progress`, команда plan_traversal, "
-        "payload валиден по контракту, payload.is_final=false и "
-        "payload.actions непустой — установи top-level status в "
-        "\"ok\" (или \"partial\"/\"refuse\" по смыслу ответа), не сохраняй "
-        "\"in_progress\" на верхнем уровне из‑за общей фразы "
-        "«не меняй смысл»: прогресс плана выражается через is_final и "
-        "actions, это не меняет смысл шага."
-    )
+        base = (
+            f"{base} "
+            "UC-03 (plan_traversal, C4): если validation_error про "
+            "недопустимый legacy top-level status `in_progress`, команда "
+            "plan_traversal, payload валиден по контракту, "
+            "payload.is_final=false и payload.actions непустой — установи "
+            "top-level status в \"ok\" (или \"partial\"/\"refuse\" по смыслу "
+            "ответа), не сохраняй \"in_progress\" на верхнем уровне из‑за "
+            "общей фразы «не меняй смысл»: прогресс плана выражается через "
+            "is_final и actions, это не меняет смысл шага."
+        )
+    if summarize_subcommand:
+        base = f"{base} {W14_REPAIR_SUMMARIZE_ENVELOPE_APPEND}"
+    return base
 
 
-def _w14_repair_user_instruction(validation_error: str) -> str:
+def _w14_repair_user_instruction(
+    validation_error: str,
+    *,
+    summarize_subcommand: bool = False,
+) -> str:
     """Structured instruction для repair_user (тот же UC-03 / C4)."""
     base = (
         "Return only a JSON object that validates as "
         "agent_memory_command_output.v1. Do not add prose."
     )
-    if not _w14_repair_error_targets_in_progress_legacy_status(
+    parts: list[str] = [base]
+    if summarize_subcommand:
+        parts.append(
+            "Top-level command must be summarize_c or summarize_b; "
+            "put summary/claims (or summarize_b payload fields) only inside "
+            "payload.",
+        )
+    if _w14_repair_error_targets_in_progress_legacy_status(
         validation_error,
     ):
-        return base
-    return (
-        f"{base} "
-        "If command is plan_traversal, payload is valid, is_final is false, "
-        "and actions is a non-empty array: top-level status must be one of "
-        "ok|partial|refuse; set status to ok instead of in_progress."
-    )
+        parts.append(
+            "If command is plan_traversal, payload is valid, is_final is "
+            "false, and actions is a non-empty array: top-level status must "
+            "be one of ok|partial|refuse; set status to ok instead of "
+            "in_progress.",
+        )
+    return " ".join(parts)
 
 
 def _json_dumps(obj: Mapping[str, Any]) -> str:
@@ -789,14 +827,20 @@ class AgentMemoryQueryPipeline:
             "validation_error": str(validation_error)[:1_000],
             "previous_response": str(original_text or "")[:4_000],
             "required_schema_version": AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
-            "instruction": _w14_repair_user_instruction(validation_error),
+            "instruction": _w14_repair_user_instruction(
+                validation_error,
+                summarize_subcommand=True,
+            ),
         }
         repair_req = self._policy.apply_chat_request(
             ChatRequest(
                 messages=(
                     ChatMessage(
                         role=MessageRole.SYSTEM,
-                        content=_w14_repair_system_message(validation_error),
+                        content=_w14_repair_system_message(
+                            validation_error,
+                            summarize_subcommand=True,
+                        ),
                     ),
                     ChatMessage(
                         role=MessageRole.USER,
@@ -1665,6 +1709,7 @@ class AgentMemoryQueryPipeline:
                 " Резюме нейтральное: опиши содержимое чанка/файла для "
                 "индекса памяти репозитория. Не привязывайся к вопросу "
                 "пользователя."
+                + W14_INTERNAL_SUMMARIZE_ENVELOPE_SHAPE_HINT
             )
         return self._policy.apply_chat_request(
             ChatRequest(

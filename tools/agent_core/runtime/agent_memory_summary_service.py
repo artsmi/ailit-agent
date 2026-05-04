@@ -370,6 +370,7 @@ class AgentMemorySummaryService:
         pr = parse_w14_internal_command_output_llm_text_result(
             llm_json,
             runtime_command_id=command_id,
+            expected_envelope_command=AgentMemoryCommandName.SUMMARIZE_C.value,
         )
         env = pr.obj
         cmd = str(env.get("command", "") or "")
@@ -483,6 +484,7 @@ class AgentMemorySummaryService:
         pr = parse_w14_internal_command_output_llm_text_result(
             llm_json,
             runtime_command_id=command_id,
+            expected_envelope_command=AgentMemoryCommandName.SUMMARIZE_B.value,
         )
         env = pr.obj
         cmd = str(env.get("command", "") or "")
