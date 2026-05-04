@@ -6,6 +6,7 @@ AgentWork — это поле; memory_slice — compatibility projection.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Final, Mapping
 
 AGENT_MEMORY_RESULT_V1: str = "agent_memory_result.v1"
@@ -74,6 +75,7 @@ def build_agent_memory_result_v1(
     explicit_results: list[dict[str, Any]] | None = None,
     explicit_status: str | None = None,
     memory_continuation_required: bool | None = None,
+    extra_runtime_partial_reasons: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Собрать объект `agent_memory_result.v1` (§1.3) из текущего среза.
 
@@ -138,6 +140,18 @@ def build_agent_memory_result_v1(
     pr_extra: list[str] = []
     if explicit_results is not None and not results:
         pr_extra.append("finish_decision_no_valid_results")
+    partial_reasons: list[str] = []
+    seen_pr: set[str] = set()
+    for x in (["query_pipeline_partial"] if partial else []) + pr_extra:
+        xs = str(x).strip()
+        if xs and xs not in seen_pr:
+            seen_pr.add(xs)
+            partial_reasons.append(xs)
+    for x in extra_runtime_partial_reasons or ():
+        xs = str(x).strip()
+        if xs and xs not in seen_pr:
+            seen_pr.add(xs)
+            partial_reasons.append(xs)
     out: dict[str, Any] = {
         "schema_version": AGENT_MEMORY_RESULT_V1,
         "query_id": str(query_id or "").strip() or "mem-unknown",
@@ -150,10 +164,7 @@ def build_agent_memory_result_v1(
         "runtime_trace": {
             "steps_executed": 1,
             "final_step": "finish",
-            "partial_reasons": (
-                (["query_pipeline_partial"] if partial else [])
-                + pr_extra
-            ),
+            "partial_reasons": partial_reasons,
         },
     }
     if memory_continuation_required is not None:

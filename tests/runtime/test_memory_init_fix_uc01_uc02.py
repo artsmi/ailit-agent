@@ -327,7 +327,7 @@ def test_uc02_final_summary_contains_labeled_metrics_and_compact_path(
     assert code == 0
     err = capsys.readouterr().err
     assert "compact_log=" in err
-    assert re.search(r"status=(complete|partial|aborted)", err)
+    assert re.search(r"status=(complete|partial|blocked)", err)
     assert "memory.why_llm:" in err
     assert "memory.pag_graph(node):" in err
     assert "memory.w14_graph_highlight:" in err

@@ -46,6 +46,7 @@ from agent_core.runtime.d_creation_policy import (
 from agent_core.runtime.memory_journal import (
     MemoryJournalRow,
     MemoryJournalStore,
+    journal_durability_for_internal_event,
 )
 from agent_core.memory.pag_runtime import PagRuntimeConfig
 from agent_core.memory.sqlite_pag import SqlitePagStore
@@ -74,6 +75,7 @@ from agent_core.runtime.agent_memory_result_v1 import (
     resolve_memory_continuation_required,
 )
 from agent_core.runtime.agent_memory_w14_observability import (
+    AGENT_MEMORY_EXTERNAL_EVENT_V1,
     count_am_v1_result_kinds,
 )
 from agent_core.runtime.errors import RuntimeProtocolError
@@ -438,6 +440,9 @@ class AgentMemoryWorker:
                     node_ids=tuple(node_ids or ()),
                     edge_ids=tuple(edge_ids or ()),
                     payload=dict(payload or {}),
+                    durability=journal_durability_for_internal_event(
+                        event_name,
+                    ),
                 ),
             )
         except Exception:
@@ -583,6 +588,22 @@ class AgentMemoryWorker:
             request_id=request_id,
             payload=pld,
         )
+        sk_cmd: CompactObservabilitySink | None = self._get_compact_sink()
+        if sk_cmd is not None:
+            sk_cmd.emit(
+                req=req,
+                chat_id=req.chat_id,
+                event="memory.command.requested",
+                fields={
+                    "command": str(phase)[:120],
+                    "command_id": str(command_id)[:200],
+                    "query_id": str(query_id)[:200],
+                    "prompt_id": str(prompt_id)[:200],
+                    "input_message_count": int(input_message_count),
+                    "input_user_payload_chars": int(input_user_payload_chars),
+                    "model": str(model)[:200],
+                },
+            )
         if not self._chat_debug.enabled:
             return
         self._chat_debug.log_audit(
@@ -754,14 +775,36 @@ class AgentMemoryWorker:
             request_id=request_id,
             payload=pld,
         )
-        if str(status) == "complete":
+        st_mark = str(status or "").strip()
+        if st_mark in ("complete", "partial", "blocked"):
             sk2 = self._get_compact_sink()
             if sk2 is not None:
-                sk2.emit_memory_result_complete_marker(
+                sk2.emit_memory_result_returned_marker(
                     req=req,
                     chat_id=req.chat_id,
                     request_id=str(request_id)[:200],
+                    status=st_mark,
                 )
+
+    def log_memory_external_event_v1(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        *,
+        envelope: Mapping[str, Any],
+    ) -> None:
+        """S2: журнал ``agent_memory.external_event.v1`` (link_candidates)."""
+        evs = str(envelope.get("schema_version") or "").strip()
+        if evs != AGENT_MEMORY_EXTERNAL_EVENT_V1:
+            return
+        et = str(envelope.get("event_type") or "").strip()
+        self._append_journal(
+            req=req,
+            event_name="memory.external_event",
+            summary=et[:120] if et else "external_event",
+            request_id=request_id,
+            payload=dict(envelope),
+        )
 
     def log_memory_graph_write(
         self,
@@ -1879,6 +1922,7 @@ class AgentMemoryWorker:
             explicit_results=pr.am_v1_explicit_results,
             explicit_status=pr.am_v1_status,
             memory_continuation_required=mcr,
+            extra_runtime_partial_reasons=pr.runtime_partial_reasons,
         )
         st_am: str = str(agent_mem_res.get("status", "") or "")
         _am_res_list: object = agent_mem_res.get("results")

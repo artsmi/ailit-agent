@@ -5,21 +5,13 @@ from __future__ import annotations
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Final, Mapping
+from typing import Any, Mapping
 
 from agent_core.runtime.agent_memory_chat_log import _write_lock
+from agent_core.runtime.agent_memory_external_events import (
+    normalize_compact_event_name,
+)
 from agent_core.runtime.models import RuntimeRequestEnvelope
-
-_BROKER_W14_HIGHLIGHT: Final[str] = "memory.w14.graph_highlight"
-_CANON_W14_HIGHLIGHT: Final[str] = "memory.w14_graph_highlight"
-
-
-def normalize_compact_event_name(raw_event: str) -> str:
-    """D4: broker dotted W14 highlight → canonical underscores."""
-    s = str(raw_event or "").strip()
-    if s == _BROKER_W14_HIGHLIGHT:
-        return _CANON_W14_HIGHLIGHT
-    return s
 
 
 def _scalar_to_compact_value(v: Any) -> str:
@@ -125,22 +117,26 @@ class CompactObservabilitySink:
         )
         self._write_line(line)
 
-    def emit_memory_result_complete_marker(
+    def emit_memory_result_returned_marker(
         self,
         *,
         req: RuntimeRequestEnvelope | None,
         chat_id: str,
         request_id: str,
+        status: str,
     ) -> None:
-        """D3: grep marker ``memory.result.returned`` + ``status=complete``."""
+        """
+        Compact + stderr: ``memory.result.returned`` с канон. ``status``.
+        """
+        st = str(status or "").strip()
+        if st not in ("complete", "partial", "blocked"):
+            st = "blocked"
         ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
         cid = str(chat_id or "").strip()
         if not cid and req is not None:
             cid = str(req.chat_id or "").strip()
         rid = str(request_id or "").strip()
-        fields: dict[str, str | int | bool] = {
-            "status": "complete",
-        }
+        fields: dict[str, str | int | bool] = {"status": st}
         if rid:
             fields["request_id"] = rid
         line = build_compact_line(
@@ -151,6 +147,21 @@ class CompactObservabilitySink:
             fields=fields,
         )
         self._write_line(line)
+
+    def emit_memory_result_complete_marker(
+        self,
+        *,
+        req: RuntimeRequestEnvelope | None,
+        chat_id: str,
+        request_id: str,
+    ) -> None:
+        """D3: grep marker ``memory.result.returned`` + ``status=complete``."""
+        self.emit_memory_result_returned_marker(
+            req=req,
+            chat_id=chat_id,
+            request_id=request_id,
+            status="complete",
+        )
 
     def _write_line(self, line: str) -> None:
         if not line.endswith("\n"):

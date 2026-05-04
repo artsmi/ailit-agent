@@ -7,11 +7,13 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any, Iterator, Literal, Mapping, Sequence
 
 from agent_core.runtime.errors import RuntimeProtocolError
 
 JOURNAL_SCHEMA: str = "ailit_memory_journal_v1"
+
+JournalDurability = Literal["durable", "ephemeral"]
 _REDACTED: str = "[redacted]"
 _SENSITIVE_KEY_PARTS: tuple[str, ...] = (
     "api_key",
@@ -73,6 +75,23 @@ def _str_list(values: Sequence[str] | None) -> tuple[str, ...]:
     return tuple(str(v).strip() for v in values if str(v).strip())
 
 
+def journal_durability_for_internal_event(
+    event_name: str,
+) -> JournalDurability:
+    """Classify internal journal rows for JSONL persistence.
+
+    Indexing heartbeats are ephemeral (no JSONL line). W14 steps such as
+    ``memory.runtime.step`` stay durable for G14R.10 compact payload tests.
+
+    External ``agent_memory.external_event.v1`` heartbeat/progress use the
+    adapter path, not this internal ``event_name`` classification.
+    """
+    n = str(event_name or "").strip()
+    if n == "memory.index.partial":
+        return "ephemeral"
+    return "durable"
+
+
 @dataclass(frozen=True, slots=True)
 class MemoryJournalRow:
     """One structured AgentMemory journal row."""
@@ -88,6 +107,7 @@ class MemoryJournalRow:
     payload: Mapping[str, Any] = field(default_factory=dict)
     created_at: str = field(default_factory=_utc_now_iso)
     schema: str = JOURNAL_SCHEMA
+    durability: JournalDurability = "durable"
 
     def validate(self) -> None:
         """Validate required journal fields."""
@@ -122,6 +142,7 @@ class MemoryJournalRow:
             "node_ids": list(self.node_ids),
             "edge_ids": list(self.edge_ids),
             "payload": redact_journal_value(dict(self.payload)),
+            "durability": self.durability,
         }
 
     @staticmethod
@@ -129,6 +150,12 @@ class MemoryJournalRow:
         """Parse a journal row from JSON data."""
         payload_raw = raw.get("payload")
         payload = payload_raw if isinstance(payload_raw, Mapping) else {}
+        d_raw = str(
+            raw.get("durability", "durable") or "durable",
+        ).strip().lower()
+        durability: JournalDurability = (
+            d_raw if d_raw in ("durable", "ephemeral") else "durable"
+        )
         row = MemoryJournalRow(
             schema=str(raw.get("schema", "")),
             created_at=str(raw.get("created_at", "")),
@@ -149,6 +176,7 @@ class MemoryJournalRow:
                 else None,
             ),
             payload=payload,
+            durability=durability,
         )
         row.validate()
         return row
@@ -170,6 +198,8 @@ class MemoryJournalStore:
 
     def append(self, row: MemoryJournalRow) -> None:
         """Append one row as a single redacted JSON line."""
+        if row.durability == "ephemeral":
+            return
         self._path.parent.mkdir(parents=True, exist_ok=True)
         line = json.dumps(
             row.to_dict(),

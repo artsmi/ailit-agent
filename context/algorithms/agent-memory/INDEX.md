@@ -1,6 +1,6 @@
 # AgentMemory — целевой алгоритм (пакет)
 
-**Статус:** `approved` — явное подтверждение пользователя в чате Cursor (2026-05-03): «подтверждаю, продолжай работу». Product code в этом workflow не менялся.
+**Статус:** `approved` — явное подтверждение пользователя в чате Cursor (2026-05-03): «подтверждаю, продолжай работу». Реализация runtime/CLI по этому пакету выравнивалась в feature-итерации 2026-05-04 (slices S1–S5); канон документа — источник целевого поведения.
 
 **Источник постановки:** `context/artifacts/target_doc/original_user_request.md`, синтез `context/artifacts/target_doc/synthesis.md`, current-state отчёты `context/artifacts/target_doc/current_state/*.md`.
 
@@ -20,6 +20,27 @@
 | [`prompts.md`](prompts.md) | Промпты по состояниям/фазам, multi-language/`file_kind`, запреты CoT/raw dumps. |
 | [`external-protocol.md`](external-protocol.md) | Инициаторы (AgentWork, CLI, broker client), envelope запроса, события wire, CLI `ailit memory init`. |
 | [`failure-retry-observability.md`](failure-retry-observability.md) | Матрица failure/retry, caps→partial, журнал/trace/compact, acceptance tests (фактические имена pytest). |
+| [`start_feature_handoff.md`](start_feature_handoff.md) | Инструкции по запуску start-feature. |
+
+## Original Request Requirements
+
+| ID | Requirement | Expected target-doc section |
+|----|-------------|------------------------------|
+| OR-001 | Канон в `context/algorithms/agent-memory/` с `INDEX.md` и разбиением по файлам; discoverability из `context/algorithms/INDEX.md` | `INDEX.md`, ссылка из `context/algorithms/INDEX.md` |
+| OR-002 | AgentMemory как модуль с NL-запросами через broker; `complete`/`partial` или `blocked` только при LLM API / bounded retry failure | `runtime-flow.md`, `failure-retry-observability.md` |
+| OR-003 | Обход дерева и graph links A/B/C/D; typed evidence-backed links; runtime валидирует, LLM только кандидаты | `memory-graph-links.md`, `runtime-flow.md` |
+| OR-004 | Контракт инициаторов AgentWork / CLI / broker client: поля, `query_id`, `user_turn_id`, namespace, project_root, caps; schema-like JSON | `external-protocol.md`, `runtime-flow.md` |
+| OR-005 | Целевая state machine: intake → DB check → шаги → LLM → slice → обход → nodes/links → summarization → finish → bounded partial | `runtime-flow.md` |
+| OR-006 | LLM command protocol: команды runtime→LLM, вход/выход, forbidden/required, примеры repair; разделение владения runtime vs LLM | `llm-commands.md` |
+| OR-007 | Типы связей B/C/D из запроса пользователя с confidence/source | `memory-graph-links.md` |
+| OR-008 | Промпты для multi-language и non-code файлов; `file_kind`, segmentation; запреты CoT/raw dumps | `prompts.md`, `llm-commands.md` |
+| OR-009 | Каталог prompts по состояниям | `prompts.md` |
+| OR-010 | Внешние события: heartbeat, progress, highlighted nodes, link/node updates, partial/complete/blocked; schema + log rules | `external-protocol.md`, `failure-retry-observability.md` |
+| OR-011 | CLI `ailit memory init`: default request, progress, node/link logs, exit semantics | `external-protocol.md` и/или `failure-retry-observability.md` |
+| OR-012 | Result envelope `agent_memory_result.v1` | `runtime-flow.md`, `external-protocol.md` |
+| OR-013 | Failure/retry: invalid JSON, bad node id, invalid link rejection, caps, missing file, unknown language fallback | `failure-retry-observability.md` |
+| OR-014 | Минимум четыре человекочитаемых сценария (в запросе перечислено пять путей) | примеры по файлам / `INDEX.md` |
+| OR-015 | Проверяемые acceptance criteria из запроса | `INDEX.md`, `failure-retry-observability.md` |
 
 ## Трассировка OR-001…OR-015
 

@@ -61,6 +61,16 @@ Work публикует `context.memory_injected` **только** если от
 
 Компактные события журнала AgentMemory (см. [`runtime-event-contract.md`](runtime-event-contract.md)): `memory.command.normalized` (в т.ч. `from_schema_version`, `to_schema_version`, `from_status`, `command_id_restored`), при фактическом восстановлении id — `memory.w14.command_id_restored`.
 
+### W14 `propose_links`, PAG write и внешние события
+
+- Команда планера **`propose_links`** обрабатывается в `AgentMemoryQueryPipeline`: wire **`agent_memory_link_candidate.v1`** → **`AgentMemoryLinkCandidateValidator`** (отклонения с компактным `reason`, напр. `invalid_source_path`) → применимые рёбра через **`PagGraphWriteService`** (`pag_graph_write_service.py`). Подробности типов связей и политики — [`../algorithms/agent-memory/memory-graph-links.md`](../algorithms/agent-memory/memory-graph-links.md).
+- Каталог внешних событий **`agent_memory.external_event.v1`** (`event_type`: heartbeat, progress, link_candidates, links_updated, nodes_updated, partial_result, complete_result, blocked_result, …), правила durable/ephemeral для конверта и golden map stdout→compact — **SoT в коде** `agent_memory_external_events.py` (обёртки в `agent_memory_w14_observability.py`). В JSONL журнале AgentMemory строка с **`event_name`** = **`memory.external_event`** несёт envelope внешнего протокола; это **не** таблица D-OBS-1 (зона AW↔AM compact), но связано с наблюдаемостью W14 — см. [`runtime-event-contract.md`](runtime-event-contract.md) §Связанные документы.
+- **OR-013:** компактные причины частичного исхода и маппинг assembly→наблюдаемость — `agent_memory_terminal_outcomes.py`; нормативная матрица — [`../algorithms/agent-memory/failure-retry-observability.md`](../algorithms/agent-memory/failure-retry-observability.md).
+
+### Журнал: durability строки
+
+`MemoryJournalStore.append` (`memory_journal.py`) пропускает запись JSONL для строк с **`durability: ephemeral`** (классификация internal-событий — `journal_durability_for_internal_event`, напр. `memory.index.partial`); durable шаги (`memory.runtime.step` и др.) остаются в файле журнала. Слияние shadow init → канонический путь — `append_rows_from_jsonl_file` (сценарий init).
+
 ## Post-pipeline в AgentMemory (`memory.query_context`)
 
 После `AgentMemoryQueryPipeline.run` в `AgentMemory.handle` применяется цепочка пост-обработки `memory_slice` (источник правды — один блок в `handle`, см. ниже).
@@ -99,4 +109,7 @@ Work публикует `context.memory_injected` **только** если от
 - `tools/agent_core/runtime/subprocess_agents/memory_agent.py` — `_fallback_slice` (~1284–1316), `handle` / ветка `memory.query_context` и пост-pipeline (~1496–1564); cancel path и публикация SoT.
 - `tools/agent_core/runtime/agent_memory_result_v1.py` — `resolve_memory_continuation_required`, `build_agent_memory_result_v1`.
 - `tools/agent_core/runtime/broker.py` — ветка `runtime.cancel_active_turn` на `service.request`.
-- `tools/agent_core/runtime/agent_memory_query_pipeline.py` — выставление `reason: w14_command_output_invalid` (без изменений в task 2.1; согласование семантики с п.2 выше).
+- `tools/agent_core/runtime/agent_memory_query_pipeline.py` — W14 pipeline, `propose_links`, выставление `reason: w14_command_output_invalid` (согласование с п.2 выше).
+- `tools/agent_core/runtime/agent_memory_link_candidate_validator.py`, `tools/agent_core/runtime/pag_graph_write_service.py` — валидация кандидатов связей и запись PAG.
+- `tools/agent_core/runtime/agent_memory_external_events.py`, `tools/agent_core/runtime/agent_memory_terminal_outcomes.py` — внешние события и OR-013.
+- `tools/agent_core/runtime/memory_journal.py` — JSONL store, `durability`, merge init-журналов.

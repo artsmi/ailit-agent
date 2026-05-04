@@ -4,6 +4,14 @@ W14: LLM summaries для C и B (``agent_memory_command_output.v1``).
 Связь: G14R.5, C14R.2, D14R.4.
 SoT: этот модуль + ``agent_memory_runtime_contract``.
 
+Граница планер vs internal (S1 / llm-commands.md): входные JSON для
+``summarize_c`` / ``summarize_b`` сериализуются как
+``agent_memory_command_input.v1`` (см. ``build_*_input_envelope``).
+Ответы LLM на эти фазы остаются ``agent_memory_command_output.v1`` с
+``command=summarize_c|summarize_b`` — это **не** верхнеуровневый envelope
+планерского раунда ``memory.query_context`` (там разрешены только
+``plan_traversal``, ``finish_decision``, ``propose_links``).
+
 Не импортируйте ``semantic_c_extraction`` / ``memory_c_extractor_prompt``.
 """
 

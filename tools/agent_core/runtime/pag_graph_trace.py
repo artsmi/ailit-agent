@@ -7,6 +7,9 @@ import sys
 import uuid
 from typing import Any, Mapping, TYPE_CHECKING
 
+from agent_core.runtime.agent_memory_external_events import (
+    map_stdout_internal_to_compact_event,
+)
 from agent_core.runtime.models import (
     RuntimeIdentity,
     RuntimeRequestEnvelope,
@@ -77,7 +80,7 @@ def emit_pag_graph_trace_row(
         compact_sink.emit(
             req=req,
             chat_id=req.chat_id,
-            event="memory.pag_graph",
+            event=map_stdout_internal_to_compact_event("pag.node.upsert"),
             fields=fields,
         )
 
@@ -149,6 +152,8 @@ def emit_memory_w14_graph_highlight_row(
         compact_sink.emit(
             req=req,
             chat_id=req.chat_id,
-            event=MEMORY_W14_GRAPH_HIGHLIGHT_EVENT,
+            event=map_stdout_internal_to_compact_event(
+                MEMORY_W14_GRAPH_HIGHLIGHT_EVENT,
+            ),
             fields=fields,
         )

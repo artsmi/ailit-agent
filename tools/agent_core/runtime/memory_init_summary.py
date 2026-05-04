@@ -177,7 +177,7 @@ class MemoryInitSummaryFormatter:
 
 def emit_memory_init_user_summary(
     compact_path: Path,
-    exit_kind: Literal["complete", "partial", "aborted"],
+    exit_kind: Literal["complete", "partial", "blocked"],
     d4: tuple[int, int, int],
     *,
     reason_short: str | None = None,
@@ -197,7 +197,7 @@ def emit_memory_init_user_summary(
         f"compact_log={abs_compact}",
         f"status={exit_kind}",
     ]
-    if reason_short and exit_kind in ("partial", "aborted"):
+    if reason_short and exit_kind != "complete":
         safe = reason_short.replace("\n", " ").strip()
         if safe:
             lines.append(f"abort_reason={safe}")

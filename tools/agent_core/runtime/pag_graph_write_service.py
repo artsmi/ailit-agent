@@ -107,3 +107,31 @@ class PagGraphWriteService:
             edges=edges,
             updated_at=updated_at,
         )
+
+    def insert_pending_link_claim(
+        self,
+        *,
+        namespace: str,
+        pending_id: str,
+        from_node_id: str,
+        relation: str,
+        target_name: str,
+        target_kind: str,
+        path_hint: str,
+        language: str,
+        confidence: float,
+        claim_json: str,
+    ) -> None:
+        """Очередь advisory link (S3); DML только через сервис записи PAG."""
+        self._store.insert_pending_link_claim(
+            namespace=namespace,
+            pending_id=pending_id,
+            from_node_id=from_node_id,
+            relation=relation,
+            target_name=target_name,
+            target_kind=target_kind,
+            path_hint=path_hint,
+            language=language,
+            confidence=confidence,
+            claim_json=claim_json,
+        )

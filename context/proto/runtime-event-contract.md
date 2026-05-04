@@ -47,6 +47,7 @@ rg -n 'memory\.query\.timeout|memory\.query_context\.continuation|memory\.query\
 
 ## Связанные документы
 
-- [`broker-memory-work-inject.md`](broker-memory-work-inject.md) — UC 2.4, тройка trace, условия `context.memory_injected` / slice skipped.
+- [`broker-memory-work-inject.md`](broker-memory-work-inject.md) — UC 2.4, тройка trace, условия `context.memory_injected` / slice skipped; W14 `propose_links`, журнал `memory.external_event`, durability JSONL.
 - [`context/artifacts/architecture.md`](../artifacts/architecture.md) §5 — интерфейсы и обязательные поля событий.
 - [`context/artifacts/technical_specification.md`](../artifacts/technical_specification.md) §3.2 — требования к компактным событиям.
+- Каталог **`agent_memory.external_event.v1`** (не входит в таблицу D-OBS-1 выше): `tools/agent_core/runtime/agent_memory_external_events.py`.

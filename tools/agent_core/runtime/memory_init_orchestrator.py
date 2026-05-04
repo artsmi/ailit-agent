@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Final, Literal, Mapping
+from typing import Any, Callable, Final, Mapping
 
 from agent_core.runtime.agent_memory_chat_log import (
     COMPACT_LOG_FILE_NAME,
@@ -25,6 +25,16 @@ from agent_core.runtime.memory_init_summary import (
     emit_memory_init_user_summary,
 )
 from agent_core.runtime.errors import RuntimeProtocolError
+from agent_core.runtime.memory_init_cli_outcome import (
+    MemoryInitTerminalStatus,
+    agent_memory_v1_status_from_envelope,
+    memory_init_exit_code,
+    terminal_status_worker_not_ok,
+)
+from agent_core.runtime.memory_journal import (
+    MemoryJournalRow,
+    MemoryJournalStore,
+)
 from agent_core.runtime.memory_init_transaction import (
     MemoryInitPaths,
     MemoryInitTransaction,
@@ -41,9 +51,8 @@ from agent_core.runtime.subprocess_agents.memory_agent import (
 )
 
 _DEFAULT_TAIL_BYTES: Final[int] = 8 * 1024 * 1024
-_EXIT_VERIFY_FAIL: Final[int] = 1
+# Имя ожидается тестами; = ``memory_init_exit_code`` при SIGINT.
 _EXIT_INTERRUPT: Final[int] = 130
-_EXIT_RUNTIME: Final[int] = 2
 
 # UC-06: compact W14 tokens in ``abort_reason=`` (no raw LLM / full envelope).
 _W14_REASON_UNKNOWN_LEGACY: Final[str] = "unknown_legacy_w14_status"
@@ -287,13 +296,16 @@ class MemoryInitOrchestrator:
     ) -> int:
         """
         Returns:
-            0 при COMMIT; 1 при VERIFY fail; 2 при прочих ошибках;
-            130 при interrupt.
+            0 при ``complete``; 1 при ``partial``/``blocked``; 2 при infra;
+            130 при SIGINT/KeyboardInterrupt.
         """
         root = normalize_memory_init_root(project_root)
         ns = str(pag_namespace_key).strip()
         if not ns:
-            return _EXIT_RUNTIME
+            return memory_init_exit_code(
+                "blocked",
+                abort_class="infrastructure",
+            )
         init_session_id = str(uuid.uuid4())
         cid = (
             str(chat_id).strip()
@@ -339,19 +351,56 @@ class MemoryInitOrchestrator:
                 "orch_memory_init_phase",
                 {"phase": "abort"},
             )
+            prep_rid = f"req-meminit-{init_session_id}-prepare"
+            orch_sink.emit_memory_result_returned_marker(
+                req=None,
+                chat_id=cid,
+                request_id=prep_rid,
+                status="blocked",
+            )
             try:
                 tx.phase_abort()
             except RuntimeProtocolError:
                 pass
-            return _EXIT_RUNTIME
+            self._emit_memory_init_user_summary(
+                compact_path,
+                "blocked",
+                reason_short="prepare_failed",
+            )
+            return memory_init_exit_code(
+                "blocked",
+                abort_class="infrastructure",
+            )
         shadow = tx.shadow_journal_path
         if shadow is None:
+            self._emit_orch(
+                orch_sink,
+                session,
+                "orch_memory_init_phase",
+                {"phase": "abort"},
+            )
+            miss_rid = f"req-meminit-{init_session_id}-no_shadow"
+            orch_sink.emit_memory_result_returned_marker(
+                req=None,
+                chat_id=cid,
+                request_id=miss_rid,
+                status="blocked",
+            )
             try:
                 tx.phase_abort()
             except RuntimeProtocolError:
                 pass
-            return _EXIT_RUNTIME
+            self._emit_memory_init_user_summary(
+                compact_path,
+                "blocked",
+                reason_short="journal_shadow_missing",
+            )
+            return memory_init_exit_code(
+                "blocked",
+                abort_class="infrastructure",
+            )
         guard.install()
+        last_request_id: str = f"req-meminit-{init_session_id}-0000-init"
         try:
             self._emit_orch(
                 orch_sink,
@@ -417,45 +466,19 @@ class MemoryInitOrchestrator:
                     },
                     now=RuntimeNow(),
                 )
+                last_request_id = request_id
                 try:
                     out = worker.handle(req)
                     if isinstance(out, dict) and out.get("ok") is True:
                         last_ok_worker_envelope = out
                 except KeyboardInterrupt:
-                    try:
-                        tx.phase_abort()
-                    except RuntimeProtocolError:
-                        pass
-                    self._emit_orch(
-                        orch_sink,
-                        session,
-                        "orch_memory_init_phase",
-                        {"phase": "abort"},
+                    self._emit_orchestrator_terminal_marker(
+                        tx=tx,
+                        orch_sink=orch_sink,
+                        session=session,
+                        status="partial",
+                        request_id=last_request_id,
                     )
-                    self._emit_memory_init_user_summary(
-                        compact_path,
-                        "aborted",
-                        reason_short="keyboard_interrupt",
-                    )
-                    return _EXIT_INTERRUPT
-                if guard.cancelled:
-                    try:
-                        tx.phase_abort()
-                    except RuntimeProtocolError:
-                        pass
-                    self._emit_orch(
-                        orch_sink,
-                        session,
-                        "orch_memory_init_phase",
-                        {"phase": "abort"},
-                    )
-                    self._emit_memory_init_user_summary(
-                        compact_path,
-                        "aborted",
-                        reason_short="sigint",
-                    )
-                    return _EXIT_INTERRUPT
-                if not isinstance(out, dict) or out.get("ok") is not True:
                     try:
                         tx.phase_abort()
                     except RuntimeProtocolError:
@@ -469,13 +492,70 @@ class MemoryInitOrchestrator:
                     self._emit_memory_init_user_summary(
                         compact_path,
                         "partial",
+                        reason_short="keyboard_interrupt",
+                    )
+                    return memory_init_exit_code(
+                        "partial",
+                        abort_class="interrupt",
+                    )
+                if guard.cancelled:
+                    self._emit_orchestrator_terminal_marker(
+                        tx=tx,
+                        orch_sink=orch_sink,
+                        session=session,
+                        status="partial",
+                        request_id=last_request_id,
+                    )
+                    try:
+                        tx.phase_abort()
+                    except RuntimeProtocolError:
+                        pass
+                    self._emit_orch(
+                        orch_sink,
+                        session,
+                        "orch_memory_init_phase",
+                        {"phase": "abort"},
+                    )
+                    self._emit_memory_init_user_summary(
+                        compact_path,
+                        "partial",
+                        reason_short="sigint",
+                    )
+                    return memory_init_exit_code(
+                        "partial",
+                        abort_class="interrupt",
+                    )
+                if not isinstance(out, dict) or out.get("ok") is not True:
+                    wfail = terminal_status_worker_not_ok(
+                        out if isinstance(out, dict) else None,
+                    )
+                    self._emit_orchestrator_terminal_marker(
+                        tx=tx,
+                        orch_sink=orch_sink,
+                        session=session,
+                        status=wfail,
+                        request_id=last_request_id,
+                    )
+                    try:
+                        tx.phase_abort()
+                    except RuntimeProtocolError:
+                        pass
+                    self._emit_orch(
+                        orch_sink,
+                        session,
+                        "orch_memory_init_phase",
+                        {"phase": "abort"},
+                    )
+                    self._emit_memory_init_user_summary(
+                        compact_path,
+                        wfail,
                         reason_short=(
                             _w14_reason_short_from_worker_envelope(out)
                             if isinstance(out, dict)
                             else None
                         ),
                     )
-                    return _EXIT_VERIFY_FAIL
+                    return memory_init_exit_code(wfail)
                 if verify_memory_init_journal_complete_marker(shadow, cid):
                     break
                 pl_raw = out.get("payload")
@@ -513,15 +593,34 @@ class MemoryInitOrchestrator:
                     rs_verify = _w14_reason_short_from_worker_ok_envelope(
                         last_ok_worker_envelope,
                     )
+                vstat: MemoryInitTerminalStatus = "partial"
+                if (
+                    agent_memory_v1_status_from_envelope(
+                        last_ok_worker_envelope,
+                    )
+                    == "blocked"
+                ):
+                    vstat = "blocked"
                 self._emit_memory_init_user_summary(
                     compact_path,
-                    "partial",
+                    vstat,
                     reason_short=rs_verify,
                 )
-                return _EXIT_VERIFY_FAIL
+                return memory_init_exit_code(vstat)
             try:
                 tx.phase_commit()
             except Exception:
+                self._emit_orchestrator_terminal_marker(
+                    tx=tx,
+                    orch_sink=orch_sink,
+                    session=session,
+                    status="blocked",
+                    request_id=last_request_id,
+                )
+                try:
+                    tx.phase_abort()
+                except RuntimeProtocolError:
+                    pass
                 self._emit_orch(
                     orch_sink,
                     session,
@@ -530,10 +629,13 @@ class MemoryInitOrchestrator:
                 )
                 self._emit_memory_init_user_summary(
                     compact_path,
-                    "aborted",
+                    "blocked",
                     reason_short="commit_failed",
                 )
-                return _EXIT_RUNTIME
+                return memory_init_exit_code(
+                    "blocked",
+                    abort_class="infrastructure",
+                )
             self._emit_orch(
                 orch_sink,
                 session,
@@ -541,8 +643,15 @@ class MemoryInitOrchestrator:
                 {"phase": "commit"},
             )
             self._emit_memory_init_user_summary(compact_path, "complete")
-            return 0
+            return memory_init_exit_code("complete")
         except Exception:
+            self._emit_orchestrator_terminal_marker(
+                tx=tx,
+                orch_sink=orch_sink,
+                session=session,
+                status="blocked",
+                request_id=last_request_id,
+            )
             try:
                 tx.phase_abort()
             except RuntimeProtocolError:
@@ -555,10 +664,13 @@ class MemoryInitOrchestrator:
             )
             self._emit_memory_init_user_summary(
                 compact_path,
-                "aborted",
+                "blocked",
                 reason_short="runtime_error",
             )
-            return _EXIT_RUNTIME
+            return memory_init_exit_code(
+                "blocked",
+                abort_class="infrastructure",
+            )
         finally:
             if guard.active:
                 guard.restore()
@@ -577,26 +689,58 @@ class MemoryInitOrchestrator:
             fields={"kind": "orchestrator", **fields},
         )
 
+    def _emit_orchestrator_terminal_marker(
+        self,
+        *,
+        tx: MemoryInitTransaction,
+        orch_sink: CompactObservabilitySink,
+        session: MemoryInitSession,
+        status: MemoryInitTerminalStatus,
+        request_id: str,
+    ) -> None:
+        """Shadow journal + compact/stderr: ``memory.result.returned`` (S4)."""
+        sj = tx.shadow_journal_path
+        rid = str(request_id or "").strip()
+        if sj is not None and sj.exists():
+            MemoryJournalStore(sj).append(
+                MemoryJournalRow(
+                    chat_id=session.chat_id,
+                    event_name="memory.result.returned",
+                    request_id=rid[:220],
+                    namespace=session.pag_namespace_key,
+                    project_id="memory_init",
+                    summary="memory_init_cli_terminal",
+                    payload={"status": status},
+                ),
+            )
+        orch_sink.emit_memory_result_returned_marker(
+            req=None,
+            chat_id=session.chat_id,
+            request_id=rid,
+            status=status,
+        )
+
     def _emit_memory_init_user_summary(
         self,
         compact_path: Path,
-        exit_kind: Literal["complete", "partial", "aborted"],
+        terminal_status: MemoryInitTerminalStatus,
         *,
         reason_short: str | None = None,
     ) -> None:
         """
-        UC-02 финальный блок summary. Таблица ``exit_kind`` (детерминированно):
+        UC-02 финальный блок summary. Каноническая тройка (S4):
 
-        - ``complete`` — успешный COMMIT (код выхода 0).
-        - ``partial`` — gate без полного успеха (код 1): ответ worker не ``ok``
-          или VERIFY журнала без финального ``memory.result.returned`` /
-          ``payload.status=complete``.
-        - ``aborted`` — прерывание (130), ошибка исполнения / COMMIT (код 2).
+        - ``complete`` — COMMIT и VERIFY с ``payload.status=complete``.
+        - ``partial`` — неполный успех, прерывание пользователем (код 130),
+          ответ worker не ``ok`` без признаков LLM-block.
+        - ``blocked`` — VERIFY без complete при blocked в
+          ``agent_memory_result``, ошибка COMMIT/рантайма,
+          LLM/provider gate на ``ok: false``.
         """
         d4 = count_compact_d4_summary_lines(compact_path)
         emit_memory_init_user_summary(
             compact_path,
-            exit_kind,
+            terminal_status,
             d4,
             reason_short=reason_short,
         )

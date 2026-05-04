@@ -41,6 +41,8 @@ _SAFE_RE: Final[re.Pattern[str]] = re.compile(r"[A-Za-z0-9_-]")
 
 LEGACY_LOG_FILE_NAME: Final[str] = "legacy.log"
 COMPACT_LOG_FILE_NAME: Final[str] = "compact.log"
+# Compact sink (CLI): ``memory.command.requested`` — только stats в kv,
+# без raw_prompt / goal (см. ``log_memory_w14_command_requested``).
 CLI_SESSION_DIR_PREFIX: Final[str] = "ailit-cli-"
 
 SessionLogMode: TypeAlias = Literal["desktop", "cli_init"]

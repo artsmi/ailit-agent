@@ -23,8 +23,21 @@ from agent_core.runtime.agent_memory_runtime_contract import (
     W14CommandParseError,
     parse_memory_query_pipeline_llm_text_result,
 )
+from agent_core.runtime.agent_memory_link_candidate_validator import (
+    AgentMemoryLinkCandidateValidator,
+)
 from agent_core.runtime.agent_memory_result_assembly import (
     FinishDecisionResultAssembler,
+)
+from agent_core.runtime.agent_memory_terminal_outcomes import (
+    REASON_LINK_REJECTED,
+    REASON_W14_PARSE_FAILED,
+    or013_reasons_from_assembly_reject_codes,
+    w14_intermediate_runtime_partial_reasons,
+)
+from agent_core.runtime.agent_memory_w14_observability import (
+    build_link_candidates_external_event,
+    build_links_updated_external_event,
 )
 from agent_core.runtime.agent_memory_summary_service import (
     AgentMemorySummaryService,
@@ -96,6 +109,10 @@ W14_PLAN_TRAVERSAL_SYSTEM: str = (
     "Top-level поле status только \"ok\", \"partial\" или \"refuse\"; "
     "не используй \"in_progress\" и иные lifecycle-метки на верхнем уровне "
     "envelope — ход плана только через payload.is_final и payload.actions. "
+    "Top-level command не должен быть summarize_c/summarize_b "
+    "(это внутренние runtime-фазы, не envelope планера). "
+    "Не используй command=repair_invalid_response (repair — фаза журнала "
+    "planner_repair, не имя envelope). "
     "actions[].action: list_children|get_b_summary|get_c_content|"
     "decompose_b_to_c|summarize_b|finish; пути — POSIX relpath. "
     "Не выдумывай пути; не проси сырой B content. "
@@ -228,6 +245,7 @@ class AgentMemoryQueryPipelineResult:
     am_v1_explicit_results: list[dict[str, Any]] | None = None
     am_v1_status: str | None = None
     w14_graph_highlight_deferred: W14DeferredGraphHighlight | None = None
+    runtime_partial_reasons: tuple[str, ...] = ()
 
 
 class AgentMemoryQueryPipeline:
@@ -485,6 +503,8 @@ class AgentMemoryQueryPipeline:
                 query_kind=query_kind,
                 level=level,
                 nspace=nspace,
+                qid_log=qid_log,
+                w14_next_step_id=_w14_next_step_id,
             )
         else:
             if plan_result.normalized:
@@ -573,6 +593,21 @@ class AgentMemoryQueryPipeline:
                     nspace=nspace,
                     partial_plan=partial_plan,
                 )
+            if str(plan_obj.get("command", "") or "").strip() == (
+                AgentMemoryCommandName.PROPOSE_LINKS.value
+            ):
+                return self._w14_propose_links_wire_result(
+                    req=req,
+                    request_id=request_id,
+                    qid_log=qid_log,
+                    w14_next_step_id=_w14_next_step_id,
+                    plan_obj=plan_obj,
+                    project_root=project_root,
+                    goal=goal,
+                    query_kind=query_kind,
+                    level=level,
+                    nspace=nspace,
+                )
             return self._w14_intermediate_command_result(
                 req=req,
                 request_id=request_id,
@@ -596,6 +631,8 @@ class AgentMemoryQueryPipeline:
             query_kind=query_kind,
             level=level,
             nspace=nspace,
+            qid_log=qid_log,
+            w14_next_step_id=_w14_next_step_id,
         )
 
     def _repair_w14_command_output(
@@ -711,6 +748,171 @@ class AgentMemoryQueryPipeline:
             )
         return None
 
+    @staticmethod
+    def _wire_link_candidates_from_propose_payload(
+        payload: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        """S1: извлечь candidates после wire-валидации propose_links."""
+        if "candidates" in payload:
+            cand = payload.get("candidates")
+            if isinstance(cand, list):
+                return [
+                    dict(x) for x in cand if isinstance(x, dict)
+                ][:128]
+            return []
+        lb = payload.get("link_batch")
+        if isinstance(lb, dict):
+            cand2 = lb.get("candidates")
+            if isinstance(cand2, list):
+                return [
+                    dict(x) for x in cand2 if isinstance(x, dict)
+                ][:128]
+        return []
+
+    def _w14_propose_links_wire_result(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        qid_log: str,
+        w14_next_step_id: Callable[[], str],
+        plan_obj: dict[str, Any],
+        _project_root: str,
+        goal: str,
+        query_kind: str,
+        level: str,
+        nspace: str,
+    ) -> AgentMemoryQueryPipelineResult:
+        """
+        S1/S3: ``propose_links`` — внешние события S2 и запись PAG через S3.
+
+        Рёбра из LLM JSON не пишутся в ``SqlitePagStore`` минуя
+        ``AgentMemoryLinkCandidateValidator`` + ``PagGraphWriteService``.
+        """
+        self._w.log_memory_w14_runtime_step(  # noqa: SLF001
+            req,
+            request_id,
+            step_id=w14_next_step_id(),
+            state="w14_command_parsed",
+            next_state="w14_propose_links_wire",
+            action_kind=AgentMemoryCommandName.PROPOSE_LINKS.value,
+            query_id=qid_log,
+            counters={"w14_propose_links_wire": 1},
+        )
+        pld: Any = plan_obj.get("payload", {})
+        if not isinstance(pld, dict):
+            pld = {}
+        cands = self._wire_link_candidates_from_propose_payload(pld)
+        self._w.log_memory_external_event_v1(  # noqa: SLF001
+            req,
+            request_id,
+            envelope=build_link_candidates_external_event(
+                query_id=qid_log,
+                candidates=cands,
+            ),
+        )
+        store = SqlitePagStore(PagRuntimeConfig.from_env().db_path)
+        write = PagGraphWriteService(store)
+        validator = AgentMemoryLinkCandidateValidator()
+        with store.graph_trace(
+            self._w._graph_trace_hook(  # noqa: SLF001
+                req,
+                request_id=request_id,
+                service="memory.query_context",
+            ),
+        ):
+            batch_result = validator.process_batch(
+                store=store,
+                write=write,
+                namespace=nspace,
+                candidates=cands,
+            )
+        applied_report: list[dict[str, str]] = [
+            {"link_id": x["link_id"], "edge_id": x["edge_id"]}
+            for x in batch_result.applied_edges
+        ]
+        applied_report.extend(
+            {
+                "link_id": x["link_id"],
+                "pending_id": x["pending_id"],
+                "state": "pending",
+            }
+            for x in batch_result.applied_pending
+        )
+        self._w.log_memory_external_event_v1(  # noqa: SLF001
+            req,
+            request_id,
+            envelope=build_links_updated_external_event(
+                query_id=qid_log,
+                applied=applied_report,
+                rejected=batch_result.rejected,
+            ),
+        )
+        for rj in batch_result.rejected:
+            lid = str(rj.get("link_id") or "").strip() or "?"
+            rsn = str(rj.get("reason") or "").strip()[:300]
+            self._w._append_journal(  # noqa: SLF001
+                req=req,
+                event_name="memory.link_rejected",
+                summary=f"link_rejected:{lid}",
+                request_id=request_id,
+                payload={"link_id": lid, "reason": rsn},
+            )
+        dsum = str(plan_obj.get("decision_summary", "") or "").strip() or (
+            "w14 propose_links validated (S3)"
+        )
+        new_edge_ids = [x["edge_id"] for x in batch_result.applied_edges]
+        mem_sl: dict[str, Any] = {
+            "kind": "memory_slice",
+            "schema": "memory.slice.v1",
+            "level": level,
+            "node_ids": [],
+            "edge_ids": list(new_edge_ids),
+            "injected_text": "",
+            "estimated_tokens": 0,
+            "staleness": "w14_propose_links_wire",
+            "reason": "w14_propose_links_validated",
+            "partial": True,
+            "w14_link_candidates": cands,
+            "w14_link_candidate_count": len(cands),
+            "w14_links_applied_edge_count": len(batch_result.applied_edges),
+            "w14_links_pending_count": len(batch_result.applied_pending),
+            "w14_links_rejected_count": len(batch_result.rejected),
+        }
+        if str(goal or "").strip():
+            mem_sl["query_subgoal"] = str(goal)[:200]
+        if str(query_kind or "").strip():
+            mem_sl["query_kind"] = str(query_kind)[:120]
+        pl_reasons: tuple[str, ...] = (
+            (REASON_LINK_REJECTED,) if batch_result.rejected else ()
+        )
+        self._w.log_memory_w14_runtime_step(  # noqa: SLF001
+            req,
+            request_id,
+            step_id=w14_next_step_id(),
+            state="w14_propose_links_wire",
+            next_state="terminal",
+            action_kind=AgentMemoryCommandName.PROPOSE_LINKS.value,
+            query_id=qid_log,
+            counters={"w14_propose_links_terminal": 1},
+        )
+        return AgentMemoryQueryPipelineResult(
+            memory_slice=mem_sl,
+            partial=True,
+            decision_summary=dsum[:1_200],
+            recommended_next_step=(
+                "continue AgentMemory query or resolve pending links"
+            ),
+            created_node_ids=[],
+            created_edge_ids=list(new_edge_ids),
+            used_llm=True,
+            llm_disabled_fallback=False,
+            am_v1_explicit_results=None,
+            am_v1_status="partial",
+            w14_graph_highlight_deferred=None,
+            runtime_partial_reasons=pl_reasons,
+        )
+
     def _finish_decision_result(
         self,
         *,
@@ -754,6 +956,9 @@ class AgentMemoryQueryPipeline:
         )
         results, path_rejects = asm.assemble_finish_decision_results(
             selected,
+        )
+        fr_trace = or013_reasons_from_assembly_reject_codes(
+            [x.code for x in path_rejects],
         )
         pr_flags = bool(partial_plan) or bool(path_rejects)
         inner = str(pld.get("status", "complete") or "complete")
@@ -823,6 +1028,16 @@ class AgentMemoryQueryPipeline:
                 edge_ids=tuple(_w14_hl.edge_ids),
                 reason=str(dsum)[:256],
             )
+        self._w.log_memory_w14_runtime_step(  # noqa: SLF001
+            req,
+            request_id,
+            step_id=w14_next_step_id(),
+            state="finish_assembly",
+            next_state="terminal",
+            action_kind=AgentMemoryCommandName.FINISH_DECISION.value,
+            query_id=qid_log,
+            counters={"w14_finish_terminal": 1},
+        )
         return AgentMemoryQueryPipelineResult(
             memory_slice=mem_sl,
             partial=bool(mem_sl.get("partial", False)),
@@ -836,6 +1051,7 @@ class AgentMemoryQueryPipeline:
             am_v1_explicit_results=results,
             am_v1_status=inner,
             w14_graph_highlight_deferred=_gh_def,
+            runtime_partial_reasons=fr_trace,
         )
 
     def _w14_intermediate_command_result(
@@ -871,6 +1087,7 @@ class AgentMemoryQueryPipeline:
             req=req,
             request_id=request_id,
             qid_log=qid_log,
+            w14_next_step_id=w14_next_step_id,
             plan_obj=plan_obj,
             project_root=project_root,
             goal=goal,
@@ -901,6 +1118,7 @@ class AgentMemoryQueryPipeline:
         req: RuntimeRequestEnvelope,
         request_id: str,
         qid_log: str,
+        w14_next_step_id: Callable[[], str],
         plan_obj: dict[str, Any],
         project_root: str,
         goal: str,
@@ -982,6 +1200,15 @@ class AgentMemoryQueryPipeline:
                 limits=limits,
             )
         candidates = self._candidate_results_from_c_nodes(summarized_c)
+        cap_hit = (
+            len(selected_b) >= limits.max_selected_b
+            or len(c_nodes) >= limits.max_total_c
+        )
+        r_trace = w14_intermediate_runtime_partial_reasons(
+            candidate_count=len(candidates),
+            c_node_count=len(c_nodes),
+            cap_exhausted=cap_hit,
+        )
         status, explicit_results = self._finish_from_candidates(
             req=req,
             request_id=request_id,
@@ -990,10 +1217,7 @@ class AgentMemoryQueryPipeline:
             namespace=nspace,
             goal=goal,
             candidates=candidates,
-            exhausted=(
-                len(selected_b) >= limits.max_selected_b
-                or len(c_nodes) >= limits.max_total_c
-            ),
+            exhausted=cap_hit,
         )
         ms0 = self._w._slice_from_pag(  # noqa: SLF001
             project_root=project_root,
@@ -1070,6 +1294,16 @@ class AgentMemoryQueryPipeline:
                 edge_ids=tuple(_w14_hl.edge_ids),
                 reason=str(dsum)[:256],
             )
+        self._w.log_memory_w14_runtime_step(  # noqa: SLF001
+            req,
+            request_id,
+            step_id=w14_next_step_id(),
+            state="w14_intermediate_slice",
+            next_state="terminal",
+            action_kind=_pt_cmd,
+            query_id=qid_log,
+            counters={"w14_intermediate_terminal": 1},
+        )
         return AgentMemoryQueryPipelineResult(
             memory_slice=ms2,
             partial=status != "complete",
@@ -1082,6 +1316,7 @@ class AgentMemoryQueryPipeline:
             am_v1_explicit_results=explicit_results,
             am_v1_status=status,
             w14_graph_highlight_deferred=_gh_def2,
+            runtime_partial_reasons=r_trace,
         )
 
     def _select_b_paths_for_w14(
@@ -1604,6 +1839,16 @@ class AgentMemoryQueryPipeline:
             query_id=qid_log,
             counters={"w14_command_reject": 1},
         )
+        self._w.log_memory_w14_runtime_step(  # noqa: SLF001
+            req,
+            request_id,
+            step_id=w14_next_step_id(),
+            state="w14_command_rejected",
+            next_state="terminal",
+            action_kind="w14_parse_rejected",
+            query_id=qid_log,
+            counters={"w14_rejected_terminal": 1},
+        )
         return AgentMemoryQueryPipelineResult(
             memory_slice={
                 "kind": "memory_slice",
@@ -1625,6 +1870,7 @@ class AgentMemoryQueryPipeline:
             created_edge_ids=[],
             used_llm=True,
             llm_disabled_fallback=False,
+            runtime_partial_reasons=(REASON_W14_PARSE_FAILED,),
         )
 
     def _partial_json_fallback(
@@ -1638,6 +1884,8 @@ class AgentMemoryQueryPipeline:
         query_kind: str,
         level: str,
         nspace: str,
+        qid_log: str = "",
+        w14_next_step_id: Callable[[], str] | None = None,
     ) -> AgentMemoryQueryPipelineResult:
         self._w.log_memory_why_llm(  # noqa: SLF001
             req,
@@ -1650,6 +1898,17 @@ class AgentMemoryQueryPipeline:
             summary="invalid planner json, partial",
             request_id=request_id,
         )
+        if w14_next_step_id is not None and str(qid_log or "").strip():
+            self._w.log_memory_w14_runtime_step(  # noqa: SLF001
+                req,
+                request_id,
+                step_id=w14_next_step_id(),
+                state="llm_await",
+                next_state="terminal",
+                action_kind="w14_invalid_json",
+                query_id=qid_log,
+                counters={"w14_invalid_json_terminal": 1},
+            )
         return AgentMemoryQueryPipelineResult(
             memory_slice={
                 "kind": "memory_slice",
@@ -1671,6 +1930,7 @@ class AgentMemoryQueryPipeline:
             created_edge_ids=[],
             used_llm=True,
             llm_disabled_fallback=False,
+            runtime_partial_reasons=(REASON_W14_PARSE_FAILED,),
         )
 
     def _fallback_without_llm(

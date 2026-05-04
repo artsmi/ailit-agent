@@ -20,6 +20,13 @@ AGENT_MEMORY_COMMAND_INPUT_SCHEMA: Final[str] = (
 )
 AGENT_MEMORY_RUNTIME_STEP_SCHEMA: Final[str] = "agent_memory_runtime_step.v1"
 
+# S1 / OR-006: batch schema для propose_links (wire, без полного link_apply).
+AGENT_MEMORY_LINK_BATCH_SCHEMA: Final[str] = "agent_memory_link_batch.v1"
+# S3 / memory-graph-links.md: wire link candidate JSON от LLM.
+AGENT_MEMORY_LINK_CANDIDATE_SCHEMA: Final[str] = (
+    "agent_memory_link_candidate.v1"
+)
+
 # --- commands (C14R.4 matrices) --------------------------------------------
 
 
@@ -30,6 +37,17 @@ class AgentMemoryCommandName(str, Enum):
     SUMMARIZE_C = "summarize_c"
     SUMMARIZE_B = "summarize_b"
     FINISH_DECISION = "finish_decision"
+    PROPOSE_LINKS = "propose_links"
+
+
+# Верхнеуровневые envelope-команды планерского раунда (llm-commands.md target).
+PLANNER_ENVELOPE_COMMANDS: Final[frozenset[str]] = frozenset(
+    (
+        AgentMemoryCommandName.PLAN_TRAVERSAL.value,
+        AgentMemoryCommandName.FINISH_DECISION.value,
+        AgentMemoryCommandName.PROPOSE_LINKS.value,
+    ),
+)
 
 
 class UnknownAgentMemoryCommandError(ValueError):
@@ -307,6 +325,45 @@ def _validate_plan_traversal_payload(payload: Mapping[str, Any]) -> None:
         )
 
 
+def _validate_propose_links_payload(payload: Mapping[str, Any]) -> None:
+    """
+    S1 wire: ``propose_links`` payload — coarse shape, без полной матрицы S3.
+
+    Разрешено: ``candidates`` как массив объектов или обёртка link_batch.v1.
+    """
+    if "candidates" in payload:
+        cand = payload.get("candidates")
+        if not isinstance(cand, list):
+            raise W14CommandParseError("payload.candidates must be an array")
+        for idx, item in enumerate(cand):
+            if not isinstance(item, dict):
+                raise W14CommandParseError(
+                    f"payload.candidates[{idx}] must be an object",
+                )
+        return
+    inner = payload.get("link_batch")
+    if isinstance(inner, dict):
+        ver = str(inner.get("schema_version", "") or "").strip()
+        if ver and ver != AGENT_MEMORY_LINK_BATCH_SCHEMA:
+            raise W14CommandParseError(
+                f"invalid_link_batch_schema_version:{ver!r}",
+            )
+        cand2 = inner.get("candidates")
+        if not isinstance(cand2, list):
+            raise W14CommandParseError(
+                "link_batch.candidates must be an array",
+            )
+        for idx, item in enumerate(cand2):
+            if not isinstance(item, dict):
+                raise W14CommandParseError(
+                    f"link_batch.candidates[{idx}] must be an object",
+                )
+        return
+    raise W14CommandParseError(
+        "payload must contain candidates[] or link_batch object (S1 wire)",
+    )
+
+
 def _validate_finish_decision_payload(payload: Mapping[str, Any]) -> None:
     selected = payload.get("selected_results", [])
     if not isinstance(selected, list):
@@ -338,6 +395,8 @@ def _validate_command_payload(
         _validate_plan_traversal_payload(payload)
     elif command == AgentMemoryCommandName.FINISH_DECISION.value:
         _validate_finish_decision_payload(payload)
+    elif command == AgentMemoryCommandName.PROPOSE_LINKS.value:
+        _validate_propose_links_payload(payload)
 
 
 def validate_w14_command_envelope_object(
@@ -379,6 +438,44 @@ def validate_w14_command_envelope_object(
     if not isinstance(vio, list):
         raise W14CommandParseError("violations must be an array")
     return {str(x): y for x, y in obj.items()}
+
+
+def assert_planner_round_envelope_command(command: str) -> None:
+    """
+    Планерский раунд W14: plan_traversal, finish_decision, propose_links.
+
+    ``summarize_c`` / ``summarize_b`` как top-level ``command`` — forbidden
+    (внутренние фазы runtime, см. llm-commands.md). ``repair_invalid_response``
+    как machine ``command`` — forbidden (фаза журнала ``planner_repair``).
+    """
+    raw = str(command or "").strip()
+    if not raw:
+        raise W14CommandParseError(
+            "forbidden_planner_envelope_command:empty",
+        )
+    low = raw.lower()
+    if low == "repair_invalid_response":
+        raise W14CommandParseError(
+            "forbidden_planner_envelope_command:repair_invalid_response",
+        )
+    if low in (
+        AgentMemoryCommandName.SUMMARIZE_C.value,
+        AgentMemoryCommandName.SUMMARIZE_B.value,
+    ):
+        raise W14CommandParseError(
+            f"forbidden_planner_envelope_command:{raw}",
+        )
+    if raw in PLANNER_ENVELOPE_COMMANDS:
+        return
+    try:
+        AgentMemoryCommandRegistry.resolve(raw)
+    except UnknownAgentMemoryCommandError as err:
+        raise W14CommandParseError(
+            f"forbidden_planner_envelope_command:{raw!r}",
+        ) from err
+    raise W14CommandParseError(
+        f"forbidden_planner_envelope_command:{raw!r}",
+    )
 
 
 def _candidate_matches_uc02_plan_traversal_in_progress_narrow_safe_context(
@@ -534,6 +631,7 @@ def parse_memory_query_pipeline_llm_text_result(
     text: str,
     *,
     runtime_command_id: str | None = None,
+    enforce_planner_envelope: bool = True,
 ) -> W14CommandParseResult:
     """
     Парсинг ответа memory planner/LLM для `AgentMemoryQueryPipeline`.
@@ -568,10 +666,14 @@ def parse_memory_query_pipeline_llm_text_result(
     if not isinstance(o, dict):
         raise ValueError("memory json must be an object")
     if _is_w14_like_command_object(o):
-        return validate_or_canonicalize_w14_command_envelope_object(
+        parsed = validate_or_canonicalize_w14_command_envelope_object(
             o,
             runtime_command_id=runtime_command_id,
         )
+        if enforce_planner_envelope:
+            cmd_top = str(parsed.obj.get("command", "") or "").strip()
+            assert_planner_round_envelope_command(cmd_top)
+        return parsed
     return W14CommandParseResult(obj=o)
 
 
