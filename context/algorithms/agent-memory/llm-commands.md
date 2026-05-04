@@ -5,7 +5,7 @@
 - Реестр имён **envelope** команд: `plan_traversal`, `summarize_c`, `summarize_b`, `finish_decision` (`AgentMemoryCommandName`, `agent_memory_query_pipeline.md` F1).
 - Первый планерский раунд использует system prompt **только** под `plan_traversal` (`agent_memory_query_pipeline.md` F1).
 - Для `plan_traversal` payload действий whitelist: `list_children`, `get_b_summary`, `get_c_content`, `decompose_b_to_c`, `summarize_b`, `finish` (`agent_memory_query_pipeline.md` F2). Runtime **агрегирует пути** из actions с полем `path` без полного switch по `action` (`agent_memory_query_pipeline.md` F2).
-- Repair: при `W14CommandParseError` — не более **одного** LLM repair; фаза журнала `planner_repair`; отдельного envelope имени `repair_invalid_response` **нет** (`agent_memory_query_pipeline.md` F6).
+- Repair: при `W14CommandParseError` — не более **одного** LLM repair; фаза журнала `planner_repair`; отдельного envelope имени `repair_invalid_response` **нет** (`agent_memory_query_pipeline.md` F6). Для **внутренних** ответов `summarize_c` / `summarize_b` — отдельный repair с compact-фазой `summarize_c_repair` / `summarize_b_repair`, разбор с `enforce_planner_envelope=False` и проверкой ожидаемого `command`.
 - `_validate_command_payload` строго покрывает `plan_traversal` и `finish_decision`; для `summarize_*` как **верхнеуровневого** planner envelope валидация payload **ограничена** (`agent_memory_query_pipeline.md` G1).
 
 ## Target behavior

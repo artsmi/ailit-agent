@@ -200,6 +200,21 @@ class MemoryInitSummaryFormatter:
                         parts_af.append(f"{key}={fields[key]}")
                 if parts_af:
                     out.append(f"  {norm} {' '.join(parts_af)}")
+            elif norm == "memory.llm.completed":
+                ph = fields.get("phase", "").strip()
+                rsn = fields.get("reason", "").strip()
+                if ph in ("summarize_c_repair", "summarize_b_repair"):
+                    clip = rsn[:160] if rsn else ""
+                    out.append(
+                        f"  memory.llm.completed phase={ph} reason={clip}",
+                    )
+                elif ph in ("summarize_c", "summarize_b") and (
+                    "parse_ok" in rsn or "parse_failed" in rsn
+                ):
+                    clip = rsn[:200] if rsn else ""
+                    out.append(
+                        f"  memory.llm.completed phase={ph} reason={clip}",
+                    )
         if not out:
             return ["  (no graph / highlight rows)"]
         return out

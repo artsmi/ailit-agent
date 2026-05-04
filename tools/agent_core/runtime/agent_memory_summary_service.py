@@ -28,7 +28,8 @@ from agent_core.runtime.agent_memory_runtime_contract import (
     AGENT_MEMORY_COMMAND_INPUT_SCHEMA,
     AgentMemoryCommandName,
     W14CommandParseError,
-    parse_w14_command_output_text_strict,
+    W14CommandParseResult,
+    parse_w14_internal_command_output_llm_text_result,
 )
 from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
 
@@ -356,6 +357,8 @@ class AgentMemorySummaryService:
         command_id: str,
         query_id: str,
         llm_json: str,
+        on_summarize_apply_ready: Callable[[W14CommandParseResult], None]
+        | None = None,
     ) -> SummarizeCResultV1:
         n = self.store.fetch_node(
             namespace=namespace, node_id=c_input.c_node_id,
@@ -364,7 +367,11 @@ class AgentMemorySummaryService:
             raise KeyError(
                 f"c node not in store: {namespace!r} {c_input.c_node_id!r}",
             )
-        env = parse_w14_command_output_text_strict(llm_json)
+        pr = parse_w14_internal_command_output_llm_text_result(
+            llm_json,
+            runtime_command_id=command_id,
+        )
+        env = pr.obj
         cmd = str(env.get("command", "") or "")
         if cmd != AgentMemoryCommandName.SUMMARIZE_C.value:
             msg = f"expected summarize_c, got {cmd!r}"
@@ -376,6 +383,8 @@ class AgentMemorySummaryService:
             raise W14CommandParseError(f"invalid status: {st!r}")
         if st in ("ok",) and not text_summary:
             raise W14CommandParseError("summary empty for status ok")
+        if on_summarize_apply_ready is not None:
+            on_summarize_apply_ready(pr)
         cfp = self._resolve_c_content_fingerprint(n, c_input)
         old_attrs: dict[str, Any] = (
             dict(n.attrs) if isinstance(n.attrs, dict) else {}
@@ -463,13 +472,19 @@ class AgentMemorySummaryService:
         command_id: str,
         query_id: str,
         llm_json: str,
+        on_summarize_apply_ready: Callable[[W14CommandParseResult], None]
+        | None = None,
     ) -> SummarizeBResultV1:
         n = self.store.fetch_node(
             namespace=namespace, node_id=b_node_id,
         )
         if n is None:
             raise KeyError(f"b node not in store: {namespace!r} {b_node_id!r}")
-        env = parse_w14_command_output_text_strict(llm_json)
+        pr = parse_w14_internal_command_output_llm_text_result(
+            llm_json,
+            runtime_command_id=command_id,
+        )
+        env = pr.obj
         cmd = str(env.get("command", "") or "")
         if cmd != AgentMemoryCommandName.SUMMARIZE_B.value:
             msg = f"expected summarize_b, got {cmd!r}"
@@ -481,6 +496,8 @@ class AgentMemorySummaryService:
         text_summary = str(pl.get("summary", "")).strip()
         if st in ("ok",) and not text_summary:
             raise W14CommandParseError("summary empty for status ok")
+        if on_summarize_apply_ready is not None:
+            on_summarize_apply_ready(pr)
         basis = self.compute_b_child_basis_from_nodes(child_nodes)
         old_attrs2: dict[str, Any] = (
             dict(n.attrs) if isinstance(n.attrs, dict) else {}

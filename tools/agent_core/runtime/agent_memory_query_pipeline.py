@@ -20,8 +20,8 @@ from agent_core.providers.protocol import ChatProvider
 from agent_core.runtime.agent_memory_runtime_contract import (
     AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
     AgentMemoryCommandName,
-    W14CommandParseResult,
     W14CommandParseError,
+    W14CommandParseResult,
     parse_memory_query_pipeline_llm_text_result,
 )
 from agent_core.runtime.agent_memory_link_candidate_validator import (
@@ -735,6 +735,106 @@ class AgentMemoryQueryPipeline:
             )
         except (W14CommandParseError, ValueError):
             return None
+
+    def _repair_summarize_subcommand_w14_output(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        original_text: str,
+        validation_error: str,
+        w14_subcommand_phase: str,
+        repair_compact_phase: str,
+        runtime_command_id: str,
+        expected_command: str,
+    ) -> str | None:
+        """
+        Один LLM repair для summarize_c / summarize_b (не planner envelope).
+
+        Парсинг ответа: ``enforce_planner_envelope=False`` + проверка
+        ``command`` == ``expected_command``.
+        """
+        if not self._should_repair_w14_error(validation_error):
+            return None
+        base_request = self._w14_subcommand_chat_request(
+            phase=w14_subcommand_phase,
+            raw_input="{}",
+        )
+        repair_user = {
+            "validation_error": str(validation_error)[:1_000],
+            "previous_response": str(original_text or "")[:4_000],
+            "required_schema_version": AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
+            "instruction": _w14_repair_user_instruction(validation_error),
+        }
+        repair_req = self._policy.apply_chat_request(
+            ChatRequest(
+                messages=(
+                    ChatMessage(
+                        role=MessageRole.SYSTEM,
+                        content=_w14_repair_system_message(validation_error),
+                    ),
+                    ChatMessage(
+                        role=MessageRole.USER,
+                        content=_json_dumps(repair_user),
+                    ),
+                ),
+                model=base_request.model,
+                temperature=0.0,
+                max_tokens=base_request.max_tokens,
+                stream=False,
+            ),
+            phase="extractor",
+            model_override=self._policy.model or base_request.model,
+        )
+        _rp_t0 = time.perf_counter()
+        try:
+            _memory_pipeline_coop_check()
+            resp = self._prov.complete(repair_req)
+        except Exception as exc:  # noqa: BLE001
+            _rp_ms = int((time.perf_counter() - _rp_t0) * 1000)
+            self._w.log_memory_llm_compact(  # noqa: SLF001
+                req,
+                phase=repair_compact_phase,
+                duration_ms=_rp_ms,
+                reason=f"{repair_compact_phase}_exc:{type(exc).__name__}",
+            )
+            self._w.log_memory_llm_verbose(  # noqa: SLF001
+                req,
+                request_id,
+                repair_compact_phase,
+                repair_req,
+                None,
+                exc,
+            )
+            return None
+        _rp_ms_ok = int((time.perf_counter() - _rp_t0) * 1000)
+        self._w.log_memory_llm_compact(  # noqa: SLF001
+            req,
+            phase=repair_compact_phase,
+            duration_ms=_rp_ms_ok,
+            reason=f"{repair_compact_phase}_ok",
+        )
+        self._w.log_memory_llm_verbose(  # noqa: SLF001
+            req,
+            request_id,
+            repair_compact_phase,
+            repair_req,
+            resp,
+            None,
+        )
+        raw = "".join(resp.text_parts).strip()
+        try:
+            parsed = parse_memory_query_pipeline_llm_text_result(
+                raw,
+                runtime_command_id=runtime_command_id,
+                enforce_planner_envelope=False,
+            )
+        except (W14CommandParseError, ValueError):
+            return None
+        cmd = str(parsed.obj.get("command", "") or "").strip()
+        if cmd != expected_command:
+            return None
+        return json.dumps(parsed.obj, ensure_ascii=False)
 
     @staticmethod
     def _should_repair_w14_error(reason: str) -> bool:
@@ -1524,16 +1624,12 @@ class AgentMemoryQueryPipeline:
                 return out[: limits.max_total_c]
         return out
 
-    def _complete_w14_subcommand(
+    def _w14_subcommand_chat_request(
         self,
         *,
-        req: RuntimeRequestEnvelope,
-        request_id: str,
         phase: str,
         raw_input: str,
-        llm_node: str | None = None,
-        llm_lines: str | None = None,
-    ) -> str:
+    ) -> ChatRequest:
         sys_extra = ""
         if phase in ("summarize_c", "summarize_b"):
             sys_extra = (
@@ -1541,7 +1637,7 @@ class AgentMemoryQueryPipeline:
                 "индекса памяти репозитория. Не привязывайся к вопросу "
                 "пользователя."
             )
-        c_req = self._policy.apply_chat_request(
+        return self._policy.apply_chat_request(
             ChatRequest(
                 messages=(
                     ChatMessage(
@@ -1561,6 +1657,70 @@ class AgentMemoryQueryPipeline:
             ),
             phase="extractor",
             model_override=self._policy.model or "mock-memory",
+        )
+
+    def _emit_summarize_w14_apply_ready(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        pr: W14CommandParseResult,
+        *,
+        llm_phase: str,
+        llm_node: str | None,
+        llm_lines: str | None,
+    ) -> None:
+        """Журнал UC-01 + compact ``*_parse_ok`` после валидации summarize."""
+        if pr.normalized:
+            self._nj(
+                req=req,
+                event_name="memory.command.normalized",
+                summary="w14 summarize subcommand envelope canonicalized",
+                request_id=request_id,
+                payload={
+                    "from_schema_version": pr.from_schema_version,
+                    "to_schema_version": AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
+                    "from_status": pr.legacy_status_from,
+                    "command_id_restored": pr.command_id_restored,
+                    "command": str(pr.obj.get("command", "") or "")[:200],
+                    "command_id": str(
+                        pr.obj.get("command_id", "") or "",
+                    )[:200],
+                },
+            )
+        if pr.command_id_restored:
+            self._nj(
+                req=req,
+                event_name="memory.w14.command_id_restored",
+                summary="w14 command_id restored from runtime trace id",
+                request_id=request_id,
+                payload={
+                    "command_id": str(
+                        pr.obj.get("command_id", "") or "",
+                    )[:200],
+                },
+            )
+        self._w.log_memory_llm_compact(  # noqa: SLF001
+            req,
+            phase=str(llm_phase),
+            duration_ms=0,
+            reason=f"w14_{llm_phase}_parse_ok",
+            node=llm_node,
+            lines=llm_lines,
+        )
+
+    def _complete_w14_subcommand(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        phase: str,
+        raw_input: str,
+        llm_node: str | None = None,
+        llm_lines: str | None = None,
+    ) -> str:
+        c_req = self._w14_subcommand_chat_request(
+            phase=phase,
+            raw_input=raw_input,
         )
         _w14_t0 = time.perf_counter()
         try:
@@ -1595,6 +1755,217 @@ class AgentMemoryQueryPipeline:
             None,
         )
         return "".join(resp.text_parts).strip()
+
+    def _apply_summarize_c_llm_json_with_repair(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        qid_log: str,
+        svc: AgentMemorySummaryService,
+        namespace: str,
+        lim: W14CommandLimits,
+        c_input: SummarizeCNodeInputV1,
+        sc_cid: str,
+        sj: str,
+    ) -> None:
+        node_s = f"{c_input.path}#c_node:{c_input.c_node_id}"
+        lines_s = (
+            f"{c_input.locator.start_line}-"
+            f"{c_input.locator.end_line}"
+        )
+
+        def _ready(pr: W14CommandParseResult) -> None:
+            self._emit_summarize_w14_apply_ready(
+                req,
+                request_id,
+                pr,
+                llm_phase="summarize_c",
+                llm_node=node_s,
+                llm_lines=lines_s,
+            )
+
+        try:
+            svc.apply_summarize_c(
+                namespace=namespace,
+                c_input=c_input,
+                user_subgoal=PAG_NEUTRAL_USER_SUBGOAL,
+                limits=lim,
+                command_id=sc_cid,
+                query_id=qid_log,
+                llm_json=sj,
+                on_summarize_apply_ready=_ready,
+            )
+        except W14CommandParseError as exc:
+            if not self._should_repair_w14_error(str(exc)):
+                self._w.log_memory_llm_compact(  # noqa: SLF001
+                    req,
+                    phase="summarize_c",
+                    duration_ms=0,
+                    reason=(
+                        f"w14_summarize_c_parse_failed:"
+                        f"{type(exc).__name__}"
+                    ),
+                    node=node_s,
+                    lines=lines_s,
+                )
+                self._w.log_memory_summarize_c_apply_failed(
+                    req,
+                    exc=exc,
+                    node=node_s,
+                    lines=lines_s,
+                    command_id=sc_cid,
+                )
+                return
+            fixed = self._repair_summarize_subcommand_w14_output(
+                req=req,
+                request_id=request_id,
+                original_text=sj,
+                validation_error=str(exc),
+                w14_subcommand_phase="summarize_c",
+                repair_compact_phase="summarize_c_repair",
+                runtime_command_id=sc_cid,
+                expected_command=AgentMemoryCommandName.SUMMARIZE_C.value,
+            )
+            if fixed is None:
+                self._w.log_memory_llm_compact(  # noqa: SLF001
+                    req,
+                    phase="summarize_c",
+                    duration_ms=0,
+                    reason="w14_summarize_c_parse_failed:repair_unusable",
+                    node=node_s,
+                    lines=lines_s,
+                )
+                self._w.log_memory_summarize_c_apply_failed(
+                    req,
+                    exc=exc,
+                    node=node_s,
+                    lines=lines_s,
+                    command_id=sc_cid,
+                )
+                return
+            try:
+                svc.apply_summarize_c(
+                    namespace=namespace,
+                    c_input=c_input,
+                    user_subgoal=PAG_NEUTRAL_USER_SUBGOAL,
+                    limits=lim,
+                    command_id=sc_cid,
+                    query_id=qid_log,
+                    llm_json=fixed,
+                    on_summarize_apply_ready=_ready,
+                )
+            except Exception as exc2:  # noqa: BLE001
+                self._w.log_memory_summarize_c_apply_failed(
+                    req,
+                    exc=exc2,
+                    node=node_s,
+                    lines=lines_s,
+                    command_id=sc_cid,
+                )
+        except Exception as exc:  # noqa: BLE001
+            self._w.log_memory_summarize_c_apply_failed(
+                req,
+                exc=exc,
+                node=node_s,
+                lines=lines_s,
+                command_id=sc_cid,
+            )
+
+    def _apply_summarize_b_llm_json_with_repair(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        qid_log: str,
+        svc: AgentMemorySummaryService,
+        namespace: str,
+        lim: W14CommandLimits,
+        b_id: str,
+        rel: str,
+        kind: str,
+        fresh: list[Any],
+        _sb_cid: str,
+        sj: str,
+    ) -> None:
+        node_s = f"{rel}#b_node:{b_id}"
+
+        def _ready(pr: W14CommandParseResult) -> None:
+            self._emit_summarize_w14_apply_ready(
+                req,
+                request_id,
+                pr,
+                llm_phase="summarize_b",
+                llm_node=node_s,
+                llm_lines=None,
+            )
+
+        try:
+            svc.apply_summarize_b(
+                namespace=namespace,
+                b_node_id=b_id,
+                path=rel,
+                kind=kind,
+                child_nodes=fresh,
+                user_subgoal=PAG_NEUTRAL_USER_SUBGOAL,
+                limits=lim,
+                command_id=_sb_cid,
+                query_id=qid_log,
+                llm_json=sj,
+                on_summarize_apply_ready=_ready,
+            )
+        except W14CommandParseError as exc:
+            if not self._should_repair_w14_error(str(exc)):
+                self._w.log_memory_llm_compact(  # noqa: SLF001
+                    req,
+                    phase="summarize_b",
+                    duration_ms=0,
+                    reason=(
+                        f"w14_summarize_b_parse_failed:"
+                        f"{type(exc).__name__}"
+                    ),
+                    node=node_s,
+                    lines=None,
+                )
+                return
+            fixed = self._repair_summarize_subcommand_w14_output(
+                req=req,
+                request_id=request_id,
+                original_text=sj,
+                validation_error=str(exc),
+                w14_subcommand_phase="summarize_b",
+                repair_compact_phase="summarize_b_repair",
+                runtime_command_id=_sb_cid,
+                expected_command=AgentMemoryCommandName.SUMMARIZE_B.value,
+            )
+            if fixed is None:
+                self._w.log_memory_llm_compact(  # noqa: SLF001
+                    req,
+                    phase="summarize_b",
+                    duration_ms=0,
+                    reason="w14_summarize_b_parse_failed:repair_unusable",
+                    node=node_s,
+                    lines=None,
+                )
+                return
+            try:
+                svc.apply_summarize_b(
+                    namespace=namespace,
+                    b_node_id=b_id,
+                    path=rel,
+                    kind=kind,
+                    child_nodes=fresh,
+                    user_subgoal=PAG_NEUTRAL_USER_SUBGOAL,
+                    limits=lim,
+                    command_id=_sb_cid,
+                    query_id=qid_log,
+                    llm_json=fixed,
+                    on_summarize_apply_ready=_ready,
+                )
+            except Exception:
+                return
+        except Exception:
+            return
 
     def _summarize_c_llm_json_only(
         self,
@@ -1700,29 +2071,17 @@ class AgentMemoryQueryPipeline:
 
         for (node, c_input, sc_cid), sj in zip(pending, llm_jsons):
             if sj is not None:
-                try:
-                    svc.apply_summarize_c(
-                        namespace=namespace,
-                        c_input=c_input,
-                        user_subgoal=PAG_NEUTRAL_USER_SUBGOAL,
-                        limits=lim,
-                        command_id=sc_cid,
-                        query_id=qid_log,
-                        llm_json=sj,
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    self._w.log_memory_summarize_c_apply_failed(
-                        req,
-                        exc=exc,
-                        node=(
-                            f"{c_input.path}#c_node:{c_input.c_node_id}"
-                        ),
-                        lines=(
-                            f"{c_input.locator.start_line}-"
-                            f"{c_input.locator.end_line}"
-                        ),
-                        command_id=sc_cid,
-                    )
+                self._apply_summarize_c_llm_json_with_repair(
+                    req=req,
+                    request_id=request_id,
+                    qid_log=qid_log,
+                    svc=svc,
+                    namespace=namespace,
+                    lim=lim,
+                    c_input=c_input,
+                    sc_cid=sc_cid,
+                    sj=sj,
+                )
             refreshed = svc.store.fetch_node(
                 namespace=namespace,
                 node_id=node.node_id,
@@ -1788,32 +2147,43 @@ class AgentMemoryQueryPipeline:
                 out.append(b_node)
                 continue
             _sb_cid = f"{qid_log}:summarize_b:{len(out) + 1}"
-
-            def _b_complete(raw: str) -> str:
-                return self._complete_w14_subcommand(
+            env_b = svc.build_summarize_b_input_envelope(
+                command_id=_sb_cid,
+                query_id=qid_log,
+                b_node_id=b_id,
+                path=rel,
+                kind=b_node.kind,
+                child_nodes=fresh,
+                user_subgoal=PAG_NEUTRAL_USER_SUBGOAL,
+                limits=lim,
+            )
+            raw_b = svc.llm_text_for_json_command(env_b)
+            try:
+                sj_b = self._complete_w14_subcommand(
                     req=req,
                     request_id=request_id,
                     phase="summarize_b",
-                    raw_input=raw,
+                    raw_input=raw_b,
                     llm_node=f"{rel}#b_node:{b_id}",
                     llm_lines=None,
                 )
-
-            try:
-                svc.summarize_b_call_llm(
-                    namespace=namespace,
-                    b_node_id=b_id,
-                    path=rel,
-                    kind=b_node.kind,
-                    child_nodes=fresh,
-                    user_subgoal=PAG_NEUTRAL_USER_SUBGOAL,
-                    limits=lim,
-                    command_id=_sb_cid,
-                    query_id=qid_log,
-                    complete=_b_complete,
-                )
             except Exception:  # noqa: BLE001
                 pass
+            else:
+                self._apply_summarize_b_llm_json_with_repair(
+                    req=req,
+                    request_id=request_id,
+                    qid_log=qid_log,
+                    svc=svc,
+                    namespace=namespace,
+                    lim=lim,
+                    b_id=b_id,
+                    rel=rel,
+                    kind=b_node.kind,
+                    fresh=fresh,
+                    _sb_cid=_sb_cid,
+                    sj=sj_b,
+                )
             refreshed = svc.store.fetch_node(namespace=namespace, node_id=b_id)
             if refreshed is not None:
                 out.append(refreshed)

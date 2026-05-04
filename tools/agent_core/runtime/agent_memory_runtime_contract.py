@@ -700,3 +700,27 @@ def parse_w14_command_output_text_strict(
     if not isinstance(o, dict):
         raise W14CommandParseError("envelope must be an object")
     return validate_w14_command_envelope_object(o)
+
+
+def parse_w14_internal_command_output_llm_text_result(
+    text: str,
+    *,
+    runtime_command_id: str,
+) -> W14CommandParseResult:
+    """
+    summarize_c / summarize_b: ``json.loads`` на всю строку + UC-01
+    канонизация envelope (как у планера), без ``assert_planner_round``.
+    """
+    t = (text or "").strip()
+    if not t:
+        raise W14CommandParseError("empty")
+    try:
+        o = json.loads(t)
+    except json.JSONDecodeError as exc:
+        raise W14CommandParseError("invalid json") from exc
+    if not isinstance(o, dict):
+        raise W14CommandParseError("envelope must be an object")
+    return validate_or_canonicalize_w14_command_envelope_object(
+        o,
+        runtime_command_id=runtime_command_id,
+    )

@@ -11,6 +11,7 @@ from agent_core.memory.sqlite_pag import SqlitePagStore
 from agent_core.runtime.agent_memory_runtime_contract import (
     AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
     AgentMemoryCommandName,
+    parse_w14_internal_command_output_llm_text_result,
 )
 from agent_core.runtime.agent_memory_summary_service import (
     AgentMemorySummaryFingerprinting,
@@ -47,6 +48,69 @@ def _open_store(
     store = SqlitePagStore(path)
     svc = AgentMemorySummaryService(PagGraphWriteService(store))
     return svc, "g14r5-test-ns"
+
+
+def test_summarize_c_accepts_legacy_schema_version_via_canonicalization(
+    tmp_path: Path,
+) -> None:
+    """UC-01: summarize_c LLM с schema_version 1.0 — канонизация + запись."""
+    p = tmp_path / "schema1.sqlite3"
+    svc, namespace = _open_store(p)
+    c_id = "C:b.py:block:y"
+    cfp0 = "cfp-legacy"
+    gw = PagGraphWriteService(svc.store)
+    _ = gw.upsert_node(
+        namespace=namespace,
+        node_id=c_id,
+        level="C",
+        kind="block",
+        path="b.py",
+        title="y",
+        summary="",
+        attrs={"content_fingerprint": cfp0},
+        fingerprint="bfp",
+    )
+    c_in = SummarizeCNodeInputV1(
+        c_node_id=c_id,
+        path="b.py",
+        semantic_kind="block",
+        text="x",
+        locator=SummarizeCLocator(start_line=1, end_line=2, symbol="y"),
+    )
+    sum_text = "кратко"
+    inner = {
+        "summary": sum_text,
+        "semantic_tags": [],
+        "important_lines": [],
+        "claims": [],
+        "refusal_reason": "",
+    }
+    o = {
+        "schema_version": "1.0",
+        "command": AgentMemoryCommandName.SUMMARIZE_C.value,
+        "command_id": "cmd-legacy",
+        "status": "ok",
+        "payload": inner,
+        "decision_summary": "d",
+        "violations": [],
+    }
+    j = json.dumps(o, ensure_ascii=False)
+    pr = parse_w14_internal_command_output_llm_text_result(
+        j,
+        runtime_command_id="cmd-legacy",
+    )
+    assert pr.normalized is True
+    assert pr.obj["schema_version"] == AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA
+    r = svc.apply_summarize_c(
+        namespace=namespace,
+        c_input=c_in,
+        user_subgoal="g",
+        limits=W14CommandLimits(max_summary_chars=500, max_claims=4),
+        command_id="cmd-legacy",
+        query_id="q-sv",
+        llm_json=j,
+    )
+    assert r.summary == sum_text
 
 
 def test_summarize_c_writes_summary_and_summary_fingerprint(
