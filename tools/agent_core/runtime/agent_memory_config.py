@@ -46,6 +46,16 @@ class MemoryRuntimeSubConfig:
     min_child_summary_coverage: float = 0.5
 
 
+_INIT_MAX_CONTINUATION_ROUNDS_CAP: Final[int] = 512
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryInitSubConfig:
+    """Лимиты CLI ``ailit memory init`` (оркестратор continuation)."""
+
+    max_continuation_rounds: int = 32
+
+
 @dataclass(frozen=True, slots=True)
 class DPolicySubConfig:
     """Политика D-нод (YAML)."""
@@ -80,6 +90,7 @@ class MemoryYamlRoot:
 
     llm: MemoryLlmSubConfig
     runtime: MemoryRuntimeSubConfig
+    init: MemoryInitSubConfig
     llm_optimization: MemoryLlmOptimizationPolicy
     d_policy: DPolicySubConfig
     artifacts: ArtifactsSubConfig
@@ -94,6 +105,7 @@ class AgentMemoryFileConfig:
         default_factory=lambda: MemoryYamlRoot(
             llm=MemoryLlmSubConfig(),
             runtime=MemoryRuntimeSubConfig(),
+            init=MemoryInitSubConfig(),
             llm_optimization=MemoryLlmOptimizationPolicy.default(),
             d_policy=DPolicySubConfig(),
             artifacts=ArtifactsSubConfig(),
@@ -162,6 +174,11 @@ class AgentMemoryFileConfig:
                         m.runtime.min_child_summary_coverage
                     ),
                 },
+                "init": {
+                    "max_continuation_rounds": (
+                        m.init.max_continuation_rounds
+                    ),
+                },
                 "d_policy": {
                     "max_d_per_query": m.d_policy.max_d_per_query,
                     "min_linked_nodes": m.d_policy.min_linked_nodes,
@@ -186,6 +203,7 @@ class AgentMemoryFileConfig:
             mem = {}
         llm: Any = mem.get("llm", {})
         runtime: Any = mem.get("runtime", {})
+        init_m: Any = mem.get("init", {})
         dp: Any = mem.get("d_policy", {})
         art: Any = mem.get("artifacts", {})
         llm_d = (
@@ -225,6 +243,15 @@ class AgentMemoryFileConfig:
             }
             if isinstance(runtime, Mapping)
             else {}
+        )
+        init_d = (
+            {
+                "max_continuation_rounds": int(
+                    init_m.get("max_continuation_rounds", 32),
+                ),
+            }
+            if isinstance(init_m, Mapping)
+            else {"max_continuation_rounds": 32}
         )
         kinds: tuple[str, ...] = (
             "query_digest",
@@ -327,6 +354,15 @@ class AgentMemoryFileConfig:
                     min_child_summary_coverage=max(
                         0.0,
                         min(rt_d["min_child_summary_coverage"], 1.0),
+                    ),
+                ),
+                init=MemoryInitSubConfig(
+                    max_continuation_rounds=max(
+                        1,
+                        min(
+                            init_d["max_continuation_rounds"],
+                            _INIT_MAX_CONTINUATION_ROUNDS_CAP,
+                        ),
                     ),
                 ),
                 llm_optimization=llm_opt,

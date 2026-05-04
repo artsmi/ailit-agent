@@ -18,6 +18,9 @@ from agent_core.runtime.agent_memory_chat_log import (
     COMPACT_LOG_FILE_NAME,
     create_unique_cli_session_dir,
 )
+from agent_core.runtime.agent_memory_config import (
+    load_or_create_agent_memory_config,
+)
 from agent_core.runtime.compact_observability_sink import (
     CompactObservabilitySink,
 )
@@ -115,8 +118,8 @@ def _w14_reason_short_from_worker_envelope(
     return _w14_reason_short_from_worker_failure_envelope(out)
 
 
-# D1: max successful ``handle`` invocations in init continuation loop (§3.4).
-MEMORY_INIT_MAX_CONTINUATION_ROUNDS: Final[int] = 32
+# D1: max ``handle`` invocations — ключ ``memory.init.max_continuation_rounds``
+# в ``~/.ailit/agent-memory/config.yaml`` (``MemoryInitSubConfig``).
 
 # D2 / UC-01: canonical English goal (no driver ``path``; ``memory_init`` SoT).
 MEMORY_INIT_CANONICAL_GOAL: Final[str] = (
@@ -425,6 +428,10 @@ class MemoryInitOrchestrator:
                 compact_init_session_id=init_session_id,
             )
             worker = AgentMemoryWorker(cfg)
+            am_file_cfg = load_or_create_agent_memory_config()
+            max_continuation_rounds = (
+                am_file_cfg.memory.init.max_continuation_rounds
+            )
             identity = RuntimeIdentity(
                 runtime_id=f"rt-{init_session_id[:8]}",
                 chat_id=cid,
@@ -436,7 +443,7 @@ class MemoryInitOrchestrator:
             round_idx = 0
             last_ok_worker_envelope: dict[str, Any] | None = None
             while True:
-                if round_idx >= MEMORY_INIT_MAX_CONTINUATION_ROUNDS:
+                if round_idx >= max_continuation_rounds:
                     break
                 rid_suffix = uuid.uuid4().hex[:10]
                 request_id = (
