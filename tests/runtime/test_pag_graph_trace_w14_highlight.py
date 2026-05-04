@@ -85,6 +85,37 @@ def test_emit_memory_w14_graph_highlight_row_shape(
         assert inner2.get("node_ids") == ["A:ns1", "B:foo.py"]
 
 
+def test_emit_memory_w14_graph_highlight_row_no_stdout_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    req = _sample_req()
+    buf = StringIO()
+
+    def _write(s: str) -> int:
+        buf.write(s)
+        return len(s)
+
+    monkeypatch.setattr("sys.stdout.write", _write)
+    monkeypatch.setattr("sys.stdout.flush", lambda: None)
+    inner: dict[str, Any] = {
+        "schema": MEMORY_W14_GRAPH_HIGHLIGHT_SCHEMA,
+        "namespace": "ns1",
+        "query_id": "q1",
+        "w14_command": "plan_traversal",
+        "w14_command_id": "q1:pt",
+        "node_ids": ["A:ns1"],
+        "edge_ids": [],
+        "reason": "step",
+        "ttl_ms": 3000,
+    }
+    emit_memory_w14_graph_highlight_row(
+        req=req,
+        inner_payload=inner,
+        emit_stdout=False,
+    )
+    assert buf.getvalue() == ""
+
+
 def test_w14_graph_highlight_path_not_single_leaf_only(
     tmp_path: Path,
 ) -> None:

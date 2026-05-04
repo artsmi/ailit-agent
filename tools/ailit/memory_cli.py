@@ -17,6 +17,9 @@ from agent_core.runtime.errors import RuntimeProtocolError
 from agent_core.runtime.memory_init_orchestrator import (
     MemoryInitOrchestrator,
 )
+from agent_core.runtime.memory_query_orchestrator import (
+    MemoryQueryOrchestrator,
+)
 from agent_core.session.repo_context import (
     detect_repo_context,
     namespace_for_repo,
@@ -115,6 +118,25 @@ def cmd_memory_init(args: object) -> int:
     )
     try:
         return int(MemoryInitOrchestrator().run(root, ns))
+    except RuntimeProtocolError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
+
+
+def cmd_memory_query(args: object) -> int:
+    """Раунды ``memory.query_context``; итоговый summary на stderr."""
+    text = str(getattr(args, "query_text", "") or "").strip()
+    if not text:
+        sys.stderr.write("memory query: non-empty text required\n")
+        return 2
+    proj = getattr(args, "project", None)
+    root = (
+        Path(str(proj)).expanduser().resolve()
+        if proj and str(proj).strip()
+        else Path.cwd().resolve()
+    )
+    try:
+        return int(MemoryQueryOrchestrator().run(root, text))
     except RuntimeProtocolError as exc:
         sys.stderr.write(f"{exc}\n")
         return 2

@@ -95,6 +95,7 @@ def emit_pag_graph_trace_row(
     inner_payload: Mapping[str, Any],
     request_id: str = "",
     compact_sink: CompactObservabilitySink | None = None,
+    emit_stdout: bool = True,
 ) -> None:
     """Пишет одну строку JSON (request envelope) в stdout для broker trace."""
     identity = RuntimeIdentity(
@@ -124,8 +125,9 @@ def emit_pag_graph_trace_row(
         ensure_ascii=False,
         separators=(",", ":"),
     )
-    sys.stdout.write(line + "\n")
-    sys.stdout.flush()
+    if emit_stdout:
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
     if compact_sink is not None and str(event_name) in (
         "pag.node.upsert",
         "pag.edge.upsert",
@@ -147,6 +149,7 @@ def emit_memory_w14_graph_highlight_row(
     inner_payload: Mapping[str, Any],
     request_id: str = "",
     compact_sink: CompactObservabilitySink | None = None,
+    emit_stdout: bool = True,
 ) -> None:
     """
     D16.1: W14 graph highlight (merged node_ids) — durable trace, agent Memory.
@@ -181,8 +184,9 @@ def emit_memory_w14_graph_highlight_row(
         ensure_ascii=False,
         separators=(",", ":"),
     )
-    sys.stdout.write(line + "\n")
-    sys.stdout.flush()
+    if emit_stdout:
+        sys.stdout.write(line + "\n")
+        sys.stdout.flush()
     if compact_sink is not None:
         pl = dict(inner_payload)
         qid = str(pl.get("query_id", "") or "").strip()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 from collections import defaultdict
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Final, Literal, TextIO
 
@@ -23,6 +24,8 @@ _LABELLED_AGGREGATION_EVENTS: Final[frozenset[str]] = frozenset(
         "memory.link_candidates",
         "memory.links_updated",
         "memory.summarize_c.apply_failed",
+        "orch_memory_query_started",
+        "orch_memory_query_phase",
     },
 )
 
@@ -234,18 +237,42 @@ def emit_memory_init_user_summary(
     *,
     reason_short: str | None = None,
     out: TextIO | None = None,
+    summary_header: str = "=== memory init summary ===",
+    resume_lines: Sequence[str] | None = None,
 ) -> None:
     """
     Печать финального блока на stderr: абсолютный путь, статус, D4, агрегация,
     краткий UI-trace по graph/highlight (только плоские поля compact).
     """
+    emit_memory_cli_user_summary(
+        compact_path,
+        exit_kind,
+        d4,
+        reason_short=reason_short,
+        out=out,
+        summary_header=summary_header,
+        resume_lines=resume_lines,
+    )
+
+
+def emit_memory_cli_user_summary(
+    compact_path: Path,
+    exit_kind: Literal["complete", "partial", "blocked"],
+    d4: tuple[int, int, int],
+    *,
+    reason_short: str | None = None,
+    out: TextIO | None = None,
+    summary_header: str,
+    resume_lines: Sequence[str] | None = None,
+) -> None:
+    """Общий финальный блок для ``memory init`` / ``memory query`` (stderr)."""
     sink: TextIO = out if out is not None else sys.stderr
     abs_compact = compact_path.resolve()
     agg = CompactLineAggregator()
     agg.feed_file(abs_compact)
 
     lines: list[str] = [
-        "=== memory init summary ===",
+        summary_header,
         f"compact_log={abs_compact}",
         f"status={exit_kind}",
     ]
@@ -261,6 +288,9 @@ def emit_memory_init_user_summary(
     )
     lines.append("ui_trace:")
     lines.extend(MemoryInitSummaryFormatter.ui_trace_lines(abs_compact))
+    if resume_lines:
+        lines.append("RESUME:")
+        lines.extend(list(resume_lines))
     for ln in lines:
         sink.write(ln + "\n")
     sink.flush()

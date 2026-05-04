@@ -144,6 +144,8 @@ class MemoryAgentConfig:
     cli_session_dir: Path | None = None
     memory_journal_path: Path | None = None
     compact_init_session_id: str | None = None
+    #: Полные JSON envelope в stdout (broker). CLI init/query: False.
+    broker_trace_stdout: bool = True
 
 
 class AgentMemoryWorker:
@@ -294,6 +296,7 @@ class AgentMemoryWorker:
                     },
                 )
             sk = w._get_compact_sink()
+            emit_out = w._cfg.broker_trace_stdout
             if op == "node":
                 emit_pag_graph_trace_row(
                     req=req,
@@ -306,6 +309,7 @@ class AgentMemoryWorker:
                     },
                     request_id=request_id,
                     compact_sink=sk,
+                    emit_stdout=emit_out,
                 )
             elif op == "edge":
                 emit_pag_graph_trace_row(
@@ -319,6 +323,7 @@ class AgentMemoryWorker:
                     },
                     request_id=request_id,
                     compact_sink=sk,
+                    emit_stdout=emit_out,
                 )
             elif op == "edge_batch":
                 if isinstance(data, dict):
@@ -338,6 +343,7 @@ class AgentMemoryWorker:
                     },
                     request_id=request_id,
                     compact_sink=sk,
+                    emit_stdout=emit_out,
                 )
 
         return _cb
@@ -395,6 +401,7 @@ class AgentMemoryWorker:
             inner_payload=pl,
             request_id=str(request_id)[:200],
             compact_sink=self._get_compact_sink(),
+            emit_stdout=self._cfg.broker_trace_stdout,
         )
 
     def _log_handle_error(

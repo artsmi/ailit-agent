@@ -430,6 +430,7 @@ def main(argv: list[str] | None = None) -> int:
         cmd_memory_index,
         cmd_memory_init,
         cmd_memory_pag_slice,
+        cmd_memory_query,
     )
     from ailit.models_cli import register_models_parser
     from ailit.desktop_cli import register_desktop_parser
@@ -893,6 +894,26 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     p_init.set_defaults(func=cmd_memory_init)
+
+    p_mq = mem_sub.add_parser(
+        "query",
+        help=(
+            "Запрос к AgentMemory (W14): компактные логи во время работы, "
+            "затем UI trace и RESUME с нодами из PAG"
+        ),
+    )
+    p_mq.add_argument(
+        "--project",
+        type=str,
+        default=None,
+        help="Корень проекта (по умолчанию текущий каталог)",
+    )
+    p_mq.add_argument(
+        "query_text",
+        type=str,
+        help="Текст запроса (позиционный аргумент в конце команды)",
+    )
+    p_mq.set_defaults(func=cmd_memory_query)
 
     p_ps = mem_sub.add_parser(
         "pag-slice",

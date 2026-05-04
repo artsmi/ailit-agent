@@ -426,6 +426,7 @@ class MemoryInitOrchestrator:
                 cli_session_dir=cli_dir,
                 memory_journal_path=shadow,
                 compact_init_session_id=init_session_id,
+                broker_trace_stdout=False,
             )
             worker = AgentMemoryWorker(cfg)
             am_file_cfg = load_or_create_agent_memory_config()
