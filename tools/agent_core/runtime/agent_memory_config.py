@@ -44,6 +44,7 @@ class MemoryRuntimeSubConfig:
     max_reason_chars: int = 50
     max_decision_chars: int = 150
     min_child_summary_coverage: float = 0.5
+    summarize_c_llm_max_parallel: int = 4
 
 
 _INIT_MAX_CONTINUATION_ROUNDS_CAP: Final[int] = 512
@@ -173,6 +174,9 @@ class AgentMemoryFileConfig:
                     "min_child_summary_coverage": (
                         m.runtime.min_child_summary_coverage
                     ),
+                    "summarize_c_llm_max_parallel": (
+                        m.runtime.summarize_c_llm_max_parallel
+                    ),
                 },
                 "init": {
                     "max_continuation_rounds": (
@@ -239,6 +243,9 @@ class AgentMemoryFileConfig:
                 ),
                 "min_child_summary_coverage": float(
                     runtime.get("min_child_summary_coverage", 0.5),
+                ),
+                "summarize_c_llm_max_parallel": int(
+                    runtime.get("summarize_c_llm_max_parallel", 4),
                 ),
             }
             if isinstance(runtime, Mapping)
@@ -354,6 +361,10 @@ class AgentMemoryFileConfig:
                     min_child_summary_coverage=max(
                         0.0,
                         min(rt_d["min_child_summary_coverage"], 1.0),
+                    ),
+                    summarize_c_llm_max_parallel=max(
+                        1,
+                        min(int(rt_d["summarize_c_llm_max_parallel"]), 32),
                     ),
                 ),
                 init=MemoryInitSubConfig(

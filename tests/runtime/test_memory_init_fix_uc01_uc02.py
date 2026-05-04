@@ -229,6 +229,7 @@ def test_uc01_pipeline_full_walk_sees_two_files_in_temp_project(
         max_reason_chars=500,
         max_decision_chars=500,
         min_child_summary_coverage=0.0,
+        summarize_c_llm_max_parallel=4,
     )
     selected = pl._select_b_paths_for_w14(
         root=proj.resolve(),

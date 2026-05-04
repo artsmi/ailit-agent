@@ -9,6 +9,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TYPE_CHECKING, Mapping, Sequence
@@ -215,6 +216,7 @@ class W14RuntimeLimits:
     max_reason_chars: int
     max_decision_chars: int
     min_child_summary_coverage: float
+    summarize_c_llm_max_parallel: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -1141,6 +1143,9 @@ class AgentMemoryQueryPipeline:
             max_reason_chars=int(cfg.max_reason_chars),
             max_decision_chars=int(cfg.max_decision_chars),
             min_child_summary_coverage=float(cfg.min_child_summary_coverage),
+            summarize_c_llm_max_parallel=int(
+                cfg.summarize_c_llm_max_parallel,
+            ),
         )
 
     def _run_w14_action_runtime(
@@ -1591,6 +1596,44 @@ class AgentMemoryQueryPipeline:
         )
         return "".join(resp.text_parts).strip()
 
+    def _summarize_c_llm_json_only(
+        self,
+        *,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        qid_log: str,
+        svc: AgentMemorySummaryService,
+        lim: W14CommandLimits,
+        c_input: SummarizeCNodeInputV1,
+        command_id: str,
+    ) -> str | None:
+        """HTTP LLM + compact; запись в PAG — снаружи, в одном потоке."""
+        _memory_pipeline_coop_check()
+        env = svc.build_summarize_c_input_envelope(
+            command_id=command_id,
+            query_id=qid_log,
+            c=c_input,
+            user_subgoal=PAG_NEUTRAL_USER_SUBGOAL,
+            limits=lim,
+        )
+        raw = svc.llm_text_for_json_command(env)
+        try:
+            return self._complete_w14_subcommand(
+                req=req,
+                request_id=request_id,
+                phase="summarize_c",
+                raw_input=raw,
+                llm_node=(
+                    f"{c_input.path}#c_node:{c_input.c_node_id}"
+                ),
+                llm_lines=(
+                    f"{c_input.locator.start_line}-"
+                    f"{c_input.locator.end_line}"
+                ),
+            )
+        except Exception:  # noqa: BLE001
+            return None
+
     def _summarize_c_nodes(
         self,
         *,
@@ -1608,6 +1651,7 @@ class AgentMemoryQueryPipeline:
             max_summary_chars=limits.max_summary_chars,
             max_claims=4,
         )
+        pending: list[tuple[Any, SummarizeCNodeInputV1, str]] = []
         for node in c_nodes:
             attrs = node.attrs if isinstance(node.attrs, dict) else {}
             if str(attrs.get("summary_fingerprint", "") or "").strip():
@@ -1628,35 +1672,46 @@ class AgentMemoryQueryPipeline:
                     symbol=str(attrs.get("symbol_key") or node.title),
                 ),
             )
-            _sc_cid = f"{qid_log}:summarize_c:{len(out) + 1}"
+            sc_cid = f"{qid_log}:summarize_c:{len(out) + 1}"
+            pending.append((node, c_input, sc_cid))
 
-            def _c_complete(raw: str) -> str:
-                return self._complete_w14_subcommand(
-                    req=req,
-                    request_id=request_id,
-                    phase="summarize_c",
-                    raw_input=raw,
-                    llm_node=(
-                        f"{c_input.path}#c_node:{c_input.c_node_id}"
-                    ),
-                    llm_lines=(
-                        f"{c_input.locator.start_line}-"
-                        f"{c_input.locator.end_line}"
-                    ),
-                )
+        parallel = max(1, int(limits.summarize_c_llm_max_parallel))
 
-            try:
-                svc.summarize_c_call_llm(
-                    namespace=namespace,
-                    c_input=c_input,
-                    user_subgoal=PAG_NEUTRAL_USER_SUBGOAL,
-                    limits=lim,
-                    command_id=_sc_cid,
-                    query_id=qid_log,
-                    complete=_c_complete,
-                )
-            except Exception:  # noqa: BLE001
-                pass
+        def _llm_worker(
+            item: tuple[Any, SummarizeCNodeInputV1, str],
+        ) -> str | None:
+            _n, c_in, sc_cid = item
+            return self._summarize_c_llm_json_only(
+                req=req,
+                request_id=request_id,
+                qid_log=qid_log,
+                svc=svc,
+                lim=lim,
+                c_input=c_in,
+                command_id=sc_cid,
+            )
+
+        if len(pending) >= 2 and parallel > 1:
+            workers = min(parallel, len(pending))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                llm_jsons = list(pool.map(_llm_worker, pending))
+        else:
+            llm_jsons = [_llm_worker(p) for p in pending]
+
+        for (node, c_input, sc_cid), sj in zip(pending, llm_jsons):
+            if sj is not None:
+                try:
+                    svc.apply_summarize_c(
+                        namespace=namespace,
+                        c_input=c_input,
+                        user_subgoal=PAG_NEUTRAL_USER_SUBGOAL,
+                        limits=lim,
+                        command_id=sc_cid,
+                        query_id=qid_log,
+                        llm_json=sj,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
             refreshed = svc.store.fetch_node(
                 namespace=namespace,
                 node_id=node.node_id,
