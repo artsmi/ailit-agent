@@ -208,6 +208,35 @@ def build_memory_links_updated_compact_line(
     return line + "\n"
 
 
+def build_memory_summarize_c_apply_failed_compact_line(
+    *,
+    timestamp: str,
+    reason: str,
+    node: str | None = None,
+    lines: str | None = None,
+    command_id: str | None = None,
+) -> str:
+    """Ошибка записи summarize_c в PAG после успешного LLM (отладка)."""
+    parts: list[str] = [
+        _fmt_kv("timestamp", timestamp),
+        _fmt_kv("event", "memory.summarize_c.apply_failed"),
+        _fmt_kv("reason", _clip_compact_token(str(reason), 360)),
+    ]
+    ns = str(node or "").strip()
+    if ns:
+        parts.append(_fmt_kv("node", _clip_compact_token(ns, 420)))
+    ls = str(lines or "").strip()
+    if ls:
+        parts.append(_fmt_kv("lines", _clip_compact_token(ls, 80)))
+    cid = str(command_id or "").strip()
+    if cid:
+        parts.append(_fmt_kv("command_id", _clip_compact_token(cid, 200)))
+    line = " ".join(p for p in parts if p)
+    if "\n" in line:
+        line = line.replace("\n", " ")
+    return line + "\n"
+
+
 class CompactObservabilitySink:
     """Append-only ``compact.log`` и полная строка на stderr (D2)."""
 
@@ -348,6 +377,25 @@ class CompactObservabilitySink:
             query_id=str(query_id or "").strip(),
             n_applied=int(max(0, n_applied)),
             n_rejected=int(max(0, n_rejected)),
+        )
+        self._write_line(line)
+
+    def emit_memory_summarize_c_apply_failed(
+        self,
+        *,
+        reason: str,
+        node: str | None = None,
+        lines: str | None = None,
+        command_id: str | None = None,
+    ) -> None:
+        """``memory.summarize_c.apply_failed`` — apply после LLM не удался."""
+        ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+        line = build_memory_summarize_c_apply_failed_compact_line(
+            timestamp=ts,
+            reason=str(reason or "").strip() or "unknown",
+            node=node,
+            lines=lines,
+            command_id=command_id,
         )
         self._write_line(line)
 

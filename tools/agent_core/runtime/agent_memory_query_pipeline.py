@@ -1710,8 +1710,19 @@ class AgentMemoryQueryPipeline:
                         query_id=qid_log,
                         llm_json=sj,
                     )
-                except Exception:  # noqa: BLE001
-                    pass
+                except Exception as exc:  # noqa: BLE001
+                    self._w.log_memory_summarize_c_apply_failed(
+                        req,
+                        exc=exc,
+                        node=(
+                            f"{c_input.path}#c_node:{c_input.c_node_id}"
+                        ),
+                        lines=(
+                            f"{c_input.locator.start_line}-"
+                            f"{c_input.locator.end_line}"
+                        ),
+                        command_id=sc_cid,
+                    )
             refreshed = svc.store.fetch_node(
                 namespace=namespace,
                 node_id=node.node_id,

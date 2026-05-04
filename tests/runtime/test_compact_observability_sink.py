@@ -11,6 +11,7 @@ from agent_core.runtime.compact_observability_sink import (
     CompactObservabilitySink,
     build_compact_line,
     build_memory_pag_graph_compact_line,
+    build_memory_summarize_c_apply_failed_compact_line,
     normalize_compact_event_name,
 )
 from agent_core.runtime.models import (
@@ -39,6 +40,22 @@ def _minimal_req(*, chat_id: str = "c1", message_id: str = "m1") -> object:
         payload={"service": "memory.query_context"},
         now=RuntimeNow(),
     )
+
+
+def test_memory_summarize_c_apply_failed_compact_line() -> None:
+    line = build_memory_summarize_c_apply_failed_compact_line(
+        timestamp="2026-05-04T12:00:00+00:00",
+        reason="W14CommandParseError:bad",
+        node="README.md#C:x",
+        lines="1-5",
+        command_id="q:summarize_c:1",
+    )
+    assert "event=memory.summarize_c.apply_failed" in line
+    assert "reason=" in line
+    assert "node=README.md#C:x" in line
+    assert "lines=1-5" in line
+    assert "command_id=" in line
+    assert line.endswith("\n")
 
 
 def test_memory_pag_graph_compact_line_order() -> None:

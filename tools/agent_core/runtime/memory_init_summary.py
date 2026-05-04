@@ -22,6 +22,7 @@ _LABELLED_AGGREGATION_EVENTS: Final[frozenset[str]] = frozenset(
         "memory.w14_graph_highlight",
         "memory.link_candidates",
         "memory.links_updated",
+        "memory.summarize_c.apply_failed",
     },
 )
 
@@ -192,6 +193,13 @@ class MemoryInitSummaryFormatter:
                         parts_lu.append(f"{key}={fields[key]}")
                 if parts_lu:
                     out.append(f"  {norm} {' '.join(parts_lu)}")
+            elif norm == "memory.summarize_c.apply_failed":
+                parts_af = []
+                for key in ("reason", "node", "lines", "command_id"):
+                    if key in fields:
+                        parts_af.append(f"{key}={fields[key]}")
+                if parts_af:
+                    out.append(f"  {norm} {' '.join(parts_af)}")
         if not out:
             return ["  (no graph / highlight rows)"]
         return out

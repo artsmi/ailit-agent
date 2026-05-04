@@ -503,6 +503,34 @@ class AgentMemoryWorker:
             lines=lines_s or None,
         )
 
+    def log_memory_summarize_c_apply_failed(
+        self,
+        _req: RuntimeRequestEnvelope,
+        *,
+        exc: BaseException,
+        node: str | None = None,
+        lines: str | None = None,
+        command_id: str | None = None,
+    ) -> None:
+        """Compact: apply_summarize_c упал после w14_summarize_c_ok."""
+        sk: CompactObservabilitySink | None = self._get_compact_sink()
+        if sk is None:
+            return
+        rsn = f"{type(exc).__name__}:{exc}"
+        node_s = str(node or "").strip()
+        if len(node_s) > 400:
+            node_s = node_s[:397] + "..."
+        lines_s = str(lines or "").strip()
+        if len(lines_s) > 80:
+            lines_s = lines_s[:77] + "..."
+        cid = str(command_id or "").strip()
+        sk.emit_memory_summarize_c_apply_failed(
+            reason=rsn[:400],
+            node=node_s or None,
+            lines=lines_s or None,
+            command_id=cid or None,
+        )
+
     def log_memory_why_llm(
         self,
         req: RuntimeRequestEnvelope,
