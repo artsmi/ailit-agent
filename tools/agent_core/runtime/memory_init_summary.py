@@ -195,7 +195,14 @@ class MemoryInitSummaryFormatter:
                     out.append(f"  {norm} {' '.join(parts_lu)}")
             elif norm == "memory.summarize_c.apply_failed":
                 parts_af = []
-                for key in ("reason", "node", "lines", "command_id"):
+                for key in (
+                    "reason",
+                    "stage",
+                    "top_keys",
+                    "node",
+                    "lines",
+                    "command_id",
+                ):
                     if key in fields:
                         parts_af.append(f"{key}={fields[key]}")
                 if parts_af:

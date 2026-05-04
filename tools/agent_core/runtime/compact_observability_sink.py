@@ -215,6 +215,8 @@ def build_memory_summarize_c_apply_failed_compact_line(
     node: str | None = None,
     lines: str | None = None,
     command_id: str | None = None,
+    stage: str | None = None,
+    top_keys: str | None = None,
 ) -> str:
     """Ошибка записи summarize_c в PAG после успешного LLM (отладка)."""
     parts: list[str] = [
@@ -222,6 +224,12 @@ def build_memory_summarize_c_apply_failed_compact_line(
         _fmt_kv("event", "memory.summarize_c.apply_failed"),
         _fmt_kv("reason", _clip_compact_token(str(reason), 360)),
     ]
+    stg = str(stage or "").strip()
+    if stg:
+        parts.append(_fmt_kv("stage", _clip_compact_token(stg, 48)))
+    tk = str(top_keys or "").strip()
+    if tk:
+        parts.append(_fmt_kv("top_keys", _clip_compact_token(tk, 180)))
     ns = str(node or "").strip()
     if ns:
         parts.append(_fmt_kv("node", _clip_compact_token(ns, 420)))
@@ -387,6 +395,8 @@ class CompactObservabilitySink:
         node: str | None = None,
         lines: str | None = None,
         command_id: str | None = None,
+        stage: str | None = None,
+        top_keys: str | None = None,
     ) -> None:
         """``memory.summarize_c.apply_failed`` — apply после LLM не удался."""
         ts = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -396,6 +406,8 @@ class CompactObservabilitySink:
             node=node,
             lines=lines,
             command_id=command_id,
+            stage=stage,
+            top_keys=top_keys,
         )
         self._write_line(line)
 

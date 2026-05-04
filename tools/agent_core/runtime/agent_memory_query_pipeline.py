@@ -736,6 +736,27 @@ class AgentMemoryQueryPipeline:
         except (W14CommandParseError, ValueError):
             return None
 
+    @staticmethod
+    def _json_top_level_keys_preview(
+        text: str,
+        *,
+        max_len: int = 180,
+    ) -> str | None:
+        """Ключи корня JSON для compact (ошибки envelope / не-объект)."""
+        raw = (text or "").strip()
+        if not raw:
+            return None
+        try:
+            o = json.loads(raw)
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return None
+        if not isinstance(o, dict):
+            return None
+        keys = ",".join(sorted(str(k) for k in o.keys()))
+        if len(keys) <= max_len:
+            return keys
+        return keys[: max_len - 3] + "..."
+
     def _repair_summarize_subcommand_w14_output(
         self,
         *,
@@ -747,15 +768,19 @@ class AgentMemoryQueryPipeline:
         repair_compact_phase: str,
         runtime_command_id: str,
         expected_command: str,
-    ) -> str | None:
+    ) -> tuple[str | None, str]:
         """
         Один LLM repair для summarize_c / summarize_b (не planner envelope).
 
         Парсинг ответа: ``enforce_planner_envelope=False`` + проверка
         ``command`` == ``expected_command``.
+
+        Returns:
+            (fixed_json_or_none, reject_tag) — ``reject_tag`` пустая строка при
+            успехе; иначе код для compact (``repair_parse_error``, …).
         """
         if not self._should_repair_w14_error(validation_error):
-            return None
+            return None, "skipped_gate"
         base_request = self._w14_subcommand_chat_request(
             phase=w14_subcommand_phase,
             raw_input="{}",
@@ -806,7 +831,7 @@ class AgentMemoryQueryPipeline:
                 None,
                 exc,
             )
-            return None
+            return None, "repair_llm_exc"
         _rp_ms_ok = int((time.perf_counter() - _rp_t0) * 1000)
         self._w.log_memory_llm_compact(  # noqa: SLF001
             req,
@@ -823,18 +848,22 @@ class AgentMemoryQueryPipeline:
             None,
         )
         raw = "".join(resp.text_parts).strip()
+        if not raw:
+            return None, "repair_raw_empty"
         try:
             parsed = parse_memory_query_pipeline_llm_text_result(
                 raw,
                 runtime_command_id=runtime_command_id,
                 enforce_planner_envelope=False,
             )
-        except (W14CommandParseError, ValueError):
-            return None
+        except (W14CommandParseError, ValueError) as exc:
+            tag = f"repair_parse:{type(exc).__name__}"
+            return None, tag[:120]
         cmd = str(parsed.obj.get("command", "") or "").strip()
         if cmd != expected_command:
-            return None
-        return json.dumps(parsed.obj, ensure_ascii=False)
+            clip = cmd[:40] if cmd else "(empty)"
+            return None, f"repair_command_mismatch:{clip}"
+        return json.dumps(parsed.obj, ensure_ascii=False), ""
 
     @staticmethod
     def _should_repair_w14_error(reason: str) -> bool:
@@ -1785,6 +1814,7 @@ class AgentMemoryQueryPipeline:
                 llm_lines=lines_s,
             )
 
+        top0 = self._json_top_level_keys_preview(sj)
         try:
             svc.apply_summarize_c(
                 namespace=namespace,
@@ -1815,9 +1845,11 @@ class AgentMemoryQueryPipeline:
                     node=node_s,
                     lines=lines_s,
                     command_id=sc_cid,
+                    stage="first_apply",
+                    top_keys=top0,
                 )
                 return
-            fixed = self._repair_summarize_subcommand_w14_output(
+            fixed, reject = self._repair_summarize_subcommand_w14_output(
                 req=req,
                 request_id=request_id,
                 original_text=sj,
@@ -1832,7 +1864,10 @@ class AgentMemoryQueryPipeline:
                     req,
                     phase="summarize_c",
                     duration_ms=0,
-                    reason="w14_summarize_c_parse_failed:repair_unusable",
+                    reason=(
+                        f"w14_summarize_c_parse_failed:"
+                        f"repair_unusable:{reject}"
+                    ),
                     node=node_s,
                     lines=lines_s,
                 )
@@ -1842,6 +1877,8 @@ class AgentMemoryQueryPipeline:
                     node=node_s,
                     lines=lines_s,
                     command_id=sc_cid,
+                    stage="first_apply",
+                    top_keys=top0,
                 )
                 return
             try:
@@ -1862,6 +1899,8 @@ class AgentMemoryQueryPipeline:
                     node=node_s,
                     lines=lines_s,
                     command_id=sc_cid,
+                    stage="post_repair_apply",
+                    top_keys=self._json_top_level_keys_preview(fixed),
                 )
         except Exception as exc:  # noqa: BLE001
             self._w.log_memory_summarize_c_apply_failed(
@@ -1870,6 +1909,8 @@ class AgentMemoryQueryPipeline:
                 node=node_s,
                 lines=lines_s,
                 command_id=sc_cid,
+                stage="first_apply",
+                top_keys=top0,
             )
 
     def _apply_summarize_b_llm_json_with_repair(
@@ -1928,7 +1969,7 @@ class AgentMemoryQueryPipeline:
                     lines=None,
                 )
                 return
-            fixed = self._repair_summarize_subcommand_w14_output(
+            fixed, reject = self._repair_summarize_subcommand_w14_output(
                 req=req,
                 request_id=request_id,
                 original_text=sj,
@@ -1943,7 +1984,10 @@ class AgentMemoryQueryPipeline:
                     req,
                     phase="summarize_b",
                     duration_ms=0,
-                    reason="w14_summarize_b_parse_failed:repair_unusable",
+                    reason=(
+                        f"w14_summarize_b_parse_failed:"
+                        f"repair_unusable:{reject}"
+                    ),
                     node=node_s,
                     lines=None,
                 )
@@ -1962,9 +2006,31 @@ class AgentMemoryQueryPipeline:
                     llm_json=fixed,
                     on_summarize_apply_ready=_ready,
                 )
-            except Exception:
+            except Exception as exc2:  # noqa: BLE001
+                self._w.log_memory_llm_compact(  # noqa: SLF001
+                    req,
+                    phase="summarize_b",
+                    duration_ms=0,
+                    reason=(
+                        f"w14_summarize_b_apply_failed_post_repair:"
+                        f"{type(exc2).__name__}:{exc2!s}"[:300],
+                    ),
+                    node=node_s,
+                    lines=None,
+                )
                 return
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            self._w.log_memory_llm_compact(  # noqa: SLF001
+                req,
+                phase="summarize_b",
+                duration_ms=0,
+                reason=(
+                    f"w14_summarize_b_apply_failed:"
+                    f"{type(exc).__name__}:{exc!s}"[:300],
+                ),
+                node=node_s,
+                lines=None,
+            )
             return
 
     def _summarize_c_llm_json_only(
@@ -2043,7 +2109,7 @@ class AgentMemoryQueryPipeline:
                     symbol=str(attrs.get("symbol_key") or node.title),
                 ),
             )
-            sc_cid = f"{qid_log}:summarize_c:{len(out) + 1}"
+            sc_cid = f"{qid_log}:summarize_c:{len(pending) + 1}"
             pending.append((node, c_input, sc_cid))
 
         parallel = max(1, int(limits.summarize_c_llm_max_parallel))
@@ -2107,6 +2173,7 @@ class AgentMemoryQueryPipeline:
             max_claims=4,
             max_children=limits.max_c_per_b,
         )
+        sb_ix = 0
         for rel in paths:
             b_id = _b_node_id(rel)
             b_node = svc.store.fetch_node(namespace=namespace, node_id=b_id)
@@ -2146,7 +2213,8 @@ class AgentMemoryQueryPipeline:
             ):
                 out.append(b_node)
                 continue
-            _sb_cid = f"{qid_log}:summarize_b:{len(out) + 1}"
+            sb_ix += 1
+            _sb_cid = f"{qid_log}:summarize_b:{sb_ix}"
             env_b = svc.build_summarize_b_input_envelope(
                 command_id=_sb_cid,
                 query_id=qid_log,

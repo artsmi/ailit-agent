@@ -511,6 +511,8 @@ class AgentMemoryWorker:
         node: str | None = None,
         lines: str | None = None,
         command_id: str | None = None,
+        stage: str | None = None,
+        top_keys: str | None = None,
     ) -> None:
         """Compact: apply_summarize_c упал после w14_summarize_c_ok."""
         sk: CompactObservabilitySink | None = self._get_compact_sink()
@@ -524,11 +526,19 @@ class AgentMemoryWorker:
         if len(lines_s) > 80:
             lines_s = lines_s[:77] + "..."
         cid = str(command_id or "").strip()
+        stg = str(stage or "").strip()
+        if len(stg) > 48:
+            stg = stg[:45] + "..."
+        tk = str(top_keys or "").strip()
+        if len(tk) > 180:
+            tk = tk[:177] + "..."
         sk.emit_memory_summarize_c_apply_failed(
             reason=rsn[:400],
             node=node_s or None,
             lines=lines_s or None,
             command_id=cid or None,
+            stage=stg or None,
+            top_keys=tk or None,
         )
 
     def log_memory_why_llm(

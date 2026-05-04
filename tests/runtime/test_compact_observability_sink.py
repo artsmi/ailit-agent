@@ -58,6 +58,21 @@ def test_memory_summarize_c_apply_failed_compact_line() -> None:
     assert line.endswith("\n")
 
 
+def test_memory_summarize_c_apply_failed_compact_line_stage_top_keys() -> None:
+    line = build_memory_summarize_c_apply_failed_compact_line(
+        timestamp="2026-05-04T12:00:00+00:00",
+        reason="W14CommandParseError:x",
+        node="n",
+        lines="1-2",
+        command_id="q:1",
+        stage="post_repair_apply",
+        top_keys="claims,command,schema_version,summary,status",
+    )
+    assert "stage=post_repair_apply" in line
+    assert "top_keys=" in line
+    assert "claims" in line
+
+
 def test_memory_pag_graph_compact_line_order() -> None:
     line = build_memory_pag_graph_compact_line(
         timestamp="2026-05-04T10:00:00+00:00",
