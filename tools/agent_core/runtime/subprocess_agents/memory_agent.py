@@ -475,6 +475,42 @@ class AgentMemoryWorker:
             change_batch_id=change_batch_id,
         )
 
+    def log_memory_llm_compact(
+        self,
+        req: RuntimeRequestEnvelope,
+        request_id: str,
+        *,
+        phase: str,
+        model: str,
+        duration_ms: int,
+        reason: str,
+        ok: bool,
+        service: str = "memory.query_context",
+        change_batch_id: str | None = None,
+    ) -> None:
+        """Строка compact.log на LLM-вызов (без текста prompt/ответа)."""
+        sk: CompactObservabilitySink | None = self._get_compact_sink()
+        if sk is None:
+            return
+        cfields: dict[str, str | int | bool] = {
+            "request_id": str(request_id)[:200],
+            "phase": str(phase)[:120],
+            "model": str(model)[:120],
+            "duration_ms": int(max(0, duration_ms)),
+            "reason": str(reason)[:300],
+            "ok": bool(ok),
+        }
+        if str(service or "").strip():
+            cfields["service"] = str(service).strip()
+        if change_batch_id is not None and str(change_batch_id).strip():
+            cfields["change_batch_id"] = str(change_batch_id)[:200]
+        sk.emit(
+            req=req,
+            chat_id=req.chat_id,
+            event="memory.llm.completed",
+            fields=cfields,
+        )
+
     def log_memory_why_llm(
         self,
         req: RuntimeRequestEnvelope,

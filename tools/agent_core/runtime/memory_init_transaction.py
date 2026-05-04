@@ -1,12 +1,10 @@
-"""Memory init transaction: lock, PAG/KB snapshot, journal shadow, phases.
+"""Memory init transaction: lock, shadow journal, phases.
 
-Phases: PREPARE → EXECUTE (destructive) → VERIFY → COMMIT or ABORT.
+Phases: PREPARE → EXECUTE (mark ready, **no PAG/KB wipe**) → VERIFY →
+COMMIT or ABORT.
 
-**Snapshot predicate (single rule, D5 / task 2.1):**
-``namespace_has_durable_graph_materialization`` is true iff PAG has at least
-one node for ``pag_namespace_key``. The ``kb_db_path`` parameter exists only
-for API symmetry with :func:`resolve_memory_init_paths`. Extra snapshots when
-false are allowed; skipping snapshot when true is not.
+``memory init`` **не** удаляет namespace в PAG/KB: граф только дополняется
+воркером. Снимки БД для отката clear больше не используются.
 
 Lock: exclusive lock file under ``AILIT_RUNTIME_DIR`` (default
 ``~/.ailit/runtime``) with JSON payload ``until_unix`` for stale recovery
@@ -30,7 +28,6 @@ from typing import Final, Literal
 
 from agent_core.memory.kb_tools import kb_tools_config_from_env
 from agent_core.memory.pag_runtime import PagRuntimeConfig
-from agent_core.memory.sqlite_kb import SqliteKb
 from agent_core.memory.sqlite_pag import SqlitePagStore
 from agent_core.runtime.errors import RuntimeProtocolError
 from agent_core.runtime.memory_journal import MemoryJournalStore
@@ -230,7 +227,7 @@ class MemoryInitTransaction:
         return MemoryJournalStore(self._shadow_journal)
 
     def phase_prepare(self) -> None:
-        """PREPARE: lock, optional PAG/KB snapshot, shadow journal."""
+        """PREPARE: lock, shadow journal; без снимка БД (инкремент)."""
         if self._phase != "NEW":
             raise RuntimeProtocolError(
                 code="memory_init_invalid_phase",
@@ -240,34 +237,10 @@ class MemoryInitTransaction:
         self._acquire_lock_file()
         self._held_lock = True
         try:
-            need_snap = namespace_has_durable_graph_materialization(
-                pag_db_path=self._paths.pag_db,
-                kb_db_path=self._paths.kb_db,
-                pag_namespace_key=self._namespace,
-            )
-            self._snapshot_required = need_snap
-            staging_root = (
-                self._paths.runtime_dir
-                / "memory-init-snapshots"
-                / self._init_session_id
-            )
-            if self._snapshot_required:
-                staging_root.mkdir(parents=True, exist_ok=True)
-                self._snapshot_staging = staging_root
-                self._snap_pag = staging_root / "pag.sqlite3"
-                self._snap_kb = staging_root / "kb.sqlite3"
-                if self._paths.pag_db.exists():
-                    shutil.copy2(self._paths.pag_db, self._snap_pag)
-                else:
-                    self._snap_pag = None
-                if self._paths.kb_db.exists():
-                    shutil.copy2(self._paths.kb_db, self._snap_kb)
-                else:
-                    self._snap_kb = None
-            else:
-                self._snapshot_staging = None
-                self._snap_pag = None
-                self._snap_kb = None
+            self._snapshot_required = False
+            self._snapshot_staging = None
+            self._snap_pag = None
+            self._snap_kb = None
             parent = self._paths.journal_canonical.parent
             parent.mkdir(parents=True, exist_ok=True)
             shadow = parent / (
@@ -282,10 +255,9 @@ class MemoryInitTransaction:
         self._phase = "PREPARED"
 
     def phase_execute_destructive_namespace_clear(self) -> None:
-        """EXECUTE: destructive clear of PAG/KB namespace (§4.2).
+        """EXECUTE: фаза EXECUTED без изменения PAG/KB.
 
-        When ``_snapshot_required`` is true, snapshot files must exist from
-        PREPARE before this runs (restore is possible on ABORT).
+        Имя метода — совместимость; очистка namespace не выполняется.
         """
         if self._phase != "PREPARED":
             raise RuntimeProtocolError(
@@ -295,19 +267,7 @@ class MemoryInitTransaction:
                     f"expects PREPARED, got {self._phase!r}"
                 ),
             )
-        if self._snapshot_required:
-            if self._snapshot_staging is None:
-                raise RuntimeProtocolError(
-                    code="memory_init_snapshot_missing",
-                    message="snapshot required but staging path missing",
-                )
-        pag = SqlitePagStore(self._paths.pag_db)
-        kb = SqliteKb(self._paths.kb_db)
-        pag.delete_all_data_for_namespace(
-            namespace=self._namespace,
-        )
-        kb.delete_all_for_namespace(namespace=self._namespace)
-        self._destructive_applied = True
+        self._destructive_applied = False
         self._phase = "EXECUTED"
 
     def phase_verify(self, ok: bool) -> None:
@@ -363,28 +323,6 @@ class MemoryInitTransaction:
                 message="use phase_commit after successful VERIFY",
             )
         try:
-            if self._destructive_applied:
-                has_snap_files = (
-                    self._snap_pag is not None or self._snap_kb is not None
-                )
-                if self._snapshot_required and has_snap_files:
-                    pag_par = self._paths.pag_db.parent
-                    kb_par = self._paths.kb_db.parent
-                    pag_par.mkdir(parents=True, exist_ok=True)
-                    kb_par.mkdir(parents=True, exist_ok=True)
-                    sp = self._snap_pag
-                    if sp is not None and sp.exists():
-                        shutil.copy2(sp, self._paths.pag_db)
-                    sk = self._snap_kb
-                    if sk is not None and sk.exists():
-                        shutil.copy2(sk, self._paths.kb_db)
-                else:
-                    pag = SqlitePagStore(self._paths.pag_db)
-                    kb = SqliteKb(self._paths.kb_db)
-                    pag.delete_all_data_for_namespace(
-                        namespace=self._namespace,
-                    )
-                    kb.delete_all_for_namespace(namespace=self._namespace)
             sj2 = self._shadow_journal
             if sj2 is not None:
                 sj2.unlink(missing_ok=True)

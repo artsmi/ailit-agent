@@ -409,7 +409,7 @@ class MemoryInitOrchestrator:
                 orch_sink,
                 session,
                 "orch_memory_init_phase",
-                {"phase": "execute"},
+                {"phase": "execute_incremental"},
             )
             tx.phase_execute_destructive_namespace_clear()
             self._emit_orch(

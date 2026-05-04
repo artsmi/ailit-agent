@@ -58,7 +58,7 @@ def test_tc_2_1_abort_restore_pag_snapshot(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """TC-2_1-ABORT-RESTORE: abort restores PAG/KB bytes from snapshot."""
+    """TC-2_1-ABORT: abort не трогает PAG/KB (инкрементальный init)."""
     runtime = tmp_path / "rt"
     pag = tmp_path / "pag.sqlite3"
     kb = tmp_path / "kb.sqlite3"
@@ -100,7 +100,7 @@ def test_tc_2_1_abort_restore_pag_snapshot(
     tx.phase_prepare()
     assert _count_pag_ns(pag, ns) == 3
     tx.phase_execute_destructive_namespace_clear()
-    assert _count_pag_ns(pag, ns) == 0
+    assert _count_pag_ns(pag, ns) == 3
     tx.phase_abort()
     assert pag.read_bytes() == before_pag
     assert kb.read_bytes() == before_kb
@@ -111,7 +111,7 @@ def test_tc_2_1_first_init_clean_partial_on_abort(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """TC-2_1-FIRST-INIT-CLEAN: empty store; partial write; ABORT clears."""
+    """TC-2_1-FIRST-INIT: пустой store; partial write; ABORT не чистит PAG."""
     runtime = tmp_path / "rt2"
     pag = tmp_path / "p2.sqlite3"
     kb = tmp_path / "k2.sqlite3"
@@ -155,7 +155,7 @@ def test_tc_2_1_first_init_clean_partial_on_abort(
     )
     assert _count_pag_ns(pag, ns) == 1
     tx.phase_abort()
-    assert _count_pag_ns(pag, ns) == 0
+    assert _count_pag_ns(pag, ns) == 1
 
 
 def test_tc_2_1_journal_no_false_complete_after_abort(

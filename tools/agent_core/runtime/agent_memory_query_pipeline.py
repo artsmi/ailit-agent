@@ -440,10 +440,21 @@ class AgentMemoryQueryPipeline:
             query_id=qid_log,
             counters={"runtime_transitions": 1},
         )
+        _pl_t0 = time.perf_counter()
         try:
             _memory_pipeline_coop_check()
             resp = self._prov.complete(c_req)
         except Exception as exc:  # noqa: BLE001
+            _pl_ms = int((time.perf_counter() - _pl_t0) * 1000)
+            self._w.log_memory_llm_compact(  # noqa: SLF001
+                req,
+                request_id,
+                phase="planner",
+                model=str(c_req.model or "mock-memory"),
+                duration_ms=_pl_ms,
+                reason=f"planner_exc:{type(exc).__name__}",
+                ok=False,
+            )
             self._w.log_memory_llm_verbose(  # noqa: SLF001
                 req,
                 request_id,
@@ -453,6 +464,16 @@ class AgentMemoryQueryPipeline:
                 exc,
             )
             raise
+        _pl_ms_ok = int((time.perf_counter() - _pl_t0) * 1000)
+        self._w.log_memory_llm_compact(  # noqa: SLF001
+            req,
+            request_id,
+            phase="planner",
+            model=str(c_req.model or "mock-memory"),
+            duration_ms=_pl_ms_ok,
+            reason="planner_ok",
+            ok=True,
+        )
         self._w.log_memory_llm_verbose(  # noqa: SLF001
             req,
             request_id,
@@ -674,10 +695,21 @@ class AgentMemoryQueryPipeline:
             phase="planner",
             model_override=self._policy.model or base_request.model,
         )
+        _rp_t0 = time.perf_counter()
         try:
             _memory_pipeline_coop_check()
             resp = self._prov.complete(repair_req)
         except Exception as exc:  # noqa: BLE001
+            _rp_ms = int((time.perf_counter() - _rp_t0) * 1000)
+            self._w.log_memory_llm_compact(  # noqa: SLF001
+                req,
+                request_id,
+                phase="planner_repair",
+                model=str(repair_req.model or "mock-memory"),
+                duration_ms=_rp_ms,
+                reason=f"planner_repair_exc:{type(exc).__name__}",
+                ok=False,
+            )
             self._w.log_memory_llm_verbose(  # noqa: SLF001
                 req,
                 request_id,
@@ -687,6 +719,16 @@ class AgentMemoryQueryPipeline:
                 exc,
             )
             return None
+        _rp_ms_ok = int((time.perf_counter() - _rp_t0) * 1000)
+        self._w.log_memory_llm_compact(  # noqa: SLF001
+            req,
+            request_id,
+            phase="planner_repair",
+            model=str(repair_req.model or "mock-memory"),
+            duration_ms=_rp_ms_ok,
+            reason="planner_repair_ok",
+            ok=True,
+        )
         self._w.log_memory_llm_verbose(  # noqa: SLF001
             req,
             request_id,
@@ -1525,8 +1567,32 @@ class AgentMemoryQueryPipeline:
             phase="extractor",
             model_override=self._policy.model or "mock-memory",
         )
-        _memory_pipeline_coop_check()
-        resp = self._prov.complete(c_req)
+        _w14_t0 = time.perf_counter()
+        try:
+            _memory_pipeline_coop_check()
+            resp = self._prov.complete(c_req)
+        except Exception as exc:  # noqa: BLE001
+            _w14_ms = int((time.perf_counter() - _w14_t0) * 1000)
+            self._w.log_memory_llm_compact(  # noqa: SLF001
+                req,
+                request_id,
+                phase=str(phase),
+                model=str(c_req.model or "mock-memory"),
+                duration_ms=_w14_ms,
+                reason=f"w14_{phase}_exc:{type(exc).__name__}",
+                ok=False,
+            )
+            raise
+        _w14_ms_ok = int((time.perf_counter() - _w14_t0) * 1000)
+        self._w.log_memory_llm_compact(  # noqa: SLF001
+            req,
+            request_id,
+            phase=str(phase),
+            model=str(c_req.model or "mock-memory"),
+            duration_ms=_w14_ms_ok,
+            reason=f"w14_{phase}_ok",
+            ok=True,
+        )
         self._w.log_memory_llm_verbose(  # noqa: SLF001
             req,
             request_id,
