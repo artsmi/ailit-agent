@@ -4,7 +4,8 @@ import { loadPagGraphMerged, type PagGraphSliceFn } from "./loadPagGraphMerged";
 import { MEM3D_PAG_MAX_NODES } from "./pagGraphLimits";
 import {
   lastPagSearchHighlightFromTrace,
-  lastPagSearchHighlightFromTraceAfterMerge
+  lastPagSearchHighlightFromTraceAfterMerge,
+  type PagSearchHighlightV1
 } from "./pagHighlightFromTrace";
 import {
   ensureHighlightNodes,
@@ -31,6 +32,12 @@ import {
   parsePagGraphTraceDelta,
   type PagGraphTraceDelta
 } from "./pagGraphTraceDeltas";
+import {
+  formatMemoryPagGraphDiagnosticLine,
+  formatMemoryW14GraphHighlightDiagnosticLine,
+  formatTraceOnlyPagModeDiagnosticLine,
+  mapPagSearchHighlightReasonToDiagnosticSource
+} from "./desktopSessionDiagnosticLog";
 
 function str(x: unknown): string {
   return typeof x === "string" ? x : x == null ? "" : String(x);
@@ -58,6 +65,10 @@ export type PagGraphSessionSnapshot = {
   readonly pagDatabasePresent: boolean;
   readonly loadState: "idle" | "loading" | "ready" | "error";
   readonly loadError: string | null;
+  /**
+   * Последняя подсветка по workspace namespace после merge (C-HL-1); UI 3D/2D не парсит trace повторно.
+   */
+  readonly searchHighlightsByNamespace: Readonly<Record<string, PagSearchHighlightV1 | null>>;
 };
 
 /** Опциональные хуки compact observability (D-PROD-1); без IPC в unit-тестах store. */
@@ -73,6 +84,10 @@ export type PagGraphTraceMergeEmitHooks = {
     readonly kind: "user_refresh" | "poll_retry" | "initial_load";
     readonly namespaces: readonly string[];
   };
+  /** UC-06 / task_8_1: компактные строки в `desk-diagnostic-*.log` (без IPC в unit-тестах). */
+  readonly appendDiagnosticLines?: (lines: readonly string[]) => void;
+  /** Дедуп D-PAGMODE-1: ключ `sessionId\\u001fnamespace`. */
+  readonly traceOnlyPagModeSentKeys?: Set<string>;
 };
 
 export function createEmptyPagGraphSessionSnapshot(
@@ -86,7 +101,8 @@ export function createEmptyPagGraphSessionSnapshot(
     atLargeGraphWarning: false,
     pagDatabasePresent: true,
     loadState: init.loadState,
-    loadError: null
+    loadError: null,
+    searchHighlightsByNamespace: {}
   };
 }
 
@@ -238,7 +254,8 @@ function buildSnapshotFromReconcile(
   warnings: readonly string[],
   loadState: PagGraphSessionSnapshot["loadState"],
   loadError: string | null,
-  pagDatabasePresent: boolean
+  pagDatabasePresent: boolean,
+  searchHighlightsByNamespace: Readonly<Record<string, PagSearchHighlightV1 | null>>
 ): PagGraphSessionSnapshot {
   const w2: { readonly atLargeGraphWarning: boolean; readonly warnings: readonly string[] } = withLargeWarning(
     merged,
@@ -252,7 +269,8 @@ function buildSnapshotFromReconcile(
     atLargeGraphWarning: w2.atLargeGraphWarning,
     pagDatabasePresent,
     loadState,
-    loadError
+    loadError,
+    searchHighlightsByNamespace: { ...searchHighlightsByNamespace }
   };
 }
 
@@ -322,6 +340,78 @@ function buildRevsInForDeltas(
   return out;
 }
 
+function emitTraceOnlyPagModeDiagnostics(
+  pagDatabasePresent: boolean,
+  namespaces: readonly string[],
+  hooks: PagGraphTraceMergeEmitHooks | undefined
+): void {
+  if (pagDatabasePresent || hooks == null) {
+    return;
+  }
+  const append: ((lines: readonly string[]) => void) | undefined = hooks.appendDiagnosticLines;
+  const sent: Set<string> | undefined = hooks.traceOnlyPagModeSentKeys;
+  if (append === undefined || sent === undefined) {
+    return;
+  }
+  const ts: string = new Date().toISOString();
+  for (const ns of namespaces) {
+    if (ns.length === 0) {
+      continue;
+    }
+    const key: string = `${hooks.sessionId}\u001f${ns}`;
+    if (sent.has(key)) {
+      continue;
+    }
+    sent.add(key);
+    append([
+      formatTraceOnlyPagModeDiagnosticLine({
+        isoTimestamp: ts,
+        namespace: ns,
+        sessionId: hooks.sessionId
+      })
+    ]);
+  }
+}
+
+function emitHighlightChangeDiagnostics(
+  prev: Readonly<Record<string, PagSearchHighlightV1 | null>>,
+  next: Readonly<Record<string, PagSearchHighlightV1 | null>>,
+  append?: (lines: readonly string[]) => void
+): void {
+  if (append === undefined) {
+    return;
+  }
+  const keys: Set<string> = new Set([...Object.keys(prev), ...Object.keys(next)]);
+  const ts: string = new Date().toISOString();
+  for (const ns of keys) {
+    const a: PagSearchHighlightV1 | null = prev[ns] ?? null;
+    const b: PagSearchHighlightV1 | null = next[ns] ?? null;
+    if (b === null) {
+      continue;
+    }
+    const fa: string =
+      a === null
+        ? ""
+        : `${a.reason}\t${a.nodeIds.join(",")}\t${a.edgeIds.join(",")}\t${String(a.ttlMs)}\t${String(a.queryId ?? "")}`;
+    const fb: string = `${b.reason}\t${b.nodeIds.join(",")}\t${b.edgeIds.join(",")}\t${String(b.ttlMs)}\t${String(b.queryId ?? "")}`;
+    if (fa === fb) {
+      continue;
+    }
+    const source: string = mapPagSearchHighlightReasonToDiagnosticSource(b.reason);
+    append([
+      formatMemoryW14GraphHighlightDiagnosticLine({
+        isoTimestamp: ts,
+        namespace: ns,
+        source,
+        nodeCount: b.nodeIds.length,
+        edgeCount: b.edgeIds.length,
+        ttlMs: b.ttlMs,
+        queryId: b.queryId
+      })
+    ]);
+  }
+}
+
 function applyDeltasInRange(
   mergedIn: MemoryGraphData,
   revsFromSlice: RevRec,
@@ -330,7 +420,8 @@ function applyDeltasInRange(
   toInclusive: number,
   namespaces: Readonly<Set<string>>,
   prevWarnings: readonly string[],
-  useInitialTraceCatchup: boolean
+  useInitialTraceCatchup: boolean,
+  appendDiagnosticLines?: (lines: readonly string[]) => void
 ): {
   readonly merged: MemoryGraphData;
   readonly revs: RevRec;
@@ -372,6 +463,36 @@ function applyDeltasInRange(
     }
     if (revWarning !== null) {
       wlist.push(revWarning);
+    }
+    if (appendDiagnosticLines !== undefined) {
+      const tsLine: string = new Date().toISOString();
+      if (d.kind === "pag.node.upsert") {
+        const sid: string = str(d.node["id"]) || "node";
+        appendDiagnosticLines([
+          formatMemoryPagGraphDiagnosticLine({
+            isoTimestamp: tsLine,
+            op: "node",
+            namespace: d.namespace,
+            rev: d.rev,
+            subject: sid
+          })
+        ]);
+      } else {
+        const ids: string[] = d.edges
+          .map((e) => str((e as Record<string, unknown>)["id"]))
+          .filter((x) => x.length > 0);
+        const subj: string =
+          ids.length > 0 ? ids.slice(0, 4).join(",") : `edges=${String(d.edges.length)}`;
+        appendDiagnosticLines([
+          formatMemoryPagGraphDiagnosticLine({
+            isoTimestamp: tsLine,
+            op: "edge",
+            namespace: d.namespace,
+            rev: d.rev,
+            subject: subj
+          })
+        ]);
+      }
     }
   }
   const deduped: readonly string[] = dedupePagGraphSnapshotWarnings(wlist);
@@ -469,38 +590,66 @@ function emitPagGraphObservability(params: {
   }
 }
 
+function resolveHighlightGatingChatId(
+  highlightGatingChatId: string | undefined,
+  hooks: PagGraphTraceMergeEmitHooks | undefined
+): string | undefined {
+  if (typeof highlightGatingChatId === "string" && highlightGatingChatId.length > 0) {
+    return highlightGatingChatId;
+  }
+  const h: string | undefined = hooks?.chatId;
+  return typeof h === "string" && h.length > 0 ? h : undefined;
+}
+
 export class PagGraphSessionTraceMerge {
   /**
    * D-HI-1: `PagSearchHighlightV1` из последней **применимой** trace-строки (ledger / W14 и т.д.
    * в `pagHighlightFromTrace`). При инкременте без новых строк highlight не пересчитывается
    * (см. `applyIncremental`, architecture §4.3).
+   *
+   * C-HL-1 / UC-03: при непустом `gatingChatId` подсветка на строке учитывается только внутри recall-окна и
+   * после триггера A или B — см. `isUc03HighlightAllowedAtRowIndex` в `chatTraceAmPhase` (фазы AM,
+   * `isMemoryQueryStart`) и `user_prompt` в `traceNormalize`.
    */
   static applyHighlightFromTraceRows(
     merged: MemoryGraphData,
     rows: readonly Record<string, unknown>[],
+    namespaces: readonly string[],
     defaultNamespace: string,
-    lastConsumedTraceIndex: number = -1
-  ): MemoryGraphData {
+    lastConsumedTraceIndex: number = -1,
+    gatingChatId?: string
+  ): { readonly merged: MemoryGraphData; readonly highlights: Readonly<Record<string, PagSearchHighlightV1 | null>> } {
+    const nsList: readonly string[] = namespaces.length > 0 ? namespaces : [defaultNamespace];
+    const highlights: Record<string, PagSearchHighlightV1 | null> = {};
+    for (const ns of nsList) {
+      highlights[ns] = null;
+    }
     if (rows.length === 0) {
-      return merged;
+      return { merged, highlights };
     }
-    const previous: ReturnType<typeof lastPagSearchHighlightFromTrace> | null =
-      lastConsumedTraceIndex < 0
-        ? null
-        : lastPagSearchHighlightFromTrace(
-            rows.slice(0, lastConsumedTraceIndex + 1),
-            defaultNamespace
-          );
-    const ev: ReturnType<typeof lastPagSearchHighlightFromTrace> = lastPagSearchHighlightFromTraceAfterMerge(
-      rows,
-      defaultNamespace,
-      previous,
-      lastConsumedTraceIndex
-    );
-    if (ev === null) {
-      return merged;
+    let out: MemoryGraphData = merged;
+    for (const ns of nsList) {
+      const previous: ReturnType<typeof lastPagSearchHighlightFromTrace> | null =
+        lastConsumedTraceIndex < 0
+          ? null
+          : lastPagSearchHighlightFromTrace(
+              rows.slice(0, lastConsumedTraceIndex + 1),
+              ns,
+              gatingChatId
+            );
+      const ev: ReturnType<typeof lastPagSearchHighlightFromTrace> = lastPagSearchHighlightFromTraceAfterMerge(
+        rows,
+        ns,
+        previous,
+        lastConsumedTraceIndex,
+        gatingChatId
+      );
+      highlights[ns] = ev;
+      if (ev !== null) {
+        out = ensureHighlightNodes(out, ev.nodeIds, ev.namespace);
+      }
     }
-    return ensureHighlightNodes(merged, ev.nodeIds, ev.namespace);
+    return { merged: out, highlights };
   }
 
   /**
@@ -514,21 +663,32 @@ export class PagGraphSessionTraceMerge {
     namespaces: readonly string[],
     defaultNamespace: string,
     pagDatabasePresent: boolean = true,
-    hooks?: PagGraphTraceMergeEmitHooks
+    hooks?: PagGraphTraceMergeEmitHooks,
+    highlightGatingChatId?: string,
+    prevSearchHighlights?: Readonly<Record<string, PagSearchHighlightV1 | null>>
   ): PagGraphSessionSnapshot {
+    const gate: string | undefined = resolveHighlightGatingChatId(highlightGatingChatId, hooks);
     const ns: Set<string> = new Set(namespaces);
     const lastRow: number = rows.length - 1;
+    const prevHi: Readonly<Record<string, PagSearchHighlightV1 | null>> = prevSearchHighlights ?? {};
+    const diagAppend: ((lines: readonly string[]) => void) | undefined = hooks?.appendDiagnosticLines;
     if (lastRow < 0) {
-      const m1: MemoryGraphData = this.applyHighlightFromTraceRows(merged0, rows, defaultNamespace);
+      const hi: {
+        readonly merged: MemoryGraphData;
+        readonly highlights: Readonly<Record<string, PagSearchHighlightV1 | null>>;
+      } = this.applyHighlightFromTraceRows(merged0, rows, namespaces, defaultNamespace, -1, gate);
       const snap0: PagGraphSessionSnapshot = buildSnapshotFromReconcile(
-        m1,
+        hi.merged,
         revs0,
         -1,
         [],
         "ready",
         null,
-        pagDatabasePresent
+        pagDatabasePresent,
+        hi.highlights
       );
+      emitHighlightChangeDiagnostics(prevHi, hi.highlights, diagAppend);
+      emitTraceOnlyPagModeDiagnostics(pagDatabasePresent, namespaces, hooks);
       emitPagGraphObservability({
         hooks,
         namespaces,
@@ -543,17 +703,23 @@ export class PagGraphSessionTraceMerge {
       readonly revs: RevRec;
       readonly warnings: readonly string[];
       readonly namespacesDeltaTouched: ReadonlySet<string>;
-    } = applyDeltasInRange(merged0, revs0, rows, 0, lastRow, ns, [], true);
-    const m1: MemoryGraphData = this.applyHighlightFromTraceRows(ap.merged, rows, defaultNamespace);
+    } = applyDeltasInRange(merged0, revs0, rows, 0, lastRow, ns, [], true, diagAppend);
+    const hi2: {
+      readonly merged: MemoryGraphData;
+      readonly highlights: Readonly<Record<string, PagSearchHighlightV1 | null>>;
+    } = this.applyHighlightFromTraceRows(ap.merged, rows, namespaces, defaultNamespace, -1, gate);
     const snap: PagGraphSessionSnapshot = buildSnapshotFromReconcile(
-      m1,
+      hi2.merged,
       ap.revs,
       lastRow,
       ap.warnings,
       "ready",
       null,
-      pagDatabasePresent
+      pagDatabasePresent,
+      hi2.highlights
     );
+    emitHighlightChangeDiagnostics(prevHi, hi2.highlights, diagAppend);
+    emitTraceOnlyPagModeDiagnostics(pagDatabasePresent, namespaces, hooks);
     emitPagGraphObservability({
       hooks,
       namespaces,
@@ -572,8 +738,10 @@ export class PagGraphSessionTraceMerge {
     rows: readonly Record<string, unknown>[],
     namespaces: readonly string[],
     defaultNamespace: string,
-    hooks?: PagGraphTraceMergeEmitHooks
+    hooks?: PagGraphTraceMergeEmitHooks,
+    highlightGatingChatId?: string
   ): PagGraphSessionSnapshot {
+    const gate: string | undefined = resolveHighlightGatingChatId(highlightGatingChatId, hooks);
     const start: number = cur.lastAppliedTraceIndex + 1;
     if (rows.length === 0) {
       return cur;
@@ -585,6 +753,7 @@ export class PagGraphSessionTraceMerge {
       return cur;
     }
     const useInitialTraceCatchup: boolean = cur.lastAppliedTraceIndex === -1 && start === 0;
+    const diagInc: ((lines: readonly string[]) => void) | undefined = hooks?.appendDiagnosticLines;
     const ap: {
       readonly merged: MemoryGraphData;
       readonly revs: RevRec;
@@ -598,23 +767,32 @@ export class PagGraphSessionTraceMerge {
       end,
       ns,
       cur.warnings,
-      useInitialTraceCatchup
+      useInitialTraceCatchup,
+      diagInc
     );
-    const m1: MemoryGraphData = this.applyHighlightFromTraceRows(
+    const hi3: {
+      readonly merged: MemoryGraphData;
+      readonly highlights: Readonly<Record<string, PagSearchHighlightV1 | null>>;
+    } = this.applyHighlightFromTraceRows(
       ap.merged,
       rows,
+      namespaces,
       defaultNamespace,
-      cur.lastAppliedTraceIndex
+      cur.lastAppliedTraceIndex,
+      gate
     );
     const nxt: PagGraphSessionSnapshot = buildSnapshotFromReconcile(
-      m1,
+      hi3.merged,
       ap.revs,
       end,
       ap.warnings,
       "ready",
       null,
-      cur.pagDatabasePresent
+      cur.pagDatabasePresent,
+      hi3.highlights
     );
+    emitHighlightChangeDiagnostics(cur.searchHighlightsByNamespace, hi3.highlights, diagInc);
+    emitTraceOnlyPagModeDiagnostics(cur.pagDatabasePresent, namespaces, hooks);
     emitPagGraphObservability({
       hooks,
       namespaces,

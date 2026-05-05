@@ -67,12 +67,13 @@ export function MemoryGraphPage(): React.JSX.Element {
     }
     const ev: PagSearchHighlightV1 | null = lastPagSearchHighlightFromTrace(
       s.rawTraceRows as readonly Record<string, unknown>[],
-      ns0 ?? "default"
+      ns0 ?? "default",
+      s.chatId
     );
     if (ev) {
       setHi({ event: ev, startedAtMs: nowMs() });
     }
-  }, [ns0, s.rawTraceRows]);
+  }, [ns0, s.rawTraceRows, s.chatId]);
 
   const at: number = nowMs();
   const useMock: boolean = !ns0;
@@ -98,7 +99,8 @@ export function MemoryGraphPage(): React.JSX.Element {
         edgeIds: [],
         reason: "mock",
         ttlMs: 3000,
-        intensity: "strong"
+        intensity: "strong",
+        queryId: null
       },
       startedAtMs: nowMs()
     });

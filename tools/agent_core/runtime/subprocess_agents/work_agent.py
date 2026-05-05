@@ -46,6 +46,10 @@ from agent_core.runtime.agent_memory_ailit_config import (
     load_merged_ailit_config_for_memory,
     max_memory_queries_per_user_turn,
 )
+from agent_core.runtime.broker_workspace_config import (
+    BrokerWorkspaceFile,
+    read_broker_workspace_file,
+)
 from agent_core.runtime.agent_memory_result_v1 import FIX_MEMORY_LLM_JSON_STEP
 from agent_core.runtime.models import (
     AGENT_WORK_MEMORY_QUERY_V1,
@@ -88,6 +92,7 @@ class WorkAgentConfig:
     broker_id: str
     namespace: str
     broker_socket_path: str = ""
+    broker_workspace: BrokerWorkspaceFile | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1489,6 +1494,14 @@ class AgentWorkWorker:
                         if isinstance(r, str) and r.strip():
                             resolved = Path(r).expanduser().resolve()
                             project_roots.append(resolved)
+            if (
+                not project_roots
+                and self._cfg.broker_workspace is not None
+            ):
+                project_roots = [
+                    e.project_root.resolve()
+                    for e in self._cfg.broker_workspace.all_entries
+                ]
             if not project_roots:
                 project_roots = [Path.cwd().resolve()]
             project_root = project_roots[0]
@@ -1621,16 +1634,29 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--broker-id", type=str, required=True)
     p.add_argument("--broker-socket-path", type=str, default="")
     p.add_argument("--namespace", type=str, required=True)
+    p.add_argument(
+        "--workspace-config",
+        type=str,
+        default="",
+        help="broker workspace JSON (primary + workspace[])",
+    )
     return p.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(list(argv) if argv is not None else sys.argv[1:])
+    ws_raw = str(getattr(args, "workspace_config", "") or "").strip()
+    broker_ws = (
+        read_broker_workspace_file(Path(ws_raw).expanduser().resolve())
+        if ws_raw
+        else None
+    )
     cfg = WorkAgentConfig(
         chat_id=str(args.chat_id),
         broker_id=str(args.broker_id),
         namespace=str(args.namespace),
         broker_socket_path=str(args.broker_socket_path),
+        broker_workspace=broker_ws,
     )
     worker = AgentWorkWorker(cfg)
     for line in sys.stdin:

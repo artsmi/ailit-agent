@@ -141,15 +141,17 @@ describe("Workflow 11 readiness projections", () => {
         1
       )
     ];
-    const injected = highlightFromTraceRow(rows[0]!, "fallback");
-    expect(injected?.namespace).toBe("ns-a");
-    expect(injected?.nodeIds).toEqual(["A:ns-a", "B:tools/app.py", "A:ns-b"]);
+    const injectedA = highlightFromTraceRow(rows[0]!, "ns-a");
+    expect(injectedA?.namespace).toBe("ns-a");
+    expect(injectedA?.nodeIds).toEqual(["A:ns-a", "B:tools/app.py"]);
+    const injectedB = highlightFromTraceRow(rows[0]!, "ns-b");
+    expect(injectedB?.namespace).toBe("ns-b");
+    expect(injectedB?.nodeIds).toEqual(["A:ns-b"]);
+    expect(highlightFromTraceRow(rows[0]!, "fallback")).toBeNull();
 
-    const graph = ensureHighlightNodes(
-      mergeMemoryGraph({ nodes: [], links: [] }, { nodes: [], links: [] }),
-      injected?.nodeIds ?? [],
-      injected?.namespace ?? "ns-a"
-    );
+    let graph = mergeMemoryGraph({ nodes: [], links: [] }, { nodes: [], links: [] });
+    graph = ensureHighlightNodes(graph, injectedA?.nodeIds ?? [], "ns-a");
+    graph = ensureHighlightNodes(graph, injectedB?.nodeIds ?? [], "ns-b");
     expect(graph.nodes.map((node) => node.id)).toContain("A:ns-b");
 
     const journal = projectMemoryJournalRows(

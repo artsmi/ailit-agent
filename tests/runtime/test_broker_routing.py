@@ -7,12 +7,14 @@ import threading
 import time
 from pathlib import Path
 
-from agent_core.runtime.broker import run_broker_server, BrokerConfig
+from agent_core.runtime.broker import BrokerConfig, run_broker_server
+from agent_core.runtime.broker_workspace_config import BrokerWorkspaceEntry
 from agent_core.runtime.models import CONTRACT_VERSION
 from agent_core.runtime.paths import RuntimePaths
 
 
 def _run_broker(cfg_dict: dict[str, str]) -> None:
+    pr = Path(cfg_dict["project_root"]).expanduser().resolve()
     cfg = BrokerConfig(
         runtime_dir=Path(cfg_dict["runtime_dir"]),
         socket_path=Path(cfg_dict["socket_path"]),
@@ -20,6 +22,13 @@ def _run_broker(cfg_dict: dict[str, str]) -> None:
         namespace=cfg_dict["namespace"],
         project_root=cfg_dict["project_root"],
         trace_store_path=Path(cfg_dict["trace_store_path"]),
+        workspace_config_path=None,
+        workspace_entries=(
+            BrokerWorkspaceEntry(
+                namespace=cfg_dict["namespace"],
+                project_root=pr,
+            ),
+        ),
     )
     run_broker_server(cfg)
 

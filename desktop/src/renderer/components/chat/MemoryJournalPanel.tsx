@@ -1,6 +1,7 @@
 import React from "react";
 
 import { projectMemoryJournalRows, type MemoryJournalDisplayRow } from "../../runtime/memoryJournalProjection";
+import { useDesktopSession } from "../../runtime/DesktopSessionContext";
 import { CandyMaterialIcon } from "../../shell/CandyMaterialIcon";
 
 function shortTime(iso: string): string {
@@ -19,6 +20,8 @@ export function MemoryJournalPanel({
 }: {
   readonly chatId: string;
 }): React.JSX.Element {
+  const { desktopConfig } = useDesktopSession();
+  const pollMs: number = desktopConfig?.memory_journal_poll_ms ?? 2000;
   const [rows, setRows] = React.useState<readonly MemoryJournalDisplayRow[]>([]);
   const [err, setErr] = React.useState<string | null>(null);
   const [path, setPath] = React.useState<string>("");
@@ -38,9 +41,9 @@ export function MemoryJournalPanel({
     void load();
     const id = window.setInterval(() => {
       void load();
-    }, 2000);
+    }, pollMs);
     return () => window.clearInterval(id);
-  }, [load]);
+  }, [load, pollMs]);
 
   return (
     <section className="memoryJournalPanel">

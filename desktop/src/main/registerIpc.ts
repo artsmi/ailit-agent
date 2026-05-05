@@ -4,12 +4,14 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 import { brokerJsonRequest } from "./brokerSocket";
+import { getCachedDesktopConfigSnapshot, warmDesktopConfigCache } from "./desktopConfig";
 import { defaultRuntimeDir, safeChatIdForTraceFile, supervisorSocketPath } from "./defaultRuntimeDir";
 import { listProjectRegistry } from "./projectRegistryBridge";
 import { runPagGraphSlice, type PagGraphSliceResult } from "./pagGraphBridge";
 import { readDurableTraceRows } from "./readTraceJsonl";
 import { supervisorJsonRequest } from "./supervisorSocket";
 import { traceSubscribe, traceUnsubscribe } from "./traceSocketPool";
+import type { SupervisorCreateOrGetBrokerParams } from "../shared/ipc";
 
 function asRecord(v: unknown): Record<string, unknown> | null {
   if (v && typeof v === "object" && !Array.isArray(v)) {
@@ -25,8 +27,11 @@ function broadcastTraceRow(chatId: string, row: Record<string, unknown>): void {
 }
 
 export function registerIpcHandlers(): void {
+  warmDesktopConfigCache();
+
   ipcMain.handle("ailit:ping", async () => "pong");
   ipcMain.handle("ailit:homeDir", async () => os.homedir());
+  ipcMain.handle("ailit:getDesktopConfigSnapshot", async () => getCachedDesktopConfigSnapshot());
 
   ipcMain.handle("ailit:supervisorStatus", async () => {
     const runtimeDir: string = defaultRuntimeDir();
@@ -72,10 +77,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     "ailit:supervisorCreateOrGetBroker",
-    async (
-      _e: unknown,
-      params: { readonly chatId: string; readonly namespace: string; readonly projectRoot: string }
-    ) => {
+    async (_e: unknown, params: SupervisorCreateOrGetBrokerParams) => {
       const runtimeDir: string = defaultRuntimeDir();
       const sock: string = supervisorSocketPath(runtimeDir);
       try {
@@ -84,8 +86,12 @@ export function registerIpcHandlers(): void {
           request: {
             cmd: "create_or_get_broker",
             chat_id: params.chatId,
-            namespace: params.namespace,
-            project_root: params.projectRoot
+            primary_namespace: params.primaryNamespace,
+            primary_project_root: params.primaryProjectRoot,
+            workspace: params.workspace.map((e) => ({
+              namespace: e.namespace,
+              project_root: e.projectRoot
+            }))
           },
           timeoutMs: 5000
         });

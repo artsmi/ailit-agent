@@ -78,6 +78,10 @@ from agent_core.runtime.agent_memory_w14_observability import (
     AGENT_MEMORY_EXTERNAL_EVENT_V1,
     count_am_v1_result_kinds,
 )
+from agent_core.runtime.broker_workspace_config import (
+    BrokerWorkspaceFile,
+    read_broker_workspace_file,
+)
 from agent_core.runtime.errors import RuntimeProtocolError
 from agent_core.runtime.models import (
     CONTRACT_VERSION,
@@ -146,6 +150,7 @@ class MemoryAgentConfig:
     compact_init_session_id: str | None = None
     #: Полные JSON envelope в stdout (broker). CLI init/query: False.
     broker_trace_stdout: bool = True
+    broker_workspace: BrokerWorkspaceFile | None = None
 
 
 class AgentMemoryWorker:
@@ -1658,6 +1663,9 @@ class AgentMemoryWorker:
         project_root = str(req.payload.get("project_root", "") or "")
         if v1q is not None:
             project_root = v1q.project_root
+        bw = self._cfg.broker_workspace
+        if not str(project_root or "").strip() and bw is not None:
+            project_root = str(bw.primary_project_root)
         memory_init = _payload_memory_init_flag(req.payload)
         if memory_init:
             p_init = str(req.payload.get("path", "") or "").strip()
@@ -1693,6 +1701,19 @@ class AgentMemoryWorker:
             if v1q.known_paths and not memory_init:
                 want_path = str(v1q.known_paths[0])
         workspace_projects = req.payload.get("workspace_projects")
+        wp_empty = (
+            not isinstance(workspace_projects, list)
+            or len(workspace_projects) == 0
+        )
+        if wp_empty and bw is not None:
+            workspace_projects = [
+                {
+                    "project_id": f"broker_ws_{i}",
+                    "namespace": ent.namespace,
+                    "project_root": str(ent.project_root),
+                }
+                for i, ent in enumerate(bw.all_entries)
+            ]
         self._append_journal(
             req=req,
             event_name="memory.request.received",
@@ -2071,6 +2092,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         default="",
         help="optional existing directory for cli_init (otherwise auto mkdir)",
     )
+    p.add_argument(
+        "--workspace-config",
+        type=str,
+        default="",
+        help="broker workspace JSON (primary + workspace[])",
+    )
     return p.parse_args(argv)
 
 
@@ -2078,12 +2105,19 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(list(argv) if argv is not None else sys.argv[1:])
     cli_raw: str = str(getattr(args, "cli_session_dir", "") or "").strip()
     cli_dir: Path | None = Path(cli_raw).expanduser() if cli_raw else None
+    ws_raw = str(getattr(args, "workspace_config", "") or "").strip()
+    broker_ws = (
+        read_broker_workspace_file(Path(ws_raw).expanduser().resolve())
+        if ws_raw
+        else None
+    )
     cfg = MemoryAgentConfig(
         chat_id=str(args.chat_id),
         broker_id=str(args.broker_id),
         namespace=str(args.namespace),
         session_log_mode=str(args.session_log_mode),
         cli_session_dir=cli_dir,
+        broker_workspace=broker_ws,
     )
     worker = AgentMemoryWorker(cfg)
     job_q: queue.Queue[RuntimeRequestEnvelope | None] = queue.Queue()

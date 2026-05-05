@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 
-/** JSON pag-slice до 20k нод / 40k рёбер; запас на stdout (G12.3, D-SCL-1). */
+/** JSON pag-slice до 100k нод / 200k рёбер; запас на stdout (G12.3, D-SCL-1). */
 export const PAG_GRAPH_SLICE_IPC_MAX_BUFFER: number = 96 * 1024 * 1024;
 
 export type PagGraphSliceOk = {

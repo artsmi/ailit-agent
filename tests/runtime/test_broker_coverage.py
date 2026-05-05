@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from agent_core.runtime.broker import AgentBroker, BrokerConfig
+from agent_core.runtime.broker_workspace_config import BrokerWorkspaceEntry
 from agent_core.runtime.models import (
     RuntimeIdentity,
     make_request_envelope,
@@ -35,13 +36,19 @@ def broker(tmp_path: Path, trace_path: Path) -> AgentBroker:
     """Минимальный брокер без поднятия сокет-сервера и субпроцессов."""
     rt = tmp_path / "runtime"
     rt.mkdir()
+    proj = tmp_path / "project"
+    proj.mkdir()
     cfg = BrokerConfig(
         runtime_dir=rt,
         socket_path=tmp_path / "broker.sock",
         chat_id="c1",
         namespace="ns1",
-        project_root=str(tmp_path / "project"),
+        project_root=str(proj),
         trace_store_path=trace_path,
+        workspace_config_path=None,
+        workspace_entries=(
+            BrokerWorkspaceEntry(namespace="ns1", project_root=proj.resolve()),
+        ),
     )
     return AgentBroker(cfg)
 

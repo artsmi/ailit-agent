@@ -1,8 +1,14 @@
+import { isUc03HighlightAllowedAtRowIndex } from "./chatTraceAmPhase";
+
 /**
  * `ailit_desktop_pag_highlight_v1` — UI highlight from Context Ledger trace.
  *
  * D-HI-1: один канал `PagSearchHighlightV1`; порядок по trace, побеждает **последнее**
  * ненулевое событие после фильтра namespace (`highlightFromTraceRow` на каждой строке).
+ *
+ * Multi-namespace: вызывающий задаёт `targetNamespace` (или цикл по workspace в
+ * `PagGraphSessionTraceMerge.applyHighlightFromTraceRows`); W14 / ledger события с чужим `namespace`
+ * отбрасываются для данного среза.
  */
 
 export type PagSearchHighlightV1 = {
@@ -13,6 +19,8 @@ export type PagSearchHighlightV1 = {
   readonly reason: string;
   readonly ttlMs: number;
   readonly intensity: "strong" | "normal";
+  /** Корреляция с `memory.query_context` / W14 payload; default null если trace не несёт id. */
+  readonly queryId: string | null;
 };
 
 const TTL_MS: number = 3000;
@@ -39,27 +47,24 @@ function strList(v: unknown): readonly string[] {
   return v.map((x) => str(x)).filter((x) => x.length > 0);
 }
 
-function refsFromV2(v: unknown): {
-  readonly nodeIds: readonly string[];
-  readonly edgeIds: readonly string[];
-  readonly namespaces: readonly string[];
-} {
+function refsFromV2ForNamespace(
+  v: unknown,
+  targetNamespace: string
+): { readonly nodeIds: readonly string[]; readonly edgeIds: readonly string[] } {
   if (!Array.isArray(v)) {
-    return { nodeIds: [], edgeIds: [], namespaces: [] };
+    return { nodeIds: [], edgeIds: [] };
   }
   const nodeIds: string[] = [];
   const edgeIds: string[] = [];
-  const namespaces: string[] = [];
   for (const raw of v) {
     const ref: Record<string, unknown> = asDict(raw);
-    const ns: string = str(ref["namespace"]);
-    if (ns.length > 0) {
-      namespaces.push(ns);
+    if (str(ref["namespace"]) !== targetNamespace) {
+      continue;
     }
     nodeIds.push(...strList(ref["node_ids"]));
     edgeIds.push(...strList(ref["edge_ids"]));
   }
-  return { nodeIds, edgeIds, namespaces };
+  return { nodeIds, edgeIds };
 }
 
 /** Нормализуем rel path к id узла PAG: `B:path/to.py`. */
@@ -71,7 +76,7 @@ export function bNodeIdFromPath(rel: string): string {
 
 export function highlightFromTraceRow(
   row: Record<string, unknown>,
-  defaultNamespace: string
+  targetNamespace: string
 ): PagSearchHighlightV1 | null {
   const typ: string = str(row["type"]);
   const pl: unknown = row["payload"];
@@ -83,8 +88,8 @@ export function highlightFromTraceRow(
       if (str(inner["schema"]) !== MEMORY_W14_GRAPH_HIGHLIGHT_SCHEMA) {
         return null;
       }
-      const ns: string = str(inner["namespace"] || defaultNamespace) || defaultNamespace;
-      if (defaultNamespace.length > 0 && ns.length > 0 && ns !== defaultNamespace) {
+      const ns: string = str(inner["namespace"] || targetNamespace) || targetNamespace;
+      if (targetNamespace.length > 0 && ns.length > 0 && ns !== targetNamespace) {
         return null;
       }
       const nodeIds: readonly string[] = strList(inner["node_ids"]);
@@ -97,6 +102,8 @@ export function highlightFromTraceRow(
         typeof ttlRaw === "number" && Number.isFinite(ttlRaw) && ttlRaw > 0
           ? Math.min(60000, Math.floor(ttlRaw))
           : TTL_MS;
+      const qidRaw: string = str(inner["query_id"] ?? "").trim();
+      const queryId: string | null = qidRaw.length > 0 ? qidRaw : null;
       return {
         kind: "pag.search.highlight",
         namespace: ns,
@@ -104,27 +111,52 @@ export function highlightFromTraceRow(
         edgeIds,
         reason: str(inner["reason"] ?? MEMORY_W14_GRAPH_HIGHLIGHT_EVENT),
         ttlMs,
-        intensity: "strong"
+        intensity: "strong",
+        queryId
       };
     }
     if (eventName === "context.memory_injected") {
-      const refs = refsFromV2(inner["project_refs"]);
-      const nodeIds = refs.nodeIds.length > 0 ? refs.nodeIds : strList(inner["node_ids"]);
+      const refsRaw: unknown = inner["project_refs"];
+      if (Array.isArray(refsRaw) && refsRaw.length > 0) {
+        const picked: { readonly nodeIds: readonly string[]; readonly edgeIds: readonly string[] } =
+          refsFromV2ForNamespace(refsRaw, targetNamespace);
+        if (picked.nodeIds.length === 0) {
+          return null;
+        }
+        const edgeIds: readonly string[] =
+          picked.edgeIds.length > 0 ? picked.edgeIds : strList(inner["edge_ids"]);
+        return {
+          kind: "pag.search.highlight",
+          namespace: targetNamespace,
+          nodeIds: picked.nodeIds,
+          edgeIds,
+          reason: str(
+            inner["decision_summary"] ?? inner["reason"] ?? "context.memory_injected"
+          ),
+          ttlMs: TTL_MS,
+          intensity: "strong",
+          queryId: null
+        };
+      }
+      const nodeIds: readonly string[] = strList(inner["node_ids"]);
       if (!nodeIds.length) {
+        return null;
+      }
+      const resolvedNs: string = str(row["namespace"] ?? targetNamespace) || targetNamespace;
+      if (resolvedNs !== targetNamespace) {
         return null;
       }
       return {
         kind: "pag.search.highlight",
-        namespace:
-          refs.namespaces[0] ??
-          (str(row["namespace"] ?? defaultNamespace) || defaultNamespace),
+        namespace: resolvedNs,
         nodeIds,
-        edgeIds: refs.edgeIds.length > 0 ? refs.edgeIds : strList(inner["edge_ids"]),
+        edgeIds: strList(inner["edge_ids"]),
         reason: str(
           inner["decision_summary"] ?? inner["reason"] ?? "context.memory_injected"
         ),
         ttlMs: TTL_MS,
-        intensity: "strong"
+        intensity: "strong",
+        queryId: null
       };
     }
     if (eventName === "context.compacted" || eventName === "context.restored") {
@@ -133,14 +165,19 @@ export function highlightFromTraceRow(
       if (!nodeIds.length) {
         return null;
       }
+      const rowNs: string = str(row["namespace"] ?? targetNamespace) || targetNamespace;
+      if (rowNs !== targetNamespace) {
+        return null;
+      }
       return {
         kind: "pag.search.highlight",
-        namespace: str(row["namespace"] ?? defaultNamespace) || defaultNamespace,
+        namespace: rowNs,
         nodeIds,
         edgeIds: [],
         reason: eventName,
         ttlMs: TTL_MS,
-        intensity: "strong"
+        intensity: "strong",
+        queryId: null
       };
     }
   }
@@ -152,11 +189,17 @@ export function highlightFromTraceRow(
  */
 export function lastPagSearchHighlightFromTrace(
   rows: readonly Record<string, unknown>[],
-  defaultNamespace: string
+  targetNamespace: string,
+  gatingChatId?: string
 ): PagSearchHighlightV1 | null {
   let last: PagSearchHighlightV1 | null = null;
-  for (const row of rows) {
-    const h: PagSearchHighlightV1 | null = highlightFromTraceRow(row, defaultNamespace);
+  for (let i: number = 0; i < rows.length; i += 1) {
+    if (gatingChatId != null && gatingChatId.length > 0) {
+      if (!isUc03HighlightAllowedAtRowIndex(rows, gatingChatId, i)) {
+        continue;
+      }
+    }
+    const h: PagSearchHighlightV1 | null = highlightFromTraceRow(rows[i]!, targetNamespace);
     if (h !== null) {
       last = h;
     }
@@ -171,16 +214,17 @@ export function lastPagSearchHighlightFromTrace(
  */
 export function lastPagSearchHighlightFromTraceAfterMerge(
   rows: readonly Record<string, unknown>[],
-  defaultNamespace: string,
+  targetNamespace: string,
   previous: PagSearchHighlightV1 | null,
-  lastConsumedRowIndex: number
+  lastConsumedRowIndex: number,
+  gatingChatId?: string
 ): PagSearchHighlightV1 | null {
   const lastIndex: number = rows.length - 1;
   if (lastIndex < 0) {
     return previous;
   }
   if (lastIndex <= lastConsumedRowIndex) {
-    return previous ?? lastPagSearchHighlightFromTrace(rows, defaultNamespace);
+    return previous ?? lastPagSearchHighlightFromTrace(rows, targetNamespace, gatingChatId);
   }
-  return lastPagSearchHighlightFromTrace(rows, defaultNamespace);
+  return lastPagSearchHighlightFromTrace(rows, targetNamespace, gatingChatId);
 }

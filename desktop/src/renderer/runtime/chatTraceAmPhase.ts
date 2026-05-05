@@ -21,7 +21,8 @@ function rowChatId(row: Record<string, unknown>): string {
   return strField(row, "chat_id");
 }
 
-function isMemoryQueryStart(row: Record<string, unknown>, chatId: string): boolean {
+/** UC-03 / C-HL-1: старт `memory.query_context` от Work к AgentMemory (anchor architecture §Highlight gating). */
+export function isMemoryQueryStart(row: Record<string, unknown>, chatId: string): boolean {
   if (rowChatId(row) !== chatId) {
     return false;
   }
@@ -154,4 +155,79 @@ export function projectBrokerMemoryRecallActive(rows: readonly Record<string, un
     }
   }
   return phase !== "idle";
+}
+
+/**
+ * UC-03 / C-HL-1: подсветка разрешена на строке `rowIndex`, если (recall окно открыто) ∧ (цикл открыт триггером A или B).
+ * Порядок обработки строк совпадает с {@link projectBrokerMemoryRecallActive}.
+ */
+export function isUc03HighlightAllowedAtRowIndex(
+  rows: readonly Record<string, unknown>[],
+  chatId: string,
+  rowIndex: number
+): boolean {
+  if (typeof chatId !== "string" || chatId.length === 0 || rowIndex < 0 || rowIndex >= rows.length) {
+    return false;
+  }
+  let phase: AmRecallPhase = "idle";
+  let cycleEligible: boolean = false;
+  let seenFirstMemoryQuery: boolean = false;
+  let pendingBTrigger: boolean = false;
+
+  const goIdle = (): void => {
+    phase = "idle";
+    cycleEligible = false;
+  };
+
+  for (let j: number = 0; j <= rowIndex; j += 1) {
+    const row: Record<string, unknown> = rows[j]! as Record<string, unknown>;
+    if (rowChatId(row) !== chatId) {
+      continue;
+    }
+    const nk = traceNormalizer.normalizeLine(row).kind;
+    if (nk === "user_prompt") {
+      goIdle();
+      pendingBTrigger = true;
+    }
+    const topicEv: { readonly eventName: string } | null = readWorkChatTopic(row, chatId);
+    if (topicEv) {
+      const en: string = topicEv.eventName;
+      if (phase === "awaiting_memory_response") {
+        if (en === "memory.actor_unavailable") {
+          goIdle();
+        }
+      } else if (phase === "awaiting_inject_or_skip") {
+        if (
+          en === "context.memory_injected" ||
+          en === "memory.actor_slice_skipped" ||
+          en === "memory.actor_unavailable"
+        ) {
+          goIdle();
+        }
+      }
+    }
+    if (isMemoryQueryStart(row, chatId)) {
+      const triggerA: boolean = !seenFirstMemoryQuery;
+      const triggerB: boolean = pendingBTrigger;
+      seenFirstMemoryQuery = true;
+      pendingBTrigger = false;
+      cycleEligible = triggerA || triggerB;
+      phase = "awaiting_memory_response";
+    }
+    const memClose: "fail" | "ok_with_slice" | "ok_other" | null = memoryResponseClosesAwaiting(row, chatId);
+    if (memClose === "fail") {
+      if (phase === "awaiting_memory_response" || phase === "awaiting_inject_or_skip") {
+        goIdle();
+      }
+    } else if (memClose === "ok_with_slice") {
+      if (phase === "awaiting_memory_response") {
+        phase = "awaiting_inject_or_skip";
+      }
+    } else if (memClose === "ok_other") {
+      if (phase === "awaiting_memory_response") {
+        goIdle();
+      }
+    }
+  }
+  return phase !== "idle" && cycleEligible;
 }

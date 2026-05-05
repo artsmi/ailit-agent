@@ -43,6 +43,12 @@ Subset gate **11** `memory_init_fix` (pytest + flake8, см. отчёт): вкл
 
 Финальный прогон **11** (W14 + Desktop): **81** pytest по `test_g14*.py` и `tests/runtime/test_broker*.py`; **13** Vitest-файлов, **82** теста; `npm run typecheck` — см. `context/artifacts/reports/test_report_11_final_w14_desktop.md`.
 
+### G14 — внешние события AgentMemory (S2)
+
+| Путь / смысл | Содержание |
+|----------------|------------|
+| `tests/test_g14_agent_memory_external_event_mapping.py` | Golden map stdout→compact и форма `build_external_event_v1` (`agent_memory.external_event.v1`). |
+
 ### Broker UC 2.4 (pathless `memory.query_context`, инжект) — G4 task 2.1
 
 | Путь / смысл | Содержание |

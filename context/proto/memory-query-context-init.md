@@ -34,6 +34,10 @@
 
 **Как читать ответ:** верхний **`status`** — итог команды по контракту; «ещё не финальный план» и следующие шаги — из **`payload`** (`is_final`, `actions`), а не из недопустимого top-level статуса.
 
+## Коды выхода CLI (OR-011)
+
+Источник правды: `tools/agent_core/runtime/memory_init_cli_outcome.py` — `memory_init_exit_code(status, abort_class=...)`: **`complete` → 0**; **`partial` / `blocked`** (без interrupt/infra) → **1**; **`interrupt`** → **130**; **`infrastructure`** → **2**. Нормализация строкового статуса и ветки `ok: false` от worker — функции в том же модуле.
+
 ## VERIFY по journal
 
 Функция `verify_memory_init_journal_complete_marker` в `memory_init_orchestrator.py` (bounded tail read JSONL):

@@ -9,6 +9,7 @@ from pathlib import Path
 import agent_core.runtime.broker as broker_mod
 from agent_core.runtime.agent_memory_result_v1 import AGENT_MEMORY_RESULT_V1
 from agent_core.runtime.broker import BrokerConfig, run_broker_server
+from agent_core.runtime.broker_workspace_config import BrokerWorkspaceEntry
 from agent_core.runtime.models import CONTRACT_VERSION
 from agent_core.runtime.paths import RuntimePaths
 
@@ -17,6 +18,7 @@ _MEMORY_INJECTED_EVENT: str = "context.memory_injected"
 
 
 def _run_broker(cfg_dict: dict[str, str]) -> None:
+    pr = Path(cfg_dict["project_root"]).expanduser().resolve()
     cfg = BrokerConfig(
         runtime_dir=Path(cfg_dict["runtime_dir"]),
         socket_path=Path(cfg_dict["socket_path"]),
@@ -24,6 +26,13 @@ def _run_broker(cfg_dict: dict[str, str]) -> None:
         namespace=cfg_dict["namespace"],
         project_root=cfg_dict["project_root"],
         trace_store_path=Path(cfg_dict["trace_store_path"]),
+        workspace_config_path=None,
+        workspace_entries=(
+            BrokerWorkspaceEntry(
+                namespace=cfg_dict["namespace"],
+                project_root=pr,
+            ),
+        ),
     )
     run_broker_server(cfg)
 
@@ -201,14 +210,19 @@ def test_broker_forwards_agent_memory_pag_events(
             captured["on_outbound_event"] = on_outbound_event
 
     monkeypatch.setattr(broker_mod, "_AgentProcess", FakeAgentProcess)
+    root = tmp_path.resolve()
     broker = broker_mod.AgentBroker(
         BrokerConfig(
             runtime_dir=paths.runtime_dir,
             socket_path=paths.broker_socket(chat_id="chat-mem"),
             chat_id="chat-mem",
             namespace="ns",
-            project_root=str(tmp_path),
+            project_root=str(root),
             trace_store_path=trace_path,
+            workspace_config_path=None,
+            workspace_entries=(
+                BrokerWorkspaceEntry(namespace="ns", project_root=root),
+            ),
         ),
     )
     broker.spawn_memory()

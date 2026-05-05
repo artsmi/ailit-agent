@@ -9,5 +9,5 @@ from agent_core.memory.pag_slice_caps import (
 
 
 def test_pag_slice_caps_match_desktop_mem3d_contract() -> None:
-    assert PAG_SLICE_MAX_NODES == 20_000
-    assert PAG_SLICE_MAX_EDGES == 40_000
+    assert PAG_SLICE_MAX_NODES == 100_000
+    assert PAG_SLICE_MAX_EDGES == 200_000

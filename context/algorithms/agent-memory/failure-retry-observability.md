@@ -40,12 +40,13 @@
 | Файл отсутствует / не читается | `partial` | нет | `file_missing` |
 | Язык неизвестен | `partial` (эвристический фрагмент) | нет | `language_unknown_fallback` |
 | Превышены лимиты (запросы на turn, узлы, рёбра) | `partial` | нет | `cap_exceeded` |
+| Раунд без прогресса (FR-no-progress): тот же выбор при нуле usable-кандидатов при ненулевом C-scope | `partial` | нет | `no_progress` |
 | Нет данных в PAG | разрешённый рост/индекс **или** `partial` с причиной | ограниченно | `empty_graph` |
 | KB отсутствует на пути init | по политике транзакций | — | `kb_*` (только init) |
 
 ### FR-no-progress (целевое правило)
 
-Если раунд выбрал тот же набор файлов или узлов и не добавил пригодных кандидатов, следующий раунд **запрещён** без смены входа, прогресса, лимитов или исправления ответа провайдера; иначе `partial` с `reason=no_progress`.
+Если раунд выбрал тот же набор файлов или узлов и не добавил пригодных кандидатов, следующий раунд **запрещён** без смены входа, прогресса, лимитов или исправления ответа провайдера; иначе `partial` с причиной наблюдаемости **`no_progress`**. Подключение в рантайме: `w14_intermediate_runtime_partial_reasons` в `tools/agent_core/runtime/agent_memory_terminal_outcomes.py`.
 
 ### `agent_memory_result.v1` (OR-012) — каркас схемы
 
@@ -73,13 +74,14 @@
 3. **compact.log** — компактный вывод для человека в CLI; нормализация имён событий.
 4. **Подробный legacy-лог** — только аудит, не D-OBS.
 
-### Маппинг stdout → compact (цель)
+### Маппинг stdout → compact
 
-Таблица должна быть зафиксирована в реализации тестом или документированным списком; пример:
+SoT: `STDOUT_INTERNAL_TO_COMPACT_EVENT` в `tools/agent_core/runtime/agent_memory_external_events.py`; регрессия имени и формы `build_external_event_v1` — `tests/test_g14_agent_memory_external_event_mapping.py`.
 
 | stdout `event_name` | compact `event` |
 |---------------------|-----------------|
-| `pag.node.upsert` (через обёртку) | `memory.pag_graph` |
+| `pag.node.upsert` | `memory.pag_graph` |
+| `pag.edge.upsert` | `memory.pag_graph` |
 | `memory.w14.graph_highlight` | `memory.w14_graph_highlight` |
 
 ### Приёмка: фактические тесты pytest (OR-015)
@@ -93,6 +95,7 @@
 - `tests/test_g14r1_agent_work_memory_query.py`: `test_memory_query_requires_subgoal_and_stop_condition`, `test_agentwork_memory_query_loop_stops_at_config_cap`
 - `tests/test_g14r_agentwork_memory_continuation.py`: `test_uc01_partial_continuation_two_memory_queries_before_tools`
 - `tests/test_g14_agent_memory_runtime_logs.py`: `test_memory_runtime_step_journal_has_compact_payload`, `test_agent_memory_chat_log_records_command_requested_without_raw_prompt`
+- `tests/test_g14_agent_memory_external_event_mapping.py`: golden map stdout→compact и сборка `agent_memory.external_event.v1`
 - `tests/runtime/test_broker_work_memory_routing.py`: broker + `_w14_trace_contract_ok`
 - `tests/test_g14_agent_memory_legacy_quarantine.py`: quarantine legacy C extractor
 
@@ -100,8 +103,7 @@
 
 ## Сводка implementation_backlog (см. глоссарий)
 
-- CLI: видимый `blocked` vs `aborted` / сопоставление кода выхода.
 - AgentWork: подключить `grants` к проверке чтения файлов.
 - Единый id узла A (см. [`memory-graph-links.md`](memory-graph-links.md)).
 - Расширение D-OBS или второй каталог внутреннего журнала.
-- Целевой конверт `propose_links` и строгая валидация ([`llm-commands.md`](llm-commands.md)).
+- Ручной smoke `ailit memory init ./` для полного операторского DoD, если gate **11** его не включал ([`external-protocol.md`](external-protocol.md)).

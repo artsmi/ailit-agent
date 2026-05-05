@@ -3,14 +3,14 @@
  * Согласованы с `loadPagGraphMerged` и `ailit memory pag-slice` /
  * `agent_core.memory.pag_slice_caps`.
  */
-export const MEM3D_PAG_MAX_NODES: number = 20_000;
-export const MEM3D_PAG_MAX_EDGES: number = 40_000;
+export const MEM3D_PAG_MAX_NODES: number = 100_000;
+export const MEM3D_PAG_MAX_EDGES: number = 200_000;
 
 /** Порог упрощения 3D (частицы, чаcтота refresh) — см. G12.3 / architecture §9. */
 export const PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD: number = 2_000;
 
 /**
- * Выше — дополнительное ужесточение throttling симуляции и cooldown (§9, 20k cap).
+ * Выше — дополнительное ужесточение throttling симуляции и cooldown (§9, PAG cap).
  */
 export const PAG_3D_EXTREME_GRAPH_NODE_THRESHOLD: number = 12_000;
 

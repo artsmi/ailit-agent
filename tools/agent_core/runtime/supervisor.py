@@ -17,6 +17,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
 
+from agent_core.runtime.broker_workspace_config import (
+    BrokerWorkspaceEntry,
+    BrokerWorkspaceFile,
+    parse_workspace_extras_from_request,
+    write_broker_workspace_file,
+)
 from agent_core.runtime.errors import RuntimeProtocolError
 from agent_core.runtime.paths import RuntimePaths, default_runtime_dir
 
@@ -26,8 +32,9 @@ class BrokerRecord:
     """Состояние broker-а, управляемого supervisor-ом."""
 
     chat_id: str
-    namespace: str
-    project_root: str
+    primary_namespace: str
+    primary_project_root: str
+    workspace: tuple[BrokerWorkspaceEntry, ...]
     endpoint: str
     pid: int | None
     state: str
@@ -37,8 +44,14 @@ class BrokerRecord:
     def to_dict(self) -> dict[str, Any]:
         return {
             "chat_id": self.chat_id,
-            "namespace": self.namespace,
-            "project_root": self.project_root,
+            "namespace": self.primary_namespace,
+            "project_root": self.primary_project_root,
+            "primary_namespace": self.primary_namespace,
+            "primary_project_root": self.primary_project_root,
+            "workspace": [
+                {"namespace": e.namespace, "project_root": str(e.project_root)}
+                for e in self.workspace
+            ],
             "endpoint": self.endpoint,
             "pid": self.pid,
             "state": self.state,
@@ -67,12 +80,15 @@ class BrokerProcessManager:
         self,
         *,
         chat_id: str,
-        namespace: str,
-        project_root: str,
+        workspace_spec: BrokerWorkspaceFile,
     ) -> tuple[int, str]:
         """Запустить broker и вернуть (pid, endpoint)."""
         sock = self._paths.broker_socket(chat_id=chat_id)
         endpoint = f"unix://{sock}"
+        safe = "".join(c for c in chat_id if c.isalnum() or c in ("-", "_"))
+        ws_dir = self._paths.runtime_dir / "broker_workspace"
+        ws_path = ws_dir / f"{safe}.json"
+        write_broker_workspace_file(ws_path, workspace_spec)
         py = sys.executable
         if self._cmd:
             cmd = [*self._cmd, str(sock)]
@@ -88,9 +104,11 @@ class BrokerProcessManager:
                 "--chat-id",
                 str(chat_id),
                 "--namespace",
-                str(namespace),
+                str(workspace_spec.primary_namespace),
                 "--project-root",
-                str(project_root),
+                str(workspace_spec.primary_project_root),
+                "--workspace-config",
+                str(ws_path),
             ]
         p = subprocess.Popen(
             cmd,
@@ -157,8 +175,9 @@ class AilitRuntimeSupervisor:
         self,
         *,
         chat_id: str,
-        project_root: str,
-        namespace: str,
+        primary_namespace: str,
+        primary_project_root: str,
+        workspace: tuple[BrokerWorkspaceEntry, ...],
     ) -> BrokerRecord:
         """Создать broker для chat_id или вернуть существующий."""
         if not chat_id.strip():
@@ -166,6 +185,18 @@ class AilitRuntimeSupervisor:
                 code="invalid_args",
                 message="chat_id required",
             )
+        pn = str(primary_namespace or "").strip()
+        pp = str(primary_project_root or "").strip()
+        if not pn or not pp:
+            raise RuntimeProtocolError(
+                code="invalid_args",
+                message="primary_namespace and primary_project_root required",
+            )
+        spec = BrokerWorkspaceFile(
+            primary_namespace=pn,
+            primary_project_root=Path(pp).expanduser().resolve(),
+            extra=workspace,
+        )
         with self._lock:
             existing = self._brokers.get(chat_id)
             if existing is not None:
@@ -175,14 +206,14 @@ class AilitRuntimeSupervisor:
                     return refreshed
             pid, endpoint = self._mgr.spawn(
                 chat_id=chat_id,
-                namespace=namespace,
-                project_root=project_root,
+                workspace_spec=spec,
             )
             now = time.time()
             rec = BrokerRecord(
                 chat_id=chat_id,
-                namespace=namespace,
-                project_root=project_root,
+                primary_namespace=spec.primary_namespace,
+                primary_project_root=str(spec.primary_project_root),
+                workspace=workspace,
                 endpoint=endpoint,
                 pid=pid,
                 state="running",
@@ -203,8 +234,9 @@ class AilitRuntimeSupervisor:
             now = time.time()
             updated = BrokerRecord(
                 chat_id=rec.chat_id,
-                namespace=rec.namespace,
-                project_root=rec.project_root,
+                primary_namespace=rec.primary_namespace,
+                primary_project_root=rec.primary_project_root,
+                workspace=rec.workspace,
                 endpoint=rec.endpoint,
                 pid=rec.pid,
                 state="failed",
@@ -220,8 +252,9 @@ class AilitRuntimeSupervisor:
         if not self._mgr.is_alive(pid=rec.pid):
             return BrokerRecord(
                 chat_id=rec.chat_id,
-                namespace=rec.namespace,
-                project_root=rec.project_root,
+                primary_namespace=rec.primary_namespace,
+                primary_project_root=rec.primary_project_root,
+                workspace=rec.workspace,
                 endpoint=rec.endpoint,
                 pid=rec.pid,
                 state="failed",
@@ -305,12 +338,30 @@ def _dispatch_cmd(
         return {"ok": True, "result": {"brokers": rows}}
     if cmd == "create_or_get_broker":
         chat_id = str(req.get("chat_id", "") or "")
-        namespace = str(req.get("namespace", "") or "")
-        project_root = str(req.get("project_root", "") or "")
+        primary_namespace = str(
+            req.get("primary_namespace", "") or "",
+        ).strip()
+        primary_project_root = str(
+            req.get("primary_project_root", "") or "",
+        ).strip()
+        if not primary_namespace:
+            primary_namespace = str(req.get("namespace", "") or "").strip()
+        if not primary_project_root:
+            primary_project_root = str(
+                req.get("project_root", "") or "",
+            ).strip()
+        raw_workspace = req.get("workspace")
+        if raw_workspace is None:
+            workspace_extras = ()
+        else:
+            workspace_extras = parse_workspace_extras_from_request(
+                raw_workspace,
+            )
         rec = sup.create_or_get_broker(
             chat_id=chat_id,
-            namespace=namespace,
-            project_root=project_root,
+            primary_namespace=primary_namespace,
+            primary_project_root=primary_project_root,
+            workspace=workspace_extras,
         )
         return {"ok": True, "result": rec.to_dict()}
     if cmd == "stop_broker":

@@ -1,6 +1,10 @@
 import React from "react";
 
-import type { ProjectRegistryEntry, RuntimeResponseEnvelope } from "@shared/ipc";
+import {
+  resolveRegistryProjectChain,
+  supervisorCreateOrGetBrokerParamsFromChain
+} from "@shared/brokerHandshakePayload";
+import type { DesktopConfigSnapshot, ProjectRegistryEntry, RuntimeResponseEnvelope } from "@shared/ipc";
 
 import { DEFAULT_AGENT_MANIFEST_V1 } from "../state/agentManifest";
 import {
@@ -53,7 +57,6 @@ import { newMessageId } from "./uuid";
 import { BrokerTraceUserTurnResolver } from "./userTurnIdFromTrace";
 
 const GOAL: string = "g-desktop";
-const PAG_SQLITE_RETRY_MS: number = 2500;
 
 type ConnState = "idle" | "connecting" | "ready" | "error";
 export type { ChatLine } from "./chatTraceProjector";
@@ -77,6 +80,8 @@ export type DesktopSessionValue = {
   readonly connection: ConnState;
   /** Домашний каталог (пути вне runtime_dir, например ~/.ailit/agent-memory/chat_logs). */
   readonly homeDir: string | null;
+  /** OR-009: снимок desktop config из main по IPC (один fetch при старте). */
+  readonly desktopConfig: DesktopConfigSnapshot | null;
   readonly runtimeDir: string | null;
   readonly supervisorSummary: string | null;
   readonly brokerEndpoint: string | null;
@@ -126,6 +131,9 @@ export type DesktopSessionValue = {
 };
 
 const Ctx = React.createContext<DesktopSessionValue | null>(null);
+
+/** Тот же контекст, что у `DesktopSessionProvider` — для unit-тестов без spy на `useDesktopSession`. */
+export const desktopSessionReactContext: React.Context<DesktopSessionValue | null> = Ctx;
 
 function asDict(v: unknown): Record<string, unknown> | null {
   if (v && typeof v === "object" && !Array.isArray(v)) {
@@ -205,6 +213,52 @@ function buildSessionCancelledTraceRow(params: {
   };
 }
 
+function buildPagGraphTraceMergeHooks(p: {
+  readonly runtimeDir: string;
+  readonly chatId: string;
+  readonly sessionId: string;
+  readonly graphRevBeforeByNamespace: Readonly<Record<string, number>>;
+  readonly pagDefaultNamespace: string;
+  readonly reconciledEmitRevByNs: Map<string, number>;
+  readonly fullLoad?: PagGraphTraceMergeEmitHooks["fullLoad"];
+  readonly traceOnlyPagModeSentKeys: Set<string>;
+}): PagGraphTraceMergeEmitHooks | undefined {
+  const rd: string = p.runtimeDir;
+  const canTrace: boolean = typeof window.ailitDesktop?.appendTraceRow === "function";
+  const canDiag: boolean = typeof window.ailitDesktop?.appendSessionDiagnostic === "function";
+  if (!canTrace && !canDiag) {
+    return undefined;
+  }
+  // Сигнатура совпадает с appendTraceRow; при отсутствии IPC строки не уходят, но emitPagGraphObservability обновляет rev-map.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- параметр требуется типом PagGraphTraceMergeEmitHooks
+  const noopEmit: (row: Record<string, unknown>) => void = (_row: Record<string, unknown>): void => {};
+  return {
+    chatId: p.chatId,
+    sessionId: p.sessionId,
+    graphRevBeforeByNamespace: { ...p.graphRevBeforeByNamespace },
+    defaultNamespace: p.pagDefaultNamespace,
+    reconciledEmitRevByNs: p.reconciledEmitRevByNs,
+    fullLoad: p.fullLoad,
+    emitTraceRow: canTrace
+      ? (row: Record<string, unknown>): void => {
+          void window.ailitDesktop.appendTraceRow({ runtimeDir: rd, chatId: p.chatId, row });
+        }
+      : canDiag
+        ? noopEmit
+        : undefined,
+    appendDiagnosticLines: canDiag
+      ? (lines: readonly string[]): void => {
+          void window.ailitDesktop.appendSessionDiagnostic({
+            runtimeDir: rd,
+            chatId: p.chatId,
+            lines: [...lines]
+          });
+        }
+      : undefined,
+    traceOnlyPagModeSentKeys: p.traceOnlyPagModeSentKeys
+  };
+}
+
 function validateSessions(
   reg: readonly ProjectRegistryEntry[],
   p: PersistedUiStateV1
@@ -228,6 +282,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const [ui, setUi] = React.useState<PersistedUiStateV1>(loadPersistedUi);
   const [connection, setConnection] = React.useState<ConnState>("idle");
   const [homeDir, setHomeDir] = React.useState<string | null>(null);
+  const [desktopConfig, setDesktopConfig] = React.useState<DesktopConfigSnapshot | null>(null);
   const [runtimeDir, setRuntimeDir] = React.useState<string | null>(null);
   const [supervisorSummary, setSupervisorSummary] = React.useState<string | null>(null);
   const [brokerEndpoint, setBrokerEndpoint] = React.useState<string | null>(null);
@@ -247,6 +302,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const pagGraphLastEmittedReconcileRevRef: React.MutableRefObject<Map<string, number>> = React.useRef<
     Map<string, number>
   >(new Map());
+  const traceOnlyPagModeSentKeysRef: React.MutableRefObject<Set<string>> = React.useRef<Set<string>>(new Set());
   const [pagLoadTick, setPagLoadTick] = React.useState(0);
   const [optimisticChatLines, setOptimisticChatLines] = React.useState<ChatLine[]>([]);
   const [reconnectAttempt, setReconnectAttempt] = React.useState(0);
@@ -278,6 +334,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   React.useEffect((): void => {
     pagGraphLastEmittedReconcileRevRef.current = new Map();
     pagGraphRefreshIntentRef.current = "none";
+    traceOnlyPagModeSentKeysRef.current = new Set();
   }, [activeSession.id]);
 
   React.useEffect((): void => {
@@ -606,32 +663,25 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     pids: string[];
     roots: readonly string[];
   } | null = React.useCallback((): { namespace: string; projectRoot: string; pids: string[]; roots: readonly string[] } | null => {
-    const byId: Map<string, ProjectRegistryEntry> = new Map(registry.map((e) => [e.projectId, e]));
-    const chain: string[] = selectedProjectIds.length ? [...selectedProjectIds] : [];
-    if (chain.length === 0 && registry[0]) {
-      chain.push(registry[0].projectId);
-    }
-    const pids: string[] = [];
-    for (const id of chain) {
-      const ro: ProjectRegistryEntry | undefined = byId.get(id);
-      if (ro) {
-        pids.push(ro.projectId);
-      }
-    }
-    if (!pids.length) {
+    const chain = resolveRegistryProjectChain(
+      registry,
+      selectedProjectIds,
+      desktopConfig?.highlight_namespace_policy
+    );
+    if (!chain?.length) {
       return null;
     }
-    const first: ProjectRegistryEntry | undefined = byId.get(pids[0] ?? "");
+    const first = chain[0];
     if (!first) {
       return null;
     }
     return {
       namespace: first.namespace,
-      projectRoot: first.path,
-      pids,
-      roots: pids.map((pid) => (byId.get(pid) as ProjectRegistryEntry).path) as readonly string[]
+      projectRoot: first.projectRoot,
+      pids: chain.map((r) => r.projectId),
+      roots: chain.map((r) => r.projectRoot)
     };
-  }, [registry, selectedProjectIds]);
+  }, [desktopConfig?.highlight_namespace_policy, registry, selectedProjectIds]);
 
   const refreshStatus: () => Promise<void> = React.useCallback(async () => {
     const st: unknown = await window.ailitDesktop.supervisorStatus();
@@ -691,17 +741,19 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     if (rd0) {
       setRuntimeDir(rd0);
     }
-    const ws0: { namespace: string; projectRoot: string; pids: string[]; roots: readonly string[] } | null = pickWorkspace();
-    if (!ws0) {
+    const chain = resolveRegistryProjectChain(
+      registry,
+      selectedProjectIds,
+      desktopConfig?.highlight_namespace_policy
+    );
+    if (!chain?.length) {
       setLastError("Нет выбранных проектов. Добавьте проекты (CLI) и создайте диалог.");
       setConnection("error");
       return;
     }
-    const created: unknown = await window.ailitDesktop.supervisorCreateOrGetBroker({
-      chatId: cid,
-      namespace: ws0.namespace,
-      projectRoot: ws0.projectRoot
-    });
+    const created: unknown = await window.ailitDesktop.supervisorCreateOrGetBroker(
+      supervisorCreateOrGetBrokerParamsFromChain(cid, chain)
+    );
     const br: { readonly endpoint: string } | null = extractBroker(created);
     if (!br) {
       setLastError(JSON.stringify(created, null, 0).slice(0, 800));
@@ -742,7 +794,15 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     }
     subChatIdRef.current = cid;
     setConnection("ready");
-  }, [activeSession.chatId, activeSession.id, mergeRows, pickWorkspace, refreshStatus]);
+  }, [
+    activeSession.chatId,
+    activeSession.id,
+    desktopConfig?.highlight_namespace_policy,
+    mergeRows,
+    refreshStatus,
+    registry,
+    selectedProjectIds
+  ]);
 
   React.useEffect(() => {
     void refreshStatus();
@@ -756,6 +816,17 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         setHomeDir(h);
       } catch {
         setHomeDir(null);
+      }
+    })();
+  }, []);
+
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        const snap: DesktopConfigSnapshot = await window.ailitDesktop.getDesktopConfigSnapshot();
+        setDesktopConfig(snap);
+      } catch {
+        setDesktopConfig(null);
       }
     })();
   }, []);
@@ -1027,9 +1098,10 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       }
       if (ch.kind === "error" || ch.kind === "end") {
         void (async () => {
+          const delayMs: number = desktopConfig?.trace_reconnect_min_ms ?? 800;
           setReconnectAttempt((a) => a + 1);
           await new Promise((r) => {
-            setTimeout(r, 800);
+            setTimeout(r, delayMs);
           });
           try {
             await resubscribeTrace();
@@ -1048,7 +1120,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         offCh();
       }
     };
-  }, [mergeRows, resubscribeTrace]);
+  }, [desktopConfig?.trace_reconnect_min_ms, mergeRows, resubscribeTrace]);
 
   const refreshPagGraph: () => void = React.useCallback((): void => {
     pagGraphRefreshIntentRef.current = "user";
@@ -1109,19 +1181,19 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       pagGraphRefreshIntentRef.current = "none";
       const fullLoadKind: "user_refresh" | "poll_retry" | "initial_load" =
         intentFl === "user" ? "user_refresh" : intentFl === "poll" ? "poll_retry" : "initial_load";
+      const prevHighlights = pagGraphBySessionRef.current[sessionId]?.searchHighlightsByNamespace ?? {};
       const hooks: PagGraphTraceMergeEmitHooks | undefined =
-        rd0 != null && typeof window.ailitDesktop?.appendTraceRow === "function"
-          ? {
+        rd0 != null
+          ? buildPagGraphTraceMergeHooks({
+              runtimeDir: rd0,
               chatId: chatIdForPag,
               sessionId,
               graphRevBeforeByNamespace: { ...prevRevsFull },
-              defaultNamespace: pagDefaultNamespace,
+              pagDefaultNamespace,
               reconciledEmitRevByNs: pagGraphLastEmittedReconcileRevRef.current,
               fullLoad: { kind: fullLoadKind, namespaces: [...pagNamespaces] },
-              emitTraceRow: (row: Record<string, unknown>): void => {
-                void window.ailitDesktop.appendTraceRow({ runtimeDir: rd0, chatId: chatIdForPag, row });
-              }
-            }
+              traceOnlyPagModeSentKeys: traceOnlyPagModeSentKeysRef.current
+            })
           : undefined;
       const snap: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.afterFullLoad(
         r.merged,
@@ -1130,7 +1202,9 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         pagNamespaces,
         pagDefaultNamespace,
         pagDatabasePresent,
-        hooks
+        hooks,
+        chatIdForPag,
+        prevHighlights
       );
       if (cancelled) {
         return;
@@ -1162,6 +1236,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     if (!runtimeDir || typeof slice !== "function" || pagNamespaces.length === 0) {
       return;
     }
+    const pollMs: number = desktopConfig?.pag_sqlite_poll_interval_ms ?? 2500;
     const sliceFn: typeof window.ailitDesktop.pagGraphSlice = slice as typeof window.ailitDesktop.pagGraphSlice;
     let cancelled: boolean = false;
     const h: ReturnType<typeof setInterval> = setInterval((): void => {
@@ -1191,19 +1266,19 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         const rdPoll: string | null = runtimeDir;
         const prevRevsPoll: Readonly<Record<string, number>> =
           pagGraphBySessionRef.current[sessionId]?.graphRevByNamespace ?? {};
+        const prevHighlightsPoll = pagGraphBySessionRef.current[sessionId]?.searchHighlightsByNamespace ?? {};
         const hooksPoll: PagGraphTraceMergeEmitHooks | undefined =
-          rdPoll != null && typeof window.ailitDesktop?.appendTraceRow === "function"
-            ? {
+          rdPoll != null
+            ? buildPagGraphTraceMergeHooks({
+                runtimeDir: rdPoll,
                 chatId: chatIdPoll,
                 sessionId,
                 graphRevBeforeByNamespace: { ...prevRevsPoll },
-                defaultNamespace: pagDefaultNamespace,
+                pagDefaultNamespace,
                 reconciledEmitRevByNs: pagGraphLastEmittedReconcileRevRef.current,
                 fullLoad: { kind: "poll_retry", namespaces: [...pagNamespaces] },
-                emitTraceRow: (row: Record<string, unknown>): void => {
-                  void window.ailitDesktop.appendTraceRow({ runtimeDir: rdPoll, chatId: chatIdPoll, row });
-                }
-              }
+                traceOnlyPagModeSentKeys: traceOnlyPagModeSentKeysRef.current
+              })
             : undefined;
         const snap: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.afterFullLoad(
           r.merged,
@@ -1212,19 +1287,31 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           pagNamespaces,
           pagDefaultNamespace,
           true,
-          hooksPoll
+          hooksPoll,
+          chatIdPoll,
+          prevHighlightsPoll
         );
         if (cancelled) {
           return;
         }
         setPagGraphBySession((p0) => ({ ...p0, [sessionId]: snap }));
       })();
-    }, PAG_SQLITE_RETRY_MS);
+    }, pollMs);
     return (): void => {
       cancelled = true;
       clearInterval(h);
     };
-  }, [awaitingPagSqlite, activeSession.chatId, activeSession.id, pagDefaultNamespace, pagNamespaces, projKey, registry, runtimeDir]);
+  }, [
+    awaitingPagSqlite,
+    activeSession.chatId,
+    activeSession.id,
+    desktopConfig?.pag_sqlite_poll_interval_ms,
+    pagDefaultNamespace,
+    pagNamespaces,
+    projKey,
+    registry,
+    runtimeDir
+  ]);
 
   React.useEffect((): void => {
     const sessionId: string = activeSession.id;
@@ -1236,24 +1323,24 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         return prev;
       }
       const hooksInc: PagGraphTraceMergeEmitHooks | undefined =
-        rdInc != null && typeof window.ailitDesktop?.appendTraceRow === "function"
-          ? {
+        rdInc != null
+          ? buildPagGraphTraceMergeHooks({
+              runtimeDir: rdInc,
               chatId: chatIdInc,
               sessionId,
               graphRevBeforeByNamespace: { ...cur.graphRevByNamespace },
-              defaultNamespace: pagDefaultNamespace,
+              pagDefaultNamespace,
               reconciledEmitRevByNs: pagGraphLastEmittedReconcileRevRef.current,
-              emitTraceRow: (row: Record<string, unknown>): void => {
-                void window.ailitDesktop.appendTraceRow({ runtimeDir: rdInc, chatId: chatIdInc, row });
-              }
-            }
+              traceOnlyPagModeSentKeys: traceOnlyPagModeSentKeysRef.current
+            })
           : undefined;
       const nxt: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.applyIncremental(
         cur,
         rawTraceRows,
         pagNamespaces,
         pagDefaultNamespace,
-        hooksInc
+        hooksInc,
+        chatIdInc
       );
       if (nxt === cur) {
         return prev;
@@ -1288,6 +1375,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     setLastAgentPair,
     connection,
     homeDir,
+    desktopConfig,
     runtimeDir,
     supervisorSummary,
     brokerEndpoint,

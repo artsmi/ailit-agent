@@ -6,5 +6,5 @@
 
 from __future__ import annotations
 
-PAG_SLICE_MAX_NODES: int = 20_000
-PAG_SLICE_MAX_EDGES: int = 40_000
+PAG_SLICE_MAX_NODES: int = 100_000
+PAG_SLICE_MAX_EDGES: int = 200_000

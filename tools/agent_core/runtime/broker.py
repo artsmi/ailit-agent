@@ -39,6 +39,10 @@ from agent_core.runtime.models import (
     make_request_envelope,
     make_response_envelope,
 )
+from agent_core.runtime.broker_workspace_config import (
+    BrokerWorkspaceEntry,
+    read_broker_workspace_file,
+)
 from agent_core.runtime.paths import RuntimePaths, default_runtime_dir
 from agent_core.runtime.trace_store import JsonlTraceStore, TraceRow
 
@@ -72,6 +76,8 @@ class BrokerConfig:
     namespace: str
     project_root: str
     trace_store_path: Path
+    workspace_config_path: Path | None
+    workspace_entries: tuple[BrokerWorkspaceEntry, ...]
 
 
 class _LiveSubscribers:
@@ -292,6 +298,13 @@ class AgentBroker:
                 "--namespace",
                 self._cfg.namespace,
             ]
+            if self._cfg.workspace_config_path is not None:
+                cmd.extend(
+                    [
+                        "--workspace-config",
+                        str(self._cfg.workspace_config_path),
+                    ],
+                )
             self._agents["AgentWork"] = _AgentProcess(
                 "AgentWork",
                 cmd,
@@ -315,6 +328,13 @@ class AgentBroker:
                 "--namespace",
                 self._cfg.namespace,
             ]
+            if self._cfg.workspace_config_path is not None:
+                cmd.extend(
+                    [
+                        "--workspace-config",
+                        str(self._cfg.workspace_config_path),
+                    ],
+                )
             self._agents["AgentMemory"] = _AgentProcess(
                 "AgentMemory",
                 cmd,
@@ -723,6 +743,12 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     p.add_argument("--chat-id", type=str, required=True)
     p.add_argument("--namespace", type=str, required=True)
     p.add_argument("--project-root", type=str, required=True)
+    p.add_argument(
+        "--workspace-config",
+        type=str,
+        default="",
+        help="JSON: primary_namespace, primary_project_root, workspace[]",
+    )
     return p.parse_args(argv)
 
 
@@ -735,18 +761,41 @@ def main(argv: list[str] | None = None) -> int:
         else default_runtime_dir()
     )
     paths = RuntimePaths(runtime_dir=runtime_dir)
+    ws_arg = str(getattr(args, "workspace_config", "") or "").strip()
+    ws_path = Path(ws_arg).expanduser().resolve() if ws_arg else None
+    if ws_path is not None:
+        ws_file = read_broker_workspace_file(ws_path)
+        ws_entries = ws_file.all_entries
+        primary_ns = ws_file.primary_namespace
+        primary_root = str(ws_file.primary_project_root)
+    else:
+        ws_entries = (
+            BrokerWorkspaceEntry(
+                namespace=str(args.namespace),
+                project_root=Path(args.project_root).expanduser().resolve(),
+            ),
+        )
+        primary_ns = str(args.namespace)
+        primary_root = str(Path(args.project_root).expanduser().resolve())
     cfg = BrokerConfig(
         runtime_dir=runtime_dir,
         socket_path=Path(args.socket_path).expanduser().resolve(),
         chat_id=str(args.chat_id),
-        namespace=str(args.namespace),
-        project_root=str(args.project_root),
+        namespace=primary_ns,
+        project_root=primary_root,
         trace_store_path=_trace_store_path(paths, chat_id=str(args.chat_id)),
+        workspace_config_path=ws_path,
+        workspace_entries=ws_entries,
     )
     if not cfg.chat_id.strip() or not cfg.namespace.strip():
         raise RuntimeProtocolError(
             code="invalid_args",
             message="chat_id/namespace",
+        )
+    if not str(cfg.project_root or "").strip():
+        raise RuntimeProtocolError(
+            code="invalid_args",
+            message="project_root",
         )
     if CONTRACT_VERSION != "ailit_agent_runtime_v1":
         raise RuntimeProtocolError(code="contract", message="version mismatch")

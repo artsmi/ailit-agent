@@ -2,6 +2,73 @@ import type { MemoryGraphData, MemoryGraphLink, MemoryGraphNode } from "./memory
 
 const TRACE_CONN_ROOT_PREFIX: string = "ailit:trace-conn-root:";
 
+/** Карта id узла → namespace (пустая строка если не задано). */
+export function buildNodeIdToNamespaceMap(
+  nodes: readonly MemoryGraphNode[]
+): ReadonlyMap<string, string> {
+  const m: Map<string, string> = new Map();
+  for (const n of nodes) {
+    m.set(n.id, n.namespace ?? "");
+  }
+  return m;
+}
+
+/**
+ * Рёбра, соединяющие два разных namespace из выбранного набора (оба конца в wanted и ns различаются).
+ */
+export function findCrossNamespaceEdgesAmong(
+  data: MemoryGraphData,
+  selectedNamespaces: readonly string[]
+): readonly MemoryGraphLink[] {
+  const wanted: Set<string> = new Set(selectedNamespaces.filter((x: string) => x.length > 0));
+  if (wanted.size < 2) {
+    return [];
+  }
+  const idToNs: ReadonlyMap<string, string> = buildNodeIdToNamespaceMap(data.nodes);
+  const out: MemoryGraphLink[] = [];
+  for (const L of data.links) {
+    const nsS: string = idToNs.get(L.source) ?? "";
+    const nsT: string = idToNs.get(L.target) ?? "";
+    if (!wanted.has(nsS) || !wanted.has(nsT)) {
+      continue;
+    }
+    if (nsS.length > 0 && nsT.length > 0 && nsS !== nsT) {
+      out.push(L);
+    }
+  }
+  return out;
+}
+
+/** Узлы и рёбра только указанного namespace. */
+export function sliceMemoryGraphToNamespace(
+  data: MemoryGraphData,
+  namespace: string
+): MemoryGraphData {
+  if (namespace.length === 0) {
+    return { nodes: [], links: [] };
+  }
+  const nodes: MemoryGraphNode[] = data.nodes.filter((n) => (n.namespace ?? "") === namespace);
+  const ids: Set<string> = new Set(nodes.map((n) => n.id));
+  const links: MemoryGraphLink[] = data.links.filter(
+    (L) => ids.has(L.source) && ids.has(L.target)
+  );
+  return { nodes, links };
+}
+
+/** Подграф по объединению выбранных namespace (включая меж-namespace рёбра внутри union). */
+export function filterMemoryGraphToNamespacesUnion(
+  data: MemoryGraphData,
+  selectedNamespaces: readonly string[]
+): MemoryGraphData {
+  const wanted: Set<string> = new Set(selectedNamespaces.filter((x: string) => x.length > 0));
+  const nodes: MemoryGraphNode[] = data.nodes.filter((n) => wanted.has(n.namespace ?? ""));
+  const ids: Set<string> = new Set(nodes.map((n) => n.id));
+  const links: MemoryGraphLink[] = data.links.filter(
+    (L) => ids.has(L.source) && ids.has(L.target)
+  );
+  return { nodes, links };
+}
+
 export function traceConnRootNodeId(namespace: string): string {
   return `${TRACE_CONN_ROOT_PREFIX}${encodeURIComponent(namespace)}`;
 }

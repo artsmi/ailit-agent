@@ -4,10 +4,10 @@
     "module": "CommonJS",
     "moduleResolution": "Node",
     "outDir": "dist/main",
-    "rootDir": "src/main",
+    "rootDir": "src",
     "types": ["node"],
     "sourceMap": true
   },
-  "include": ["src/main/**/*"]
+  "include": ["src/main/**/*.ts", "src/shared/desktopConfigContract.ts", "src/shared/ipc.ts"]
 }
 

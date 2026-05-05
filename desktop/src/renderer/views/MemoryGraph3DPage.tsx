@@ -1,13 +1,28 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ForceGraph3D, { type ForceGraphMethods } from "react-force-graph-3d";
 
+import {
+  deriveCrossProjectDisplayMode,
+  MEM3D_CROSS_PROJECT_MODAL_I18N_KEY,
+  type Mem3dCrossProjectResolution
+} from "../state/crossProjectDisplayMode";
+import { formatCrossProjectEdgeDecisionTimeoutDiagnosticLine } from "../runtime/desktopSessionDiagnosticLog";
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
-import { lastPagSearchHighlightFromTrace, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
-import { MemoryGraphForceGraphProjector } from "../runtime/memoryGraphForceGraphProjection";
-import { type MemoryGraphData, type MemoryGraphLink, type MemoryGraphNode } from "../runtime/memoryGraphState";
+import { type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
+import {
+  MemoryGraphForceGraphProjector,
+  findCrossNamespaceEdgesAmong,
+  filterMemoryGraphToNamespacesUnion,
+  sliceMemoryGraphToNamespace
+} from "../runtime/memoryGraphForceGraphProjection";
+import {
+  type MemoryGraphData,
+  type MemoryGraphLink,
+  type MemoryGraphNode
+} from "../runtime/memoryGraphState";
 import {
   computeMemoryGraphDataKey,
-  formatGraphRevByNamespaceKey
+  formatMemoryGraphNamespaceSetKey
 } from "../runtime/memoryGraphDataKey";
 import {
   MEM3D_PAG_MAX_NODES,
@@ -114,23 +129,341 @@ function linkIsHighlightHot(
   return h.nodeIds.includes(s) && h.nodeIds.includes(t);
 }
 
+function mem3dForceGraphTestIdForNamespace(ns: string): string {
+  const safe: string = ns.replace(/[^a-zA-Z0-9_-]+/g, "_");
+  return `mem3d-force-graph-${safe}`;
+}
+
+type Mem3dFgPanelProps = {
+  readonly panelReactKey: string;
+  readonly graphTestId: string;
+  readonly width: number;
+  readonly height: number;
+  readonly graphData: MemoryGraphData;
+  readonly heavyGraph: boolean;
+  readonly extremeGraph: boolean;
+  readonly displayNamespace: string;
+  /** В режиме U подсветка берётся по `node.namespace`, иначе по `displayNamespace` панели. */
+  readonly usePerNodeNamespaceHighlight: boolean;
+  readonly highlightsByNsRef: React.MutableRefObject<Record<string, HighlightState | null>>;
+  readonly registerFg: (panelId: string, fg: ForceGraphMethods | undefined) => void;
+  readonly panelId: string;
+  readonly noInitialAutoZoom: boolean;
+  readonly edgeColorsFallback: Mem3dLinkEdgeResolved;
+};
+
+function Mem3dForceGraphPanel(p: Readonly<Mem3dFgPanelProps>): React.JSX.Element {
+  const innerRef = useRef<ForceGraphMethods | undefined>(undefined);
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const initialFitDoneRef = useRef<boolean>(false);
+  const graphNodeCountRef = useRef<number>(0);
+  const prevGraphNodeCountRef = useRef<number>(-1);
+  const [graphEntryPulse, setGraphEntryPulse] = useState<boolean>(false);
+  const [localEdgeColors, setLocalEdgeColors] = useState<Mem3dLinkEdgeResolved>(p.edgeColorsFallback);
+
+  useLayoutEffect((): void | (() => void) => {
+    p.registerFg(p.panelId, innerRef.current);
+    const raf: number = window.requestAnimationFrame((): void => {
+      p.registerFg(p.panelId, innerRef.current);
+    });
+    return (): void => {
+      window.cancelAnimationFrame(raf);
+      p.registerFg(p.panelId, undefined);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- регистрация fg по panelId/reactKey/размерам графа
+  }, [p.panelId, p.registerFg, p.panelReactKey, p.graphData.nodes.length, p.graphData.links.length]);
+
+  useLayoutEffect((): void => {
+    const host: HTMLDivElement | null = hostRef.current;
+    if (!host) {
+      return;
+    }
+    setLocalEdgeColors(resolveMem3dLinkEdgeColors(host));
+  }, [p.edgeColorsFallback, p.width, p.height, p.panelReactKey]);
+
+  useEffect((): void => {
+    graphNodeCountRef.current = p.graphData.nodes.length;
+  }, [p.graphData.nodes.length]);
+
+  useEffect((): void | (() => void) => {
+    const n: number = p.graphData.nodes.length;
+    const prev: number = prevGraphNodeCountRef.current;
+    prevGraphNodeCountRef.current = n;
+    if (prev >= 0 && n > prev) {
+      setGraphEntryPulse(true);
+      const tid: number = window.setTimeout((): void => {
+        setGraphEntryPulse(false);
+      }, 500);
+      return (): void => {
+        window.clearTimeout(tid);
+      };
+    }
+    return;
+  }, [p.graphData.nodes.length]);
+
+  function highlightKeyForNode(node: MemoryGraphNode): string {
+    if (p.usePerNodeNamespaceHighlight) {
+      const ns: string = node.namespace ?? "";
+      return ns.length > 0 ? ns : p.displayNamespace;
+    }
+    return p.displayNamespace;
+  }
+
+  function highlightForNode(node: MemoryGraphNode): HighlightState | null {
+    const k: string = highlightKeyForNode(node);
+    return p.highlightsByNsRef.current[k] ?? null;
+  }
+
+  function getGlowForNode(node: MemoryGraphNode): { readonly alive: boolean; readonly glow: number } {
+    const h: HighlightState | null = highlightForNode(node);
+    const atMs: number = nowMs();
+    const alive: boolean = h !== null && isAlive(h, atMs);
+    const glow: number = h !== null && alive ? intensity01(h, atMs) : 0;
+    return { alive, glow };
+  }
+
+  function freezeGraphAtCenteredCoordinates(fg: ForceGraphMethods): void {
+    if (p.graphData.nodes.length === 0) {
+      return;
+    }
+    const center = p.graphData.nodes.reduce(
+      (acc, node) => ({
+        x: acc.x + coordinateOrZero(node.x),
+        y: acc.y + coordinateOrZero(node.y),
+        z: acc.z + coordinateOrZero(node.z)
+      }),
+      { x: 0, y: 0, z: 0 }
+    );
+    const nNodes: number = p.graphData.nodes.length;
+    const centerX: number = center.x / nNodes;
+    const centerY: number = center.y / nNodes;
+    const centerZ: number = center.z / nNodes;
+    for (const node of p.graphData.nodes) {
+      const x: number = coordinateOrZero(node.x) - centerX;
+      const y: number = coordinateOrZero(node.y) - centerY;
+      const z: number = coordinateOrZero(node.z) - centerZ;
+      node.x = x;
+      node.y = y;
+      node.z = z;
+      node.fx = x;
+      node.fy = y;
+      node.fz = z;
+    }
+    fg.pauseAnimation();
+    fg.refresh();
+  }
+
+  return (
+    <div
+      ref={hostRef}
+      data-testid={p.graphTestId}
+      className={graphEntryPulse ? "mem3dView mem3dGraphEntryPulse" : "mem3dView"}
+      style={{
+        flex: 1,
+        minWidth: 0,
+        minHeight: GRAPH_VIEWPORT_MIN_H,
+        borderRadius: 16,
+        overflow: "hidden",
+        border: "1px solid var(--candy-border)",
+        background: "rgba(255,255,255,0.35)"
+      }}
+    >
+      <ForceGraph3D
+        key={p.panelReactKey}
+        ref={innerRef}
+        width={p.width}
+        height={p.height}
+        graphData={p.graphData as unknown as { nodes: object[]; links: object[] }}
+        backgroundColor="rgba(0,0,0,0)"
+        warmupTicks={p.extremeGraph ? 24 : p.heavyGraph ? 40 : 80}
+        cooldownTicks={p.extremeGraph ? 40 : p.heavyGraph ? 60 : 120}
+        d3VelocityDecay={0.9}
+        enableNodeDrag={false}
+        enableNavigationControls
+        nodeLabel={(n: unknown) => {
+          const node: MemoryGraphNode = n as MemoryGraphNode;
+          const h: HighlightState | null = highlightForNode(node);
+          return h !== null && h.nodeIds.includes(node.id)
+            ? `${node.label}\n${node.id}\n${h.reason}`
+            : `${node.label}\n${node.id}`;
+        }}
+        nodeVal={(n: unknown) => {
+          const node: MemoryGraphNode = n as MemoryGraphNode;
+          const { alive, glow } = getGlowForNode(node);
+          const base: number = node.level === "A" ? 9 : node.level === "B" ? 7 : 5;
+          const h: HighlightState | null = highlightForNode(node);
+          const hot: boolean = alive && h !== null && h.nodeIds.includes(node.id);
+          return hot ? base + glow * 10 : base;
+        }}
+        nodeColor={(n: unknown) => {
+          const node: MemoryGraphNode = n as MemoryGraphNode;
+          const { alive } = getGlowForNode(node);
+          const base: string = levelColor(node.level);
+          const h: HighlightState | null = highlightForNode(node);
+          const hot: boolean = alive && h !== null && h.nodeIds.includes(node.id);
+          return hot ? MEM3D_HOT_NODE : base;
+        }}
+        linkWidth={(l: unknown) => {
+          const link: MemoryGraphLink = l as MemoryGraphLink;
+          const sId: string = linkEndpointId(link.source as string | { id?: string } | object);
+          const tId: string = linkEndpointId(link.target as string | { id?: string } | object);
+          const sn: MemoryGraphNode | undefined = p.graphData.nodes.find((x) => x.id === sId);
+          const tn: MemoryGraphNode | undefined = p.graphData.nodes.find((x) => x.id === tId);
+          const hS: HighlightState | null =
+            sn !== undefined ? highlightForNode(sn) : p.highlightsByNsRef.current[p.displayNamespace] ?? null;
+          const hT: HighlightState | null =
+            tn !== undefined ? highlightForNode(tn) : p.highlightsByNsRef.current[p.displayNamespace] ?? null;
+          const hPick: HighlightState | null = hS ?? hT;
+          let bestGlow: number = 0;
+          let bestAlive: boolean = false;
+          for (const x of [sn, tn]) {
+            if (x === undefined) {
+              continue;
+            }
+            const g: { readonly alive: boolean; readonly glow: number } = getGlowForNode(x);
+            if (g.glow > bestGlow) {
+              bestGlow = g.glow;
+              bestAlive = g.alive;
+            }
+          }
+          const hot: boolean =
+            hPick !== null && linkIsHighlightHot(link, hPick, bestAlive) && (sn !== undefined || tn !== undefined);
+          return mem3dLinkWidth(hot, bestGlow);
+        }}
+        linkColor={(l: unknown) => {
+          const link: MemoryGraphLink = l as MemoryGraphLink;
+          const sId: string = linkEndpointId(link.source as string | { id?: string } | object);
+          const tId: string = linkEndpointId(link.target as string | { id?: string } | object);
+          const sn: MemoryGraphNode | undefined = p.graphData.nodes.find((x) => x.id === sId);
+          const tn: MemoryGraphNode | undefined = p.graphData.nodes.find((x) => x.id === tId);
+          const hS: HighlightState | null =
+            sn !== undefined ? highlightForNode(sn) : p.highlightsByNsRef.current[p.displayNamespace] ?? null;
+          const hT: HighlightState | null =
+            tn !== undefined ? highlightForNode(tn) : p.highlightsByNsRef.current[p.displayNamespace] ?? null;
+          const hPick: HighlightState | null = hS ?? hT;
+          let bestGlow: number = 0;
+          let bestAlive: boolean = false;
+          for (const x of [sn, tn]) {
+            if (x === undefined) {
+              continue;
+            }
+            const g: { readonly alive: boolean; readonly glow: number } = getGlowForNode(x);
+            if (g.glow > bestGlow) {
+              bestGlow = g.glow;
+              bestAlive = g.alive;
+            }
+          }
+          const hot: boolean =
+            hPick !== null && linkIsHighlightHot(link, hPick, bestAlive) && (sn !== undefined || tn !== undefined);
+          return hot
+            ? mem3dHotLinkRgba(localEdgeColors.hotRgbTriplet, bestGlow)
+            : localEdgeColors.defaultCssColor;
+        }}
+        linkDirectionalParticles={(l: unknown) => {
+          const link: MemoryGraphLink = l as MemoryGraphLink;
+          const sId: string = linkEndpointId(link.source as string | { id?: string } | object);
+          const tId: string = linkEndpointId(link.target as string | { id?: string } | object);
+          const sn: MemoryGraphNode | undefined = p.graphData.nodes.find((x) => x.id === sId);
+          const tn: MemoryGraphNode | undefined = p.graphData.nodes.find((x) => x.id === tId);
+          const hS: HighlightState | null =
+            sn !== undefined ? highlightForNode(sn) : p.highlightsByNsRef.current[p.displayNamespace] ?? null;
+          const hT: HighlightState | null =
+            tn !== undefined ? highlightForNode(tn) : p.highlightsByNsRef.current[p.displayNamespace] ?? null;
+          const hPick: HighlightState | null = hS ?? hT;
+          let bestAlive: boolean = false;
+          for (const x of [sn, tn]) {
+            if (x === undefined) {
+              continue;
+            }
+            const g: { readonly alive: boolean; readonly glow: number } = getGlowForNode(x);
+            if (g.alive) {
+              bestAlive = true;
+            }
+          }
+          const hot: boolean =
+            hPick !== null && linkIsHighlightHot(link, hPick, bestAlive) && (sn !== undefined || tn !== undefined);
+          if (!hot) {
+            return mem3dColdLinkDirectionalParticles(p.heavyGraph);
+          }
+          return p.heavyGraph ? PAG_3D_HEAVY_HIGHLIGHT_LINK_PARTICLES : 2;
+        }}
+        linkDirectionalParticleWidth={(l: unknown) => {
+          const link: MemoryGraphLink = l as MemoryGraphLink;
+          const sId: string = linkEndpointId(link.source as string | { id?: string } | object);
+          const tId: string = linkEndpointId(link.target as string | { id?: string } | object);
+          const sn: MemoryGraphNode | undefined = p.graphData.nodes.find((x) => x.id === sId);
+          const tn: MemoryGraphNode | undefined = p.graphData.nodes.find((x) => x.id === tId);
+          const hS: HighlightState | null =
+            sn !== undefined ? highlightForNode(sn) : p.highlightsByNsRef.current[p.displayNamespace] ?? null;
+          const hT: HighlightState | null =
+            tn !== undefined ? highlightForNode(tn) : p.highlightsByNsRef.current[p.displayNamespace] ?? null;
+          const hPick: HighlightState | null = hS ?? hT;
+          let bestAlive: boolean = false;
+          for (const x of [sn, tn]) {
+            if (x === undefined) {
+              continue;
+            }
+            const g: { readonly alive: boolean; readonly glow: number } = getGlowForNode(x);
+            if (g.alive) {
+              bestAlive = true;
+            }
+          }
+          const hot: boolean =
+            hPick !== null && linkIsHighlightHot(link, hPick, bestAlive) && (sn !== undefined || tn !== undefined);
+          if (hot) {
+            return MEM3D_LINK_PARTICLE_WIDTH_HOT;
+          }
+          return mem3dColdLinkDirectionalParticles(p.heavyGraph) > 0
+            ? MEM3D_LINK_PARTICLE_WIDTH_NEURON
+            : 0;
+        }}
+        onEngineStop={() => {
+          if (initialFitDoneRef.current) {
+            return;
+          }
+          const fg: ForceGraphMethods | undefined = innerRef.current;
+          if (typeof fg === "undefined") {
+            return;
+          }
+          freezeGraphAtCenteredCoordinates(fg);
+          if (!p.noInitialAutoZoom) {
+            fg.zoomToFit(650, 90);
+          }
+          initialFitDoneRef.current = true;
+        }}
+      />
+    </div>
+  );
+}
+
+type LayoutPanelSpec = {
+  readonly panelId: string;
+  readonly graphTestId: string;
+  readonly displayNamespace: string;
+  readonly graphData: MemoryGraphData;
+  readonly reactKey: string;
+};
+
 export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Element {
   const { noInitialAutoZoom = true } = p;
   const s: ReturnType<typeof useDesktopSession> = useDesktopSession();
-  const ref = useRef<ForceGraphMethods | undefined>(undefined);
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const highlightRef = useRef<HighlightState | null>(null);
+  const layoutHostRef = useRef<HTMLDivElement | null>(null);
+  const highlightsByNsRef = useRef<Record<string, HighlightState | null>>({});
   const highlightFrameRef = useRef<number | null>(null);
   const lastHighlightRefreshMsRef = useRef<number>(0);
-  const graphNodeCountRef = useRef<number>(0);
-  const initialFitDoneRef = useRef<boolean>(false);
-  const prevGraphNodeCountRef = useRef<number>(-1);
-  const [graphEntryPulse, setGraphEntryPulse] = useState<boolean>(false);
+  const throttleNodeCountRef = useRef<number>(0);
+  const fgRegistryRef = useRef<Map<string, ForceGraphMethods>>(new Map());
+  const crossEdgesRef = useRef<readonly MemoryGraphLink[]>([]);
+  const fDiagnosticSentRef = useRef<boolean>(false);
+
   const [viewSize, setViewSize] = useState<{ w: number; h: number }>({
     w: 800,
     h: 560
   });
-  const [edgeColors, setEdgeColors] = useState<Mem3dLinkEdgeResolved>(MEM3D_LINK_EDGE_FALLBACK);
+  const [edgeColorsFallback, setEdgeColorsFallback] = useState<Mem3dLinkEdgeResolved>(MEM3D_LINK_EDGE_FALLBACK);
+  const [resolution, setResolution] = useState<Mem3dCrossProjectResolution>("none");
+  const [fallbackHiddenCount, setFallbackHiddenCount] = useState<number>(0);
+
   const snap: ReturnType<typeof useDesktopSession>["pagGraph"]["activeSnapshot"] = s.pagGraph.activeSnapshot;
 
   const namespaces: readonly string[] = useMemo((): readonly string[] => {
@@ -148,19 +481,43 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     return out;
   }, [s.registry, s.selectedProjectIds]);
 
-  const mergedFromSnap: MemoryGraphData = snap?.merged ?? EMPTY_MEMORY_GRAPH;
-  const primaryNamespace: string = namespaces[0] ?? "default";
-  const graph3d: MemoryGraphData = useMemo(
-    (): MemoryGraphData =>
-      MemoryGraphForceGraphProjector.project(mergedFromSnap, primaryNamespace),
-    [mergedFromSnap, primaryNamespace]
+  const projectsKey: string = useMemo((): string => namespaces.join("\u0000"), [namespaces]);
+
+  /** Подпись набора NS для `graphDataKey` / remount (OR-011); порядок в `namespaces` не важен. */
+  const memoryGraphNamespaceSetKey: string = useMemo(
+    (): string => formatMemoryGraphNamespaceSetKey(namespaces),
+    [namespaces]
   );
 
-  const graphRevSig: string =
-    snap == null ? "" : formatGraphRevByNamespaceKey(snap.graphRevByNamespace);
+  const mergedFromSnap: MemoryGraphData = snap?.merged ?? EMPTY_MEMORY_GRAPH;
+
+  const crossEdges: readonly MemoryGraphLink[] = useMemo(
+    (): readonly MemoryGraphLink[] => findCrossNamespaceEdgesAmong(mergedFromSnap, namespaces),
+    [mergedFromSnap, namespaces]
+  );
+  crossEdgesRef.current = crossEdges;
+
+  const needsUserModal: boolean = namespaces.length >= 2 && crossEdges.length > 0;
+
+  const unifiedPrimaryNs: string = useMemo((): string => {
+    const xs: string[] = [...namespaces].filter((x) => x.length > 0).sort();
+    return xs[0] ?? "default";
+  }, [namespaces]);
+
+  const layoutKind: "single" | "multi_separate" | "multi_unified" = useMemo((): "single" | "multi_separate" | "multi_unified" => {
+    if (namespaces.length <= 1) {
+      return "single";
+    }
+    if (needsUserModal && resolution === "U") {
+      return "multi_unified";
+    }
+    return "multi_separate";
+  }, [namespaces.length, needsUserModal, resolution]);
+
   const graphDataKey: string = useMemo((): string => {
     return computeMemoryGraphDataKey({
       activeSessionId: s.activeSessionId,
+      namespaceSetKey: memoryGraphNamespaceSetKey,
       snap:
         snap == null
           ? null
@@ -170,7 +527,66 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
               graphRevByNamespace: snap.graphRevByNamespace
             }
     });
-  }, [s.activeSessionId, snap == null, snap?.loadState, snap?.pagDatabasePresent, graphRevSig]);
+  }, [s.activeSessionId, snap, memoryGraphNamespaceSetKey]);
+
+  const layoutPanels: readonly LayoutPanelSpec[] = useMemo((): readonly LayoutPanelSpec[] => {
+    const baseKey: string = `${graphDataKey}::${layoutKind}::${resolution}`;
+
+    if (namespaces.length <= 1) {
+      const ns: string = namespaces[0] ?? "default";
+      const gd: MemoryGraphData = MemoryGraphForceGraphProjector.project(mergedFromSnap, ns);
+      return [
+        {
+          panelId: `single:${ns}`,
+          graphTestId: mem3dForceGraphTestIdForNamespace(ns || "default"),
+          displayNamespace: ns,
+          graphData: gd,
+          reactKey: `${baseKey}::${ns}`
+        }
+      ];
+    }
+    if (layoutKind === "multi_unified") {
+      const union: MemoryGraphData = filterMemoryGraphToNamespacesUnion(mergedFromSnap, namespaces);
+      const gd: MemoryGraphData = MemoryGraphForceGraphProjector.project(union, unifiedPrimaryNs);
+      return [
+        {
+          panelId: "unified",
+          graphTestId: "mem3d-force-graph-unified",
+          displayNamespace: unifiedPrimaryNs,
+          graphData: gd,
+          reactKey: `${baseKey}::unified`
+        }
+      ];
+    }
+    const out: LayoutPanelSpec[] = [];
+    for (const ns of namespaces) {
+      if (ns.length === 0) {
+        continue;
+      }
+      const sliced: MemoryGraphData = sliceMemoryGraphToNamespace(mergedFromSnap, ns);
+      const gd: MemoryGraphData = MemoryGraphForceGraphProjector.project(sliced, ns);
+      out.push({
+        panelId: `ns:${ns}`,
+        graphTestId: mem3dForceGraphTestIdForNamespace(ns),
+        displayNamespace: ns,
+        graphData: gd,
+        reactKey: `${baseKey}::${ns}`
+      });
+    }
+    return out;
+  }, [mergedFromSnap, namespaces, graphDataKey, layoutKind, resolution, unifiedPrimaryNs]);
+
+  throttleNodeCountRef.current = layoutPanels.reduce(
+    (m, lp) => Math.max(m, lp.graphData.nodes.length),
+    0
+  );
+
+  const cpMode = deriveCrossProjectDisplayMode({
+    resolution,
+    needsUserModal,
+    hiddenCrossEdgesCount: fallbackHiddenCount,
+    nowMs: nowMs()
+  });
 
   const pageView: "loading" | "error" | "missingPagEmpty" | "missingPagTrace" | "empty" | "ready" = (() => {
     if (snap == null) {
@@ -215,36 +631,81 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
   const nodeCount: number = mergedFromSnap.nodes.length;
   const heavyGraph: boolean = nodeCount > PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD;
   const extremeGraph: boolean = nodeCount > PAG_3D_EXTREME_GRAPH_NODE_THRESHOLD;
-  const atPagNodeCap: boolean = nodeCount >= MEM3D_PAG_MAX_NODES;
+
+  const nCols: number = Math.max(1, layoutPanels.length);
+  const colW: number = Math.max(1, Math.floor(viewSize.w / nCols));
+
+  const registerFg = useCallback((panelId: string, fg: ForceGraphMethods | undefined): void => {
+    if (fg === undefined) {
+      fgRegistryRef.current.delete(panelId);
+    } else {
+      fgRegistryRef.current.set(panelId, fg);
+    }
+  }, []);
 
   useEffect((): void => {
-    graphNodeCountRef.current = graph3d.nodes.length;
-  }, [graph3d.nodes.length]);
+    setResolution("none");
+    setFallbackHiddenCount(0);
+    fDiagnosticSentRef.current = false;
+  }, [projectsKey]);
+
+  const userDecisionTimeoutMs: number = Math.max(
+    1,
+    Math.floor((s.desktopConfig?.user_decision_timeout_s ?? 300) * 1000)
+  );
 
   useEffect((): void | (() => void) => {
-    const n: number = graph3d.nodes.length;
-    const prev: number = prevGraphNodeCountRef.current;
-    prevGraphNodeCountRef.current = n;
-    if (prev >= 0 && n > prev) {
-      setGraphEntryPulse(true);
-      const tid: number = window.setTimeout((): void => {
-        setGraphEntryPulse(false);
-      }, 500);
-      return (): void => {
-        window.clearTimeout(tid);
-      };
+    if (!needsUserModal || resolution !== "none") {
+      return;
     }
-    return;
-  }, [graph3d.nodes.length]);
+    const t: number = window.setTimeout((): void => {
+      setResolution("F");
+      setFallbackHiddenCount(crossEdgesRef.current.length);
+    }, userDecisionTimeoutMs);
+    return (): void => {
+      window.clearTimeout(t);
+    };
+  }, [needsUserModal, resolution, userDecisionTimeoutMs, projectsKey]);
 
   useEffect((): void => {
-    if (s.activeSessionId) {
-      initialFitDoneRef.current = false;
+    if (resolution !== "F" || !needsUserModal) {
+      return;
     }
-  }, [s.activeSessionId]);
+    if (fDiagnosticSentRef.current) {
+      return;
+    }
+    fDiagnosticSentRef.current = true;
+    const rd: string | null = s.runtimeDir;
+    if (rd == null || rd.length === 0) {
+      return;
+    }
+    const timeoutS: number = Math.max(1, Math.floor(s.desktopConfig?.user_decision_timeout_s ?? 300));
+    const nsForDiag: string = namespaces.length > 0 ? namespaces.join(",") : unifiedPrimaryNs;
+    const iso: string = new Date().toISOString();
+    const lineTimeout: string = formatCrossProjectEdgeDecisionTimeoutDiagnosticLine({
+      isoTimestamp: iso,
+      hiddenCrossEdgesCount: fallbackHiddenCount,
+      timeoutS,
+      namespace: nsForDiag
+    });
+    void window.ailitDesktop.appendSessionDiagnostic({
+      runtimeDir: rd,
+      chatId: s.chatId,
+      lines: [lineTimeout]
+    });
+  }, [
+    resolution,
+    needsUserModal,
+    fallbackHiddenCount,
+    namespaces,
+    s.runtimeDir,
+    s.chatId,
+    s.desktopConfig?.user_decision_timeout_s,
+    unifiedPrimaryNs
+  ]);
 
   useLayoutEffect((): void | (() => void) => {
-    const el: HTMLDivElement | null = hostRef.current;
+    const el: HTMLDivElement | null = layoutHostRef.current;
     if (!el) {
       return;
     }
@@ -259,13 +720,15 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     const ro: ResizeObserver = new ResizeObserver((entries) => {
       if (entries.length > 0) {
         applySize();
-        const el2: HTMLDivElement | null = hostRef.current;
+        const el2: HTMLDivElement | null = layoutHostRef.current;
         if (el2) {
           const w2: number = Math.max(1, Math.floor(el2.clientWidth));
           const h2: number = Math.max(GRAPH_VIEWPORT_MIN_H, Math.floor(el2.clientHeight) || 560);
           if (w2 > 2 && h2 > 2) {
             window.requestAnimationFrame((): void => {
-              ref.current?.refresh();
+              for (const fg of fgRegistryRef.current.values()) {
+                fg.refresh();
+              }
             });
           }
         }
@@ -279,14 +742,13 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
   }, []);
 
   useLayoutEffect((): void => {
-    const host: HTMLDivElement | null = hostRef.current;
+    const host: HTMLDivElement | null = layoutHostRef.current;
     if (!host) {
       return;
     }
-    setEdgeColors(resolveMem3dLinkEdgeColors(host));
-  }, [graphDataKey, viewSize.w, viewSize.h]);
+    setEdgeColorsFallback(resolveMem3dLinkEdgeColors(host));
+  }, [graphDataKey, viewSize.w, viewSize.h, layoutPanels.length, layoutKind]);
 
-  /** G16.4: PAG/resize — явный refresh WebGL при открытой панели и появившихся нодах. */
   useLayoutEffect((): void => {
     if (!s.memoryPanelOpen) {
       return;
@@ -294,17 +756,15 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     if (viewSize.w < 2 || viewSize.h < 2) {
       return;
     }
-    if (graph3d.nodes.length === 0) {
-      return;
-    }
-    const fg: ForceGraphMethods | undefined = ref.current;
-    if (typeof fg === "undefined") {
+    if (layoutPanels.every((lp) => lp.graphData.nodes.length === 0)) {
       return;
     }
     window.requestAnimationFrame((): void => {
-      ref.current?.refresh();
+      for (const fg of fgRegistryRef.current.values()) {
+        fg.refresh();
+      }
     });
-  }, [s.memoryPanelOpen, graph3d.nodes.length, viewSize.w, viewSize.h, graphDataKey]);
+  }, [s.memoryPanelOpen, layoutPanels, viewSize.w, viewSize.h, graphDataKey]);
 
   useEffect((): void | (() => void) => {
     return (): void => {
@@ -314,27 +774,24 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     };
   }, []);
 
-  useEffect((): void => {
-    if (s.rawTraceRows.length === 0) {
-      return;
+  function anyHighlightAlive(atMs: number): boolean {
+    for (const k of Object.keys(highlightsByNsRef.current)) {
+      const h: HighlightState | null = highlightsByNsRef.current[k] ?? null;
+      if (h !== null && isAlive(h, atMs)) {
+        return true;
+      }
     }
-    const ev: PagSearchHighlightV1 | null = lastPagSearchHighlightFromTrace(
-      s.rawTraceRows as readonly Record<string, unknown>[],
-      namespaces[0] ?? "default"
-    );
-    if (!ev) {
-      return;
-    }
-    highlightRef.current = { ...ev, startedAtMs: nowMs() };
-    runHighlightRefreshLoop();
-  }, [namespaces, s.rawTraceRows]);
+    return false;
+  }
 
-  function getGlow(): { readonly alive: boolean; readonly glow: number } {
-    const h: HighlightState | null = highlightRef.current;
-    const atMs: number = nowMs();
-    const alive: boolean = h !== null && isAlive(h, atMs);
-    const glow: number = h !== null && alive ? intensity01(h, atMs) : 0;
-    return { alive, glow };
+  function pruneDeadHighlights(): void {
+    const t: number = nowMs();
+    for (const k of Object.keys(highlightsByNsRef.current)) {
+      const h: HighlightState | null = highlightsByNsRef.current[k] ?? null;
+      if (h !== null && !isAlive(h, t)) {
+        delete highlightsByNsRef.current[k];
+      }
+    }
   }
 
   function runHighlightRefreshLoop(): void {
@@ -342,36 +799,37 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       window.cancelAnimationFrame(highlightFrameRef.current);
     }
     const tick = (): void => {
-      const fg = ref.current;
-      const h: HighlightState | null = highlightRef.current;
-      const n: number = graphNodeCountRef.current;
+      const n: number = throttleNodeCountRef.current;
       const throttle: boolean = n > PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD;
       const minMs: number = n > PAG_3D_EXTREME_GRAPH_NODE_THRESHOLD ? 96 : 48;
-      if (typeof fg !== "undefined") {
-        const t: number = nowMs();
+      const fgs: ForceGraphMethods[] = [...fgRegistryRef.current.values()];
+      const t: number = nowMs();
+      if (fgs.length > 0) {
         if (throttle) {
           if (t - lastHighlightRefreshMsRef.current < minMs) {
-            if (h !== null && isAlive(h, t)) {
+            if (anyHighlightAlive(t)) {
               highlightFrameRef.current = window.requestAnimationFrame(tick);
               return;
             }
           } else {
             lastHighlightRefreshMsRef.current = t;
-            fg.refresh();
+            for (const fg of fgs) {
+              fg.refresh();
+            }
           }
         } else {
           lastHighlightRefreshMsRef.current = t;
-          fg.refresh();
+          for (const fg of fgs) {
+            fg.refresh();
+          }
         }
       }
-      if (h !== null && isAlive(h, nowMs())) {
+      if (anyHighlightAlive(nowMs())) {
         highlightFrameRef.current = window.requestAnimationFrame(tick);
         return;
       }
-      highlightRef.current = null;
-      if (typeof fg !== "undefined") {
-        const t2: number = nowMs();
-        lastHighlightRefreshMsRef.current = t2;
+      pruneDeadHighlights();
+      for (const fg of fgs) {
         fg.refresh();
       }
       highlightFrameRef.current = null;
@@ -379,51 +837,64 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     highlightFrameRef.current = window.requestAnimationFrame(tick);
   }
 
-  function focusRoot(): void {
-    const fg: ForceGraphMethods | undefined = ref.current;
-    if (typeof fg === "undefined") {
+  useEffect((): void => {
+    if (snap == null) {
       return;
     }
-    fg.zoomToFit(650, 90);
+    const hl: Readonly<Record<string, PagSearchHighlightV1 | null>> = snap.searchHighlightsByNamespace;
+    const targets: readonly string[] = namespaces.length > 0 ? namespaces : ["default"];
+    let any: boolean = false;
+    for (const ns of targets) {
+      const ev: PagSearchHighlightV1 | null = hl[ns] ?? null;
+      if (ev !== null) {
+        highlightsByNsRef.current[ns] = { ...ev, startedAtMs: nowMs() };
+        any = true;
+      } else if (Object.prototype.hasOwnProperty.call(highlightsByNsRef.current, ns)) {
+        delete highlightsByNsRef.current[ns];
+      }
+    }
+    if (any) {
+      runHighlightRefreshLoop();
+    } else {
+      for (const fg of fgRegistryRef.current.values()) {
+        fg.refresh();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runHighlightRefreshLoop только refs
+  }, [snap, namespaces, graphDataKey]);
+
+  function focusRoot(): void {
+    for (const fg of fgRegistryRef.current.values()) {
+      fg.zoomToFit(650, 90);
+    }
   }
 
-  function freezeGraphAtCenteredCoordinates(): void {
-    const fg: ForceGraphMethods | undefined = ref.current;
-    if (typeof fg === "undefined" || graph3d.nodes.length === 0) {
-      return;
-    }
-    const center = graph3d.nodes.reduce(
-      (acc, node) => ({
-        x: acc.x + coordinateOrZero(node.x),
-        y: acc.y + coordinateOrZero(node.y),
-        z: acc.z + coordinateOrZero(node.z)
-      }),
-      { x: 0, y: 0, z: 0 }
-    );
-    const centerX: number = center.x / graph3d.nodes.length;
-    const centerY: number = center.y / graph3d.nodes.length;
-    const centerZ: number = center.z / graph3d.nodes.length;
-    for (const node of graph3d.nodes) {
-      const x: number = coordinateOrZero(node.x) - centerX;
-      const y: number = coordinateOrZero(node.y) - centerY;
-      const z: number = coordinateOrZero(node.z) - centerZ;
-      node.x = x;
-      node.y = y;
-      node.z = z;
-      node.fx = x;
-      node.fy = y;
-      node.fz = z;
-    }
-    fg.pauseAnimation();
-    fg.refresh();
-  }
+  const showCrossModal: boolean = needsUserModal && resolution === "none";
 
   return (
     <div className="mem3dRoot">
-      <section className="card" style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
+      <section
+        className="card"
+        style={{ display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}
+        data-mem3d-cross-pending={cpMode.pending_user_choice ? "true" : "false"}
+        data-mem3d-cross-mode={cpMode.mode}
+      >
         <div className="mem3dHeader cardHeader">3D</div>
         <div className="cardBody" style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-          {atPagNodeCap || (snap != null && snap.atLargeGraphWarning) ? (
+          {cpMode.mode === "F" && cpMode.hidden_cross_edges_count > 0 ? (
+            <div
+              className="errLine"
+              style={{
+                marginBottom: 8,
+                background: "rgba(234, 179, 8, 0.18)",
+                border: "1px solid rgba(234, 179, 8, 0.5)"
+              }}
+            >
+              Режим F: истёк таймаут выбора ({String(s.desktopConfig?.user_decision_timeout_s ?? 300)} с). Скрыто
+              межпроектных рёбер: {String(cpMode.hidden_cross_edges_count)}.
+            </div>
+          ) : null}
+          {snap != null && snap.atLargeGraphWarning ? (
             <div
               className="errLine"
               style={{
@@ -431,9 +902,10 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
                 background: "rgba(234, 179, 8, 0.15)",
                 border: "1px solid rgba(234, 179, 8, 0.45)"
               }}
+              data-testid="mem3d-max-nodes-warning"
             >
-              Граф достиг лимита {MEM3D_PAG_MAX_NODES} нод (PAG) или очень велик — нажмите Refresh для согласования
-              с БД.
+              {snap.warnings.find((w) => w.startsWith("PAG:")) ??
+                `PAG: в merged ${String(snap.merged.nodes.length)} нод (>${String(MEM3D_PAG_MAX_NODES)}). Срез тяжёлый; нажмите Refresh.`}
             </div>
           ) : null}
           {pageView === "error" && err != null ? (
@@ -493,110 +965,76 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
             </div>
           ) : null}
           <div
-            ref={hostRef}
-            className={graphEntryPulse ? "mem3dView mem3dGraphEntryPulse" : "mem3dView"}
+            ref={layoutHostRef}
+            data-testid="mem3d-layout-row"
             style={{
               flex: 1,
               minHeight: GRAPH_VIEWPORT_MIN_H,
-              borderRadius: 16,
-              overflow: "hidden",
-              border: "1px solid var(--candy-border)",
-              background: "rgba(255,255,255,0.35)"
+              display: "flex",
+              flexDirection: "row",
+              gap: 8,
+              position: "relative"
             }}
           >
-            <ForceGraph3D
-              key={graphDataKey}
-              ref={ref}
-              width={viewSize.w}
-              height={viewSize.h}
-              graphData={graph3d as unknown as { nodes: object[]; links: object[] }}
-              backgroundColor="rgba(0,0,0,0)"
-              warmupTicks={extremeGraph ? 24 : heavyGraph ? 40 : 80}
-              cooldownTicks={extremeGraph ? 40 : heavyGraph ? 60 : 120}
-              d3VelocityDecay={0.9}
-              enableNodeDrag={false}
-              enableNavigationControls
-              nodeLabel={(n: unknown) => {
-                const node: MemoryGraphNode = n as MemoryGraphNode;
-                const h: HighlightState | null = highlightRef.current;
-                return h !== null && h.nodeIds.includes(node.id)
-                  ? `${node.label}\n${node.id}\n${h.reason}`
-                  : `${node.label}\n${node.id}`;
-              }}
-              nodeVal={(n: unknown) => {
-                const node: MemoryGraphNode = n as MemoryGraphNode;
-                const { alive, glow } = getGlow();
-                const base: number = node.level === "A" ? 9 : node.level === "B" ? 7 : 5;
-                const h: HighlightState | null = highlightRef.current;
-                const hot: boolean = alive && h !== null && h.nodeIds.includes(node.id);
-                return hot ? base + glow * 10 : base;
-              }}
-              nodeColor={(n: unknown) => {
-                const node: MemoryGraphNode = n as MemoryGraphNode;
-                const { alive } = getGlow();
-                const base: string = levelColor(node.level);
-                const h: HighlightState | null = highlightRef.current;
-                const hot: boolean = alive && h !== null && h.nodeIds.includes(node.id);
-                return hot ? MEM3D_HOT_NODE : base;
-              }}
-              linkWidth={(l: unknown) => {
-                const link: MemoryGraphLink = l as MemoryGraphLink;
-                const { alive, glow } = getGlow();
-                const h: HighlightState | null = highlightRef.current;
-                const hot: boolean =
-                  h !== null && linkIsHighlightHot(link, h, alive);
-                return mem3dLinkWidth(hot, glow);
-              }}
-              linkColor={(l: unknown) => {
-                const link: MemoryGraphLink = l as MemoryGraphLink;
-                const { alive, glow } = getGlow();
-                const h: HighlightState | null = highlightRef.current;
-                const hot: boolean =
-                  h !== null && linkIsHighlightHot(link, h, alive);
-                return hot
-                  ? mem3dHotLinkRgba(edgeColors.hotRgbTriplet, glow)
-                  : edgeColors.defaultCssColor;
-              }}
-              linkDirectionalParticles={(l: unknown) => {
-                const link: MemoryGraphLink = l as MemoryGraphLink;
-                const { alive } = getGlow();
-                const h: HighlightState | null = highlightRef.current;
-                const hot: boolean =
-                  h !== null && linkIsHighlightHot(link, h, alive);
-                if (!hot) {
-                  return mem3dColdLinkDirectionalParticles(heavyGraph);
-                }
-                return heavyGraph
-                  ? PAG_3D_HEAVY_HIGHLIGHT_LINK_PARTICLES
-                  : 2;
-              }}
-              linkDirectionalParticleWidth={(l: unknown) => {
-                const link: MemoryGraphLink = l as MemoryGraphLink;
-                const { alive } = getGlow();
-                const h: HighlightState | null = highlightRef.current;
-                const hot: boolean =
-                  h !== null && linkIsHighlightHot(link, h, alive);
-                if (hot) {
-                  return MEM3D_LINK_PARTICLE_WIDTH_HOT;
-                }
-                return mem3dColdLinkDirectionalParticles(heavyGraph) > 0
-                  ? MEM3D_LINK_PARTICLE_WIDTH_NEURON
-                  : 0;
-              }}
-              onEngineStop={() => {
-                if (initialFitDoneRef.current) {
-                  return;
-                }
-                if (typeof ref.current === "undefined") {
-                  return;
-                }
-                freezeGraphAtCenteredCoordinates();
-                if (!noInitialAutoZoom) {
-                  ref.current.zoomToFit(650, 90);
-                }
-                initialFitDoneRef.current = true;
-              }}
-            />
+            {layoutPanels.map((lp) => (
+              <Mem3dForceGraphPanel
+                key={lp.reactKey}
+                panelReactKey={lp.reactKey}
+                graphTestId={lp.graphTestId}
+                width={colW}
+                height={viewSize.h}
+                graphData={lp.graphData}
+                heavyGraph={heavyGraph}
+                extremeGraph={extremeGraph}
+                displayNamespace={lp.displayNamespace}
+                usePerNodeNamespaceHighlight={layoutKind === "multi_unified"}
+                highlightsByNsRef={highlightsByNsRef}
+                registerFg={registerFg}
+                panelId={lp.panelId}
+                noInitialAutoZoom={noInitialAutoZoom}
+                edgeColorsFallback={edgeColorsFallback}
+              />
+            ))}
+            {showCrossModal ? (
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="mem3d-cross-project-title"
+                data-testid="mem3d-cross-project-modal"
+                data-mem3d-i18n-key={MEM3D_CROSS_PROJECT_MODAL_I18N_KEY}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  background: "rgba(15, 15, 25, 0.45)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  zIndex: 20,
+                  borderRadius: 12
+                }}
+              >
+                <div
+                  className="card"
+                  style={{ maxWidth: 420, margin: 16, padding: "1rem 1.25rem" }}
+                >
+                  <h2 id="mem3d-cross-project-title" style={{ marginTop: 0, fontSize: "1.05rem" }}>
+                    Межпроектные рёбра
+                  </h2>
+                  <p style={{ marginBottom: 12, lineHeight: 1.45 }}>
+                    Обнаружены рёбра между выбранными namespace. U — один граф с межпроектными связями; S — отдельные
+                    графы без них. Без выбора до таймаута будет режим F.
+                  </p>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <button className="primaryButton smBtn" type="button" onClick={() => setResolution("U")}>
+                      Режим U
+                    </button>
+                    <button className="primaryButton smBtn" type="button" onClick={() => setResolution("S")}>
+                      Режим S
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </section>

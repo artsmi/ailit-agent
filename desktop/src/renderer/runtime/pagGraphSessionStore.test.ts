@@ -20,7 +20,8 @@ import {
   createEmptyPagGraphSessionSnapshot,
   PagGraphBySessionMap,
   PagGraphSessionFullLoad,
-  PagGraphSessionTraceMerge
+  PagGraphSessionTraceMerge,
+  type PagGraphTraceMergeEmitHooks
 } from "./pagGraphSessionStore";
 
 function rowPagNodeUpsert(
@@ -60,6 +61,41 @@ function rowW14GraphHighlight(namespace: string, nodeIds: readonly string[]): Re
         ttl_ms: 3000
       }
     }
+  };
+}
+
+function rowMemoryQueryStart(chatId: string): Record<string, unknown> {
+  return {
+    chat_id: chatId,
+    type: "service.request",
+    from_agent: `AgentWork:${chatId}`,
+    to_agent: "AgentMemory:mem",
+    payload: { service: "memory.query_context", query_id: "q-hl" }
+  };
+}
+
+/** Триггер B: `user_prompt` в нормализации trace (`traceNormalize`) перед новым циклом AM. */
+function rowUserPrompt(chatId: string): Record<string, unknown> {
+  return {
+    chat_id: chatId,
+    type: "action.start",
+    message_id: `msg-user-${chatId}`,
+    created_at: "2026-05-05T00:00:00Z",
+    from_agent: "User:desktop",
+    to_agent: `AgentWork:${chatId}`,
+    payload: {
+      action: "work.handle_user_prompt",
+      prompt: "stub"
+    }
+  };
+}
+
+function mergeHooksForHighlightGating(chatId: string, defaultNs: string): PagGraphTraceMergeEmitHooks {
+  return {
+    chatId,
+    sessionId: "sess-hl",
+    graphRevBeforeByNamespace: {},
+    defaultNamespace: defaultNs
   };
 }
 
@@ -518,6 +554,121 @@ describe("pagGraphSessionStore", () => {
       return;
     }
     expect(r.pagSqliteMissing).toBe(true);
+  });
+
+  describe("TC-VITEST-STORE-HL-01", () => {
+    it("applies W14 in snapshot after memory.query_context when gating on", () => {
+      const chatId: string = "chat-hl-01";
+      const ns: string = "ns-hl-01";
+      const rows: Record<string, unknown>[] = [rowMemoryQueryStart(chatId), rowW14GraphHighlight(ns, ["B:gated.py"])];
+      const hooks: PagGraphTraceMergeEmitHooks = mergeHooksForHighlightGating(chatId, ns);
+      const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
+        PagGraphSessionTraceMerge.afterFullLoad({ nodes: [], links: [] }, { [ns]: 1 }, rows, [ns], ns, true, hooks);
+      expect(snap.merged.nodes.map((n) => n.id)).toContain("B:gated.py");
+      expect(snap.searchHighlightsByNamespace[ns]?.nodeIds).toContain("B:gated.py");
+    });
+
+    it("skips W14 before trigger A/B when gating on", () => {
+      const chatId: string = "chat-hl-02";
+      const ns: string = "ns-hl-02";
+      const rows: Record<string, unknown>[] = [
+        rowW14GraphHighlight(ns, ["B:before-trigger.py"]),
+        rowMemoryQueryStart(chatId)
+      ];
+      const hooks: PagGraphTraceMergeEmitHooks = mergeHooksForHighlightGating(chatId, ns);
+      const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
+        PagGraphSessionTraceMerge.afterFullLoad({ nodes: [], links: [] }, { [ns]: 1 }, rows, [ns], ns, true, hooks);
+      expect(snap.merged.nodes.map((n) => n.id)).not.toContain("B:before-trigger.py");
+      expect(snap.searchHighlightsByNamespace[ns]).toBeNull();
+    });
+
+    it("allows highlight after trigger B (user_prompt then memory.query_context then W14)", () => {
+      const chatId: string = "chat-hl-b";
+      const ns: string = "ns-hl-b";
+      const rows: Record<string, unknown>[] = [
+        rowUserPrompt(chatId),
+        rowMemoryQueryStart(chatId),
+        rowW14GraphHighlight(ns, ["B:trigger-b.py"])
+      ];
+      const hooks: PagGraphTraceMergeEmitHooks = mergeHooksForHighlightGating(chatId, ns);
+      const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
+        PagGraphSessionTraceMerge.afterFullLoad({ nodes: [], links: [] }, { [ns]: 1 }, rows, [ns], ns, true, hooks);
+      expect(snap.searchHighlightsByNamespace[ns]?.nodeIds).toContain("B:trigger-b.py");
+      expect(snap.merged.nodes.map((n) => n.id)).toContain("B:trigger-b.py");
+    });
+
+    it("uses highlightGatingChatId when compact observability hooks are absent", () => {
+      const chatId: string = "chat-hl-no-hooks";
+      const ns: string = "ns-hl-no-hooks";
+      const rows: Record<string, unknown>[] = [rowMemoryQueryStart(chatId), rowW14GraphHighlight(ns, ["B:no-emit.py"])];
+      const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> = PagGraphSessionTraceMerge.afterFullLoad(
+        { nodes: [], links: [] },
+        { [ns]: 1 },
+        rows,
+        [ns],
+        ns,
+        true,
+        undefined,
+        chatId
+      );
+      expect(snap.searchHighlightsByNamespace[ns]?.nodeIds).toContain("B:no-emit.py");
+    });
+  });
+
+  describe("TC-VITEST-NS-01", () => {
+    it("stores W14 for second namespace only in searchHighlightsByNamespace after full load", () => {
+      const chatId: string = "chat-ns-01";
+      const n1: string = "ns-a-hl";
+      const n2: string = "ns-b-hl";
+      const rows: Record<string, unknown>[] = [
+        rowMemoryQueryStart(chatId),
+        rowW14GraphHighlight(n2, ["B:second-only.py"])
+      ];
+      const hooks: PagGraphTraceMergeEmitHooks = mergeHooksForHighlightGating(chatId, n1);
+      const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
+        PagGraphSessionTraceMerge.afterFullLoad(
+          { nodes: [], links: [] },
+          { [n1]: 1, [n2]: 1 },
+          rows,
+          [n1, n2],
+          n1,
+          true,
+          hooks
+        );
+      expect(snap.searchHighlightsByNamespace[n1]).toBeNull();
+      expect(snap.searchHighlightsByNamespace[n2]?.nodeIds).toContain("B:second-only.py");
+      expect(snap.merged.nodes.map((n) => n.id)).toContain("B:second-only.py");
+    });
+
+    it("splits per-namespace W14 on incremental merge", () => {
+      const chatId: string = "chat-ns-inc";
+      const n1: string = "ns-inc-a";
+      const n2: string = "ns-inc-b";
+      const baseRows: Record<string, unknown>[] = [rowMemoryQueryStart(chatId)];
+      const hooks: PagGraphTraceMergeEmitHooks = mergeHooksForHighlightGating(chatId, n1);
+      const snap0: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
+        PagGraphSessionTraceMerge.afterFullLoad(
+          { nodes: [], links: [] },
+          { [n1]: 1, [n2]: 1 },
+          baseRows,
+          [n1, n2],
+          n1,
+          true,
+          hooks
+        );
+      const rowsAll: Record<string, unknown>[] = [
+        ...baseRows,
+        rowW14GraphHighlight(n1, ["B:inc-a.py"]),
+        rowW14GraphHighlight(n2, ["B:inc-b.py"])
+      ];
+      const nxt: ReturnType<typeof PagGraphSessionTraceMerge.applyIncremental> =
+        PagGraphSessionTraceMerge.applyIncremental(snap0, rowsAll, [n1, n2], n1, hooks);
+      expect(nxt.searchHighlightsByNamespace[n1]?.nodeIds).toContain("B:inc-a.py");
+      expect(nxt.searchHighlightsByNamespace[n2]?.nodeIds).toContain("B:inc-b.py");
+      expect(nxt.merged.nodes.map((n) => n.id)).toEqual(
+        expect.arrayContaining(["B:inc-a.py", "B:inc-b.py"])
+      );
+    });
   });
 
   it("afterFullLoadUsesLastApplicableHighlightWhenTailIsPagDeltaOnly", () => {

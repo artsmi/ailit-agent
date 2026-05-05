@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   MemoryGraphForceGraphProjector,
+  findCrossNamespaceEdgesAmong,
+  filterMemoryGraphToNamespacesUnion,
+  sliceMemoryGraphToNamespace,
   traceConnRootNodeId
 } from "./memoryGraphForceGraphProjection";
 import { mergeMemoryGraph, type MemoryGraphData } from "./memoryGraphState";
@@ -83,5 +86,45 @@ describe("memoryGraphForceGraphProjection (UC-04 A, D-TRACE-CONN-1)", () => {
       expect(ids.has(L.source)).toBe(true);
       expect(ids.has(L.target)).toBe(true);
     }
+  });
+});
+
+describe("memoryGraphForceGraphProjection (multi-namespace)", () => {
+  it("findCrossNamespaceEdgesAmong: одно ребро между ns-a и ns-b", () => {
+    const data: MemoryGraphData = {
+      nodes: [
+        { id: "a1", label: "a1", level: "B", namespace: "ns-a" },
+        { id: "b1", label: "b1", level: "B", namespace: "ns-b" }
+      ],
+      links: [{ id: "cross", source: "a1", target: "b1" }]
+    };
+    const cross: readonly unknown[] = findCrossNamespaceEdgesAmong(data, ["ns-a", "ns-b"]);
+    expect(cross).toHaveLength(1);
+  });
+
+  it("sliceMemoryGraphToNamespace: только узлы своего namespace", () => {
+    const data: MemoryGraphData = {
+      nodes: [
+        { id: "a1", label: "a1", level: "B", namespace: "ns-a" },
+        { id: "b1", label: "b1", level: "B", namespace: "ns-b" }
+      ],
+      links: [{ id: "cross", source: "a1", target: "b1" }]
+    };
+    const a: MemoryGraphData = sliceMemoryGraphToNamespace(data, "ns-a");
+    expect(a.nodes).toHaveLength(1);
+    expect(a.links).toHaveLength(0);
+  });
+
+  it("filterMemoryGraphToNamespacesUnion: сохраняет cross-edge", () => {
+    const data: MemoryGraphData = {
+      nodes: [
+        { id: "a1", label: "a1", level: "B", namespace: "ns-a" },
+        { id: "b1", label: "b1", level: "B", namespace: "ns-b" }
+      ],
+      links: [{ id: "cross", source: "a1", target: "b1" }]
+    };
+    const u: MemoryGraphData = filterMemoryGraphToNamespacesUnion(data, ["ns-a", "ns-b"]);
+    expect(u.nodes).toHaveLength(2);
+    expect(u.links).toHaveLength(1);
   });
 });

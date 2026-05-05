@@ -24,7 +24,19 @@ const api: DesktopApi = {
   appendSessionDiagnostic: () => Promise.resolve({ ok: true, filePath: "/tmp/ailit-desk-diag.log" }),
   pagGraphSlice: () => Promise.resolve({ ok: false, kind: "ailit_pag_graph_slice_v1", error: "not in test" }),
   memoryJournalRead: () => Promise.resolve({ ok: true, path: "/tmp/memory-journal.jsonl", rows: [] }),
-  homeDir: () => Promise.resolve("/tmp")
+  homeDir: () => Promise.resolve("/tmp"),
+  getDesktopConfigSnapshot: () =>
+    Promise.resolve({
+      config_path: "/tmp/.ailit/desktop/config.yaml",
+      version: 1,
+      max_nodes: 100_000,
+      max_edges: 200_000,
+      highlight_namespace_policy: "first_selected",
+      trace_reconnect_min_ms: 800,
+      memory_journal_poll_ms: 2000,
+      pag_sqlite_poll_interval_ms: 2500,
+      user_decision_timeout_s: 300
+    })
 };
 
 Object.defineProperty(window, "ailitDesktop", {

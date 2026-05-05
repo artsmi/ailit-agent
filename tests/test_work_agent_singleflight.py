@@ -33,6 +33,7 @@ def test_second_prompt_rejected_while_first_run_in_flight(
         emitter: Any,
         identity: Any,
         worker: Any,
+        action_id: str = "",
     ) -> Mapping[str, Any]:
         started.set()
         hold.wait(timeout=10.0)

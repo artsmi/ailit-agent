@@ -1,3 +1,7 @@
+import type { DesktopConfigSnapshot } from "./desktopConfigContract";
+
+export type { DesktopConfigSnapshot, HighlightNamespacePolicy } from "./desktopConfigContract";
+
 export type RuntimeSupervisorStatusOk = {
   readonly ok: true;
   readonly result: {
@@ -97,6 +101,19 @@ export type ProjectRegistryEntry = {
   readonly active: boolean;
 };
 
+/** Доп. корни для create_or_get_broker (camelCase IPC → snake_case supervisor). */
+export type SupervisorCreateOrGetBrokerWorkspaceEntry = {
+  readonly namespace: string;
+  readonly projectRoot: string;
+};
+
+export type SupervisorCreateOrGetBrokerParams = {
+  readonly chatId: string;
+  readonly primaryNamespace: string;
+  readonly primaryProjectRoot: string;
+  readonly workspace: readonly SupervisorCreateOrGetBrokerWorkspaceEntry[];
+};
+
 export type ProjectRegistryResult =
   | {
       readonly ok: true;
@@ -160,11 +177,9 @@ export type DesktopApi = {
   readonly ping: () => Promise<string>;
   readonly supervisorStatus: () => Promise<RuntimeSupervisorStatusResponse>;
   readonly supervisorBrokers: () => Promise<RuntimeSupervisorBrokersResponse>;
-  readonly supervisorCreateOrGetBroker: (params: {
-    readonly chatId: string;
-    readonly namespace: string;
-    readonly projectRoot: string;
-  }) => Promise<RuntimeSupervisorCreateBrokerResponse>;
+  readonly supervisorCreateOrGetBroker: (
+    params: SupervisorCreateOrGetBrokerParams
+  ) => Promise<RuntimeSupervisorCreateBrokerResponse>;
   readonly supervisorStopBroker: (params: { readonly chatId: string }) => Promise<RuntimeSupervisorStopBrokerResponse>;
   readonly brokerRequest: (params: { readonly endpoint: string; readonly request: RuntimeRequestEnvelope }) => Promise<BrokerRequestResult>;
   readonly traceReadDurable: (params: { readonly runtimeDir: string; readonly chatId: string }) => Promise<DurableTraceReadResult>;
@@ -200,5 +215,7 @@ export type DesktopApi = {
   }) => Promise<MemoryJournalReadResult>;
   /** Домашний каталог (для путей ~/.ailit/…, в т.ч. agent-memory chat_logs). */
   readonly homeDir: () => Promise<string>;
+  /** OR-009 config snapshot из main (D-IPC-1: без fs/yaml в renderer). */
+  readonly getDesktopConfigSnapshot: () => Promise<DesktopConfigSnapshot>;
 };
 

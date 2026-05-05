@@ -44,6 +44,7 @@ describe("pagHighlightFromTrace", () => {
     expect(h.edgeIds).toEqual(["e:1"]);
     expect(h.ttlMs).toBe(4500);
     expect(h.reason).toBe("step");
+    expect(h.queryId).toBe("q1");
   });
 
   it("skips w14 graph_highlight on namespace mismatch", () => {
@@ -99,11 +100,15 @@ describe("pagHighlightFromTrace", () => {
       })
     };
 
-    const h = highlightFromTraceRow(row, "fallback");
-    expect(h?.namespace).toBe("ns-a");
-    expect(h?.nodeIds).toEqual(["A:ns-a", "B:a.py", "A:ns-b"]);
-    expect(h?.edgeIds).toEqual(["edge-a"]);
-    expect(h?.reason).toBe("selected relevant nodes");
+    const hA = highlightFromTraceRow(row, "ns-a");
+    expect(hA?.namespace).toBe("ns-a");
+    expect(hA?.nodeIds).toEqual(["A:ns-a", "B:a.py"]);
+    expect(hA?.edgeIds).toEqual(["edge-a"]);
+    expect(hA?.reason).toBe("selected relevant nodes");
+    const hB = highlightFromTraceRow(row, "ns-b");
+    expect(hB?.namespace).toBe("ns-b");
+    expect(hB?.nodeIds).toEqual(["A:ns-b"]);
+    expect(highlightFromTraceRow(row, "fallback")).toBeNull();
   });
 
   it("maps compacted D node and linked nodes", () => {

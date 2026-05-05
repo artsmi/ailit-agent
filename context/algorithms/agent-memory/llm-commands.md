@@ -12,7 +12,7 @@
 
 ## Текущая реализация
 
-- Имена команд **конверта**: `plan_traversal`, `summarize_c`, `summarize_b`, `finish_decision` (тип `AgentMemoryCommandName` в коде).
+- Имена команд **конверта** (`AgentMemoryCommandName` в `agent_memory_runtime_contract.py`): `plan_traversal`, `summarize_c`, `summarize_b`, `finish_decision`, **`propose_links`** (wire batch `agent_memory_link_candidate.v1`, см. [`memory-graph-links.md`](memory-graph-links.md) и `AgentMemoryQueryPipeline`).
 - Первый раунд планера использует системный промпт **только** под команду `plan_traversal`.
 - Для `plan_traversal` список допустимых **действий** в payload ограничен: например `list_children`, `get_b_summary`, `get_c_content`, `decompose_b_to_c`, `summarize_b`, `finish`. Рантайм собирает пути из действий, где есть поле `path`, без полного перечисления всех видов действий вручную.
 - **Исправление ответа (repair):** при ошибке разбора `W14CommandParseError` допускается не более **одного** дополнительного вызова LLM для исправления формата; в журнале это фаза `planner_repair`. Отдельного имени команды конверта `repair_invalid_response` в ответе модели **нет** — это режим работы рантайма, а не публичное имя команды.
@@ -56,10 +56,12 @@
   "command_id": "string, required, non-empty",
   "command": "plan_traversal|finish_decision|propose_links",
   "payload": "object, required, shape depends on command",
-  "status": "ok|partial|refused|in_progress",
+  "status": "ok|partial|refuse",
   "legacy": "forbidden unless explicitly allowed by migration policy"
 }
 ```
+
+**Норматив по полю `status`:** допустимый whitelist top-level для W14 envelope — **`ok` \| `partial` \| `refuse`**; значение вроде **`in_progress`** из ответа LLM **не** является разрешённым смыслом top-level статуса (прогресс `plan_traversal` — из `payload.is_final` / `payload.actions`, см. [`../../proto/memory-query-context-init.md`](../../proto/memory-query-context-init.md) C1–C2). Каноникализация легаси-строк выполняется в `validate_or_canonicalize_w14_command_envelope_object`.
 
 **Запрещённые поля в JSON, предназначенном для LLM:** сырые промпты, chain-of-thought, секреты, полные дампы файлов вне выбранных окон строк.
 

@@ -320,6 +320,61 @@ def test_supervisor_broker_create_via_socket(
 
 
 @pytest.mark.e2e
+def test_supervisor_broker_create_with_workspace_tc_py_sup_01(
+    mini_app_root: Path,
+    e2e_workspace: Path,
+    supervisor_sock_path: Path,
+    supervisor_env: dict[str, str],
+) -> None:
+    """TC-PY-SUP-01: primary + workspace из одного элемента, ok и endpoint."""
+    repo = Path(__file__).resolve().parents[2]
+    runner = AilitCliRunner(repo)
+    rt = _runtime_ailit_dir(e2e_workspace)
+    extra_root = (e2e_workspace / "ws_extra").resolve()
+    extra_root.mkdir(parents=True, exist_ok=True)
+
+    proc = runner.spawn(
+        "runtime",
+        "supervisor",
+        "--runtime-dir",
+        str(rt.resolve()),
+        project_root=None,
+        extra_env=supervisor_env,
+    )
+    try:
+        _wait_for_supervisor_ready(proc, supervisor_sock_path, timeout=10.0)
+
+        lines = _send_cmd_and_recv(
+            supervisor_sock_path,
+            {
+                "cmd": "create_or_get_broker",
+                "chat_id": "e2e-ws",
+                "primary_namespace": "pns",
+                "primary_project_root": str(mini_app_root.resolve()),
+                "workspace": [
+                    {
+                        "namespace": "sns",
+                        "project_root": str(extra_root),
+                    },
+                ],
+            },
+            timeout=30.0,
+        )
+        assert len(lines) >= 1, lines
+        first = lines[0]
+        assert first.get("ok") is True
+        result = first.get("result")
+        assert isinstance(result, dict)
+        assert result.get("chat_id") == "e2e-ws"
+        ws = result.get("workspace")
+        assert isinstance(ws, list) and len(ws) == 1
+        ep = str(result.get("endpoint", "") or "")
+        assert ep.startswith("unix://")
+    finally:
+        _stop_supervisor_gracefully(proc, supervisor_sock_path)
+
+
+@pytest.mark.e2e
 def test_supervisor_multiple_status_requests(
     mini_app_root: Path,
     e2e_workspace: Path,

@@ -228,3 +228,63 @@ def test_e2e_one_to_many_topic_publish_readiness(tmp_path: Path) -> None:
     finally:
         p.terminate()
         p.join(timeout=2.0)
+
+
+def test_e2e_broker_with_workspace_memory_alive(tmp_path: Path) -> None:
+    """TC-PY-SUP-01: create_or_get_broker с workspace, broker отвечает."""
+    runtime_dir = tmp_path / "rt"
+    primary = tmp_path / "p"
+    extra = tmp_path / "e"
+    primary.mkdir()
+    extra.mkdir()
+    paths = RuntimePaths(runtime_dir=runtime_dir)
+    sup_sock = paths.supervisor_socket
+
+    p = multiprocessing.Process(
+        target=_run_supervisor,
+        args=(str(runtime_dir),),
+    )
+    p.daemon = True
+    p.start()
+    try:
+        _wait_path(sup_sock)
+        resp = supervisor_request(
+            socket_path=sup_sock,
+            request={
+                "cmd": "create_or_get_broker",
+                "chat_id": "chat-ws",
+                "primary_namespace": "pns",
+                "primary_project_root": str(primary.resolve()),
+                "workspace": [
+                    {
+                        "namespace": "sns",
+                        "project_root": str(extra.resolve()),
+                    },
+                ],
+            },
+        )
+        assert resp["ok"] is True
+        result = resp["result"]
+        assert isinstance(result, dict)
+        assert len(result.get("workspace") or []) == 1
+        endpoint = str(result["endpoint"])
+        assert endpoint.startswith("unix://")
+        broker_sock = Path(endpoint[len("unix://"):])
+        _wait_path(broker_sock)
+
+        broker_id = "broker-chat-ws"
+        mem_req = _mk_env(
+            chat_id="chat-ws",
+            broker_id=broker_id,
+            msg_type="service.request",
+            to_agent="AgentMemory:chat-ws",
+            payload={
+                "service": "memory.query_context",
+                "path": "x.py",
+            },
+        )
+        mem_resp = _send_once(broker_sock, mem_req)
+        assert mem_resp["ok"] is True
+    finally:
+        p.terminate()
+        p.join(timeout=2.0)

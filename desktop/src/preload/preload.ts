@@ -15,7 +15,9 @@ import type {
   PagGraphSliceResult,
   SaveFileResult,
   TraceChannelEvent,
-  MemoryJournalReadResult
+  MemoryJournalReadResult,
+  DesktopConfigSnapshot,
+  SupervisorCreateOrGetBrokerParams
 } from "../shared/ipc";
 
 const api: DesktopApi = {
@@ -28,11 +30,9 @@ const api: DesktopApi = {
   async supervisorBrokers(): Promise<RuntimeSupervisorBrokersResponse> {
     return (await ipcRenderer.invoke("ailit:supervisorBrokers")) as RuntimeSupervisorBrokersResponse;
   },
-  async supervisorCreateOrGetBroker(params: {
-    readonly chatId: string;
-    readonly namespace: string;
-    readonly projectRoot: string;
-  }): Promise<RuntimeSupervisorCreateBrokerResponse> {
+  async supervisorCreateOrGetBroker(
+    params: SupervisorCreateOrGetBrokerParams
+  ): Promise<RuntimeSupervisorCreateBrokerResponse> {
     return (await ipcRenderer.invoke("ailit:supervisorCreateOrGetBroker", params)) as RuntimeSupervisorCreateBrokerResponse;
   },
   async supervisorStopBroker(params: { readonly chatId: string }): Promise<RuntimeSupervisorStopBrokerResponse> {
@@ -111,6 +111,9 @@ const api: DesktopApi = {
   },
   async homeDir(): Promise<string> {
     return String(await ipcRenderer.invoke("ailit:homeDir"));
+  },
+  async getDesktopConfigSnapshot(): Promise<DesktopConfigSnapshot> {
+    return (await ipcRenderer.invoke("ailit:getDesktopConfigSnapshot")) as DesktopConfigSnapshot;
   }
 };
 

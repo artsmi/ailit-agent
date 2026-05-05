@@ -4,6 +4,7 @@ Index-first: краткие заголовки; полные заметки — 
 
 | ID / файл | Задача | Ссылка |
 |-----------|--------|--------|
+| `feature_agentmemory_s1_s5_canon_context_2026-05-05` | S1–S5: канон algorithms + proto (external events, CLI exit OR-011, OR-013 `no_progress`, тест mapping); см. также `feature_agentmemory_w14_links_journal_context_2026-05-04` | [`feature_agentmemory_s1_s5_canon_context_2026-05-05.md`](feature_agentmemory_s1_s5_canon_context_2026-05-05.md) |
 | `feature_agentmemory_w14_links_journal_context_2026-05-04` | Канон: W14 `propose_links`, PAG write, `memory.external_event`, durability журнала, OR-013; обновлены `system-elements`, `broker-memory-work-inject`, `runtime-event-contract` | [`feature_agentmemory_w14_links_journal_context_2026-05-04.md`](feature_agentmemory_w14_links_journal_context_2026-05-04.md) |
 | `feature_memory_init_fix_2026-05-02` | Fix UC-03 init: path/hint, pipeline walk, continuation/VERIFY, `memory_init_summary`; канон `memory-query-context-init.md`; gate **11** subset | [`feature_memory_init_fix_2026-05-02.md`](feature_memory_init_fix_2026-05-02.md) |
 | `feature_agent_memory_cli_init_2026-05-01` | Agent Memory CLI: `memory init`, compact/legacy логи, транзакция PAG/KB; gap UC-05 manual в **11** v2 | [`feature_agent_memory_cli_init_2026-05-01.md`](feature_agent_memory_cli_init_2026-05-01.md) |

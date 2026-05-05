@@ -27,13 +27,13 @@
 
 ### CLI
 
-- Команда init использует цель по умолчанию на уровне продукта (константа вроде `MEMORY_INIT_CANONICAL_GOAL`).
-- Итоговая сводка для пользователя использует `exit_kind` из множества `complete`, `partial`, `aborted`; отдельного видимого пользователю `blocked` в этом пути **пока нет** — расхождение с целевым UX отмечено как **`implementation_backlog`**.
+- Команда init использует цель по умолчанию на уровне продукта (`MEMORY_INIT_CANONICAL_GOAL` в оркестраторе).
+- Видимый итог и код выхода согласованы с OR-011 через единый модуль `tools/agent_core/runtime/memory_init_cli_outcome.py`: терминальный статус **`complete` \| `partial` \| `blocked`**; `complete` → exit **0**; `partial` / `blocked` без аварии → **1**; прерывание (SIGINT) → **130**; инфраструктурный сбой → **2**. Сводка на stderr строится с `exit_kind` из того же трёхзначного набора (`memory_init_summary.py`).
 
 ### Корреляция и логи
 
 - В журнале строки связываются с запросом брокера через `request_id`; внутри payload шагов W14 фигурирует `query_id`.
-- В stdout для трассировки графа: события вроде `pag.node.upsert`, `memory.w14.graph_highlight`; компактный лог на диске может нормализовать имена событий.
+- В stdout для трассировки графа: события вроде `pag.node.upsert`, `memory.w14.graph_highlight`; нормализованные имена для `compact.log` и дискриминанты внешнего конверта **`agent_memory.external_event.v1`** — SoT в `tools/agent_core/runtime/agent_memory_external_events.py` (golden map stdout→compact, см. [`failure-retry-observability.md`](failure-retry-observability.md)).
 
 ## Целевое поведение
 
@@ -103,16 +103,16 @@
 - **`nodes_updated`:** `{ "upserted_node_ids": [], "kind": "B|C|D" }` с лимитами.
 - **`partial_result` / `complete_result` / `blocked_result`:** ссылка на финальный `agent_memory_result.v1` или подмножество + hash; **запрещено** включать сырые промпты.
 
-### CLI `ailit memory init` (OR-011) — цель и расхождения
+### CLI `ailit memory init` (OR-011) — цель и проверка
 
 **Целевой UX:**
 
-- Цель по умолчанию — константа уровня продукта; позже пользователь **может** расширить сценарий; на момент канона — только константа.
+- Цель по умолчанию — константа уровня продукта; на момент канона сценарий init не подменяет её произвольным `goal` из CLI без отдельной политики продукта.
 - Прогресс: stderr компактно + фазы оркестратора + тень журнала worker.
 - Узлы и связи: логирование через `nodes_updated` / `links_updated` / stdout по политике лимитов.
-- Итоги: видимые статусы **`complete` | `partial` | `blocked`** и согласованные коды выхода.
+- Итоги: видимые статусы **`complete` | `partial` | `blocked`** и согласованные коды выхода (`memory_init_cli_outcome.py`).
 
-**Текущее расхождение:** сводка CLI использует `aborted` вместо целевого видимого `blocked` — **`implementation_backlog`**.
+**Verification gap (ручной smoke):** полный ручной прогон `ailit memory init <repo>` в конкретном gate может быть не запрошен; автоматическое доказательство — pytest/flake8 из отчёта **11**, не заменяет операторский smoke для DoD.
 
 ### Команды проверки
 
