@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+
+<html class="light" lang="ru"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body { font-family: 'DM Sans', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #fbcfe8; border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: #f472b6; }
+
+        /* Minimalist markdown-like styling */
+        .markdown-body {
+            line-height: 1.6;
+            color: #1e293b;
+        }
+        .markdown-body code {
+            font-family: monospace;
+            background: #fdf2f8;
+            padding: 0.2rem 0.4rem;
+            border-radius: 9999px;
+            font-size: 0.9em;
+            color: #db2777;
+        }
+
+        /* Console styling */
+        .console-block details summary::-webkit-details-marker { display: none; }
+        .console-block details summary { list-style: none; outline: none; cursor: pointer; }
+        
+        /* Line limit configuration */
+        :root {
+            --console-preview-lines: 5;
+        }
+
+        /* Right Sidebar Toggle State */
+        #right-sidebar:target {
+            display: flex;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface": "#fdf2f8",
+                        "on-background": "#0b1c30",
+                        "on-surface": "#0b1c30",
+                        "candy-pink": "#e040a0",
+                        "candy-pink-light": "#fbcfe8",
+                        "candy-pink-dark": "#be185d",
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "9999px",
+                        "lg": "9999px",
+                        "xl": "9999px",
+                        "full": "9999px",
+                        "2xl": "9999px"
+                    },
+                    "spacing": {
+                        "margin-page": "32px",
+                        "container-max-width": "720px",
+                        "unit": "8px",
+                        "gutter": "24px",
+                        "padding-message": "16px"
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-white text-slate-900 min-h-screen flex">
+<!-- Left SideNavBar Component -->
+<aside class="hidden md:flex flex-col h-screen w-64 border-r bg-pink-50/30 dark:bg-slate-950 border-pink-100 dark:border-slate-800 sticky left-0 top-0 p-4 transition-all duration-200 ease-in-out">
+<div class="mb-8 px-2">
+<h1 class="text-xl font-black text-slate-900 dark:text-slate-100">AI Ко-пилот</h1>
+</div>
+<button class="mb-6 w-full py-3 px-4 bg-candy-pink dark:bg-slate-900 text-white dark:text-pink-400 shadow-md shadow-pink-200 border border-transparent dark:border-slate-800 rounded-full flex items-center justify-center gap-2 hover:bg-candy-pink-dark dark:hover:bg-slate-800 transition-all font-medium text-sm">
+<span class="material-symbols-outlined text-[20px]" data-icon="add_comment">add_comment</span>
+            НОВЫЙ ДИАЛОГ
+        </button>
+<nav class="flex-1 space-y-1">
+<div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-4 mb-2">Навигация</div>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-full bg-pink-100/50 dark:bg-slate-900 text-candy-pink dark:text-pink-400 transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="chat">chat</span>
+<span class="text-sm font-medium">Новый чат</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-2.5 rounded-full text-slate-600 dark:text-slate-400 hover:bg-pink-50 dark:hover:bg-slate-800 transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="text-sm font-medium">История</span>
+</a>
+</nav>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col min-h-screen relative overflow-hidden bg-white">
+<!-- TopAppBar Component -->
+<header class="bg-white/80 backdrop-blur-sm dark:bg-slate-900 border-b border-pink-50 dark:border-slate-800 h-16 w-full flex justify-between items-center px-6 sticky top-0 z-10 antialiased">
+<div class="flex items-center gap-4">
+<span class="text-lg font-bold text-slate-900 dark:text-white">Технический воркфлоу</span>
+<div class="h-4 w-[1px] bg-slate-200"></div>
+<span class="text-sm text-slate-500 font-medium">odasserver-deploy.yml</span>
+</div>
+<div class="flex items-center gap-2">
+<!-- Toggle Analytics Button -->
+<a class="flex items-center gap-2 px-4 py-2 text-slate-500 hover:bg-pink-50 hover:text-candy-pink dark:hover:bg-slate-800 transition-colors rounded-full text-sm font-medium" href="#right-sidebar">
+<span class="material-symbols-outlined text-[20px]" data-icon="analytics">analytics</span>
+<span class="hidden lg:inline">Аналитика</span>
+</a>
+<button class="p-2 text-slate-500 hover:bg-pink-50 hover:text-candy-pink dark:hover:bg-slate-800 transition-colors rounded-full active:scale-95">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<button class="p-2 text-slate-500 hover:bg-pink-50 hover:text-candy-pink dark:hover:bg-slate-800 transition-colors rounded-full active:scale-95">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+</header>
+<!-- Chat Canvas - Centered Minimalist Style -->
+<div class="flex-1 overflow-y-auto px-4 py-12 scroll-smooth">
+<div class="max-w-[720px] mx-auto space-y-12">
+<!-- User Input Section -->
+<div class="flex flex-col gap-4">
+<div class="flex items-center gap-2 text-slate-400">
+<div class="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center">
+<span class="material-symbols-outlined text-sm" data-icon="person">person</span>
+</div>
+<span class="text-[11px] font-bold uppercase tracking-wider">Вы</span>
+</div>
+<div class="markdown-body text-lg">
+                        Запусти сборку проекта и инициализируй сервер с параметром конфигурации <code>3</code>.
+                    </div>
+</div>
+<!-- AI Agent Output Section -->
+<div class="flex flex-col gap-4">
+<div class="flex items-center gap-2 text-candy-pink">
+<div class="w-6 h-6 rounded-full bg-pink-100 flex items-center justify-center">
+<span class="material-symbols-outlined text-sm" data-icon="smart_toy">smart_toy</span>
+</div>
+<span class="text-[11px] font-bold uppercase tracking-wider">AI Ко-пилот</span>
+</div>
+<div class="markdown-body space-y-6">
+<p>Начинаю процесс компиляции и деплоя <code>odasserver</code>. Все зависимости подтверждены. Лог выполнения сборки:</p>
+<!-- Console Block -->
+<div class="console-block group">
+<div class="bg-pink-50/50 border border-pink-100 rounded-3xl overflow-hidden">
+<!-- Header -->
+<div class="bg-white/50 px-5 py-3 flex items-center justify-between border-b border-pink-100">
+<span class="text-[10px] font-mono font-bold text-candy-pink uppercase tracking-widest">Console Output</span>
+<span class="text-[10px] text-pink-400 font-mono">bash</span>
+</div>
+<!-- Content -->
+<div class="p-5 font-mono text-sm leading-6 text-slate-700">
+<div class="whitespace-pre overflow-hidden">
+<span class="text-slate-400">[1/4]</span> <span class="text-emerald-500">Consolidate compiler generated dependencies...</span>
+<span class="text-slate-400">[2/4]</span> <span class="text-candy-pink">Linking CXX executable odasserver</span>
+<span class="text-slate-400">[3/4]</span> <span class="text-emerald-500">Built target odasserver</span>
+<span class="text-slate-400">[4/4]</span> <span class="text-amber-500">Initializing with config_id: 3</span>
+<span class="text-slate-900 font-bold">Server started on port 8080...</span>
+</div>
+<details class="mt-0">
+<summary class="inline-flex items-center gap-1 text-[11px] font-bold text-candy-pink mt-4 hover:underline decoration-2 underline-offset-2">
+<span>ПОКАЗАТЬ ПОЛНОСТЬЮ</span>
+<span class="material-symbols-outlined text-xs group-open:rotate-180 transition-transform" data-icon="expand_more">expand_more</span>
+</summary>
+<div class="mt-4 whitespace-pre border-t border-pink-100/50 pt-4 opacity-80">
+<span class="text-emerald-500">●</span> Status: ACTIVE
+                                            <span class="text-slate-400">Memory usage: 124MB</span>
+<span class="text-slate-400">Uptime: 0.1s</span>
+<span class="text-slate-400">Monitoring health check endpoint...</span>
+<span class="text-emerald-500">Ready for connections.</span>
+</div>
+</details>
+</div>
+</div>
+</div>
+<p>Процесс завершен успешно. Система находится в активном состоянии и готова к работе.</p>
+</div>
+<div class="flex items-center gap-4 mt-2">
+<span class="text-[11px] text-slate-400 font-medium">14:03</span>
+<div class="h-1 w-1 bg-pink-200 rounded-full"></div>
+<button class="text-[11px] font-bold text-slate-400 hover:text-candy-pink transition-colors uppercase tracking-tight">Скопировать</button>
+<button class="text-[11px] font-bold text-slate-400 hover:text-candy-pink transition-colors uppercase tracking-tight">Перезапустить</button>
+</div>
+</div>
+<!-- Suggestions -->
+<div class="flex flex-wrap justify-center gap-3 pt-8 border-t border-pink-50">
+<button class="bg-white hover:bg-pink-50 hover:text-candy-pink hover:border-pink-200 text-slate-500 px-6 py-3 rounded-full text-xs font-semibold border border-slate-200 transition-all shadow-sm">
+                        Проверить статус порта 8080
+                    </button>
+<button class="bg-white hover:bg-pink-50 hover:text-candy-pink hover:border-pink-200 text-slate-500 px-6 py-3 rounded-full text-xs font-semibold border border-slate-200 transition-all shadow-sm">
+                        Показать логи ошибок
+                    </button>
+</div>
+</div>
+</div>
+<!-- Minimal Input Area -->
+<div class="pb-10 px-4 bg-white">
+<div class="max-w-[720px] mx-auto">
+<div class="relative group">
+<div class="absolute inset-0 bg-candy-pink/10 blur-xl rounded-full opacity-0 group-focus-within:opacity-100 transition-opacity"></div>
+<div class="relative bg-white border border-slate-200 group-focus-within:border-candy-pink/50 rounded-full shadow-sm transition-all p-1">
+<div class="flex items-end gap-2 px-5 py-3">
+<button class="p-2 text-slate-400 hover:text-candy-pink transition-colors mb-1 rounded-full">
+<span class="material-symbols-outlined text-[20px]" data-icon="add">add</span>
+</button>
+<textarea class="flex-1 border-none focus:ring-0 text-slate-700 py-3 resize-none max-h-48 scrollbar-thin text-base placeholder:text-slate-400" placeholder="Ответьте или введите новую команду..." rows="1"></textarea>
+<button class="bg-candy-pink text-white rounded-full p-3 hover:bg-candy-pink-dark transition-all active:scale-95 flex items-center justify-center shadow-lg shadow-pink-200 mb-1">
+<span class="material-symbols-outlined text-[20px]" data-icon="north">north</span>
+</button>
+</div>
+<div class="px-6 py-2 flex items-center justify-between border-t border-pink-50">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1.5 text-[10px] font-bold text-candy-pink uppercase tracking-widest">
+<span class="material-symbols-outlined text-[14px]" data-icon="memory">memory</span>
+                                    GPT-4 Tech
+                                </div>
+</div>
+<span class="text-[10px] text-slate-300 font-medium tracking-tight">Shift + Enter для новой строки</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Right Sidebar (Analytics) - Hidden by default -->
+<aside class="hidden flex-col h-screen w-80 border-l bg-pink-50/30 dark:bg-slate-950 border-pink-100 dark:border-slate-800 sticky right-0 top-0 p-6 overflow-y-auto" id="right-sidebar">
+<div class="flex items-center justify-between mb-8">
+<h2 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">Аналитика контекста</h2>
+<a class="p-2 bg-white rounded-full text-slate-400 hover:text-candy-pink hover:bg-pink-50 border border-slate-100 shadow-sm transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="close">close</span>
+</a>
+</div>
+<div class="space-y-6">
+<!-- Project Context -->
+<div>
+<h3 class="text-[10px] font-bold text-candy-pink uppercase tracking-widest mb-3">Текущий проект</h3>
+<div class="p-5 bg-white dark:bg-slate-900 rounded-3xl border border-pink-100 dark:border-slate-800 shadow-sm">
+<div class="flex items-center gap-3 mb-2">
+<span class="material-symbols-outlined text-candy-pink" data-icon="developer_board">developer_board</span>
+<span class="text-sm font-bold text-slate-900">odasserver-deploy</span>
+</div>
+<p class="text-xs text-slate-500 leading-relaxed">Система автоматического развертывания серверных компонентов через CI/CD.</p>
+</div>
+</div>
+<!-- Health Status -->
+<div>
+<h3 class="text-[10px] font-bold text-candy-pink uppercase tracking-widest mb-3">Статус окружения</h3>
+<div class="space-y-2">
+<div class="flex items-center justify-between p-4 bg-white dark:bg-slate-900 rounded-full border border-pink-100 dark:border-slate-800 shadow-sm">
+<span class="text-xs text-slate-600 font-medium pl-2">Build System</span>
+<span class="text-[10px] px-3 py-1 bg-emerald-100 text-emerald-700 rounded-full font-bold">READY</span>
+</div>
+<div class="flex items-center justify-between p-4 bg-white dark:bg-slate-900 rounded-full border border-pink-100 dark:border-slate-800 shadow-sm">
+<span class="text-xs text-slate-600 font-medium pl-2">Server Instance</span>
+<span class="text-[10px] px-3 py-1 bg-pink-100 text-candy-pink rounded-full font-bold">ACTIVE</span>
+</div>
+</div>
+</div>
+</div>
+</aside>
+</body></html>

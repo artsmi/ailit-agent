@@ -22,6 +22,7 @@
 | [`llm-commands.md`](llm-commands.md) | Команды от рантайма к LLM: конверт ответа, действия планера, фаза исправления невалидного JSON, целевая команда `propose_links`. |
 | [`prompts.md`](prompts.md) | Роли промптов по фазам, многоязычие и `file_kind`, запреты на CoT и сырые дампы. |
 | [`external-protocol.md`](external-protocol.md) | Инициаторы (оболочка агента, CLI, клиент брокера), формат запроса, события на границе, команда `ailit memory init`. |
+| [`desktop-realtime-graph-protocol.md`](desktop-realtime-graph-protocol.md) | Desktop (Electron): broker trace, PAG merge, 3D граф, подсветка из trace, целевой конфиг `~/.ailit/desktop`, multi-project и лимиты; **отдельная** матрица desktop OR-001…OR-017 ниже. |
 | [`failure-retry-observability.md`](failure-retry-observability.md) | Ошибки и повторы, лимиты и partial, журнал и компактные логи, критерии приёмки и имена тестов pytest. |
 | [`start_feature_handoff.md`](start_feature_handoff.md) | Как безопасно нарезать работу для `start-feature`. |
 
@@ -46,6 +47,30 @@
 | OR-013 | Ошибки и повторы: невалидный JSON, неверный id узла, отклонение связи, лимиты, отсутствие файла, неизвестный язык | `failure-retry-observability.md` |
 | OR-014 | Минимум четыре человекочитаемых сценария (в постановке — пять направлений) | Примеры по файлам и этот индекс |
 | OR-015 | Проверяемые критерии приёмки из постановки | `INDEX.md`, `failure-retry-observability.md` |
+
+## Desktop: постановка и трассировка OR-001…OR-017
+
+Таблица ниже относится **только** к протоколу Desktop realtime graph (файл [`desktop-realtime-graph-protocol.md`](desktop-realtime-graph-protocol.md)). ID **не** совпадают с legacy OR-001…OR-015 в разделе «Исходная постановка» выше.
+
+| ID | Требование (сжато) | Где раскрыто в каноне |
+|----|--------------------|------------------------|
+| OR-001 | Потоки AgentWork/AgentMemory, trace, PAG без смешения процессов | `desktop-realtime-graph-protocol.md` — текущая реализация, целевой flow, каналы |
+| OR-002 | 3D memory в realtime, инварианты обновления | Там же — 3D pipeline, PAG merged |
+| OR-003 | Временные представления графа (merged/session/дельты, без SQLite) | Там же — PAG, «временность» |
+| OR-004 | Подсветка: trace → визуальное состояние | Там же — подсветка из trace, события |
+| OR-005 | Структура Desktop main/preload/renderer | Там же — процессы и границы |
+| OR-006 | Брендбук → `docs/web-ui-book/` (док репозитория), синхронно с публикацией канона | `desktop-realtime-graph-protocol.md` — раздел web-ui-book; [`../../../docs/web-ui-book/INDEX.md`](../../../docs/web-ui-book/INDEX.md) |
+| OR-007 | Desktop vs брокер, сокеты, IPC | Там же — broker, trace subscription |
+| OR-008 | Связь с пакетом AgentMemory, этот файл + INDEX | Этот `INDEX.md`, `desktop-realtime-graph-protocol.md` |
+| OR-009 | Целевой конфиг `~/.ailit/desktop`, yaml, пути в комментариях | `desktop-realtime-graph-protocol.md` — целевая схема config |
+| OR-010 | 1–5 проектов в чате, primary/highlight | Там же — multi-project, backlog `namespaces[0]` |
+| OR-011 | Подсветка/ноды без полной перерисовки; target vs remount | Там же — 3D, целевые требования |
+| OR-012 | Изолированные проекты, синтетический корень | Там же — проекция, PAG |
+| OR-013 | Стабильность после загрузки, freeze, remount | Там же — 3D pipeline, FR |
+| OR-014 | Появление ноды: связь к родителю; summary не обязательна | Там же — PAG дельты, placeholder |
+| OR-015 | Протокол для внешней интеграции (типы сообщений) | Там же — Target flow, события |
+| OR-016 | Абстрактный алгоритм подключения Desktop | Там же — абстрактный алгоритм |
+| OR-017 | `max_nodes` 100000 в yaml; mismatch с caps | Там же — конфиг, acceptance |
 
 ## Трассировка OR → файлы пакета
 

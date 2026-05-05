@@ -56,6 +56,10 @@
 - [`../context/INDEX.md`](../context/INDEX.md)
 - установка через `scripts/install` (режимы, пути, env): [`../context/proto/install.md`](../context/proto/install.md)
 
+### Web UI book (брендбук и HTML-референсы Desktop)
+
+- [`web-ui-book/INDEX.md`](web-ui-book/INDEX.md) — структура showcase (Candy, спецификация экранов, три HTML-макета), правило **синхронизации с публикацией** канона [`context/algorithms/agent-memory/`](../context/algorithms/agent-memory/INDEX.md).
+
 ### Память и экономия контекста (канон уровней)
 
 - [`memory-canon.md`](memory-canon.md) — три уровня (сессия `run` / локальный ПК / MCP), глоссарий методик, соотнесение с репозиториями-донорами и планами `workflow-token-economy` / `workflow-hybrid-memory-mcp` / `workflow-memory-3`.

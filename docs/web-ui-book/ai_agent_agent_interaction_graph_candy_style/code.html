@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+
+<html class="light" lang="ru"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body { font-family: 'DM Sans', sans-serif; }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #fbcfe8; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #f472b6; }
+
+        /* Animation for graph edges */
+        @keyframes pulse-flow {
+            0% { stroke-dashoffset: 20; opacity: 0.4; }
+            50% { opacity: 1; }
+            100% { stroke-dashoffset: 0; opacity: 0.4; }
+        }
+        .edge-active {
+            stroke-dasharray: 5;
+            animation: pulse-flow 1s linear infinite;
+        }
+
+        /* Right Sidebar Toggle State */
+        #right-sidebar:target {
+            display: flex;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "candy": {
+                            DEFAULT: "#e040a0",
+                            light: "#fdf2f8",
+                            dark: "#be185d"
+                        },
+                        "surface": "#fff0f5",
+                        "on-background": "#2e0f21",
+                        "on-surface": "#2e0f21",
+                        "primary-accent": "#e040a0"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.5rem",
+                        "lg": "1rem",
+                        "xl": "1.5rem",
+                        "full": "9999px"
+                    }
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-white text-stone-900 min-h-screen flex">
+<!-- Left SideNavBar Component -->
+<aside class="hidden md:flex flex-col h-screen w-64 border-r bg-pink-50/50 dark:bg-stone-950 border-pink-100 dark:border-stone-800 sticky left-0 top-0 p-4 transition-all duration-200 ease-in-out">
+<div class="mb-8 px-2">
+<h1 class="text-xl font-black text-stone-900 dark:text-stone-100 tracking-tight">AI Ко-пилот</h1>
+</div>
+<button class="mb-6 w-full py-3 px-4 bg-white dark:bg-stone-900 text-candy dark:text-pink-400 shadow-sm border border-pink-200 dark:border-stone-800 rounded-full flex items-center justify-center gap-2 hover:bg-pink-50 dark:hover:bg-stone-800 transition-all font-bold text-sm">
+<span class="material-symbols-outlined text-[20px]" data-icon="add_comment">add_comment</span>
+        НОВЫЙ ДИАЛОГ
+    </button>
+<nav class="flex-1 space-y-2">
+<div class="text-[10px] font-bold text-stone-400 uppercase tracking-widest px-4 mb-2">Навигация</div>
+<a class="flex items-center gap-3 px-4 py-3 rounded-full text-stone-600 dark:text-stone-400 hover:bg-pink-100 dark:hover:bg-stone-800 transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="chat">chat</span>
+<span class="text-sm font-bold">Новый чат</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-full text-stone-600 dark:text-stone-400 hover:bg-pink-100 dark:hover:bg-stone-800 transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="history">history</span>
+<span class="text-sm font-bold">История</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 rounded-full bg-white dark:bg-stone-900 text-candy dark:text-pink-400 shadow-sm transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" data-icon="account_tree">account_tree</span>
+<span class="text-sm font-bold">Агенты</span>
+</a>
+</nav>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col min-h-screen relative overflow-hidden bg-white">
+<!-- TopAppBar Component -->
+<header class="bg-white dark:bg-stone-900 border-b border-pink-100 dark:border-stone-800 h-16 w-full flex justify-between items-center px-6 sticky top-0 z-10 antialiased">
+<div class="flex items-center gap-4">
+<span class="text-lg font-bold text-stone-900 dark:text-white">Технический воркфлоу</span>
+<div class="h-4 w-[2px] bg-pink-100 rounded-full"></div>
+<span class="text-sm text-stone-500 font-bold">odasserver-deploy.yml</span>
+</div>
+<div class="flex items-center gap-2">
+<!-- Toggle Analytics Button -->
+<a class="flex items-center gap-2 px-4 py-2 text-stone-500 hover:bg-pink-50 dark:hover:bg-stone-800 transition-colors rounded-full text-sm font-bold" href="#right-sidebar">
+<span class="material-symbols-outlined text-[20px]" data-icon="analytics">analytics</span>
+<span class="hidden lg:inline">Аналитика</span>
+</a>
+<button class="p-2 text-stone-500 hover:bg-pink-50 dark:hover:bg-stone-800 transition-colors rounded-full active:scale-95">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+<button class="p-2 text-stone-500 hover:bg-pink-50 dark:hover:bg-stone-800 transition-colors rounded-full active:scale-95">
+<span class="material-symbols-outlined" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+</header>
+<!-- Graph Canvas View -->
+<div class="flex-1 relative overflow-hidden bg-pink-50/30 flex flex-col items-center justify-center p-8">
+<!-- Interaction Graph UI -->
+<div class="relative w-full max-w-4xl aspect-[16/9] flex items-center justify-center">
+<!-- SVG Edges Layer -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none" preserveaspectratio="none">
+<defs>
+<marker id="arrowhead" markerheight="7" markerwidth="10" orient="auto" refx="9" refy="3.5">
+<polygon fill="#fbcfe8" points="0 0, 10 3.5, 0 7"></polygon>
+</marker>
+<marker id="arrowhead-active" markerheight="7" markerwidth="10" orient="auto" refx="9" refy="3.5">
+<polygon fill="#e040a0" points="0 0, 10 3.5, 0 7"></polygon>
+</marker>
+</defs>
+<!-- Edges -->
+<path d="M 450 150 L 300 250" fill="none" marker-end="url(#arrowhead)" stroke="#fbcfe8" stroke-width="3"></path>
+<path class="edge-active" d="M 450 150 L 600 250" fill="none" marker-end="url(#arrowhead-active)" stroke="#e040a0" stroke-width="3"></path>
+<path d="M 300 310 L 450 410" fill="none" marker-end="url(#arrowhead)" stroke="#fbcfe8" stroke-width="3"></path>
+<path class="edge-active" d="M 600 310 L 450 410" fill="none" marker-end="url(#arrowhead-active)" stroke="#e040a0" stroke-width="3"></path>
+<path d="M 450 470 L 450 530" fill="none" marker-end="url(#arrowhead)" stroke="#fbcfe8" stroke-width="3"></path>
+</svg>
+<!-- Node: Supervisor -->
+<div class="absolute top-[10%] left-1/2 -translate-x-1/2 flex flex-col items-center group">
+<div class="w-20 h-20 bg-white border-4 border-pink-100 rounded-full flex items-center justify-center shadow-xl group-hover:border-candy transition-all duration-300 z-20">
+<span class="material-symbols-outlined text-stone-800 text-4xl" data-icon="manage_accounts">manage_accounts</span>
+</div>
+<div class="mt-3 bg-stone-900 text-white text-[11px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest shadow-md">Supervisor</div>
+</div>
+<!-- Node: Researcher -->
+<div class="absolute top-[40%] left-[25%] -translate-x-1/2 flex flex-col items-center group">
+<div class="w-20 h-20 bg-white border-4 border-pink-100 rounded-full flex items-center justify-center shadow-xl group-hover:border-candy transition-all duration-300 z-20">
+<span class="material-symbols-outlined text-stone-600 text-4xl" data-icon="search">search</span>
+</div>
+<div class="mt-3 bg-white border-2 border-pink-100 text-stone-500 text-[11px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest">Researcher</div>
+</div>
+<!-- Node: Coder -->
+<div class="absolute top-[40%] left-[75%] -translate-x-1/2 flex flex-col items-center group">
+<div class="w-20 h-20 bg-white border-4 border-candy rounded-full flex items-center justify-center shadow-[0_0_25px_rgba(224,64,160,0.4)] group-hover:shadow-[0_0_35px_rgba(224,64,160,0.6)] transition-all duration-300 z-20">
+<span class="material-symbols-outlined text-candy text-4xl" data-icon="terminal">terminal</span>
+</div>
+<div class="mt-3 bg-candy text-white text-[11px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest shadow-md">Coder (Active)</div>
+</div>
+<!-- Node: Reviewer -->
+<div class="absolute bottom-[15%] left-1/2 -translate-x-1/2 flex flex-col items-center group">
+<div class="w-20 h-20 bg-white border-4 border-pink-100 rounded-full flex items-center justify-center shadow-xl group-hover:border-candy transition-all duration-300 z-20">
+<span class="material-symbols-outlined text-stone-600 text-4xl" data-icon="fact_check">fact_check</span>
+</div>
+<div class="mt-3 bg-white border-2 border-pink-100 text-stone-500 text-[11px] font-black px-4 py-1.5 rounded-full uppercase tracking-widest">Reviewer</div>
+</div>
+</div>
+<!-- Graph Controls Overlay -->
+<div class="absolute bottom-12 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-white/90 backdrop-blur-md border-2 border-pink-100 p-2 rounded-full shadow-2xl">
+<button class="p-3 rounded-full hover:bg-pink-50 text-stone-600 hover:text-candy transition-colors">
+<span class="material-symbols-outlined" data-icon="play_arrow">play_arrow</span>
+</button>
+<button class="p-3 rounded-full hover:bg-pink-50 text-stone-600 hover:text-candy transition-colors">
+<span class="material-symbols-outlined" data-icon="pause">pause</span>
+</button>
+<div class="w-[2px] h-8 bg-pink-100 mx-2 rounded-full"></div>
+<button class="p-3 rounded-full hover:bg-pink-50 text-stone-600 hover:text-candy transition-colors">
+<span class="material-symbols-outlined" data-icon="zoom_in">zoom_in</span>
+</button>
+<button class="p-3 rounded-full hover:bg-pink-50 text-stone-600 hover:text-candy transition-colors">
+<span class="material-symbols-outlined" data-icon="center_focus_weak">center_focus_weak</span>
+</button>
+</div>
+</div>
+<!-- Active Agent Stats Floating Card (Bottom Right) -->
+<div class="absolute bottom-8 right-8 w-72 bg-white border-2 border-pink-100 rounded-3xl shadow-2xl p-5 animate-in fade-in slide-in-from-bottom-4 duration-500">
+<div class="flex items-center gap-3 mb-4">
+<div class="w-3 h-3 rounded-full bg-candy animate-pulse"></div>
+<span class="text-xs font-black text-stone-900 uppercase tracking-wider">Активный процесс</span>
+</div>
+<div class="space-y-4">
+<div>
+<div class="flex justify-between text-[11px] text-stone-400 mb-2 font-black uppercase tracking-wide">Агент: Coder</div>
+<div class="h-2 w-full bg-pink-50 rounded-full overflow-hidden">
+<div class="h-full bg-candy w-3/4 rounded-full"></div>
+</div>
+</div>
+<p class="text-sm text-stone-600 font-medium leading-relaxed">Генерация конфигурационных файлов для деплоя...</p>
+</div>
+</div>
+</main>
+<!-- Right Sidebar (Analytics) - Hidden by default -->
+<aside class="hidden flex-col h-screen w-80 border-l bg-pink-50/50 dark:bg-stone-950 border-pink-100 dark:border-stone-800 sticky right-0 top-0 p-6 overflow-y-auto" id="right-sidebar">
+<div class="flex items-center justify-between mb-8">
+<h2 class="text-sm font-black text-stone-900 dark:text-white uppercase tracking-wider">Аналитика контекста</h2>
+<a class="p-2 text-stone-400 hover:text-candy bg-white rounded-full shadow-sm border border-pink-100 transition-colors" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="close">close</span>
+</a>
+</div>
+<div class="space-y-6">
+<!-- Project Context -->
+<div>
+<h3 class="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-3">Текущий проект</h3>
+<div class="p-5 bg-white dark:bg-stone-900 rounded-3xl border-2 border-pink-100 dark:border-stone-800 shadow-sm">
+<div class="flex items-center gap-3 mb-3">
+<div class="p-2 bg-pink-50 rounded-full text-candy">
+<span class="material-symbols-outlined" data-icon="developer_board">developer_board</span>
+</div>
+<span class="text-sm font-bold text-stone-900">odasserver-deploy</span>
+</div>
+<p class="text-sm text-stone-500 font-medium leading-relaxed">Система автоматического развертывания серверных компонентов через CI/CD.</p>
+</div>
+</div>
+<!-- Health Status -->
+<div>
+<h3 class="text-[10px] font-black text-stone-400 uppercase tracking-widest mb-3">Статус окружения</h3>
+<div class="space-y-3">
+<div class="flex items-center justify-between p-4 bg-white dark:bg-stone-900 rounded-2xl border-2 border-pink-100 dark:border-stone-800">
+<span class="text-sm font-bold text-stone-600">Build System</span>
+<span class="text-[10px] px-3 py-1 bg-green-100 text-green-700 rounded-full font-black tracking-wide">READY</span>
+</div>
+<div class="flex items-center justify-between p-4 bg-white dark:bg-stone-900 rounded-2xl border-2 border-pink-100 dark:border-stone-800">
+<span class="text-sm font-bold text-stone-600">Server Instance</span>
+<span class="text-[10px] px-3 py-1 bg-pink-100 text-candy rounded-full font-black tracking-wide">ACTIVE</span>
+</div>
+</div>
+</div>
+</div>
+</aside>
+</body></html>
