@@ -1,25 +1,51 @@
-# AgentMemory: внешний протокол (инициаторы, события, CLI)
+# Внешний протокол AgentMemory: кто вызывает, какие данные и события (External protocol)
 
-## Current reality
+**Аннотация:** этот файл про **границу системы**: оболочка агента, CLI и клиенты брокера. Внутренний порядок шагов рантайма — в [`runtime-flow.md`](runtime-flow.md).
 
-- **AgentWork → broker → memory subprocess:** JSON-lines RPC; payload `memory.query_context` с `schema_version: agent_work_memory_query.v1` и полями v1; дополнительно `query_kind`, `level` из сырого dict (`agent_work_memory_integration.md` F1–F2).
-- **Ответ:** `memory_slice`, `agent_memory_result`, `grants`, дубликаты `decision_summary`/`recommended_next_step` на верхнем уровне и внутри `agent_memory_result`; SoT для continuation — `agent_memory_result` (`agent_work_memory_integration.md` F4, F6).
-- **Grants:** в payload есть, но AgentWork в показанном пути **не** подключает `grants` к enforcement (`agent_work_memory_integration.md` F5) — **`implementation_backlog`**.
-- **CLI init:** default goal `MEMORY_INIT_CANONICAL_GOAL`; summary `emit_memory_init_user_summary` с `exit_kind` ∈ {`complete`,`partial`,`aborted`}; строка **`blocked` как exit_kind не используется** (`agent_memory_entrypoints_cli.md` F9).
-- **Корреляция:** `MemoryJournalRow.request_id` — broker id; `query_id` внутри payload событий W14 (`memory_journal_trace_observability.md` F8).
-- **Stdout trace:** JSONL `pag.node.upsert`, `memory.w14.graph_highlight`; compact.log нормализует имена (`memory_journal_trace_observability.md` F9, F12).
+**SoT** (единый авторитетный источник для продолжения сценария) и другие сокращения — в [`glossary.md`](glossary.md).
 
-## Target behavior
+## Связь с исходной постановкой
+
+| ID | Формулировка требования (суть) |
+|----|--------------------------------|
+| OR-004 | Зафиксировать контракт инициаторов (оболочка агента, CLI, клиент брокера): поля запроса, `query_id`, `user_turn_id`, namespace, корень проекта, лимиты; схемоподобное описание JSON. |
+| OR-010 | Внешние события: heartbeat, прогресс, выделенные узлы, кандидаты и обновления связей, partial/complete/blocked; компактные правила логов. |
+| OR-011 | CLI `ailit memory init`: запрос по умолчанию, прогресс, логи узлов и связей, семантика кода выхода. |
+| OR-012 | Согласовать с конвертом `agent_memory_result.v1` и полями, видимыми потребителю. |
+
+## Текущая реализация
+
+### Как устроен путь «оболочка агента → брокер → память»
+
+Оболочка агента не вызывает модуль памяти напрямую в одном процессе. **Брокер** запускает отдельный процесс памяти и обменивается с ним **строками JSON** (формат JSON Lines): по одному JSON-объекту на строку.
+
+Запрос к сервису памяти имеет вид `memory.query_context`. В теле задаётся версия схемы `agent_work_memory_query.v1` и обязательные поля версии v1. Дополнительно инициатор может передать `query_kind` и `level` как **подсказки** из произвольного словаря; парсер v1 их не валидирует строго.
+
+Ответ содержит срез памяти, конверт `agent_memory_result`, поле `grants` и дублирование некоторых полей (`decision_summary`, `recommended_next_step`) на верхнем уровне и внутри `agent_memory_result`. **Единый авторитет для продолжения диалога** — объект `agent_memory_result`: при конфликте с дублями наверху приоритет у него.
+
+**Заметка для кода:** поле `grants` присутствует в ответе, но в одном из показанных путей оболочка агента **не** подключает его к проверке прав чтения файлов — это намеренно помечено как **`implementation_backlog`** до выравнивания.
+
+### CLI
+
+- Команда init использует цель по умолчанию на уровне продукта (константа вроде `MEMORY_INIT_CANONICAL_GOAL`).
+- Итоговая сводка для пользователя использует `exit_kind` из множества `complete`, `partial`, `aborted`; отдельного видимого пользователю `blocked` в этом пути **пока нет** — расхождение с целевым UX отмечено как **`implementation_backlog`**.
+
+### Корреляция и логи
+
+- В журнале строки связываются с запросом брокера через `request_id`; внутри payload шагов W14 фигурирует `query_id`.
+- В stdout для трассировки графа: события вроде `pag.node.upsert`, `memory.w14.graph_highlight`; компактный лог на диске может нормализовать имена событий.
+
+## Целевое поведение
 
 ### Инициаторы
 
-| Initiator | Transport | Обязательные корреляторы |
+| Инициатор | Транспорт | Обязательные корреляторы |
 |-----------|-----------|-------------------------|
-| AgentWork | broker stdin/stdout | `user_turn_id`, `query_id`, `namespace`, `project_root` |
-| CLI `ailit memory init` | in-process worker | synthetic `query_id` per orchestrator round, `namespace` from repo detect, `project_root` normalized |
-| Другой broker client | как AgentWork | должен повторять v1 контракт |
+| Оболочка агента (AgentWork) | stdin/stdout брокера к подпроцессу памяти | `user_turn_id`, `query_id`, `namespace`, `project_root` |
+| CLI `ailit memory init` | in-process worker | синтетический `query_id` на раунд оркестратора, `namespace` из определения репозитория, нормализованный `project_root` |
+| Другой клиент брокера | как AgentWork | должен повторять контракт v1 |
 
-### Schema-like: `agent_work_memory_query.v1` (subset)
+### Схемоподобно: `agent_work_memory_query.v1` (фрагмент)
 
 ```json
 {
@@ -39,17 +65,17 @@
 }
 ```
 
-**Forbidden:** смешивать пользовательскую «полную задачу» без декомпозиции: AgentMemory **не** решает end-to-end задачу, только memory subgoal (`original_user_request.md`).
+**Запрещено смешивать** полную пользовательскую задачу «сделай всё» без декомпозиции: AgentMemory решает только **подцель памяти** (memory subgoal), а не end-to-end задачу агента.
 
-### Много запросов на один user turn
+### Несколько запросов на один user turn
 
-- Initiator **may** отправить серию `memory.query_context` с разными `query_id` при continuation; cap `memory.runtime.max_memory_queries_per_user_turn` (default 6, clamp 1..1000) (`agent_work_memory_integration.md` F7).
+Инициатор **может** отправить серию `memory.query_context` с разными `query_id` для продолжения; действует лимит запросов на один `user_turn_id` (например конфигурация `memory.runtime.max_memory_queries_per_user_turn` с разумными границами).
 
-### Поле приоритета дубликатов
+### Приоритет дубликатов полей
 
-**Норматив для потребителей:** при конфликте верхнего уровня и `agent_memory_result` для continuation/decisions — **SoT = `agent_memory_result`**; top-level поля — UX/legacy mirror (**default** mirror must match; если не совпадают — `implementation_bug`).
+**Норматив:** при конфликте верхнего уровня и `agent_memory_result` для continuation/decisions — **источник истины = `agent_memory_result`**; верхнеуровневые поля — зеркало для UX/наследия (по умолчанию должны совпадать; расхождение — дефект реализации).
 
-### Внешние события (OR-010) — каталог (discriminant)
+### Внешние события (OR-010) — типы
 
 Каждое событие: `schema_version: agent_memory.external_event.v1`, поля:
 
@@ -65,39 +91,30 @@
 }
 ```
 
-**Durable vs ephemeral (идея donor opencode):** `heartbeat`, fine-grained `progress` — ephemeral; `complete_result`/`blocked_result`/`partial_result` финальные — durable в journal/agent result path.
+**Долговечные vs эфемерные:** `heartbeat`, детальный `progress` — эфемерные; финальные `complete_result` / `blocked_result` / `partial_result` — долговечные на пути результата/журнала.
 
-#### Обязательные поля payload по типу (кратко)
+#### Кратко по обязательным полям payload
 
 - **`heartbeat`:** `session_alive=true`.
-- **`progress`:** `runtime_state` (строка из целевой state machine), `message` compact.
-- **`highlighted_nodes`:** `node_ids: string[]` (bounded count), `reason` short.
-- **`link_candidates`:** массив `agent_memory_link_candidate.v1` **до** validation (optional для CLI, required для Desktop при включённой feature).
+- **`progress`:** `runtime_state` (строка из целевой машины состояний), `message` компактно.
+- **`highlighted_nodes`:** `node_ids: string[]` (ограниченное число), `reason` коротко.
+- **`link_candidates`:** массив `agent_memory_link_candidate.v1` **до** валидации (опционально для CLI, обязательно для Desktop при включённой функции).
 - **`links_updated`:** `{ "applied": [...], "rejected": [{ "link_id", "reason"}] }`.
-- **`nodes_updated`:** `{ "upserted_node_ids": [], "kind": "B|C|D" }` bounded.
-- **`partial_result` / `complete_result` / `blocked_result`:** ссылка на финальный `agent_memory_result.v1` или его подмножество + hash; **forbidden** включать raw prompts.
+- **`nodes_updated`:** `{ "upserted_node_ids": [], "kind": "B|C|D" }` с лимитами.
+- **`partial_result` / `complete_result` / `blocked_result`:** ссылка на финальный `agent_memory_result.v1` или подмножество + hash; **запрещено** включать сырые промпты.
 
-### CLI `ailit memory init` (OR-011) — target vs current
+### CLI `ailit memory init` (OR-011) — цель и расхождения
 
-**Target UX:**
+**Целевой UX:**
 
-- Default NL goal — константа уровня продукта (аналог `MEMORY_INIT_CANONICAL_GOAL`), пользователь **may** расширить в будущем; сейчас только константа (`agent_memory_entrypoints_cli.md` F6).
-- Progress: stderr compact sink + orchestrator phases + worker journal shadow.
-- Nodes/links: логировать через `nodes_updated` / `links_updated` / stdout trace согласно политике caps.
-- Итоги: **`complete` | `partial` | `blocked`** как **видимые** статусы + exit codes с таблицей соответствия.
+- Цель по умолчанию — константа уровня продукта; позже пользователь **может** расширить сценарий; на момент канона — только константа.
+- Прогресс: stderr компактно + фазы оркестратора + тень журнала worker.
+- Узлы и связи: логирование через `nodes_updated` / `links_updated` / stdout по политике лимитов.
+- Итоги: видимые статусы **`complete` | `partial` | `blocked`** и согласованные коды выхода.
 
-**Current reality mismatch (D1):** CLI summary использует `aborted` вместо отдельного UX `blocked` — пометить **`implementation_backlog`** до выравнивания.
+**Текущее расхождение:** сводка CLI использует `aborted` вместо целевого видимого `blocked` — **`implementation_backlog`**.
 
-### Команды проверки (manual / CI)
+### Команды проверки
 
-- Ручной smoke (после реализации): `ailit memory init <repo>` — ожидать финальный маркер `memory.result.returned` в shadow journal и compact log без raw prompts (`memory_journal_trace_observability.md` tests refs).
-- CI: список pytest в `failure-retry-observability.md` (фактические имена).
-
-## Traceability
-
-| Report | Topics |
-|---------|--------|
-| `agent_memory_entrypoints_cli.md` | CLI, transports |
-| `agent_work_memory_integration.md` | AgentWork payload, grants gap |
-| `memory_journal_trace_observability.md` | channels, D-OBS |
-| `donor/opencode_typed_events_for_memory_protocol.md` | discriminant, durable/ephemeral |
+- Ручной smoke (после реализации целевого UX): `ailit memory init <repo>` — ожидать финальный маркер `memory.result.returned` в тени журнала и компактный лог без сырых промптов.
+- Автоматические тесты: перечень имён pytest в [`failure-retry-observability.md`](failure-retry-observability.md).

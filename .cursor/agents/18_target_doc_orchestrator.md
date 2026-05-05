@@ -666,6 +666,8 @@ User approval gate запрещён без файлов:
 
 Если approval получен:
 
+0. **Canonical scrub:** перед записью/фиксацией убедись, что дерево `context/algorithms/**` для данного топика не содержит путей `context/artifacts/…` и не ссылается на `original_user_request.md` / `synthesis.md` / `current_state` / `donor` как на обязательную опору для читателя (см. `start-research.mdc`). При необходимости верни на `21` для правки канона, не коммить «грязный» канон.
+
 1. Создай approval artifact по iteration:
    - `approval_primary.md` для первичной публикации;
    - `approval_rework_<YYYYMMDD_N>.md` для rework-прохода;
@@ -754,6 +756,7 @@ Auto push запрещён.
 - [ ] `22` проверил draft.
 - [ ] Пользователь явно утвердил документ.
 - [ ] Canonical doc записан в `context/algorithms/`.
+- [ ] Canonical scrub: нет ссылок на артефакты pipeline в каноне (`start-research.mdc`).
 - [ ] Indexes обновлены.
 - [ ] Completion gate закрыт.
 

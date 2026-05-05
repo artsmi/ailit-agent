@@ -1,39 +1,50 @@
-# AgentMemory: prompts по состояниям и multi-language
+# Промпты по фазам рантайма и многоязычие (Prompts)
 
-## Current reality
+**Аннотация:** здесь не дословные тексты промптов из кода, а **контракт требований**: какую роль выполняет каждый промпт, что обязано быть в инструкциях к модели, и как классифицируются файлы. Дословные строки живут в репозитории продукта.
 
-- Планер: system prompt константа `W14_PLAN_TRAVERSAL_SYSTEM` для первого раунда (`agent_memory_query_pipeline.md` F1).
-- Summarize C/B: отдельные LLM вызовы через `AgentMemorySummaryService` с strict `agent_memory_command_output.v1` (`pag_kb_memory_state_models.md` F8).
-- Repair: отдельные system/user тексты `_w14_repair_system_message` / `_w14_repair_user_instruction` (`agent_memory_query_pipeline.md` F6).
-- Verbose chat log при `memory.debug.verbose=1` может содержать полные LLM messages — **не** compact channel (`memory_journal_trace_observability.md` F7).
+**CoT**, **D-OBS** — см. [`glossary.md`](glossary.md).
 
-## Target behavior
+## Связь с исходной постановкой
 
-### Каталог промптов по состояниям (OR-009)
+| ID | Формулировка требования (суть) |
+|----|--------------------------------|
+| OR-008 | Промпты для нескольких языков программирования и для не-кода; поле `file_kind`, сегментация; запреты на вывод рассуждений вне JSON и на сырые дампы. |
+| OR-009 | Каталог промптов, привязанный к состояниям/фазам рантайма (таблица ниже). |
 
-Каждая строка — **роль промпта**, не дословный текст (тексты живут в коде/репо; здесь контракт требований).
+## Текущая реализация
 
-| Runtime state / phase | Prompt role | Обязательные инструкции к LLM |
-|----------------------|-------------|-------------------------------|
-| `intake` (policy header) | `agent_memory.system` | Разделение ролей runtime vs LLM; запрет CoT в output; запрет filesystem/tools из JSON; запрет absolute/`..` paths; указание caps. |
-| `planner_round` | `agent_memory.planner.plan_traversal` | JSON-only; whitelist `actions`; указание, что project memory **не только Python**; требование явного `file_kind` awareness при выборе путей. |
-| `summarize_phase` / C | `agent_memory.summarize.c` | Строгая схема `agent_memory_command_output.v1`; вернуть `file_kind`, `language`, `semantic_chunk_kind`, candidates с evidence. |
-| `summarize_phase` / B | `agent_memory.summarize.b` | Аналогично; ссылка на дочерние C summaries если применимо. |
-| `propose_links` | `agent_memory.links.propose` | Только `agent_memory_link_candidate.v1[]`; запрет hard-write семантики. |
-| `finish_assembly` | `agent_memory.finish.decision` | Выбор из candidates; `decision_summary` compact; `recommended_next_step` bounded. |
-| `planner_repair` | `agent_memory.planner.repair_format` | Исправить JSON строго под schema; один round. |
+- Планер: для первого раунда используется фиксированный системный текст промпта под команду `plan_traversal`.
+- Сводки C/B: отдельные вызовы LLM через сервис сводок со строгой схемой `agent_memory_command_output.v1`.
+- Repair: отдельные системные и пользовательские тексты для исправления формата ответа планера.
+- Режим отладки с подробным логом чата может содержать полные сообщения LLM — это **не** компактный канал для внешних потребителей.
 
-### Multi-language и виды файлов (OR-008)
+## Целевое поведение
 
-**Обязательная классификация** перед «AST-like» рассуждениями:
+### Каталог промптов по фазам (OR-009)
 
-- `file_kind`: `source_code` \| `documentation` \| `configuration` \| `build_file` \| `test` \| `unknown_text` (required в C batch output).
-- `language`: расширенный enum включая `python`, `go`, `cpp`, `c`, `typescript`, `markdown`, `yaml`, `json`, `dockerfile`, `makefile`, `unknown`.
+Каждая строка — **роль промпта**, не дословный текст.
+
+| Состояние / фаза рантайма | Роль промпта | Обязательные инструкции к LLM |
+|---------------------------|--------------|-------------------------------|
+| `intake` (заголовок политики) | `agent_memory.system` | Разделение ролей рантайм vs LLM; запрет CoT в выходе; запрет filesystem/tools из JSON; запрет absolute/`..` paths; указание лимитов. |
+| `planner_round` | `agent_memory.planner.plan_traversal` | Только JSON; whitelist `actions`; память проекта **не только Python**; явное учёт `file_kind` при выборе путей. |
+| `summarize_phase` / C | `agent_memory.summarize.c` | Строгая схема `agent_memory_command_output.v1`; вернуть `file_kind`, `language`, `semantic_chunk_kind`, кандидаты с доказательством. |
+| `summarize_phase` / B | `agent_memory.summarize.b` | Аналогично; ссылка на дочерние сводки C при необходимости. |
+| `propose_links` | `agent_memory.links.propose` | Только массив `agent_memory_link_candidate.v1[]`; запрет семантики «жёсткой записи» в БД из JSON. |
+| `finish_assembly` | `agent_memory.finish.decision` | Выбор из кандидатов; `decision_summary` компактно; `recommended_next_step` с лимитом. |
+| `planner_repair` | `agent_memory.planner.repair_format` | Исправить JSON строго под схему; один раунд. |
+
+### Классификация языка и вида файла (OR-008)
+
+**Обязательная классификация** до «рассуждений в стиле AST»:
+
+- `file_kind`: `source_code` \| `documentation` \| `configuration` \| `build_file` \| `test` \| `unknown_text` (обязательно в batch-выходе C).
+- `language`: расширенный перечень, включая `python`, `go`, `cpp`, `c`, `typescript`, `markdown`, `yaml`, `json`, `dockerfile`, `makefile`, `unknown`.
 - `semantic_chunk_kind`: `function`, `class`, `method`, `struct`, `interface`, `heading_section`, `config_section`, `build_target`, `test_case`, `text_window`, …
 
-**Fallback:** для `unknown` — `semantic_chunk_kind=text_window` или `heading_section` с явной маркировкой heuristic; **forbidden** представлять такой chunk как надёжный `calls`/`imports` без evidence.
+**Fallback:** для `unknown` — `semantic_chunk_kind=text_window` или `heading_section` с явной пометкой эвристики; **запрещено** выдавать такой фрагмент как надёжный `calls`/`imports` без доказательства.
 
-### Пример output fragment (контрактный, из постановки)
+### Фрагмент контрактного примера структуры выхода
 
 ```json
 {
@@ -54,18 +65,14 @@
 
 ### Запреты (все промпты)
 
-- CoT / «рассуждения вне JSON» в machine channel — **forbidden**.
-- Выдача секретов, ключей, токенов — **forbidden**.
-- Большие raw file dumps — **forbidden**; только выбранные окна + hashes/line ranges.
+- Цепочка рассуждений / текст вне JSON в машинном канале — **запрещено**.
+- Секреты, ключи, токены — **запрещено**.
+- Большие сырые дампы файлов — **запрещено**; только выбранные окна строк, хэши, диапазоны.
 
-### Verbose режим
+### Подробный лог (verbose)
 
-`memory.debug.verbose=1` — **audit-only**; не является broker-facing compact контрактом. Потребители D-OBS не обязаны парсить legacy log.
+Флаг вроде `memory.debug.verbose=1` — **только для аудита**; потребители подмножества D-OBS не обязаны разбирать этот поток.
 
-## Traceability
+### Лимиты размера полей
 
-| ID | Источник |
-|----|----------|
-| OR-008, OR-009 | `original_user_request.md` §5–6 |
-| F-OBS-2, F7 | `current_state/memory_journal_trace_observability.md` |
-| Letta donor | идея layered limits — `donor/letta_memory_blocks_compact_pattern.md` (единицы: см. D4 synthesis — UTF-8 символы / counts) |
+Строковые поля и счётчики в публичных схемах событий и результатов ограничиваются в **символах UTF-8** и/или в количестве узлов/рёбер с флагом `truncated` (единая политика с [`failure-retry-observability.md`](failure-retry-observability.md)); не смешивать с токенами токенизатора в обязательных полях публичной схемы.

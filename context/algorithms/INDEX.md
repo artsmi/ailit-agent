@@ -4,4 +4,4 @@
 
 | Тема | Путь | Статус (черновик) |
 |------|------|-------------------|
-| AgentMemory: broker/CLI, W14, граф PAG, события, результат `agent_memory_result.v1` | [`agent-memory/INDEX.md`](agent-memory/INDEX.md) | `approved` (2026-05-03) |
+| AgentMemory: брокер/CLI, конвейер W14, граф PAG, события, результат `agent_memory_result.v1` (пакет + [`glossary.md`](agent-memory/glossary.md)) | [`agent-memory/INDEX.md`](agent-memory/INDEX.md) | `approved` (2026-05-03) |

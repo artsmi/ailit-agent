@@ -1,40 +1,53 @@
-# AgentMemory: failure, retry, observability, acceptance
+# Ошибки, повторы, наблюдаемость и приёмка (Failure, retry, observability)
 
-## Current reality
+**Аннотация:** что происходит при сбоях LLM, разборе JSON, отсутствии файла и превышении лимитов; какие каналы логов существуют; какие тесты считаются доказательством соответствия.
 
-- Planner repair: **один** LLM repair call при части ошибок; `_should_repair_w14_error` отклоняет repair для строк `"must be only json"` / `"invalid json"` (`agent_memory_query_pipeline.md` F6).
-- Journal `event_name` — множество имён шире D-OBS-1 (`memory_journal_trace_observability.md` F2, F11).
-- Highlight: stdout `memory.w14.graph_highlight` (с точкой), compact файл `memory.w14_graph_highlight` после normalize (`memory_journal_trace_observability.md` F12).
-- Тесты: имена из plan §C14R.4 `*_prompt_contains_*` **отсутствуют** в репозитории; фактические имена в `tests_plan14_alignment.md` (`tests_plan14_alignment.md` G1).
+**D-OBS**, **W14** — см. [`glossary.md`](glossary.md).
 
-## Target behavior
+## Связь с исходной постановкой
 
-### Единицы лимитов (D4)
+| ID | Формулировка требования (суть) |
+|----|--------------------------------|
+| OR-010 | События и логи на границе с потребителями: без сырых промптов там, где канон требует компактность; согласование с [`external-protocol.md`](external-protocol.md). |
+| OR-012 | Конверт `agent_memory_result.v1`: поля, статусы, компактный trace. |
+| OR-013 | Поведение при невалидном JSON, неверном id узла, отклонённой связи, лимитах, отсутствии файла, неизвестном языке. |
+| OR-015 | Проверяемые критерии приёмки; в каноне — явные имена тестов pytest в репозитории. |
 
-- Строковые поля в **wire JSON** (события, `decision_summary`, reasons): лимиты в **UTF-8 символах** после нормализации NFC (или явно указанной factory default).
-- Граф-facing поля (`highlighted_nodes`, `links_updated.applied`): лимиты в **количестве узлов/рёбер** + флаг `truncated=true` при crop.
-- **Forbidden** смешивать tokenizer-токены в обязательных public schema полях.
+## Текущая реализация
 
-### Failure / retry matrix (OR-013)
+- Repair планера: **один** дополнительный вызов LLM при части ошибок; политика функции «разрешать ли repair» отклоняет repair для некоторых текстов ошибок (например явное «должен быть только json» / «invalid json»).
+- Множество имён `event_name` в журнале памяти **шире**, чем короткий каталог внешних событий D-OBS.
+- Подсветка графа: stdout с именем вроде `memory.w14.graph_highlight`; в компактном файле имя может нормализоваться (например без точки в середине).
+- Исторические имена тестов из старых планов (например `*_prompt_contains_*`) в репозитории **отсутствуют**; норматив — только фактические имена ниже.
 
-| Условие | Статус | Retry/repair | Observable reason code |
-|---------|--------|--------------|--------------------------|
-| LLM HTTP/transport недоступен после bounded attempts | `blocked` | bounded backoff | `llm_unavailable` |
-| LLM вернул invalid JSON / W14 parse error, repair разрешён и успешен | continue | 1× repair | `w14_repair_ok` |
-| Repair запрещён или провалился | `partial` | none | `w14_parse_failed` |
-| Несуществующая node id в plan | `partial` или structured fix | bounded | `unknown_node_id` |
-| Invalid graph link candidate | reject link | continue | `link_rejected` |
-| Файл missing / unreadable | `partial` | none | `file_missing` |
-| Язык unknown | `partial` (heuristic chunk) | none | `language_unknown_fallback` |
-| Caps превышены (queries/turn, nodes, edges) | `partial` | none | `cap_exceeded` |
-| Нет данных в PAG | запуск разрешённого growth/index **или** `partial` с reason | bounded | `empty_graph` |
-| KB missing на init path | согласно transaction policy | — | `kb_*` (init only) |
+## Целевое поведение
+
+### Единицы лимитов
+
+- Строковые поля в **wire JSON** (события, `decision_summary`, причины): лимиты в **символах UTF-8** после нормализации (например NFC) или с явной factory default.
+- Поля графа (`highlighted_nodes`, `links_updated.applied`): лимиты в **числе узлов/рёбер** + флаг `truncated=true` при обрезке.
+- **Запрещено** смешивать токены токенизатора модели в обязательных полях публичной схемы.
+
+### Матрица ошибок и повторов (OR-013)
+
+| Условие | Статус | Retry/repair | Код причины для наблюдаемости |
+|---------|--------|--------------|-------------------------------|
+| HTTP/транспорт LLM недоступен после ограниченных попыток | `blocked` | ограниченный backoff | `llm_unavailable` |
+| LLM вернул невалидный JSON / ошибка разбора W14, repair разрешён и успешен | продолжить | 1× repair | `w14_repair_ok` |
+| Repair запрещён или провалился | `partial` | нет | `w14_parse_failed` |
+| Несуществующий id узла в плане | `partial` или структурированное исправление | ограниченно | `unknown_node_id` |
+| Невалидный кандидат связи | отклонить связь | продолжить | `link_rejected` |
+| Файл отсутствует / не читается | `partial` | нет | `file_missing` |
+| Язык неизвестен | `partial` (эвристический фрагмент) | нет | `language_unknown_fallback` |
+| Превышены лимиты (запросы на turn, узлы, рёбра) | `partial` | нет | `cap_exceeded` |
+| Нет данных в PAG | разрешённый рост/индекс **или** `partial` с причиной | ограниченно | `empty_graph` |
+| KB отсутствует на пути init | по политике транзакций | — | `kb_*` (только init) |
 
 ### FR-no-progress (целевое правило)
 
-Если раунд выбрал тот же набор файлов/нод и не добавил usable candidates, следующий раунд **forbidden** без смены входа/progress/caps/provider fix; иначе `partial` с `reason=no_progress`.
+Если раунд выбрал тот же набор файлов или узлов и не добавил пригодных кандидатов, следующий раунд **запрещён** без смены входа, прогресса, лимитов или исправления ответа провайдера; иначе `partial` с `reason=no_progress`.
 
-### `agent_memory_result.v1` (OR-012) — schema-like каркас
+### `agent_memory_result.v1` (OR-012) — каркас схемы
 
 ```json
 {
@@ -49,29 +62,29 @@
 }
 ```
 
-**`results[]` элемент (минимальный контракт):** поля `kind`, `path`, опционально `summary` / `read_lines` / `c_node_id` согласно сборщику finish (`tests_plan14_alignment.md` F10).
+**Элемент `results[]` (минимум):** поля `kind`, `path`, при необходимости `summary` / `read_lines` / `c_node_id` согласно сборщику finish в реализации.
 
-**`blocked` semantics:** только LLM API / невалидируемый ответ после bounded repair для **обязательной** LLM фазы (`original_user_request.md`).
+**Семантика `blocked`:** только недоступность API LLM или невозможность получить валидный ответ после ограниченного repair для **обязательной** фазы с участием LLM (согласовано с OR-002).
 
-### Observability слои
+### Слои наблюдаемости
 
-1. **Broker stdout JSONL** — graph/highlight для Desktop.
-2. **Memory journal** (`event_name`) — durable audit с redaction по ключам (`memory_journal_trace_observability.md` F6).
-3. **compact.log** — CLI human sink; нормализация имён (`memory_journal_trace_observability.md` F4, F12).
-4. **legacy verbose** — audit-only, не D-OBS.
+1. **Stdout брокера JSONL** — граф/подсветка для Desktop.
+2. **Журнал памяти** (`event_name`) — долговечный аудит с редактированием по ключам.
+3. **compact.log** — компактный вывод для человека в CLI; нормализация имён событий.
+4. **Подробный legacy-лог** — только аудит, не D-OBS.
 
-### Маппинг stdout → compact (target)
+### Маппинг stdout → compact (цель)
 
-Таблица обязательна в имплементации тестом или документированным golden list; пример строк:
+Таблица должна быть зафиксирована в реализации тестом или документированным списком; пример:
 
 | stdout `event_name` | compact `event` |
 |---------------------|-----------------|
-| `pag.node.upsert` (через wrapper) | `memory.pag_graph` |
+| `pag.node.upsert` (через обёртку) | `memory.pag_graph` |
 | `memory.w14.graph_highlight` | `memory.w14_graph_highlight` |
 
-### Acceptance: фактические pytest (не имена из plan §C14R.4)
+### Приёмка: фактические тесты pytest (OR-015)
 
-**Норматив:** использовать только существующие имена из `tests_plan14_alignment.md`:
+Использовать только существующие тесты в дереве `tests/`:
 
 - `tests/test_g14r0_w14_clean_replacement.py`: `test_query_context_returns_agent_memory_result_next_to_memory_slice`, `test_legacy_requested_reads_rejected_after_clean_replacement`
 - `tests/test_g14r2_agent_memory_runtime_contract.py`: `test_plan_traversal_in_progress_canonicalizes_to_ok`, `test_command_output_rejects_prose_around_json`
@@ -83,19 +96,12 @@
 - `tests/runtime/test_broker_work_memory_routing.py`: broker + `_w14_trace_contract_ok`
 - `tests/test_g14_agent_memory_legacy_quarantine.py`: quarantine legacy C extractor
 
-**Historical note:** имена вида `test_plan_traversal_prompt_contains_required_output_schema` из plan/14 — **не** существуют в репозитории (`tests_plan14_alignment.md` G1).
+**Историческая заметка:** имена вроде `test_plan_traversal_prompt_contains_required_output_schema` из старых планов в репозитории **не** существуют; на них не опираться.
 
-## implementation_backlog (сводка)
+## Сводка implementation_backlog (см. глоссарий)
 
-- CLI: отображение `blocked` vs `aborted` / exit mapping (D1).
-- AgentWork: подключить `grants` к read enforcement (D2).
-- Единый A node id (G-AUTH-5).
-- Расширение D-OBS или второй каталог internal journal (G-AUTH-6).
-- Целевой envelope `propose_links` + строгая валидация (`llm-commands.md`).
-
-## Traceability
-
-| ID | Источник |
-|----|----------|
-| OR-010–013, OR-015 | `original_user_request.md` |
-| F-OBS*, F-TST* | `current_state/memory_journal_trace_observability.md`, `current_state/tests_plan14_alignment.md` |
+- CLI: видимый `blocked` vs `aborted` / сопоставление кода выхода.
+- AgentWork: подключить `grants` к проверке чтения файлов.
+- Единый id узла A (см. [`memory-graph-links.md`](memory-graph-links.md)).
+- Расширение D-OBS или второй каталог внутреннего журнала.
+- Целевой конверт `propose_links` и строгая валидация ([`llm-commands.md`](llm-commands.md)).

@@ -209,6 +209,8 @@ Target document должен быть человекочитаемым и тех
 - anti-patterns;
 - как `start-feature` / `start-fix` обязаны использовать документ.
 
+Опубликованный канон в `context/algorithms/**` (после user OK в target-doc pipeline): заголовки и аннотации на языке репозитория, расшифровка сокращений, отсутствие ссылок на `context/artifacts/…` и временные markdown артефакты pipeline как обязательная опора для читателя — см. `.cursor/rules/start-research.mdc`, раздел «Канон в context/algorithms».
+
 ## Human Approval Gate Package
 
 Перед запросом пользовательского OK target-doc workflow должен подготовить не только сам target document, но и human approval package.

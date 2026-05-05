@@ -1,43 +1,54 @@
-# AgentMemory: LLM command protocol (runtime vs LLM)
+# Протокол команд LLM для AgentMemory (LLM command protocol)
 
-## Current reality
+**Аннотация:** здесь зафиксировано, что именно модель может вернуть в JSON, что запрещено, и чем владеет рантайм. Сначала читайте словесное описание ролей; схемы JSON — внизу разделов.
 
-- Реестр имён **envelope** команд: `plan_traversal`, `summarize_c`, `summarize_b`, `finish_decision` (`AgentMemoryCommandName`, `agent_memory_query_pipeline.md` F1).
-- Первый планерский раунд использует system prompt **только** под `plan_traversal` (`agent_memory_query_pipeline.md` F1).
-- Для `plan_traversal` payload действий whitelist: `list_children`, `get_b_summary`, `get_c_content`, `decompose_b_to_c`, `summarize_b`, `finish` (`agent_memory_query_pipeline.md` F2). Runtime **агрегирует пути** из actions с полем `path` без полного switch по `action` (`agent_memory_query_pipeline.md` F2).
-- Repair: при `W14CommandParseError` — не более **одного** LLM repair; фаза журнала `planner_repair`; отдельного envelope имени `repair_invalid_response` **нет** (`agent_memory_query_pipeline.md` F6). Для **внутренних** ответов `summarize_c` / `summarize_b` — отдельный repair с compact-фазой `summarize_c_repair` / `summarize_b_repair`, разбор с `enforce_planner_envelope=False` и проверкой ожидаемого `command`.
-- `_validate_command_payload` строго покрывает `plan_traversal` и `finish_decision`; для `summarize_*` как **верхнеуровневого** planner envelope валидация payload **ограничена** (`agent_memory_query_pipeline.md` G1).
+Термины: **конверт команды** (envelope), **действия планера**, **W14**, **CoT** — см. [`glossary.md`](glossary.md).
 
-## Target behavior
+## Связь с исходной постановкой
+
+| ID | Формулировка требования (суть) |
+|----|--------------------------------|
+| OR-006 | Описать протокол команд от рантайма к LLM: какие команды бывают, что на входе и выходе, что запрещено и обязательно; привести примеры восстановления после невалидного ответа; явно разделить ответственность рантайма и модели. |
+
+## Текущая реализация
+
+- Имена команд **конверта**: `plan_traversal`, `summarize_c`, `summarize_b`, `finish_decision` (тип `AgentMemoryCommandName` в коде).
+- Первый раунд планера использует системный промпт **только** под команду `plan_traversal`.
+- Для `plan_traversal` список допустимых **действий** в payload ограничен: например `list_children`, `get_b_summary`, `get_c_content`, `decompose_b_to_c`, `summarize_b`, `finish`. Рантайм собирает пути из действий, где есть поле `path`, без полного перечисления всех видов действий вручную.
+- **Исправление ответа (repair):** при ошибке разбора `W14CommandParseError` допускается не более **одного** дополнительного вызова LLM для исправления формата; в журнале это фаза `planner_repair`. Отдельного имени команды конверта `repair_invalid_response` в ответе модели **нет** — это режим работы рантайма, а не публичное имя команды.
+- Для внутренних ответов `summarize_c` / `summarize_b` — отдельный repair с фазами `summarize_c_repair` / `summarize_b_repair`, разбор с ослабленной проверкой конверта планера и проверкой ожидаемой команды.
+- Валидация payload жёстко покрывает `plan_traversal` и `finish_decision`; для `summarize_*` как **верхнеуровневого** конверта планера проверка ограничена (источник риска рассогласования с целевым каноном).
+
+## Целевое поведение
 
 ### Владение данными
 
-**Runtime владеет:** доступом к БД, обходом, чтением файлов (по grants/policy), записью A/B/C/D, валидацией ids/paths/links, caps/retry, внешними событиями, финальным ответом.
+**Рантайм владеет:** доступом к БД, обходом, чтением файлов (по grants и политике), записью уровней A/B/C/D, валидацией идентификаторов, путей и связей, лимитами и повторами, внешними событиями, финальным ответом потребителю.
 
-**LLM владеет:** только JSON-решениями внутри разрешённых схем: куда идти дальше, какие ноды релевантны, candidates links, нужен ли summary, finish readiness, compact decision text.
+**LLM владеет:** только JSON-решениями внутри разрешённых схем: куда идти дальше, какие узлы релевантны, кандидаты связей, нужна ли сводка, готовность к завершению, краткий текст решения.
 
 ### Два уровня «команд»
 
-1. **Envelope command** — поле верхнего уровня W14 `command` ∈ { `plan_traversal`, `summarize_c`, `summarize_b`, `finish_decision`, **целевой** `propose_links` }.
-2. **Planner actions** — только внутри `plan_traversal.payload.actions[]` с полем `action` из фиксированного whitelist (см. current reality).
+1. **Команда-конверт** — поле верхнего уровня `command` ∈ { `plan_traversal`, `finish_decision`, целевой **`propose_links`** } (и внутренние фазы, не являющиеся отдельным публичным именем repair-конверта).
+2. **Действия планера** — только внутри `plan_traversal.payload.actions[]` с полем `action` из фиксированного whitelist.
 
-**Норматив:** `summarize_c` / `summarize_b` как ответ **планера** на верхнем уровне — **forbidden** в target (избежать дыры валидации); эти режимы выполняются как **внутренние фазы** runtime после materialize/index (`agent_memory_query_pipeline.md` F8, G1).
+**Норматив:** ответы `summarize_c` / `summarize_b` как **верхнеуровневый** конверт планера в целевом поведении **запрещены** — эти режимы выполняются как **внутренние фазы** рантайма после материализации и индексации, чтобы не оставлять дыр в валидации конверта.
 
-### Целевая команда `propose_links` (расширение OR-006)
+### Команда `propose_links` (расширение OR-006)
 
-**Назначение:** отдельный LLM round, который возвращает **только** массив `link_candidate` объектов (`memory-graph-links.md`), без записи в БД.
+**Назначение:** отдельный раунд LLM, который возвращает **только** массив объектов-кандидатов связей (см. [`memory-graph-links.md`](memory-graph-links.md)), без прямой записи в БД.
 
-**Вход (от runtime):** компактный контекст: выбранные `node_id`, краткие summary/hashes, ограниченные пути, caps.
+**Вход (от рантайма):** компактный контекст: выбранные `node_id`, краткие сводки или хэши, ограниченные пути, лимиты.
 
-**Выход:** `schema_version=agent_memory_link_batch.v1`, массив candidates.
+**Выход:** `schema_version=agent_memory_link_batch.v1`, массив кандидатов.
 
-**Forbidden:** произвольные filesystem/tool поля, shell execution, абсолютные пути, сырой файл целиком.
+**Запрещено:** произвольные поля доступа к файловой системе и инструментам, выполнение shell, абсолютные пути, сырой файл целиком.
 
-### `repair_invalid_response` как режим, не как публичное имя envelope
+### Режим исправления невалидного ответа
 
-**Норматив для документации:** фаза **`planner_repair`**; machine поле `command` в ответе LLM **не** использует значение `repair_invalid_response` (согласовано с фактом кода, `agent_memory_query_pipeline.md` F6). Внешние клиенты видят только события/trace с `action_kind=planner_repair` / аналог.
+**Норматив для документации:** фаза **`planner_repair`**; машинное поле `command` в ответе LLM **не** принимает значение `repair_invalid_response`. Внешние клиенты видят события или trace с видом действия вроде `planner_repair`.
 
-### Схема: W14 envelope (упрощённый каркас)
+### Схема: каркас конверта W14 (упрощённо)
 
 ```json
 {
@@ -50,17 +61,9 @@
 }
 ```
 
-**Forbidden поля в LLM-facing JSON:** raw prompts, chain-of-thought, secrets, полные дампы файлов вне выбранных line windows.
+**Запрещённые поля в JSON, предназначенном для LLM:** сырые промпты, chain-of-thought, секреты, полные дампы файлов вне выбранных окон строк.
 
-### Пример happy path / invalid+recovery (смысл)
+### Пример смысла: успех и невалидный ответ
 
-- **Happy:** LLM возвращает валидный `plan_traversal` JSON → runtime materialize → internal summarize → finish.
-- **Invalid+recovery:** невалидный JSON при классе ошибки, допускающем repair → один repair call → повторный parse; при повторном провале → `partial` с `reason=w14_parse_failed` (детали в `failure-retry-observability.md`).
-
-## Traceability
-
-| ID | Источник |
-|----|----------|
-| OR-006 | `original_user_request.md` §3 |
-| F-PL-1…2 | `current_state/agent_memory_query_pipeline.md` |
-| D3 repair | `synthesis.md` Requirements for 21 |
+- **Успех:** модель возвращает валидный JSON `plan_traversal` → рантайм материализует данные → внутренние фазы сводки → завершение.
+- **Невалидный ответ и восстановление:** при классе ошибки, допускающем repair, — один вызов исправления → повторный разбор; при повторном провале — `partial` с причиной вроде `w14_parse_failed` (подробности в [`failure-retry-observability.md`](failure-retry-observability.md)).

@@ -1,18 +1,29 @@
-# AgentMemory: memory graph links (typed, evidence-backed)
+# Граф памяти: типы связей и кандидаты от LLM (Memory graph links)
 
-## Current reality
+**Аннотация:** здесь зафиксировано, какие **рёбра** допустимы между узлами A/B/C/D, как передаётся **уверенность** и **доказательство**, и почему только рантайм пишет в базу после проверки.
 
-- PAG: `SqlitePagStore`, рёбра `pag_edges` с `edge_class` / `edge_type`; известный паттерн: containment `contains`, provenance `derived_from` для D→B/C (`pag_kb_memory_state_models.md` F6, F9).
-- Очередь кандидатов: `pag_pending_edges` / `PagPendingLinkClaim` (`pag_kb_memory_state_models.md` F6).
-- Риск: два шаблона **A** `node_id` (`A:{namespace}` в W14 materialize vs `PagIndexer._a_node_id` с repo_uri/branch) — **дрейф** (`pag_kb_memory_state_models.md` F5, G1).
+Сокращения уровней узлов и термин **LLM** — по смыслу; **`implementation_backlog`** — в [`glossary.md`](glossary.md).
 
-## Target behavior
+## Связь с исходной постановкой
+
+| ID | Формулировка требования (суть) |
+|----|--------------------------------|
+| OR-003 | Обход дерева и связи графа уровней A/B/C/D; связи с типом и доказательством; рантайм валидирует, модель только предлагает кандидатов. |
+| OR-007 | Явный набор типов связей из постановки пользователя с полями confidence и источника (кто или что породило связь). |
+
+## Текущая реализация
+
+- Хранилище PAG: SQLite, рёбра в таблице с полями класса и типа; распространённый паттерн — `contains` и провенанс `derived_from` для D→B/C.
+- Очередь кандидатов: отдельная структура «ожидающих» рёбер до принятия решения.
+- **Риск:** два шаблона идентификатора узла уровня **A** (в материализации W14 и в индексаторе) — возможный **дрейф** идентификаторов; целевое поведение — один канонический шаблон на пару `(namespace, идентичность репозитория)` (**`implementation_backlog`** с миграцией).
+
+## Целевое поведение
 
 ### Принцип разделения ролей
 
-- **LLM** возвращает только **candidates** в закрытом JSON (см. схему ниже).
-- **Runtime** валидирует: существование `source_node_id` / `target_node_id`, типы уровней A/B/C/D, evidence, запрет на `..` и absolute paths в полях путей, политику confidence, лимиты числа рёбер за раунд.
-- Запись в SQLite — **только** после успешной валидации или постановки в `pag_pending_edges` как advisory по политике.
+- **LLM** возвращает только **кандидатов** в закрытом JSON (схема ниже).
+- **Рантайм** проверяет: существование `source_node_id` / `target_node_id`, типы уровней A/B/C/D, доказательства, запрет на `..` и абсолютные пути в полях путей, политику confidence, лимиты числа рёбер за раунд.
+- Запись в SQLite — **только** после успешной проверки или постановки в очередь advisory по политике.
 
 ### Канонические типы связей (OR-007)
 
@@ -20,26 +31,26 @@
 
 | `link_type` | Обычный source→target | Примечание |
 |-------------|------------------------|------------|
-| `contains` | A→B, B→B, B→C (иерархия) | Baseline в текущем PAG. |
-| `imports` | B→B, B→external, B→C (symbol import) | Требуется evidence импорта. |
-| `defines` | B→C | Файл/модуль определяет semantic chunk. |
-| `calls` | C→C | **Только** при symbol/static evidence (`original_user_request.md`). |
-| `references` | C/D/B между собой для доков/конфигов/тестов | Текстовый/структурный evidence. |
-| `summarizes` | D→B/C | D фиксирует вывод по evidence. |
-| `supports_answer` | B/C→D или к финальному результату | Evidence для ответа. |
-| `supersedes` | D→D | Только если runtime явно решил обновить digest/query memory. |
+| `contains` | A→B, B→B, B→C (иерархия) | Базовый тип в текущем PAG. |
+| `imports` | B→B, B→external, B→C (импорт символа) | Нужно доказательство импорта. |
+| `defines` | B→C | Файл/модуль определяет семантический фрагмент. |
+| `calls` | C→C | **Только** при статическом или явном symbol-доказательстве (требование постановки: не выдумывать вызовы). |
+| `references` | C/D/B между собой для доков/конфигов/тестов | Текстовое или структурное доказательство. |
+| `summarizes` | D→B/C | D фиксирует вывод по доказательству. |
+| `supports_answer` | B/C→D или к финальному результату | Доказательство для ответа. |
+| `supersedes` | D→D | Только если рантайм явно решил обновить digest/память запроса. |
 
-**Baseline текущего кода:** `derived_from` (provenance) остаётся поддерживаемым как **отдельный** `edge_type` до миграции схемы; target-doc требует маппинга legacy→канон в `implementation_backlog`, если строки в БД не совпадают 1:1 с таблицей выше.
+**Базовая линия кода:** тип `derived_from` (провенанс) остаётся поддерживаемым отдельно от таблицы выше до миграции схемы; если строки в БД не совпадают 1:1 с каноном — **`implementation_backlog`**.
 
-### Confidence / source (required rules)
+### Правила confidence и источника
 
 Допустимые `created_by` / `source_kind` (объединённая семантика):
 
-- `static_analysis` — парсер/индексатор; **может** давать hard facts для `imports`/`defines`/`calls` при наличии evidence.
+- `static_analysis` — парсер/индексатор; **может** давать жёсткие факты для `imports`/`defines`/`calls` при наличии доказательства.
 - `runtime_observed` — индексация, материализация, детерминированные правила.
-- `llm_inferred` — только candidates → validation; при `confidence=low` по умолчанию **forbidden** promote в hard fact без human/policy gate (advisory pending или reject).
+- `llm_inferred` — только кандидаты → проверка; при `confidence=low` по умолчанию **запрещено** повышать до жёсткого факта без политики или человека (advisory pending или отклонение).
 
-### Schema-like: link candidate (wire from LLM)
+### Схемоподобно: кандидат связи (wire от LLM)
 
 ```json
 {
@@ -63,25 +74,17 @@
 }
 ```
 
-**Forbidden в candidate:** absolute paths, `..` segments, произвольные URL без whitelist policy, raw file dumps, секреты.
+**Запрещено в кандидате:** абсолютные пути, сегменты `..`, произвольные URL без политики whitelist, сырые дампы файлов, секреты.
 
-### Validation matrix (кратко)
+### Матрица проверки (кратко)
 
-| Нарушение | Действие runtime |
-|-----------|------------------|
-| Неизвестный `link_type` | reject candidate, compact reason, continue if possible |
-| Несуществующий node id | reject, optional structured correction к LLM **только** если не превышен repair budget (`failure-retry-observability.md`) |
-| `calls` без symbol evidence | reject |
-| low confidence при policy | pending edge или reject |
+| Нарушение | Действие рантайма |
+|-----------|-------------------|
+| Неизвестный `link_type` | отклонить кандидата, компактная причина, продолжить если возможно |
+| Несуществующий id узла | отклонить; структурированное исправление к LLM **только** если не исчерпан бюджет repair ([`failure-retry-observability.md`](failure-retry-observability.md)) |
+| `calls` без symbol-доказательства | отклонить |
+| low confidence при политике | pending edge или отклонение |
 
-### Единый A node id (target)
+### Единый идентификатор узла A (цель)
 
-**Норматив:** один канонический шаблон `A` id на пару `(namespace, repo_identity)` для всех entrypoints; расхождение indexer vs W14 — **`implementation_backlog`** с миграцией (`pag_kb_memory_state_models.md` G1, synthesis G-AUTH-5).
-
-## Traceability
-
-| Source | Раздел |
-|--------|--------|
-| `original_user_request.md` §4 | типы связей, candidate JSON |
-| `current_state/pag_kb_memory_state_models.md` | baseline PAG |
-| `synthesis.md` G-AUTH-2 | расширение typed graph |
+**Норматив:** один канонический шаблон id узла **A** на пару `(namespace, идентичность репозитория)` для всех точек входа; расхождение индексатора и W14 — **`implementation_backlog`** с миграцией.

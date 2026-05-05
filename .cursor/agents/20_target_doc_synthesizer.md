@@ -459,6 +459,7 @@ G1...
 - acceptance criteria.
 - original request requirement IDs (`OR-*`) and expected target sections.
 - required small-scope recommendations for future `start-feature`.
+- для каждого зафиксированного решения в synthesis (внутренние id вроде `D3`, `G-AUTH-5`) — **одна человекочитаемая строка смысла** рядом с id, чтобы `21` мог перенести решение в канон `context/algorithms/**` без opaque ссылок (канон не ссылается на `synthesis.md`).
 
 Если этого нет, не ставь `ready_for_author=true`.
 

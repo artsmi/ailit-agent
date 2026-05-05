@@ -137,7 +137,8 @@ Required rework for 21: ...
 
 Проверь:
 
-- есть ссылка на `original_user_request.md`;
+- draft сохраняет связь с исходным запросом (допустима ссылка на `original_user_request.md` **в draft**);
+- **опубликованный канон** в `context/algorithms/**` **не** содержит путей `context/artifacts/…` и **не** использует `original_user_request.md` / `synthesis.md` / `current_state/*.md` / `donor/*.md` как опорные ссылки для читателя; цель и OR перенесены в текст канона;
 - draft содержит `Produced by: 21_target_doc_author`;
 - synthesis содержит `Produced by: 20_target_doc_synthesizer`;
 - current reports содержат marker/JSON роли `19`, если они использованы;
@@ -150,6 +151,18 @@ Required rework for 21: ...
 Если source для важного утверждения отсутствует, требуй rework или user question.
 
 Если finding требует новых facts/source evidence из product code, logs, tests, plan или proto, укажи `requires_new_research=true` в соответствующем `required_author_rework[]`. Тогда `18` обязан вернуть workflow в `20`, а не запускать `21` сразу.
+
+## Canonical Readability Gate (`context/algorithms/**`)
+
+Если verifier проверяет **опубликованный** канон или `canonical_candidate` под `context/algorithms/`:
+
+- **Заголовки:** основной язык — язык репозитория (по умолчанию русский); под значимыми разделами есть краткая аннотация.
+- **Глоссарий:** для пакета есть `glossary.md` или эквивалент в `INDEX.md`; сокращения (SoT, TBD, GAP, D-OBS, W14, OR-00x) не остаются без расшифровки при первом важном использовании или в глоссарии.
+- **Подача:** до плотных технических однострочников есть человеческий абзац «кто / что / зачем».
+- **Пакет:** каждый файл содержит раздел **«Связь с исходной постановкой»** с релевантными OR и развёрнутой формулировкой, не только id.
+- **Запрет:** нет таблиц «Traceability» с opaque id (`D3 repair`, `F-PL-1`) **без** человекочитаемого смысла в той же строке; нет ссылок вида `original_user_request.md §4` в каноне.
+
+При нарушении: `rework_required` с finding severity `MAJOR` для `21` (или уточни, что scrub выполняет `18` перед финальным commit, если канон ещё не записан).
 
 ## start-feature / start-fix Gate
 
@@ -309,6 +322,7 @@ approved | rework_required | needs_user_answer | blocked | rejected
 ## Checklist
 
 - [ ] Draft существует.
+- [ ] Канон `context/algorithms/**` без ссылок на `context/artifacts/…` и без опоры читателя на временные markdown артефакты pipeline.
 - [ ] Draft producer marker проверен.
 - [ ] Synthesis producer marker проверен.
 - [ ] Original request проверен.

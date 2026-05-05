@@ -132,7 +132,8 @@ JSON-first:
 - таблицы contracts/commands там, где это помогает;
 - точные слова `required`, `forbidden`, `default`, `null`, `empty list`, `bounded retry`;
 - объяснение последствий выбора;
-- ссылки на source evidence из synthesis/reports.
+- в **draft** (`target_algorithm_draft.md`) — ссылки на synthesis/reports для трассировки;
+- в **опубликованном каноне** `context/algorithms/**` — самодостаточный текст без путей к `context/artifacts/…` (см. `start-research.mdc`, раздел «Канон в context/algorithms»).
 
 Нельзя:
 
@@ -140,26 +141,38 @@ JSON-first:
 - оставлять абстрактные фразы "система должна корректно обработать";
 - писать "опционально" без правила;
 - использовать только JSON/schema без человеческого описания;
-- делать документ похожим на raw diff или changelog.
+- делать документ похожим на raw diff или changelog;
+- в каноне оставлять таблицы трассировки вида «D3 / F-PL-1 → synthesis.md» или «original_user_request.md §4» без человекочитаемого смысла в той же строке;
+- публиковать канон с английскими заголовками без русского основного заголовка и без аннотации под разделами (язык репозитория по умолчанию — русский).
 
 ## Обязательная Структура
 
-Целевой документ должен иметь минимум:
+Целевой документ должен иметь минимум.
+
+**Один файл** `context/algorithms/<topic>.md`:
 
 ```markdown
-# Target Algorithm: <Human Name>
+# <Русское название алгоритма> (<English short name>)
+
+> Аннотация: 1–3 предложения, что в документе.
 
 ## Status
 
 draft | approved | deprecated
 
-## Source User Goal
+## Исходная цель (в пересказе)
 
-<человеческое описание + ссылка на original_user_request.md>
+<человеческое описание цели **без** пути к original_user_request.md в опубликованном каноне; в draft допустима ссылка на артефакт>
 
 ## Why This Exists
 
 <зачем человеку/продукту нужен алгоритм>
+
+## Связь с исходной постановкой
+
+| ID | Формулировка требования (суть, развёрнуто) |
+|----|--------------------------------------------|
+| OR-… | … |
 
 ## Scope
 
@@ -169,7 +182,7 @@ draft | approved | deprecated
 
 ## Current Reality Summary
 
-<что есть сейчас, только проверенные facts>
+<что есть сейчас, только проверенные facts; в каноне — без путей к current_state/*.md>
 
 ## Target Behavior
 
@@ -205,8 +218,16 @@ draft | approved | deprecated
 
 ## How start-feature / start-fix Must Use This
 
-## Traceability
+## Traceability (только для draft)
+
+<таблица synthesis/decision/report id — в target_algorithm_draft.md; в опубликованном каноне **удали** этот раздел или замени пересказом требований внутри разделов>
 ```
+
+**Пакет** `context/algorithms/<topic>/`: обязательны `INDEX.md` и **`glossary.md`** (или раздел глоссария в `INDEX.md`) с расшифровками SoT, TBD, GAP, D-OBS, W14, OR и др. **Каждый** файл пакета:
+
+- заголовок уровня `#` / `##` на русском + при необходимости `(English)`; под ним аннотация;
+- раздел **«Связь с исходной постановкой»** с релевантными OR и развёрнутым текстом;
+- в каноне — **нет** `context/artifacts/…`, **нет** ссылок на `original_user_request.md` / `synthesis.md` / `current_state` / `donor` как опоры для читателя.
 
 ## Human Examples
 
@@ -305,13 +326,15 @@ If a round processes the same selected files and produces zero new usable candid
 
 ## Traceability
 
-Добавь таблицу:
+В **`target_algorithm_draft.md`** добавь таблицу машинной трассировки (допустимы пути к артефактам и id решений synthesis):
 
 | ID | Type | Source | Target Doc Section |
 |----|------|--------|--------------------|
 | F1 | Current fact | `<report>` | Target Flow |
 | D1 | User decision | `<user_answers.md>` | Failure Rules |
 | O1 | Option selected | `<synthesis.md>` | Scope |
+
+В **опубликованном каноне** `context/algorithms/**` эту таблицу **не** копируй: перенеси смысл в текст разделов и в «Связь с исходной постановкой»; машинная трассировка остаётся в артефактах `source_request_coverage.md` / quality matrix (`23`).
 
 ## Если Есть Нерешённые Вопросы
 
@@ -400,7 +423,7 @@ If a round processes the same selected files and produces zero new usable candid
 - [ ] Acceptance criteria точные.
 - [ ] Anti-patterns есть.
 - [ ] How start-feature/start-fix must use this есть.
-- [ ] Traceability есть.
+- [ ] Traceability есть в draft; в каноне нет ссылок на артефакты pipeline и нет opaque id без расшифровки.
 - [ ] JSON-first ответ валиден.
 
 ## Хороший Target Doc Fragment
