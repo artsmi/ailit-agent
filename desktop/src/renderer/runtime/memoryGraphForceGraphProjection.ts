@@ -1,4 +1,15 @@
+import { formatTraceConnNodeInsertedDiagnosticLine } from "./desktopSessionDiagnosticLog";
 import type { MemoryGraphData, MemoryGraphLink, MemoryGraphNode } from "./memoryGraphState";
+
+export type TraceConnSyntheticPayload = {
+  readonly line: string;
+  readonly dedupeKey: string;
+  readonly namespace: string;
+};
+
+export type MemoryGraphProjectOptions = {
+  readonly onTraceConnSynthetic?: (payload: TraceConnSyntheticPayload) => void;
+};
 
 const TRACE_CONN_ROOT_PREFIX: string = "ailit:trace-conn-root:";
 
@@ -157,7 +168,11 @@ export class MemoryGraphForceGraphProjector {
    * D-TRACE-CONN-1: при >1 связной компоненте после фильтра A — один узел `ailit:trace-conn-root:{namespace}`
    * и рёбра к минимальному id в каждой компоненте (детерминированно).
    */
-  static ensureTraceConnectivity(data: MemoryGraphData, displayNamespace: string): MemoryGraphData {
+  static ensureTraceConnectivity(
+    data: MemoryGraphData,
+    displayNamespace: string,
+    opts?: MemoryGraphProjectOptions
+  ): MemoryGraphData {
     const rootId: string = traceConnRootNodeId(displayNamespace);
     if (data.nodes.some((n) => n.id === rootId)) {
       return data;
@@ -165,6 +180,17 @@ export class MemoryGraphForceGraphProjector {
     const comps: string[][] = connectedComponents(data.nodes, data.links);
     if (comps.length <= 1) {
       return data;
+    }
+    const reps: string[] = comps.map((c) => minLexId(c)).sort();
+    const dedupeKey: string = `${String(comps.length)}:${reps.join(",")}`;
+    if (opts?.onTraceConnSynthetic) {
+      const line: string = formatTraceConnNodeInsertedDiagnosticLine({
+        isoTimestamp: new Date().toISOString(),
+        namespace: displayNamespace,
+        componentCount: comps.length,
+        representativeNodeIds: reps
+      });
+      opts.onTraceConnSynthetic({ line, dedupeKey, namespace: displayNamespace });
     }
     const rootNode: MemoryGraphNode = {
       id: rootId,
@@ -188,8 +214,12 @@ export class MemoryGraphForceGraphProjector {
     };
   }
 
-  static project(data: MemoryGraphData, displayNamespace: string): MemoryGraphData {
+  static project(
+    data: MemoryGraphData,
+    displayNamespace: string,
+    opts?: MemoryGraphProjectOptions
+  ): MemoryGraphData {
     const step1: MemoryGraphData = MemoryGraphForceGraphProjector.filterEdgesUc04BranchA(data);
-    return MemoryGraphForceGraphProjector.ensureTraceConnectivity(step1, displayNamespace);
+    return MemoryGraphForceGraphProjector.ensureTraceConnectivity(step1, displayNamespace, opts);
   }
 }

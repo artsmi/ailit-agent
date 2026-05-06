@@ -55,6 +55,28 @@ describe("memoryGraphForceGraphProjection (UC-04 A, D-TRACE-CONN-1)", () => {
     expect(targets).toEqual(["orphan", "z1"]);
   });
 
+  it("D-TRACE-CONN-1: onTraceConnSynthetic при вставке синтетического корня", () => {
+    const lines: string[] = [];
+    const data: MemoryGraphData = {
+      nodes: [
+        { id: "z2", label: "z2", level: "B" },
+        { id: "z1", label: "z1", level: "B" },
+        { id: "orphan", label: "o", level: "B" }
+      ],
+      links: [{ id: "e1", source: "z1", target: "z2" }]
+    };
+    const ns: string = "my-ns";
+    MemoryGraphForceGraphProjector.project(data, ns, {
+      onTraceConnSynthetic: (payload): void => {
+        lines.push(payload.line);
+      }
+    });
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("event=memory.graph.trace_conn_node");
+    expect(lines[0]).toContain(`namespace=${ns}`);
+    expect(lines[0]).toContain("component_count=2");
+  });
+
   it("D-TRACE-CONN-1: одна компонента — без синтетического корня", () => {
     const data: MemoryGraphData = {
       nodes: [

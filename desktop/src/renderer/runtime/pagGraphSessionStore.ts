@@ -84,7 +84,7 @@ export type PagGraphTraceMergeEmitHooks = {
     readonly kind: "user_refresh" | "poll_retry" | "initial_load";
     readonly namespaces: readonly string[];
   };
-  /** UC-06 / task_8_1: компактные строки в `desk-diagnostic-*.log` (без IPC в unit-тестах). */
+  /** UC-06 / task_8_1: компактные строки в `chat_logs/<safe>/desk-diagnostic-*.log` (без IPC в unit-тестах). */
   readonly appendDiagnosticLines?: (lines: readonly string[]) => void;
   /** Дедуп D-PAGMODE-1: ключ `sessionId\\u001fnamespace`. */
   readonly traceOnlyPagModeSentKeys?: Set<string>;

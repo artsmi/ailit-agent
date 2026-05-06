@@ -5,6 +5,7 @@ import * as path from "node:path";
 
 import { brokerJsonRequest } from "./brokerSocket";
 import { getCachedDesktopConfigSnapshot, warmDesktopConfigCache } from "./desktopConfig";
+import { resolveAgentMemoryChatLogsRoot, resolveChatLogSessionPaths } from "./agentMemoryChatLogsRoot";
 import { defaultRuntimeDir, safeChatIdForTraceFile, supervisorSocketPath } from "./defaultRuntimeDir";
 import { listProjectRegistry } from "./projectRegistryBridge";
 import { runPagGraphSlice, type PagGraphSliceResult } from "./pagGraphBridge";
@@ -265,29 +266,36 @@ export function registerIpcHandlers(): void {
     }
   );
 
+  ipcMain.handle("ailit:agentMemoryChatLogsRoot", async () => {
+    return { ok: true, root: resolveAgentMemoryChatLogsRoot() } as const;
+  });
+
+  ipcMain.handle("ailit:ensureChatLogSessionDir", async (_e: unknown, params: { readonly chatId: string }) => {
+    const resolved = resolveChatLogSessionPaths(params.chatId);
+    if (!resolved.ok) {
+      return { ok: false, error: resolved.error } as const;
+    }
+    const { root, sessionDir, safeChatId } = resolved.paths;
+    try {
+      await fs.mkdir(sessionDir, { recursive: true });
+      return { ok: true, chatLogsRoot: root, sessionDir, safeChatId } as const;
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) } as const;
+    }
+  });
+
   ipcMain.handle(
     "ailit:appendSessionDiagnostic",
-    async (
-      _e: unknown,
-      params: { readonly runtimeDir: string; readonly chatId: string; readonly lines: readonly string[] }
-    ) => {
+    async (_e: unknown, params: { readonly chatId: string; readonly lines: readonly string[] }) => {
       if (params.lines.length === 0) {
         return { ok: false, error: "no lines" } as const;
       }
-      const safe: string = safeChatIdForTraceFile(params.chatId);
-      if (!safe) {
-        return { ok: false, error: "invalid chatId" } as const;
+      const resolved = resolveChatLogSessionPaths(params.chatId);
+      if (!resolved.ok) {
+        return { ok: false, error: resolved.error } as const;
       }
-      const root: string = path.resolve(defaultRuntimeDir());
-      const base: string = path.resolve(params.runtimeDir);
-      if (base !== root && !base.startsWith(root + path.sep)) {
-        return { ok: false, error: "runtimeDir must resolve under ailit default runtime" } as const;
-      }
-      const sessionDir: string = path.join(base, "session");
-      const filePath: string = path.resolve(path.join(sessionDir, `desk-diagnostic-${safe}.log`));
-      if (!filePath.startsWith(root + path.sep)) {
-        return { ok: false, error: "diagnostic file outside runtime" } as const;
-      }
+      const { sessionDir, safeChatId } = resolved.paths;
+      const filePath: string = path.resolve(path.join(sessionDir, `desk-diagnostic-${safeChatId}.log`));
       const payload: string = params.lines.map((ln) => (ln.endsWith("\n") ? ln : `${ln}\n`)).join("");
       try {
         await fs.mkdir(sessionDir, { recursive: true });

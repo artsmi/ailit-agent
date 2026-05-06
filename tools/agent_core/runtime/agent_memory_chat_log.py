@@ -1,8 +1,10 @@
 """
 Логи отладки AgentMemory при memory.debug.verbose = 1.
 
-Режим **desktop**: один файл ``…/chat_logs/<safe_chat_id>.log`` (как
-``agentMemoryChatLogFileName`` в desktop ``tracePaths.ts``).
+Режим **desktop**: файл ``…/chat_logs/<safe>/<safe>.log`` (как
+``agentMemoryVerboseLogAbsolutePathPosix`` и ``agentMemoryChatLogFileName``
+в desktop ``tracePaths.ts``); каталог сессии совпадает с каталогом
+``desk-diagnostic-*.log``.
 
 Режим **cli_init**: каталог ``…/chat_logs/ailit-cli-<suffix>/`` и внутри
 append-only ``legacy.log`` (тот же формат блоков и JSON, что раньше в
@@ -111,10 +113,10 @@ def agent_memory_chat_log_file_name(raw_chat_id: str) -> str:
 
 
 def log_file_path_for_chat(raw_chat_id: str) -> Path:
-    """Путь `…/chat_logs/<safe_id>.log` (только режим desktop)."""
-    return default_chat_logs_dir() / agent_memory_chat_log_file_name(
-        raw_chat_id,
-    )
+    """Путь ``…/chat_logs/<safe_id>/<safe_id>.log`` (только desktop)."""
+    safe: str = safe_chat_id_for_log_file(raw_chat_id)
+    name: str = agent_memory_chat_log_file_name(raw_chat_id)
+    return (default_chat_logs_dir() / safe / name).resolve()
 
 
 def create_unique_cli_session_dir(parent: Path | None = None) -> Path:
@@ -252,8 +254,8 @@ _AUDIT_SEP: Final[str] = "=" * 80
 
 class AgentMemoryChatDebugLog:
     """
-    Пишет append-only при verbose=1: desktop — плоский ``<safe>.log``;
-    cli_init — ``…/ailit-cli-*/legacy.log``.
+    Пишет append-only при verbose=1: desktop — ``<safe>/<safe>.log`` под
+    ``chat_logs``; cli_init — ``…/ailit-cli-*/legacy.log``.
     """
 
     def __init__(

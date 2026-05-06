@@ -78,8 +78,10 @@ export type DesktopSessionValue = {
   readonly lastAgentPair: LastAgentPairV1 | null;
   readonly setLastAgentPair: (pair: LastAgentPairV1 | null) => void;
   readonly connection: ConnState;
-  /** Домашний каталог (пути вне runtime_dir, например ~/.ailit/agent-memory/chat_logs). */
+  /** Домашний каталог пользователя (для отображения и путей вне runtime_dir). */
   readonly homeDir: string | null;
+  /** Корень AgentMemory chat_logs (main: env или ~/.ailit/agent-memory/chat_logs). */
+  readonly chatLogsRoot: string | null;
   /** OR-009: снимок desktop config из main по IPC (один fetch при старте). */
   readonly desktopConfig: DesktopConfigSnapshot | null;
   readonly runtimeDir: string | null;
@@ -249,7 +251,6 @@ function buildPagGraphTraceMergeHooks(p: {
     appendDiagnosticLines: canDiag
       ? (lines: readonly string[]): void => {
           void window.ailitDesktop.appendSessionDiagnostic({
-            runtimeDir: rd,
             chatId: p.chatId,
             lines: [...lines]
           });
@@ -282,6 +283,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const [ui, setUi] = React.useState<PersistedUiStateV1>(loadPersistedUi);
   const [connection, setConnection] = React.useState<ConnState>("idle");
   const [homeDir, setHomeDir] = React.useState<string | null>(null);
+  const [chatLogsRoot, setChatLogsRoot] = React.useState<string | null>(null);
   const [desktopConfig, setDesktopConfig] = React.useState<DesktopConfigSnapshot | null>(null);
   const [runtimeDir, setRuntimeDir] = React.useState<string | null>(null);
   const [supervisorSummary, setSupervisorSummary] = React.useState<string | null>(null);
@@ -770,7 +772,6 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     }
     setRuntimeDir(rd1);
     void window.ailitDesktop.appendSessionDiagnostic({
-      runtimeDir: rd1,
       chatId: cid,
       lines: [
         `=== ailit-desktop broker connect ${new Date().toISOString()} chatId=${cid} sessionUi=${activeSession.id} ===`
@@ -819,6 +820,29 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       }
     })();
   }, []);
+
+  React.useEffect(() => {
+    void (async () => {
+      try {
+        const r = await window.ailitDesktop.agentMemoryChatLogsRoot();
+        if (r.ok) {
+          setChatLogsRoot(r.root);
+        } else {
+          setChatLogsRoot(null);
+        }
+      } catch {
+        setChatLogsRoot(null);
+      }
+    })();
+  }, []);
+
+  React.useEffect(() => {
+    const cid: string = activeSession.chatId;
+    if (!cid || typeof window.ailitDesktop?.ensureChatLogSessionDir !== "function") {
+      return;
+    }
+    void window.ailitDesktop.ensureChatLogSessionDir({ chatId: cid });
+  }, [activeSession.chatId]);
 
   React.useEffect(() => {
     void (async () => {
@@ -1375,6 +1399,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     setLastAgentPair,
     connection,
     homeDir,
+    chatLogsRoot,
     desktopConfig,
     runtimeDir,
     supervisorSummary,

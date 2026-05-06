@@ -1,4 +1,4 @@
-"""TC-1_1: layout chat_logs — CLI dir + legacy.log vs desktop flat file."""
+"""TC-1_1: chat_logs layout — CLI dir + legacy.log vs desktop session dir."""
 
 from __future__ import annotations
 
@@ -62,21 +62,26 @@ def test_agent_memory_cli_session_log_is_directory_with_legacy(
     assert not flat.is_file()
 
 
-def test_tc_1_1_path_desktop_flat_log_trace_paths_contract(
+def test_tc_1_1_path_desktop_session_dir_log_trace_paths_contract(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """TC-1_1-PATH-DESKTOP: один .log в chat_logs; сегмента ailit-cli- нет."""
+    """TC-1_1-PATH-DESKTOP: каталог ``chat_logs/<safe>/`` и ``<safe>.log``."""
     home: Path = tmp_path / "home_sim"
     log_dir: Path = home / ".ailit" / "agent-memory" / "chat_logs"
     log_dir.mkdir(parents=True)
     monkeypatch.setenv("AILIT_AGENT_MEMORY_CHAT_LOG_DIR", str(log_dir))
     chat_id: str = "ailit-desktop-abc_12"
-    expected: Path = log_dir / agent_memory_chat_log_file_name(chat_id)
+    safe: str = safe_chat_id_for_log_file(chat_id)
+    expected: Path = (
+        log_dir / safe / agent_memory_chat_log_file_name(chat_id)
+    ).resolve()
     resolved: Path = log_file_path_for_chat(chat_id)
     assert resolved == expected
     assert "ailit-cli-" not in str(resolved)
-    assert safe_chat_id_for_log_file(chat_id) in str(resolved)
+    assert safe in str(resolved)
+    flat_legacy: Path = log_dir / agent_memory_chat_log_file_name(chat_id)
+    assert not flat_legacy.is_file()
     dbg = AgentMemoryChatDebugLog(_verbose_cfg(), session_log_mode="desktop")
     dbg.log_audit(
         raw_chat_id=chat_id,
@@ -85,6 +90,7 @@ def test_tc_1_1_path_desktop_flat_log_trace_paths_contract(
         topic="tc",
         body={},
     )
+    assert (log_dir / safe).is_dir()
     assert expected.is_file()
     assert list(log_dir.glob("ailit-cli-*")) == []
 

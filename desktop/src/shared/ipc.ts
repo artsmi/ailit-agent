@@ -165,6 +165,14 @@ export type AppendSessionDiagnosticResult =
   | { readonly ok: true; readonly filePath: string }
   | { readonly ok: false; readonly error: string };
 
+export type AgentMemoryChatLogsRootResult =
+  | { readonly ok: true; readonly root: string }
+  | { readonly ok: false; readonly error: string };
+
+export type EnsureChatLogSessionDirResult =
+  | { readonly ok: true; readonly chatLogsRoot: string; readonly sessionDir: string; readonly safeChatId: string }
+  | { readonly ok: false; readonly error: string };
+
 export type AppendTraceRowResult =
   | { readonly ok: true; readonly row: Record<string, unknown> }
   | { readonly ok: false; readonly error: string };
@@ -194,9 +202,12 @@ export type DesktopApi = {
   readonly onTraceChannel: (handler: (evt: TraceChannelEvent) => void) => () => void;
   readonly projectRegistryList: (params: { readonly startPath?: string }) => Promise<ProjectRegistryResult>;
   readonly saveTextFile: (params: { readonly suggestedName: string; readonly content: string }) => Promise<SaveFileResult>;
-  /** Записать строки в `session/desk-diagnostic-<chat>.log` под runtime_dir (для аналитики/диагностики). */
+  /** Резолв корня ``chat_logs`` (совпадает с ``agent_memory_chat_log.default_chat_logs_dir``). */
+  readonly agentMemoryChatLogsRoot: () => Promise<AgentMemoryChatLogsRootResult>;
+  /** Создать ``<chat_logs_root>/<safe_chat_id>/`` для сессии чата (идемпотентно). */
+  readonly ensureChatLogSessionDir: (params: { readonly chatId: string }) => Promise<EnsureChatLogSessionDirResult>;
+  /** Append в ``<chat_logs_root>/<safe_chat_id>/desk-diagnostic-<safe>.log``. */
   readonly appendSessionDiagnostic: (params: {
-    readonly runtimeDir: string;
     readonly chatId: string;
     readonly lines: readonly string[];
   }) => Promise<AppendSessionDiagnosticResult>;

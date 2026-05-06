@@ -20,8 +20,21 @@ export function desktopDiagnosticLogFileName(chatId: string): string {
   return `desk-diagnostic-${safeChatIdForTraceFile(chatId)}.log`;
 }
 
-export function desktopDiagnosticLogRelativePath(chatId: string): string {
-  return `session/${desktopDiagnosticLogFileName(chatId)}`;
+/**
+ * Каталог сессии чата под корнем AgentMemory chat_logs (для отображения путей).
+ * Корень резолвит main через ``AILIT_AGENT_MEMORY_CHAT_LOG_DIR`` или ``~/.ailit/agent-memory/chat_logs``.
+ */
+export function agentMemoryChatLogSessionDirPosix(chatLogsRoot: string, chatId: string): string {
+  const safe: string = safeChatIdForTraceFile(chatId);
+  return joinPosixPath(chatLogsRoot, safe);
+}
+
+export function desktopDiagnosticLogAbsolutePathPosix(chatLogsRoot: string, chatId: string): string {
+  return joinPosixPath(agentMemoryChatLogSessionDirPosix(chatLogsRoot, chatId), desktopDiagnosticLogFileName(chatId));
+}
+
+export function agentMemoryVerboseLogAbsolutePathPosix(chatLogsRoot: string, chatId: string): string {
+  return joinPosixPath(agentMemoryChatLogSessionDirPosix(chatLogsRoot, chatId), agentMemoryChatLogFileName(chatId));
 }
 
 export function joinPosixPath(base: string, ...parts: string[]): string {
@@ -30,11 +43,7 @@ export function joinPosixPath(base: string, ...parts: string[]): string {
   return b ? `${a}/${b}` : a;
 }
 
-/** `~/.ailit/agent-memory/chat_logs/<safe_chat>.log` (home — абсолютный путь). */
+/** Имя verbose-лога AgentMemory: ``<safe_chat>.log`` внутри каталога сессии. */
 export function agentMemoryChatLogFileName(chatId: string): string {
   return `${safeChatIdForTraceFile(chatId)}.log`;
-}
-
-export function agentMemoryChatLogAbsolutePath(homeDir: string, chatId: string): string {
-  return joinPosixPath(homeDir, ".ailit", "agent-memory", "chat_logs", agentMemoryChatLogFileName(chatId));
 }

@@ -1,8 +1,9 @@
 import React from "react";
 
 import {
-  agentMemoryChatLogAbsolutePath,
-  desktopDiagnosticLogRelativePath,
+  agentMemoryChatLogSessionDirPosix,
+  agentMemoryVerboseLogAbsolutePathPosix,
+  desktopDiagnosticLogAbsolutePathPosix,
   joinPosixPath,
   traceJsonlRelativePath
 } from "@shared/tracePaths";
@@ -16,8 +17,8 @@ type ChatAnalyticsAsideProps = {
   readonly connectionLabel: string;
   /** Каталог runtime (supervisor / trace). */
   readonly runtimeDir: string | null;
-  /** Домашний каталог (для ~/.ailit/agent-memory/chat_logs/…). */
-  readonly homeDir: string | null;
+  /** Корень AgentMemory chat_logs (main: AILIT_AGENT_MEMORY_CHAT_LOG_DIR или ~/.ailit/agent-memory/chat_logs). */
+  readonly chatLogsRoot: string | null;
   /** Идентификатор чата (файл trace-*.jsonl). */
   readonly chatId: string;
 };
@@ -31,13 +32,13 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
     p.runtimeDir && p.chatId
       ? joinPosixPath(p.runtimeDir, traceJsonlRelativePath(p.chatId))
       : null;
-  const deskLog: string | null =
-    p.runtimeDir && p.chatId
-      ? joinPosixPath(p.runtimeDir, desktopDiagnosticLogRelativePath(p.chatId))
-      : null;
   const supSock: string | null = p.runtimeDir ? joinPosixPath(p.runtimeDir, "supervisor.sock") : null;
+  const sessionDir: string | null =
+    p.chatLogsRoot && p.chatId ? agentMemoryChatLogSessionDirPosix(p.chatLogsRoot, p.chatId) : null;
+  const deskLog: string | null =
+    p.chatLogsRoot && p.chatId ? desktopDiagnosticLogAbsolutePathPosix(p.chatLogsRoot, p.chatId) : null;
   const agentMemLog: string | null =
-    p.homeDir && p.chatId ? agentMemoryChatLogAbsolutePath(p.homeDir, p.chatId) : null;
+    p.chatLogsRoot && p.chatId ? agentMemoryVerboseLogAbsolutePathPosix(p.chatLogsRoot, p.chatId) : null;
   return (
     <aside className="candyChatAside" aria-label="Аналитика контекста">
       <div className="candyChatAsideHead">
@@ -73,8 +74,8 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
         <div className="candyChatAsideSection">
           <h3 className="candyChatAsideH3">Диагностика (файлы сессии)</h3>
           <p className="candyChatAsideDesc">
-            По этим путям — durable trace, журнал десктоп-UI (порядок/проекция событий), сокет supervisor, лог
-            AgentMemory (при memory.debug.verbose=1).
+            Под runtime_dir — durable trace и supervisor; под chat_logs — каталог чата (диагностика UI и verbose
+            AgentMemory при memory.debug.verbose=1).
           </p>
           {p.runtimeDir ? (
             <ul className="candyChatAsidePathList">
@@ -88,12 +89,6 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
                   <code className="candyChatAsidePathVal">{traceFile}</code>
                 </li>
               ) : null}
-              {deskLog ? (
-                <li>
-                  <span className="candyChatAsidePathKey">desktop (диагностика чата)</span>
-                  <code className="candyChatAsidePathVal">{deskLog}</code>
-                </li>
-              ) : null}
               {supSock ? (
                 <li>
                   <span className="candyChatAsidePathKey">supervisor.sock</span>
@@ -104,14 +99,28 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
           ) : (
             <p className="candyChatAsideDesc">runtime_dir ещё не известен — дождитесь подключения supervisor.</p>
           )}
-          {agentMemLog ? (
+          {p.chatLogsRoot && sessionDir && deskLog && agentMemLog ? (
             <ul className="candyChatAsidePathList">
               <li>
-                <span className="candyChatAsidePathKey">agent_memory (LLM, ~/.ailit)</span>
+                <span className="candyChatAsidePathKey">chat_logs_root</span>
+                <code className="candyChatAsidePathVal">{p.chatLogsRoot}</code>
+              </li>
+              <li>
+                <span className="candyChatAsidePathKey">chat_session_dir</span>
+                <code className="candyChatAsidePathVal">{sessionDir}</code>
+              </li>
+              <li>
+                <span className="candyChatAsidePathKey">desktop (диагностика чата)</span>
+                <code className="candyChatAsidePathVal">{deskLog}</code>
+              </li>
+              <li>
+                <span className="candyChatAsidePathKey">agent_memory verbose</span>
                 <code className="candyChatAsidePathVal">{agentMemLog}</code>
               </li>
             </ul>
-          ) : null}
+          ) : (
+            <p className="candyChatAsideDesc">Корень chat_logs недоступен из main — перезапустите Desktop.</p>
+          )}
         </div>
       </div>
     </aside>

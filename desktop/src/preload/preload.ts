@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
+  AgentMemoryChatLogsRootResult,
   AppendSessionDiagnosticResult,
   AppendTraceRowResult,
+  EnsureChatLogSessionDirResult,
   BrokerRequestResult,
   DesktopApi,
   DesktopTraceRowEvent,
@@ -85,8 +87,15 @@ const api: DesktopApi = {
   async saveTextFile(params: { readonly suggestedName: string; readonly content: string }): Promise<SaveFileResult> {
     return (await ipcRenderer.invoke("ailit:saveTextFile", params)) as SaveFileResult;
   },
+  async agentMemoryChatLogsRoot(): Promise<AgentMemoryChatLogsRootResult> {
+    return (await ipcRenderer.invoke("ailit:agentMemoryChatLogsRoot")) as AgentMemoryChatLogsRootResult;
+  },
+  async ensureChatLogSessionDir(params: {
+    readonly chatId: string;
+  }): Promise<EnsureChatLogSessionDirResult> {
+    return (await ipcRenderer.invoke("ailit:ensureChatLogSessionDir", params)) as EnsureChatLogSessionDirResult;
+  },
   async appendSessionDiagnostic(params: {
-    readonly runtimeDir: string;
     readonly chatId: string;
     readonly lines: readonly string[];
   }): Promise<AppendSessionDiagnosticResult> {

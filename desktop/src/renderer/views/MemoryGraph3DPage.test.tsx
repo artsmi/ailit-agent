@@ -75,6 +75,7 @@ function buildDesktopSession(overrides: Partial<DesktopSessionValue>): DesktopSe
     setLastAgentPair: vi.fn(),
     connection: "idle",
     homeDir: "/tmp",
+    chatLogsRoot: "/tmp/ailit-test-chat-logs",
     desktopConfig: {
       config_path: "/tmp/cfg",
       version: 1,
@@ -268,7 +269,6 @@ describe("MemoryGraph3DPage", () => {
       expect(appendSpy).toHaveBeenCalledTimes(1);
       const diagArg: unknown = appendSpy.mock.calls[0]?.[0];
       expect(diagArg).toMatchObject({
-        runtimeDir: "/tmp/rt-mem3d",
         chatId: "chat-t",
         lines: [expect.stringContaining("event=cross_project_edge_decision_timeout")]
       });

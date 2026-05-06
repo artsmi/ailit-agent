@@ -533,8 +533,8 @@ export function ChatPage(): React.JSX.Element {
         ) : aside ? (
           <ChatAnalyticsAside
             chatId={s.chatId}
+            chatLogsRoot={s.chatLogsRoot}
             connectionLabel={connectionLabel(s.connection)}
-            homeDir={s.homeDir}
             onClose={() => setAside(false)}
             registry={s.registry}
             runtimeDir={s.runtimeDir}

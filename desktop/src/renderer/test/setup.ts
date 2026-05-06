@@ -21,6 +21,14 @@ const api: DesktopApi = {
       activeProjectIds: []
     }),
   saveTextFile: () => Promise.resolve({ ok: false, error: "no headless" }),
+  agentMemoryChatLogsRoot: () => Promise.resolve({ ok: true, root: "/tmp/ailit-test-chat-logs" }),
+  ensureChatLogSessionDir: () =>
+    Promise.resolve({
+      ok: true,
+      chatLogsRoot: "/tmp/ailit-test-chat-logs",
+      sessionDir: "/tmp/ailit-test-chat-logs/sess",
+      safeChatId: "sess"
+    }),
   appendSessionDiagnostic: () => Promise.resolve({ ok: true, filePath: "/tmp/ailit-desk-diag.log" }),
   pagGraphSlice: () => Promise.resolve({ ok: false, kind: "ailit_pag_graph_slice_v1", error: "not in test" }),
   memoryJournalRead: () => Promise.resolve({ ok: true, path: "/tmp/memory-journal.jsonl", rows: [] }),
