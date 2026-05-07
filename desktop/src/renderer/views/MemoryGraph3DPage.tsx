@@ -11,7 +11,6 @@ import { useDesktopSession } from "../runtime/DesktopSessionContext";
 import { type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
 import {
   MemoryGraphForceGraphProjector,
-  type MemoryGraphProjectOptions,
   findCrossNamespaceEdgesAmong,
   filterMemoryGraphToNamespacesUnion,
   sliceMemoryGraphToNamespace
@@ -456,7 +455,6 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
   const fgRegistryRef = useRef<Map<string, ForceGraphMethods>>(new Map());
   const crossEdgesRef = useRef<readonly MemoryGraphLink[]>([]);
   const fDiagnosticSentRef = useRef<boolean>(false);
-  const traceConnDiagDedupeRef = useRef<Map<string, string>>(new Map());
 
   const [viewSize, setViewSize] = useState<{ w: number; h: number }>({
     w: 800,
@@ -531,36 +529,12 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     });
   }, [s.activeSessionId, snap, memoryGraphNamespaceSetKey]);
 
-  useEffect((): void => {
-    traceConnDiagDedupeRef.current.clear();
-  }, [graphDataKey]);
-
-  const traceConnProjectOpts: MemoryGraphProjectOptions = useMemo((): MemoryGraphProjectOptions => {
-    return {
-      onTraceConnSynthetic: (payload: {
-        readonly line: string;
-        readonly dedupeKey: string;
-        readonly namespace: string;
-      }): void => {
-        const m: Map<string, string> = traceConnDiagDedupeRef.current;
-        if (m.get(payload.namespace) === payload.dedupeKey) {
-          return;
-        }
-        m.set(payload.namespace, payload.dedupeKey);
-        void window.ailitDesktop.appendSessionDiagnostic({
-          chatId: s.chatId,
-          lines: [payload.line]
-        });
-      }
-    };
-  }, [s.chatId]);
-
   const layoutPanels: readonly LayoutPanelSpec[] = useMemo((): readonly LayoutPanelSpec[] => {
     const baseKey: string = `${graphDataKey}::${layoutKind}::${resolution}`;
 
     if (namespaces.length <= 1) {
       const ns: string = namespaces[0] ?? "default";
-      const gd: MemoryGraphData = MemoryGraphForceGraphProjector.project(mergedFromSnap, ns, traceConnProjectOpts);
+      const gd: MemoryGraphData = MemoryGraphForceGraphProjector.project(mergedFromSnap);
       return [
         {
           panelId: `single:${ns}`,
@@ -573,11 +547,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     }
     if (layoutKind === "multi_unified") {
       const union: MemoryGraphData = filterMemoryGraphToNamespacesUnion(mergedFromSnap, namespaces);
-      const gd: MemoryGraphData = MemoryGraphForceGraphProjector.project(
-        union,
-        unifiedPrimaryNs,
-        traceConnProjectOpts
-      );
+      const gd: MemoryGraphData = MemoryGraphForceGraphProjector.project(union);
       return [
         {
           panelId: "unified",
@@ -594,7 +564,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
         continue;
       }
       const sliced: MemoryGraphData = sliceMemoryGraphToNamespace(mergedFromSnap, ns);
-      const gd: MemoryGraphData = MemoryGraphForceGraphProjector.project(sliced, ns, traceConnProjectOpts);
+      const gd: MemoryGraphData = MemoryGraphForceGraphProjector.project(sliced);
       out.push({
         panelId: `ns:${ns}`,
         graphTestId: mem3dForceGraphTestIdForNamespace(ns),
@@ -604,7 +574,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       });
     }
     return out;
-  }, [mergedFromSnap, namespaces, graphDataKey, layoutKind, resolution, traceConnProjectOpts, unifiedPrimaryNs]);
+  }, [mergedFromSnap, namespaces, graphDataKey, layoutKind, resolution, unifiedPrimaryNs]);
 
   throttleNodeCountRef.current = layoutPanels.reduce(
     (m, lp) => Math.max(m, lp.graphData.nodes.length),

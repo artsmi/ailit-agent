@@ -1,17 +1,4 @@
-import { formatTraceConnNodeInsertedDiagnosticLine } from "./desktopSessionDiagnosticLog";
 import type { MemoryGraphData, MemoryGraphLink, MemoryGraphNode } from "./memoryGraphState";
-
-export type TraceConnSyntheticPayload = {
-  readonly line: string;
-  readonly dedupeKey: string;
-  readonly namespace: string;
-};
-
-export type MemoryGraphProjectOptions = {
-  readonly onTraceConnSynthetic?: (payload: TraceConnSyntheticPayload) => void;
-};
-
-const TRACE_CONN_ROOT_PREFIX: string = "ailit:trace-conn-root:";
 
 /** Карта id узла → namespace (пустая строка если не задано). */
 export function buildNodeIdToNamespaceMap(
@@ -80,76 +67,61 @@ export function filterMemoryGraphToNamespacesUnion(
   return { nodes, links };
 }
 
-export function traceConnRootNodeId(namespace: string): string {
-  return `${TRACE_CONN_ROOT_PREFIX}${encodeURIComponent(namespace)}`;
-}
-
-function syntheticTraceConnEdgeId(namespace: string, repNodeId: string): string {
-  return `ailit:trace-conn-edge:${encodeURIComponent(namespace)}\u001f${repNodeId}`;
-}
-
-function minLexId(ids: readonly string[]): string {
-  let m: string = ids[0]!;
-  for (let i: number = 1; i < ids.length; i += 1) {
-    const x: string = ids[i]!;
-    if (x < m) {
-      m = x;
+/**
+ * D-EDGE-GATE-1: оставить только узлы, у которых есть путь рёбер до **любой** A-ноды
+ * (BFS неориентированно). A-узлы остаются всегда. Если A нет — пустой граф.
+ *
+ * Запрещено: вводить синтетические узлы/рёбра, которых нет в `data` (см. canon
+ * `context/arch/desktop-pag-graph-snapshot.md` — D-EDGE-GATE-1).
+ */
+export function keepNodesReachableToAnyA(data: MemoryGraphData): MemoryGraphData {
+  const aIds: string[] = [];
+  for (const n of data.nodes) {
+    if (n.level === "A") {
+      aIds.push(n.id);
     }
   }
-  return m;
-}
-
-function connectedComponents(
-  nodes: readonly MemoryGraphNode[],
-  links: readonly MemoryGraphLink[]
-): string[][] {
-  const idList: string[] = nodes.map((n) => n.id);
-  const adj: Map<string, Set<string>> = new Map();
-  for (const id of idList) {
-    adj.set(id, new Set());
+  if (aIds.length === 0) {
+    return { nodes: [], links: [] };
   }
-  for (const L of links) {
-    const a: Set<string> | undefined = adj.get(L.source);
-    const b: Set<string> | undefined = adj.get(L.target);
-    if (a === undefined || b === undefined) {
+  const idSet: Set<string> = new Set(data.nodes.map((n) => n.id));
+  const adj: Map<string, string[]> = new Map();
+  for (const id of idSet) {
+    adj.set(id, []);
+  }
+  for (const L of data.links) {
+    if (!idSet.has(L.source) || !idSet.has(L.target)) {
       continue;
     }
-    a.add(L.target);
-    b.add(L.source);
+    adj.get(L.source)!.push(L.target);
+    adj.get(L.target)!.push(L.source);
   }
-  const visited: Set<string> = new Set();
-  const comps: string[][] = [];
-  const starts: string[] = [...idList].sort();
-  for (const start of starts) {
-    if (visited.has(start)) {
+  const reachable: Set<string> = new Set();
+  const queue: string[] = [];
+  for (const a of aIds) {
+    if (!reachable.has(a)) {
+      reachable.add(a);
+      queue.push(a);
+    }
+  }
+  while (queue.length > 0) {
+    const cur: string = queue.shift()!;
+    const neighbours: string[] | undefined = adj.get(cur);
+    if (neighbours === undefined) {
       continue;
     }
-    const comp: string[] = [];
-    const stack: string[] = [start];
-    visited.add(start);
-    while (stack.length > 0) {
-      const u: string = stack.pop()!;
-      comp.push(u);
-      const nb: Set<string> | undefined = adj.get(u);
-      if (nb === undefined) {
-        continue;
-      }
-      for (const v of nb) {
-        if (!visited.has(v)) {
-          visited.add(v);
-          stack.push(v);
-        }
+    for (const nb of neighbours) {
+      if (!reachable.has(nb)) {
+        reachable.add(nb);
+        queue.push(nb);
       }
     }
-    comp.sort();
-    comps.push(comp);
   }
-  comps.sort((ca, cb) => {
-    const ma: string = minLexId(ca);
-    const mb: string = minLexId(cb);
-    return ma < mb ? -1 : ma > mb ? 1 : 0;
-  });
-  return comps;
+  const nodes: MemoryGraphNode[] = data.nodes.filter((n) => reachable.has(n.id));
+  const links: MemoryGraphLink[] = data.links.filter(
+    (L) => reachable.has(L.source) && reachable.has(L.target)
+  );
+  return { nodes, links };
 }
 
 export class MemoryGraphForceGraphProjector {
@@ -165,61 +137,11 @@ export class MemoryGraphForceGraphProjector {
   }
 
   /**
-   * D-TRACE-CONN-1: при >1 связной компоненте после фильтра A — один узел `ailit:trace-conn-root:{namespace}`
-   * и рёбра к минимальному id в каждой компоненте (детерминированно).
+   * Проекция merged → graphData для `ForceGraph3D` (D-EDGE-GATE-1):
+   * `filterEdgesUc04BranchA` → `keepNodesReachableToAnyA`.
    */
-  static ensureTraceConnectivity(
-    data: MemoryGraphData,
-    displayNamespace: string,
-    opts?: MemoryGraphProjectOptions
-  ): MemoryGraphData {
-    const rootId: string = traceConnRootNodeId(displayNamespace);
-    if (data.nodes.some((n) => n.id === rootId)) {
-      return data;
-    }
-    const comps: string[][] = connectedComponents(data.nodes, data.links);
-    if (comps.length <= 1) {
-      return data;
-    }
-    const reps: string[] = comps.map((c) => minLexId(c)).sort();
-    const dedupeKey: string = `${String(comps.length)}:${reps.join(",")}`;
-    if (opts?.onTraceConnSynthetic) {
-      const line: string = formatTraceConnNodeInsertedDiagnosticLine({
-        isoTimestamp: new Date().toISOString(),
-        namespace: displayNamespace,
-        componentCount: comps.length,
-        representativeNodeIds: reps
-      });
-      opts.onTraceConnSynthetic({ line, dedupeKey, namespace: displayNamespace });
-    }
-    const rootNode: MemoryGraphNode = {
-      id: rootId,
-      label: "trace-conn",
-      level: "C",
-      namespace: displayNamespace
-    };
-    const newLinks: MemoryGraphLink[] = [...data.links];
-    for (const comp of comps) {
-      const rep: string = minLexId(comp);
-      newLinks.push({
-        id: syntheticTraceConnEdgeId(displayNamespace, rep),
-        source: rootId,
-        target: rep,
-        edgeType: "ailit.trace_conn"
-      });
-    }
-    return {
-      nodes: [...data.nodes, rootNode],
-      links: newLinks
-    };
-  }
-
-  static project(
-    data: MemoryGraphData,
-    displayNamespace: string,
-    opts?: MemoryGraphProjectOptions
-  ): MemoryGraphData {
+  static project(data: MemoryGraphData): MemoryGraphData {
     const step1: MemoryGraphData = MemoryGraphForceGraphProjector.filterEdgesUc04BranchA(data);
-    return MemoryGraphForceGraphProjector.ensureTraceConnectivity(step1, displayNamespace, opts);
+    return keepNodesReachableToAnyA(step1);
   }
 }

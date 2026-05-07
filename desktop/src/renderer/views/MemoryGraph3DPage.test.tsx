@@ -39,8 +39,18 @@ afterEach(() => {
 
 vi.mock("react-force-graph-3d", () => ({
   __esModule: true,
-  default: function MockForceGraph3D(): React.JSX.Element {
-    return <div data-testid="mock-force-graph-3d" />;
+  default: function MockForceGraph3D(p: {
+    readonly graphData?: { readonly nodes?: readonly { readonly id: string }[]; readonly links?: readonly unknown[] };
+  }): React.JSX.Element {
+    const nodeIds: string = (p.graphData?.nodes ?? []).map((n) => n.id).join(",");
+    const linkCount: number = (p.graphData?.links ?? []).length;
+    return (
+      <div
+        data-testid="mock-force-graph-3d"
+        data-mock-fg-node-ids={nodeIds}
+        data-mock-fg-link-count={String(linkCount)}
+      />
+    );
   }
 }));
 
@@ -147,13 +157,17 @@ describe("MemoryGraph3DPage", () => {
   it("TC-VITEST-LAYOUT-01: два namespace без cross-edges — два mock ForceGraph3D", () => {
     const merged: MemoryGraphData = {
       nodes: [
+        { id: "A:proj-a", label: "pa", level: "A", namespace: "ns-a" },
+        { id: "A:proj-b", label: "pb", level: "A", namespace: "ns-b" },
         { id: "a1", label: "a1", level: "B", namespace: "ns-a" },
         { id: "a2", label: "a2", level: "B", namespace: "ns-a" },
         { id: "b1", label: "b1", level: "B", namespace: "ns-b" },
         { id: "b2", label: "b2", level: "B", namespace: "ns-b" }
       ],
       links: [
+        { id: "ra-1", source: "A:proj-a", target: "a1" },
         { id: "ea", source: "a1", target: "a2" },
+        { id: "rb-1", source: "A:proj-b", target: "b1" },
         { id: "eb", source: "b1", target: "b2" }
       ]
     };
@@ -278,6 +292,159 @@ describe("MemoryGraph3DPage", () => {
       expect(Array.isArray(lines) && lines[0]).toContain("namespace=ns-a,ns-b");
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it("TC-3D-EDGE-GATE-01: A без рёбер — на сцене только A", () => {
+    const merged: MemoryGraphData = {
+      nodes: [
+        { id: "A:proj", label: "proj", level: "A", namespace: "ns-a" },
+        { id: "B:lonely", label: "x", level: "B", namespace: "ns-a" }
+      ],
+      links: []
+    };
+    const snap: PagGraphSessionSnapshot = buildPagSnapshot(merged);
+    const session: DesktopSessionValue = buildDesktopSession({
+      selectedProjectIds: ["p-a"],
+      registry: [{ projectId: "p-a", namespace: "ns-a", title: "A", path: "/a", active: true }],
+      pagGraph: { activeSnapshot: snap, refreshPagGraph: vi.fn() }
+    });
+    render(
+      <MemoryRouter>
+        <desktopSessionReactContext.Provider value={session}>
+          <MemoryGraph3DPage />
+        </desktopSessionReactContext.Provider>
+      </MemoryRouter>
+    );
+    const fg: HTMLElement = screen.getByTestId("mock-force-graph-3d");
+    expect(fg.getAttribute("data-mock-fg-node-ids")).toBe("A:proj");
+    expect(fg.getAttribute("data-mock-fg-link-count")).toBe("0");
+  });
+
+  it("TC-3D-EDGE-GATE-02: B без пути до A — скрыта; синтетический корень не появляется", () => {
+    const merged: MemoryGraphData = {
+      nodes: [
+        { id: "A:proj", label: "proj", level: "A", namespace: "ns-a" },
+        { id: "B:b1", label: "b1", level: "B", namespace: "ns-a" },
+        { id: "B:lonely", label: "x", level: "B", namespace: "ns-a" }
+      ],
+      links: [{ id: "e", source: "A:proj", target: "B:b1" }]
+    };
+    const snap: PagGraphSessionSnapshot = buildPagSnapshot(merged);
+    const session: DesktopSessionValue = buildDesktopSession({
+      selectedProjectIds: ["p-a"],
+      registry: [{ projectId: "p-a", namespace: "ns-a", title: "A", path: "/a", active: true }],
+      pagGraph: { activeSnapshot: snap, refreshPagGraph: vi.fn() }
+    });
+    render(
+      <MemoryRouter>
+        <desktopSessionReactContext.Provider value={session}>
+          <MemoryGraph3DPage />
+        </desktopSessionReactContext.Provider>
+      </MemoryRouter>
+    );
+    const fg: HTMLElement = screen.getByTestId("mock-force-graph-3d");
+    const ids: string[] = (fg.getAttribute("data-mock-fg-node-ids") ?? "").split(",").filter((x) => x.length > 0);
+    expect(new Set(ids)).toEqual(new Set(["A:proj", "B:b1"]));
+    expect(ids).not.toContain("B:lonely");
+    for (const id of ids) {
+      expect(id.startsWith("ailit:trace-conn-root:")).toBe(false);
+    }
+    expect(fg.getAttribute("data-mock-fg-link-count")).toBe("1");
+  });
+
+  it("TC-3D-EDGE-GATE-03: appearance ребра A→B не делает remount панели (panelReactKey стабилен)", () => {
+    const baseMerged: MemoryGraphData = {
+      nodes: [
+        { id: "A:proj", label: "proj", level: "A", namespace: "ns-a" },
+        { id: "B:b", label: "b", level: "B", namespace: "ns-a" }
+      ],
+      links: []
+    };
+    const baseSnap: PagGraphSessionSnapshot = buildPagSnapshot(baseMerged);
+    const session: DesktopSessionValue = buildDesktopSession({
+      selectedProjectIds: ["p-a"],
+      registry: [{ projectId: "p-a", namespace: "ns-a", title: "A", path: "/a", active: true }],
+      pagGraph: { activeSnapshot: baseSnap, refreshPagGraph: vi.fn() }
+    });
+    const { rerender } = render(
+      <MemoryRouter>
+        <desktopSessionReactContext.Provider value={session}>
+          <MemoryGraph3DPage />
+        </desktopSessionReactContext.Provider>
+      </MemoryRouter>
+    );
+    const fg1: HTMLElement = screen.getByTestId("mock-force-graph-3d");
+    const ids1: string[] = (fg1.getAttribute("data-mock-fg-node-ids") ?? "").split(",").filter((x) => x.length > 0);
+    expect(ids1).toEqual(["A:proj"]);
+
+    const nextMerged: MemoryGraphData = {
+      nodes: baseMerged.nodes,
+      links: [{ id: "e", source: "A:proj", target: "B:b" }]
+    };
+    const nextSnap: PagGraphSessionSnapshot = {
+      ...baseSnap,
+      merged: nextMerged,
+      graphRevByNamespace: baseSnap.graphRevByNamespace
+    };
+    const session2: DesktopSessionValue = {
+      ...session,
+      pagGraph: { activeSnapshot: nextSnap, refreshPagGraph: session.pagGraph.refreshPagGraph }
+    };
+    rerender(
+      <MemoryRouter>
+        <desktopSessionReactContext.Provider value={session2}>
+          <MemoryGraph3DPage />
+        </desktopSessionReactContext.Provider>
+      </MemoryRouter>
+    );
+    const fg2: HTMLElement = screen.getByTestId("mock-force-graph-3d");
+    const ids2: string[] = (fg2.getAttribute("data-mock-fg-node-ids") ?? "").split(",").filter((x) => x.length > 0);
+    expect(new Set(ids2)).toEqual(new Set(["A:proj", "B:b"]));
+    expect(fg2.getAttribute("data-mock-fg-link-count")).toBe("1");
+  });
+
+  it("TC-3D-EDGE-GATE-04: multi-namespace separate — каждая панель содержит только свою A", () => {
+    const merged: MemoryGraphData = {
+      nodes: [
+        { id: "A:pa", label: "pa", level: "A", namespace: "ns-a" },
+        { id: "A:pb", label: "pb", level: "A", namespace: "ns-b" },
+        { id: "B:lonely-a", label: "la", level: "B", namespace: "ns-a" },
+        { id: "B:lonely-b", label: "lb", level: "B", namespace: "ns-b" }
+      ],
+      links: []
+    };
+    const snap: PagGraphSessionSnapshot = buildPagSnapshot(merged);
+    const session: DesktopSessionValue = buildDesktopSession({
+      selectedProjectIds: ["p-a", "p-b"],
+      registry: [
+        { projectId: "p-a", namespace: "ns-a", title: "A", path: "/a", active: true },
+        { projectId: "p-b", namespace: "ns-b", title: "B", path: "/b", active: true }
+      ],
+      pagGraph: { activeSnapshot: snap, refreshPagGraph: vi.fn() }
+    });
+    render(
+      <MemoryRouter>
+        <desktopSessionReactContext.Provider value={session}>
+          <MemoryGraph3DPage />
+        </desktopSessionReactContext.Provider>
+      </MemoryRouter>
+    );
+    const row: HTMLElement = screen.getByTestId("mem3d-layout-row");
+    const fgs: HTMLElement[] = within(row).getAllByTestId("mock-force-graph-3d");
+    expect(fgs).toHaveLength(2);
+    const idSets: Set<string>[] = fgs.map((el) => {
+      const ids: string[] = (el.getAttribute("data-mock-fg-node-ids") ?? "")
+        .split(",")
+        .filter((x) => x.length > 0);
+      return new Set(ids);
+    });
+    const containsAProj: (s: Set<string>, id: string) => boolean = (s, id) => s.has(id);
+    expect(idSets.some((s) => containsAProj(s, "A:pa"))).toBe(true);
+    expect(idSets.some((s) => containsAProj(s, "A:pb"))).toBe(true);
+    for (const s of idSets) {
+      expect(s.has("B:lonely-a")).toBe(false);
+      expect(s.has("B:lonely-b")).toBe(false);
     }
   });
 });

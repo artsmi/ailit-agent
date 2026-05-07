@@ -114,22 +114,6 @@ export function formatCrossProjectEdgeDecisionTimeoutDiagnosticLine(p: {
 }
 
 /**
- * D-TRACE-CONN-1: синтетический узел связности в проекции ForceGraph (не PAG).
- */
-export function formatTraceConnNodeInsertedDiagnosticLine(p: {
-  readonly isoTimestamp: string;
-  readonly namespace: string;
-  readonly componentCount: number;
-  readonly representativeNodeIds: readonly string[];
-}): string {
-  const reps: string = p.representativeNodeIds.join(",");
-  return (
-    `timestamp=${p.isoTimestamp}\tevent=memory.graph.trace_conn_node\tnamespace=${p.namespace}` +
-    `\tcomponent_count=${String(p.componentCount)}\trepresentatives=${reps}`
-  );
-}
-
-/**
  * Одна строка для `…/chat_logs/<safe>/desk-diagnostic-*.log` (append-only, разбор UI vs trace).
  */
 export function formatTraceProjectionDiagnosticLine(
