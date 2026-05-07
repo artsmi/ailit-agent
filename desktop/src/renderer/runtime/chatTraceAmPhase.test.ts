@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { projectBrokerMemoryRecallActive } from "./chatTraceAmPhase";
+import {
+  isMemoryQueryContextResponseToWorkForUi,
+  projectBrokerMemoryRecallActive
+} from "./chatTraceAmPhase";
 import {
   BROKER_MEMORY_RECALL_STYLE_TOKEN,
   buildBrokerMemoryRecallUiPhase,
@@ -89,7 +92,7 @@ describe("projectBrokerMemoryRecallActive", () => {
     expect(projectBrokerMemoryRecallActive(rows, CHAT)).toBe(false);
   });
 
-  it("is true after memory.query_context until context.memory_injected", () => {
+  it("is true after memory.query_context until Memory→Work response (not until inject)", () => {
     const rows: Record<string, unknown>[] = [
       userPromptRow(),
       memoryQueryStart(),
@@ -101,17 +104,17 @@ describe("projectBrokerMemoryRecallActive", () => {
       })
     ];
     expect(projectBrokerMemoryRecallActive(rows.slice(0, 2), CHAT)).toBe(true);
-    expect(projectBrokerMemoryRecallActive(rows.slice(0, 3), CHAT)).toBe(true);
+    expect(projectBrokerMemoryRecallActive(rows.slice(0, 3), CHAT)).toBe(false);
     expect(projectBrokerMemoryRecallActive(rows, CHAT)).toBe(false);
   });
 
-  it("clears after memory.actor_slice_skipped (no inject)", () => {
+  it("clears after memory.actor_slice_skipped only if still awaiting (response already closed recall)", () => {
     const rows: Record<string, unknown>[] = [
       memoryQueryStart(),
       memoryResponse(true, { injected_text: "x", level: "B" }),
       topicFromWork("memory.actor_slice_skipped", { reason: "empty", staleness: "" })
     ];
-    expect(projectBrokerMemoryRecallActive(rows.slice(0, 2), CHAT)).toBe(true);
+    expect(projectBrokerMemoryRecallActive(rows.slice(0, 2), CHAT)).toBe(false);
     expect(projectBrokerMemoryRecallActive(rows, CHAT)).toBe(false);
   });
 
@@ -150,11 +153,21 @@ describe("projectBrokerMemoryRecallActive", () => {
     expect(projectBrokerMemoryRecallActive(rows, CHAT)).toBe(false);
   });
 
+  it("detects audit-shaped memory.response to_agent_work for UI close", () => {
+    const row: Record<string, unknown> = {
+      chat_id: CHAT,
+      event: "memory.response",
+      topic: "to_agent_work",
+      service: "memory.query_context",
+      request_id: "r1"
+    };
+    expect(isMemoryQueryContextResponseToWorkForUi(row, CHAT)).toBe(true);
+  });
 });
 
 describe("projectBrokerMemoryRecallPhase / recall ui projection", () => {
-  it("whitelist has at least two phrases (UC-06)", () => {
-    expect(RECALL_UI_PHRASE_WHITELIST.length).toBeGreaterThanOrEqual(2);
+  it("whitelist has 40 recall phrases", () => {
+    expect(RECALL_UI_PHRASE_WHITELIST.length).toBe(40);
   });
 
   it("uses candy-code style token for status projection", () => {
@@ -169,8 +182,8 @@ describe("projectBrokerMemoryRecallPhase / recall ui projection", () => {
     expect(p.phraseIndex).toBe(1 % n);
   });
 
-  it("RECALL_PHRASE_ROTATION_MS meets UC-06 A1 debounce floor", () => {
-    expect(RECALL_PHRASE_ROTATION_MS).toBeGreaterThanOrEqual(1500);
+  it("RECALL_PHRASE_ROTATION_MS aliases min rotation interval (2s)", () => {
+    expect(RECALL_PHRASE_ROTATION_MS).toBe(2000);
   });
 
   it("projectBrokerMemoryRecallPhase combines trace active with phrase slot", () => {

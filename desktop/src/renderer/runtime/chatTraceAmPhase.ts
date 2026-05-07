@@ -100,17 +100,41 @@ function memoryResponseClosesAwaiting(
 }
 
 /**
- * Производное «AM активен» для UC 2.4: между Work→Memory `memory.query_context`
- * и завершением цикла (`context.memory_injected` | `memory.actor_slice_skipped` | `memory.actor_unavailable`)
- * после ответа памяти; не опирается на `assistant.thinking`.
+ * Финальное событие ответа памяти к Work: envelope `service.request` Memory→Work
+ * или строка audit с `event=memory.response`, `topic=to_agent_work`, `service=memory.query_context`.
+ */
+export function isMemoryQueryContextResponseToWorkForUi(
+  row: Record<string, unknown>,
+  chatId: string
+): boolean {
+  if (rowChatId(row) !== chatId) {
+    return false;
+  }
+  if (memoryResponseClosesAwaiting(row, chatId) !== null) {
+    return true;
+  }
+  const ev: string = strField(row, "event");
+  if (ev === "memory.response") {
+    return (
+      strField(row, "topic") === "to_agent_work" && strField(row, "service") === "memory.query_context"
+    );
+  }
+  return false;
+}
+
+type MemoryWaitUiPhase = "idle" | "awaiting_memory";
+
+/**
+ * Строка статуса «Ailit вспоминает»: между Work→Memory `memory.query_context` и ответом Memory→Work
+ * (`memory.response` / envelope с `ok`); UC-03 подсветка — отдельно {@link isUc03HighlightAllowedAtRowIndex}.
  *
- * Сброс незавершённой фазы при новом user turn (`user_prompt` в нормализации trace).
+ * Сброс при `user_prompt`, `memory.actor_unavailable` от Work во время ожидания, и при ответе памяти.
  */
 export function projectBrokerMemoryRecallActive(rows: readonly Record<string, unknown>[], chatId: string): boolean {
   if (typeof chatId !== "string" || chatId.length === 0) {
     return false;
   }
-  let phase: AmRecallPhase = "idle";
+  let phase: MemoryWaitUiPhase = "idle";
   for (const row of rows) {
     if (rowChatId(row) !== chatId) {
       continue;
@@ -120,41 +144,19 @@ export function projectBrokerMemoryRecallActive(rows: readonly Record<string, un
       phase = "idle";
     }
     const topicEv: { readonly eventName: string } | null = readWorkChatTopic(row, chatId);
-    if (topicEv) {
-      const en: string = topicEv.eventName;
-      if (phase === "awaiting_memory_response") {
-        if (en === "memory.actor_unavailable") {
-          phase = "idle";
-        }
-      } else if (phase === "awaiting_inject_or_skip") {
-        if (
-          en === "context.memory_injected" ||
-          en === "memory.actor_slice_skipped" ||
-          en === "memory.actor_unavailable"
-        ) {
-          phase = "idle";
-        }
+    if (topicEv && phase === "awaiting_memory") {
+      if (topicEv.eventName === "memory.actor_unavailable") {
+        phase = "idle";
       }
     }
     if (isMemoryQueryStart(row, chatId)) {
-      phase = "awaiting_memory_response";
+      phase = "awaiting_memory";
     }
-    const memClose: "fail" | "ok_with_slice" | "ok_other" | null = memoryResponseClosesAwaiting(row, chatId);
-    if (memClose === "fail") {
-      if (phase === "awaiting_memory_response" || phase === "awaiting_inject_or_skip") {
-        phase = "idle";
-      }
-    } else if (memClose === "ok_with_slice") {
-      if (phase === "awaiting_memory_response") {
-        phase = "awaiting_inject_or_skip";
-      }
-    } else if (memClose === "ok_other") {
-      if (phase === "awaiting_memory_response") {
-        phase = "idle";
-      }
+    if (isMemoryQueryContextResponseToWorkForUi(row, chatId)) {
+      phase = "idle";
     }
   }
-  return phase !== "idle";
+  return phase === "awaiting_memory";
 }
 
 /**

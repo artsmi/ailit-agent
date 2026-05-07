@@ -1,18 +1,29 @@
 import { projectBrokerMemoryRecallActive } from "./chatTraceAmPhase";
+import {
+  CHAT_STATUS_PHRASE_MAX_MS,
+  CHAT_STATUS_PHRASE_MIN_MS,
+  RECALL_UI_PHRASE_WHITELIST,
+  THINKING_UI_PHRASE_WHITELIST,
+  type ChatStatusPhraseEntry
+} from "./chatStatusPhraseLists";
 
-/** UC-06 / ТЗ §5.1: фиксированный whitelist (минимум две фразы). */
-export const RECALL_UI_PHRASE_WHITELIST: readonly { readonly id: string; readonly text: string }[] = [
-  { id: "recall_remembers_v1", text: "Ailit вспоминает" },
-  { id: "recall_mind_halls_v1", text: "Ailit в чертогах разума" }
-] as const;
+export type { ChatStatusPhraseEntry };
 
-/** UC-06 A1: минимальный интервал смены фразы в UI (мс). */
-export const RECALL_PHRASE_ROTATION_MS: number = 1500;
+/** @deprecated Используйте CHAT_STATUS_PHRASE_MIN_MS / CHAT_STATUS_PHRASE_MAX_MS. */
+export const RECALL_PHRASE_ROTATION_MS: number = CHAT_STATUS_PHRASE_MIN_MS;
+
+export { RECALL_UI_PHRASE_WHITELIST, THINKING_UI_PHRASE_WHITELIST };
 
 /** Допущение ТЗ: акцент синего через токен shell брендбука. */
 export const BROKER_MEMORY_RECALL_STYLE_TOKEN = "--candy-code" as const;
 
 export type BrokerMemoryRecallUiPhase = {
+  readonly active: boolean;
+  readonly phraseIndex: number;
+  readonly styleToken: typeof BROKER_MEMORY_RECALL_STYLE_TOKEN;
+};
+
+export type BrokerAgentThinkingUiPhase = {
   readonly active: boolean;
   readonly phraseIndex: number;
   readonly styleToken: typeof BROKER_MEMORY_RECALL_STYLE_TOKEN;
@@ -31,6 +42,19 @@ export function buildBrokerMemoryRecallUiPhase(
   };
 }
 
+export function buildBrokerAgentThinkingUiPhase(
+  active: boolean,
+  phraseIndex: number
+): BrokerAgentThinkingUiPhase {
+  const n: number = THINKING_UI_PHRASE_WHITELIST.length;
+  const idx: number = active ? ((phraseIndex % n) + n) % n : 0;
+  return {
+    active,
+    phraseIndex: idx,
+    styleToken: BROKER_MEMORY_RECALL_STYLE_TOKEN
+  };
+}
+
 export function recallPhraseTextAtIndex(phraseIndex: number): string {
   const n: number = RECALL_UI_PHRASE_WHITELIST.length;
   const idx: number = ((phraseIndex % n) + n) % n;
@@ -40,11 +64,23 @@ export function recallPhraseTextAtIndex(phraseIndex: number): string {
 export function recallPhraseIdAtIndex(phraseIndex: number): string {
   const n: number = RECALL_UI_PHRASE_WHITELIST.length;
   const idx: number = ((phraseIndex % n) + n) % n;
-  return RECALL_UI_PHRASE_WHITELIST[idx]?.id ?? "recall_remembers_v1";
+  return RECALL_UI_PHRASE_WHITELIST[idx]?.id ?? "recall_01";
+}
+
+export function thinkingPhraseTextAtIndex(phraseIndex: number): string {
+  const n: number = THINKING_UI_PHRASE_WHITELIST.length;
+  const idx: number = ((phraseIndex % n) + n) % n;
+  return THINKING_UI_PHRASE_WHITELIST[idx]?.text ?? "";
+}
+
+export function thinkingPhraseIdAtIndex(phraseIndex: number): string {
+  const n: number = THINKING_UI_PHRASE_WHITELIST.length;
+  const idx: number = ((phraseIndex % n) + n) % n;
+  return THINKING_UI_PHRASE_WHITELIST[idx]?.id ?? "think_01";
 }
 
 /**
- * UC-06: проекция broker trace + индекс ротации фраз (индекс задаётся UI-слоем с шагом ≥ RECALL_PHRASE_ROTATION_MS).
+ * UC-06: проекция broker trace + индекс ротации фраз (случайный интервал 2–7 с задаётся в DesktopSessionContext).
  */
 export function projectBrokerMemoryRecallPhase(
   rows: readonly Record<string, unknown>[],
@@ -54,3 +90,5 @@ export function projectBrokerMemoryRecallPhase(
   const active: boolean = projectBrokerMemoryRecallActive(rows, chatId);
   return buildBrokerMemoryRecallUiPhase(active, phraseIndex);
 }
+
+export { CHAT_STATUS_PHRASE_MIN_MS, CHAT_STATUS_PHRASE_MAX_MS };

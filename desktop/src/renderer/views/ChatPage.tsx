@@ -379,7 +379,7 @@ export function ChatPage(): React.JSX.Element {
           {s.brokerMemoryRecallPhase.active ? (
             <CandyChatMemoryRecallStatusRow phase={s.brokerMemoryRecallPhase} />
           ) : (
-            <CandyChatAgentStatusRow active={s.agentTurnInProgress} />
+            <CandyChatAgentStatusRow phase={s.brokerAgentThinkingPhase} />
           )}
           <div className="candyChatInputWrap">
             <div className="candyChatInputGlow" />

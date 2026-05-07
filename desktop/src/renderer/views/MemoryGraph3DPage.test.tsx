@@ -11,6 +11,7 @@ import {
   type DesktopSessionValue
 } from "../runtime/DesktopSessionContext";
 import {
+  buildBrokerAgentThinkingUiPhase,
   buildBrokerMemoryRecallUiPhase,
   RECALL_UI_PHRASE_WHITELIST
 } from "../runtime/memoryRecallUiPhaseProjection";
@@ -116,6 +117,7 @@ function buildDesktopSession(overrides: Partial<DesktopSessionValue>): DesktopSe
     resubscribeTrace: vi.fn(),
     agentTurnInProgress: false,
     brokerMemoryRecallPhase: buildBrokerMemoryRecallUiPhase(false, 0),
+    brokerAgentThinkingPhase: buildBrokerAgentThinkingUiPhase(false, 0),
     requestStopAgent: vi.fn(),
     permModeLabel: null,
     permModeGateId: null,

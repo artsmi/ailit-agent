@@ -36,11 +36,18 @@ import {
   type ContextFillState,
   type ToolApprovalPending
 } from "./chatTraceProjector";
+import {
+  pickNextPhraseIndex,
+  randomPhraseRotationDelayMs,
+  RECALL_UI_PHRASE_WHITELIST,
+  THINKING_UI_PHRASE_WHITELIST
+} from "./chatStatusPhraseLists";
 import { projectBrokerMemoryRecallActive } from "./chatTraceAmPhase";
 import {
+  buildBrokerAgentThinkingUiPhase,
   buildBrokerMemoryRecallUiPhase,
   recallPhraseIdAtIndex,
-  RECALL_PHRASE_ROTATION_MS,
+  type BrokerAgentThinkingUiPhase,
   type BrokerMemoryRecallUiPhase
 } from "./memoryRecallUiPhaseProjection";
 import { buildMemoryRecallUiPhaseTraceRow } from "./memoryRecallUiObservability";
@@ -103,8 +110,10 @@ export type DesktopSessionValue = {
   readonly resubscribeTrace: () => Promise<void>;
   /** Модель/рантайм обрабатывают ход (до assistant.final / стопа). */
   readonly agentTurnInProgress: boolean;
-  /** UC-06: фаза recall в строке чата (trace + ротация фраз ≥1.5s). */
+  /** UC-06: фаза recall в строке чата (trace + ротация фраз 2–7 с). */
   readonly brokerMemoryRecallPhase: BrokerMemoryRecallUiPhase;
+  /** AgentWork без ожидания памяти — ротация фраз «думает» 2–7 с. */
+  readonly brokerAgentThinkingPhase: BrokerAgentThinkingUiPhase;
   readonly requestStopAgent: () => Promise<void>;
   /** Текущий perm-режим после ``session.perm_mode.settled`` (сокращение для поля ввода). */
   readonly permModeLabel: string | null;
@@ -381,26 +390,68 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     (): boolean => projectBrokerMemoryRecallActive(rawTraceRows, activeSession.chatId),
     [rawTraceRows, activeSession.chatId]
   );
+  const agentThinkingStatusActive: boolean = agentTurnInProgress && !brokerMemoryRecallActive;
+  const recallPhraseCount: number = RECALL_UI_PHRASE_WHITELIST.length;
+  const thinkingPhraseCount: number = THINKING_UI_PHRASE_WHITELIST.length;
   const [brokerMemoryRecallPhraseIndex, setBrokerMemoryRecallPhraseIndex] = React.useState<number>(0);
+  const [agentThinkingPhraseIndex, setAgentThinkingPhraseIndex] = React.useState<number>(0);
   React.useEffect((): void => {
     setBrokerMemoryRecallPhraseIndex(0);
+    setAgentThinkingPhraseIndex(0);
   }, [activeSession.id]);
   React.useEffect((): void | (() => void) => {
     if (!brokerMemoryRecallActive) {
-      setBrokerMemoryRecallPhraseIndex(0);
       return;
     }
-    const id: number = window.setInterval((): void => {
-      setBrokerMemoryRecallPhraseIndex((i: number): number => i + 1);
-    }, RECALL_PHRASE_ROTATION_MS);
-    return (): void => {
-      window.clearInterval(id);
+    setBrokerMemoryRecallPhraseIndex(Math.floor(Math.random() * recallPhraseCount));
+    let cancelled: boolean = false;
+    let tid: number = 0;
+    const tick = (): void => {
+      if (cancelled) {
+        return;
+      }
+      setBrokerMemoryRecallPhraseIndex((prev: number): number =>
+        pickNextPhraseIndex(prev, recallPhraseCount)
+      );
+      tid = window.setTimeout(tick, randomPhraseRotationDelayMs());
     };
-  }, [brokerMemoryRecallActive]);
+    tid = window.setTimeout(tick, randomPhraseRotationDelayMs());
+    return (): void => {
+      cancelled = true;
+      window.clearTimeout(tid);
+    };
+  }, [brokerMemoryRecallActive, recallPhraseCount]);
+  React.useEffect((): void | (() => void) => {
+    if (!agentThinkingStatusActive) {
+      return;
+    }
+    setAgentThinkingPhraseIndex(Math.floor(Math.random() * thinkingPhraseCount));
+    let cancelled: boolean = false;
+    let tid: number = 0;
+    const tick = (): void => {
+      if (cancelled) {
+        return;
+      }
+      setAgentThinkingPhraseIndex((prev: number): number =>
+        pickNextPhraseIndex(prev, thinkingPhraseCount)
+      );
+      tid = window.setTimeout(tick, randomPhraseRotationDelayMs());
+    };
+    tid = window.setTimeout(tick, randomPhraseRotationDelayMs());
+    return (): void => {
+      cancelled = true;
+      window.clearTimeout(tid);
+    };
+  }, [agentThinkingStatusActive, thinkingPhraseCount]);
   const brokerMemoryRecallPhase: BrokerMemoryRecallUiPhase = React.useMemo(
     (): BrokerMemoryRecallUiPhase =>
       buildBrokerMemoryRecallUiPhase(brokerMemoryRecallActive, brokerMemoryRecallPhraseIndex),
     [brokerMemoryRecallActive, brokerMemoryRecallPhraseIndex]
+  );
+  const brokerAgentThinkingPhase: BrokerAgentThinkingUiPhase = React.useMemo(
+    (): BrokerAgentThinkingUiPhase =>
+      buildBrokerAgentThinkingUiPhase(agentThinkingStatusActive, agentThinkingPhraseIndex),
+    [agentThinkingStatusActive, agentThinkingPhraseIndex]
   );
   const memoryRecallEmitSigRef: React.MutableRefObject<string | null> = React.useRef<string | null>(null);
   React.useEffect((): void => {
@@ -1420,6 +1471,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     resubscribeTrace,
     agentTurnInProgress,
     brokerMemoryRecallPhase,
+    brokerAgentThinkingPhase,
     requestStopAgent,
     permModeLabel,
     permModeGateId,
