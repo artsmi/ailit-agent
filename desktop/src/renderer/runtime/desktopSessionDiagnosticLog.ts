@@ -114,7 +114,7 @@ export function formatCrossProjectEdgeDecisionTimeoutDiagnosticLine(p: {
 }
 
 /**
- * Одна строка для `…/chat_logs/<safe>/desk-diagnostic-*.log` (append-only, разбор UI vs trace).
+ * Устаревший формат строки trace projection; пара логов графа — `ailit-desktop-*.log` (см. `desktopGraphPairLog.ts`).
  */
 export function formatTraceProjectionDiagnosticLine(
   eventSeq: number,

@@ -4,7 +4,7 @@
 Режим **desktop**: файл ``…/chat_logs/<safe>/<safe>.log`` (как
 ``agentMemoryVerboseLogAbsolutePathPosix`` и ``agentMemoryChatLogFileName``
 в desktop ``tracePaths.ts``); каталог сессии совпадает с каталогом
-``desk-diagnostic-*.log``.
+пары ``ailit-desktop-full.log`` / ``ailit-desktop-compact.log``.
 
 Режим **cli_init**: каталог ``…/chat_logs/ailit-cli-<suffix>/`` и внутри
 append-only ``legacy.log`` (тот же формат блоков и JSON, что раньше в

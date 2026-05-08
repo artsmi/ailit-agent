@@ -161,8 +161,13 @@ export type DurableTraceReadResult =
   | { readonly ok: true; readonly rows: readonly Record<string, unknown>[] }
   | { readonly ok: false; readonly error: string };
 
-export type AppendSessionDiagnosticResult =
-  | { readonly ok: true; readonly filePath: string }
+export type DesktopGraphPairLogEntryIpc = {
+  readonly fullRecord: string;
+  readonly compactLine: string;
+};
+
+export type AppendDesktopGraphPairLogResult =
+  | { readonly ok: true; readonly fullPath: string; readonly compactPath: string }
   | { readonly ok: false; readonly error: string };
 
 export type AgentMemoryChatLogsRootResult =
@@ -206,11 +211,11 @@ export type DesktopApi = {
   readonly agentMemoryChatLogsRoot: () => Promise<AgentMemoryChatLogsRootResult>;
   /** Создать ``<chat_logs_root>/<safe_chat_id>/`` для сессии чата (идемпотентно). */
   readonly ensureChatLogSessionDir: (params: { readonly chatId: string }) => Promise<EnsureChatLogSessionDirResult>;
-  /** Append в ``<chat_logs_root>/<safe_chat_id>/desk-diagnostic-<safe>.log``. */
-  readonly appendSessionDiagnostic: (params: {
+  /** Append в ``ailit-desktop-full.log`` и ``ailit-desktop-compact.log`` (main process). */
+  readonly appendDesktopGraphPairLog: (params: {
     readonly chatId: string;
-    readonly lines: readonly string[];
-  }) => Promise<AppendSessionDiagnosticResult>;
+    readonly entries: readonly DesktopGraphPairLogEntryIpc[];
+  }) => Promise<AppendDesktopGraphPairLogResult>;
   readonly pagGraphSlice: (params: {
     readonly namespace: string;
     readonly dbPath?: string;

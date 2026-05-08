@@ -81,7 +81,7 @@
 ### Конфиг и пути данных (факт)
 
 - Каталога **`~/.ailit/desktop`** и desktop-yaml в коде **нет**; первый запуск UI — **localStorage**.
-- Запись на диск из main: `trace/*.jsonl` под `runtime_dir`, `chat_logs/<safe_chat>/desk-diagnostic-<safe_chat>.log` и (verbose AgentMemory) `chat_logs/<safe_chat>/<safe_chat>.log` — корень `chat_logs` как у Python `default_chat_logs_dir` (`AILIT_AGENT_MEMORY_CHAT_LOG_DIR` или `~/.ailit/agent-memory/chat_logs`); save dialog; PAG путь через CLI/env **без** отдельного desktop-конфига.
+- Запись на диск из main: `trace/*.jsonl` под `runtime_dir`, пара `chat_logs/<safe_chat>/ailit-desktop-full.log` + `ailit-desktop-compact.log` (события trace в renderer и source=D для merge/PAG) и (verbose AgentMemory) `chat_logs/<safe_chat>/<safe_chat>.log` — корень `chat_logs` как у Python `default_chat_logs_dir` (`AILIT_AGENT_MEMORY_CHAT_LOG_DIR` или `~/.ailit/agent-memory/chat_logs`); save dialog; PAG путь через CLI/env **без** отдельного desktop-конфига.
 - Electron `userData`/cache **не** выведены одним вызовом в main; `scripts/reinstall` перечисляет **кандидатов** каталогов для очистки; `appId` сборки — `dev.ailit.desktop`.
 
 ## Целевое поведение
@@ -201,8 +201,9 @@ memory_journal_poll_ms: 2000
 #   {runtime_dir}/trace/trace-<safe_chat>.jsonl
 # chat_logs_root:
 #   AILIT_AGENT_MEMORY_CHAT_LOG_DIR или ~/.ailit/agent-memory/chat_logs (как Python default_chat_logs_dir)
-# session_diag_dir:
-#   {chat_logs_root}/<safe_chat>/desk-diagnostic-<safe_chat>.log
+# desktop_graph_logs:
+#   {chat_logs_root}/<safe_chat>/ailit-desktop-full.log
+#   {chat_logs_root}/<safe_chat>/ailit-desktop-compact.log
 # agent_memory_verbose_log:
 #   {chat_logs_root}/<safe_chat>/<safe_chat>.log  (memory.debug.verbose=1)
 # memory_journal_file:

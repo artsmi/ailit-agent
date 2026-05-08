@@ -6,7 +6,6 @@ import {
   MEM3D_CROSS_PROJECT_MODAL_I18N_KEY,
   type Mem3dCrossProjectResolution
 } from "../state/crossProjectDisplayMode";
-import { formatCrossProjectEdgeDecisionTimeoutDiagnosticLine } from "../runtime/desktopSessionDiagnosticLog";
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
 import { type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
 import {
@@ -447,6 +446,9 @@ type LayoutPanelSpec = {
 export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Element {
   const { noInitialAutoZoom = true } = p;
   const s: ReturnType<typeof useDesktopSession> = useDesktopSession();
+  const logDesktopGraphDebug: (event: string, detail: Record<string, unknown>) => void = s.logDesktopGraphDebug;
+  const mem3dChatId: string = s.chatId;
+  const userDecisionTimeoutSConfig: number | undefined = s.desktopConfig?.user_decision_timeout_s;
   const layoutHostRef = useRef<HTMLDivElement | null>(null);
   const highlightsByNsRef = useRef<Record<string, HighlightState | null>>({});
   const highlightFrameRef = useRef<number | null>(null);
@@ -675,26 +677,23 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       return;
     }
     fDiagnosticSentRef.current = true;
-    const timeoutS: number = Math.max(1, Math.floor(s.desktopConfig?.user_decision_timeout_s ?? 300));
+    const timeoutS: number = Math.max(1, Math.floor(userDecisionTimeoutSConfig ?? 300));
     const nsForDiag: string = namespaces.length > 0 ? namespaces.join(",") : unifiedPrimaryNs;
     const iso: string = new Date().toISOString();
-    const lineTimeout: string = formatCrossProjectEdgeDecisionTimeoutDiagnosticLine({
-      isoTimestamp: iso,
-      hiddenCrossEdgesCount: fallbackHiddenCount,
-      timeoutS,
+    logDesktopGraphDebug("cross_project_edge_decision_timeout", {
+      ts_utc: iso,
+      hidden_cross_edges_count: fallbackHiddenCount,
+      timeout_s: timeoutS,
       namespace: nsForDiag
-    });
-    void window.ailitDesktop.appendSessionDiagnostic({
-      chatId: s.chatId,
-      lines: [lineTimeout]
     });
   }, [
     resolution,
     needsUserModal,
     fallbackHiddenCount,
     namespaces,
-    s.chatId,
-    s.desktopConfig?.user_decision_timeout_s,
+    mem3dChatId,
+    userDecisionTimeoutSConfig,
+    logDesktopGraphDebug,
     unifiedPrimaryNs
   ]);
 

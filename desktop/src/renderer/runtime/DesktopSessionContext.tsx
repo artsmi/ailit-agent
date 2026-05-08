@@ -59,6 +59,7 @@ import {
   type PagGraphSessionSnapshot,
   type PagGraphTraceMergeEmitHooks
 } from "./pagGraphSessionStore";
+import { DesktopGraphPairLogWriter } from "./desktopGraphPairLogWriter";
 import { dedupKeyForRow, type NormalizedTraceProjection } from "./traceNormalize";
 import { newMessageId } from "./uuid";
 import { BrokerTraceUserTurnResolver } from "./userTurnIdFromTrace";
@@ -139,6 +140,8 @@ export type DesktopSessionValue = {
     /** Полная перезагрузка из БД (как Refresh 3D) + reconcile с trace. */
     readonly refreshPagGraph: () => void;
   };
+  /** source=D в `ailit-desktop-*.log` (отладка графа). */
+  readonly logDesktopGraphDebug: (event: string, detail: Record<string, unknown>) => void;
 };
 
 const Ctx = React.createContext<DesktopSessionValue | null>(null);
@@ -233,11 +236,12 @@ function buildPagGraphTraceMergeHooks(p: {
   readonly reconciledEmitRevByNs: Map<string, number>;
   readonly fullLoad?: PagGraphTraceMergeEmitHooks["fullLoad"];
   readonly traceOnlyPagModeSentKeys: Set<string>;
+  readonly emitDesktopGraphDebug: (event: string, detail: Record<string, unknown>) => void;
 }): PagGraphTraceMergeEmitHooks | undefined {
   const rd: string = p.runtimeDir;
   const canTrace: boolean = typeof window.ailitDesktop?.appendTraceRow === "function";
-  const canDiag: boolean = typeof window.ailitDesktop?.appendSessionDiagnostic === "function";
-  if (!canTrace && !canDiag) {
+  const canPairLog: boolean = typeof window.ailitDesktop?.appendDesktopGraphPairLog === "function";
+  if (!canTrace && !canPairLog) {
     return undefined;
   }
   // Сигнатура совпадает с appendTraceRow; при отсутствии IPC строки не уходят, но emitPagGraphObservability обновляет rev-map.
@@ -254,17 +258,8 @@ function buildPagGraphTraceMergeHooks(p: {
       ? (row: Record<string, unknown>): void => {
           void window.ailitDesktop.appendTraceRow({ runtimeDir: rd, chatId: p.chatId, row });
         }
-      : canDiag
-        ? noopEmit
-        : undefined,
-    appendDiagnosticLines: canDiag
-      ? (lines: readonly string[]): void => {
-          void window.ailitDesktop.appendSessionDiagnostic({
-            chatId: p.chatId,
-            lines: [...lines]
-          });
-        }
-      : undefined,
+      : noopEmit,
+    emitDesktopGraphDebug: canPairLog ? p.emitDesktopGraphDebug : undefined,
     traceOnlyPagModeSentKeys: p.traceOnlyPagModeSentKeys
   };
 }
@@ -342,6 +337,19 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
 
   activeChatIdRef.current = activeSession.chatId;
 
+  const pairLogWriterRef: React.MutableRefObject<DesktopGraphPairLogWriter | null> =
+    React.useRef<DesktopGraphPairLogWriter | null>(null);
+  React.useEffect((): void => {
+    pairLogWriterRef.current = new DesktopGraphPairLogWriter(activeSession.chatId);
+  }, [activeSession.chatId]);
+
+  const logDesktopGraphDebug: (event: string, detail: Record<string, unknown>) => void = React.useCallback(
+    (event: string, detail: Record<string, unknown>): void => {
+      pairLogWriterRef.current?.logD(event, detail);
+    },
+    []
+  );
+
   React.useEffect((): void => {
     pagGraphLastEmittedReconcileRevRef.current = new Map();
     pagGraphRefreshIntentRef.current = "none";
@@ -361,6 +369,14 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     (): string => PagGraphWorkspaceNamespaces.defaultNamespace(registry, activeSession.projectIds),
     [registry, activeSession.projectIds]
   );
+
+  React.useEffect((): void => {
+    logDesktopGraphDebug("workspace_namespaces", {
+      chat_id: activeSession.chatId,
+      namespaces: [...pagNamespaces],
+      default_namespace: pagDefaultNamespace
+    });
+  }, [activeSession.chatId, logDesktopGraphDebug, pagDefaultNamespace, pagNamespaces]);
 
   const awaitingPagSqlite: boolean = React.useMemo((): boolean => {
     const cur: PagGraphSessionSnapshot | undefined = pagGraphBySession[activeSession.id];
@@ -678,6 +694,12 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   );
 
   const mergeRows: (rows: readonly Record<string, unknown>[]) => void = React.useCallback((rows) => {
+    const w: DesktopGraphPairLogWriter | null = pairLogWriterRef.current;
+    if (w) {
+      for (const r of rows) {
+        w.logAmRow(r as Record<string, unknown>);
+      }
+    }
     setRawTraceRows((prev) => {
       const next: Record<string, unknown>[] = [...prev];
       const byKey: Map<string, number> = new Map();
@@ -822,11 +844,10 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       return;
     }
     setRuntimeDir(rd1);
-    void window.ailitDesktop.appendSessionDiagnostic({
-      chatId: cid,
-      lines: [
-        `=== ailit-desktop broker connect ${new Date().toISOString()} chatId=${cid} sessionUi=${activeSession.id} ===`
-      ]
+    pairLogWriterRef.current?.logD("broker_connect", {
+      chat_id: cid,
+      session_ui: activeSession.id,
+      runtime_dir: rd1
     });
     const dur1: Awaited<ReturnType<typeof window.ailitDesktop.traceReadDurable>> = await window.ailitDesktop.traceReadDurable({
       runtimeDir: rd1,
@@ -1172,6 +1193,11 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         return;
       }
       if (ch.kind === "error" || ch.kind === "end") {
+        logDesktopGraphDebug("trace_channel", {
+          kind: ch.kind,
+          detail: ch.detail != null ? ch.detail : null,
+          chat_id: activeChatIdRef.current
+        });
         void (async () => {
           const delayMs: number = desktopConfig?.trace_reconnect_min_ms ?? 800;
           setReconnectAttempt((a) => a + 1);
@@ -1195,7 +1221,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         offCh();
       }
     };
-  }, [desktopConfig?.trace_reconnect_min_ms, mergeRows, resubscribeTrace]);
+  }, [desktopConfig?.trace_reconnect_min_ms, logDesktopGraphDebug, mergeRows, resubscribeTrace]);
 
   const refreshPagGraph: () => void = React.useCallback((): void => {
     pagGraphRefreshIntentRef.current = "user";
@@ -1229,6 +1255,15 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       };
     });
     void (async () => {
+      const intentFl0: "none" | "user" | "poll" = pagGraphRefreshIntentRef.current;
+      const fullLoadKind0: "user_refresh" | "poll_retry" | "initial_load" =
+        intentFl0 === "user" ? "user_refresh" : intentFl0 === "poll" ? "poll_retry" : "initial_load";
+      logDesktopGraphDebug("pag_full_load_start", {
+        session_ui: sessionId,
+        chat_id: chatIdForPag,
+        namespaces: [...pagNamespaces],
+        full_load_kind: fullLoadKind0
+      });
       const r: Awaited<ReturnType<typeof PagGraphSessionFullLoad.run>> = await PagGraphSessionFullLoad.run(
         (p) => sliceFn(p),
         pagNamespaces
@@ -1237,6 +1272,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         return;
       }
       if (!r.ok) {
+        logDesktopGraphDebug("pag_full_load_result", { ok: false, error: r.error, session_ui: sessionId });
         setPagGraphBySession((p0) => ({
           ...p0,
           [sessionId]: {
@@ -1247,6 +1283,14 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         }));
         return;
       }
+      logDesktopGraphDebug("pag_full_load_result", {
+        ok: true,
+        session_ui: sessionId,
+        pag_sqlite_missing: r.pagSqliteMissing === true,
+        graph_rev_by_namespace: r.graphRevByNamespace,
+        merged_nodes_from_db: r.merged.nodes.length,
+        merged_links_from_db: r.merged.links.length
+      });
       const pagDatabasePresent: boolean = r.pagSqliteMissing !== true;
       const rows: readonly Record<string, unknown>[] = rawTraceRowsRef.current;
       const rd0: string | null = runtimeDir;
@@ -1267,7 +1311,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
               pagDefaultNamespace,
               reconciledEmitRevByNs: pagGraphLastEmittedReconcileRevRef.current,
               fullLoad: { kind: fullLoadKind, namespaces: [...pagNamespaces] },
-              traceOnlyPagModeSentKeys: traceOnlyPagModeSentKeysRef.current
+              traceOnlyPagModeSentKeys: traceOnlyPagModeSentKeysRef.current,
+              emitDesktopGraphDebug: logDesktopGraphDebug
             })
           : undefined;
       const snap: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.afterFullLoad(
@@ -1295,7 +1340,17 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     return () => {
       cancelled = true;
     };
-  }, [activeSession.chatId, activeSession.id, pagDefaultNamespace, pagLoadTick, pagNamespaces, projKey, registry, runtimeDir]);
+  }, [
+    activeSession.chatId,
+    activeSession.id,
+    logDesktopGraphDebug,
+    pagDefaultNamespace,
+    pagLoadTick,
+    pagNamespaces,
+    projKey,
+    registry,
+    runtimeDir
+  ]);
 
   /**
    * Пока `store.sqlite3` ещё не создан, `pag-slice` даёт `missing_db`; после `ready`+trace
@@ -1352,7 +1407,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
                 pagDefaultNamespace,
                 reconciledEmitRevByNs: pagGraphLastEmittedReconcileRevRef.current,
                 fullLoad: { kind: "poll_retry", namespaces: [...pagNamespaces] },
-                traceOnlyPagModeSentKeys: traceOnlyPagModeSentKeysRef.current
+                traceOnlyPagModeSentKeys: traceOnlyPagModeSentKeysRef.current,
+                emitDesktopGraphDebug: logDesktopGraphDebug
               })
             : undefined;
         const snap: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.afterFullLoad(
@@ -1381,6 +1437,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     activeSession.chatId,
     activeSession.id,
     desktopConfig?.pag_sqlite_poll_interval_ms,
+    logDesktopGraphDebug,
     pagDefaultNamespace,
     pagNamespaces,
     projKey,
@@ -1406,7 +1463,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
               graphRevBeforeByNamespace: { ...cur.graphRevByNamespace },
               pagDefaultNamespace,
               reconciledEmitRevByNs: pagGraphLastEmittedReconcileRevRef.current,
-              traceOnlyPagModeSentKeys: traceOnlyPagModeSentKeysRef.current
+              traceOnlyPagModeSentKeys: traceOnlyPagModeSentKeysRef.current,
+              emitDesktopGraphDebug: logDesktopGraphDebug
             })
           : undefined;
       const nxt: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.applyIncremental(
@@ -1425,6 +1483,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   }, [
     activeSession.chatId,
     activeSession.id,
+    logDesktopGraphDebug,
     pagDefaultNamespace,
     pagNamespaces,
     rawTraceRows,
@@ -1485,7 +1544,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     setMemoryPanelOpen,
     setMemoryPanelTab,
     setMemorySplitRatio,
-    pagGraph: { activeSnapshot: pagGraphActive, refreshPagGraph }
+    pagGraph: { activeSnapshot: pagGraphActive, refreshPagGraph },
+    logDesktopGraphDebug
   };
 
   return <Ctx.Provider value={v}>{children}</Ctx.Provider>;

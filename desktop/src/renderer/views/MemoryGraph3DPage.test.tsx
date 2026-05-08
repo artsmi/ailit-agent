@@ -134,7 +134,8 @@ function buildDesktopSession(overrides: Partial<DesktopSessionValue>): DesktopSe
     pagGraph: {
       activeSnapshot: null,
       refreshPagGraph: vi.fn()
-    }
+    },
+    logDesktopGraphDebug: vi.fn()
   };
   return { ...base, ...overrides };
 }
@@ -227,7 +228,7 @@ describe("MemoryGraph3DPage", () => {
 
   it("TC-VITEST-MODE-02: cross-edge — по истечении user_decision_timeout_s → F, баннер, diagnostic", async () => {
     const userDecisionTimeoutS: number = 4;
-    const appendSpy = vi.spyOn(window.ailitDesktop, "appendSessionDiagnostic");
+    const logDesktopGraphDebug: ReturnType<typeof vi.fn> = vi.fn();
 
     vi.useFakeTimers();
     try {
@@ -257,7 +258,8 @@ describe("MemoryGraph3DPage", () => {
           pag_sqlite_poll_interval_ms: 2500,
           user_decision_timeout_s: userDecisionTimeoutS
         },
-        pagGraph: { activeSnapshot: snap, refreshPagGraph: vi.fn() }
+        pagGraph: { activeSnapshot: snap, refreshPagGraph: vi.fn() },
+        logDesktopGraphDebug
       });
       render(
         <MemoryRouter>
@@ -282,16 +284,14 @@ describe("MemoryGraph3DPage", () => {
       expect(screen.getByText(new RegExp(`Режим F:.*${String(userDecisionTimeoutS)}`))).toBeTruthy();
       expect(screen.getByText(/Скрыто\s+межпроектных рёбер:\s+1\./)).toBeTruthy();
 
-      expect(appendSpy).toHaveBeenCalledTimes(1);
-      const diagArg: unknown = appendSpy.mock.calls[0]?.[0];
-      expect(diagArg).toMatchObject({
-        chatId: "chat-t",
-        lines: [expect.stringContaining("event=cross_project_edge_decision_timeout")]
+      expect(logDesktopGraphDebug).toHaveBeenCalledTimes(1);
+      expect(logDesktopGraphDebug.mock.calls[0]?.[0]).toBe("cross_project_edge_decision_timeout");
+      const detail: unknown = logDesktopGraphDebug.mock.calls[0]?.[1];
+      expect(detail).toMatchObject({
+        hidden_cross_edges_count: 1,
+        timeout_s: userDecisionTimeoutS,
+        namespace: "ns-a,ns-b"
       });
-      const lines: unknown = (diagArg as { lines?: readonly string[] }).lines;
-      expect(Array.isArray(lines) && lines[0]).toContain("hidden_cross_edges_count=1");
-      expect(Array.isArray(lines) && lines[0]).toContain(`timeout_s=${String(userDecisionTimeoutS)}`);
-      expect(Array.isArray(lines) && lines[0]).toContain("namespace=ns-a,ns-b");
     } finally {
       vi.useRealTimers();
     }

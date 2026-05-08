@@ -285,22 +285,33 @@ export function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(
-    "ailit:appendSessionDiagnostic",
-    async (_e: unknown, params: { readonly chatId: string; readonly lines: readonly string[] }) => {
-      if (params.lines.length === 0) {
-        return { ok: false, error: "no lines" } as const;
+    "ailit:appendDesktopGraphPairLog",
+    async (
+      _e: unknown,
+      params: {
+        readonly chatId: string;
+        readonly entries: readonly { readonly fullRecord: string; readonly compactLine: string }[];
+      }
+    ) => {
+      if (params.entries.length === 0) {
+        return { ok: false, error: "no entries" } as const;
       }
       const resolved = resolveChatLogSessionPaths(params.chatId);
       if (!resolved.ok) {
         return { ok: false, error: resolved.error } as const;
       }
-      const { sessionDir, safeChatId } = resolved.paths;
-      const filePath: string = path.resolve(path.join(sessionDir, `desk-diagnostic-${safeChatId}.log`));
-      const payload: string = params.lines.map((ln) => (ln.endsWith("\n") ? ln : `${ln}\n`)).join("");
+      const { sessionDir } = resolved.paths;
+      const fullPath: string = path.resolve(path.join(sessionDir, "ailit-desktop-full.log"));
+      const compactPath: string = path.resolve(path.join(sessionDir, "ailit-desktop-compact.log"));
       try {
         await fs.mkdir(sessionDir, { recursive: true });
-        await fs.appendFile(filePath, payload, "utf8");
-        return { ok: true, filePath } as const;
+        for (const e of params.entries) {
+          const fr: string = e.fullRecord.endsWith("\n") ? e.fullRecord : `${e.fullRecord}\n`;
+          const cl: string = e.compactLine.endsWith("\n") ? e.compactLine : `${e.compactLine}\n`;
+          await fs.appendFile(fullPath, fr, "utf8");
+          await fs.appendFile(compactPath, cl, "utf8");
+        }
+        return { ok: true, fullPath, compactPath } as const;
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) } as const;
       }

@@ -15,9 +15,14 @@ export function traceJsonlRelativePath(chatId: string): string {
   return `trace/${traceJsonlFileName(chatId)}`;
 }
 
-/** Журнал UI/чата для диагностики (append-only, одна сессия = один файл). */
-export function desktopDiagnosticLogFileName(chatId: string): string {
-  return `desk-diagnostic-${safeChatIdForTraceFile(chatId)}.log`;
+/** Полный лог trace + D-событий в renderer (append-only). */
+export function desktopAilitFullLogFileName(): string {
+  return "ailit-desktop-full.log";
+}
+
+/** Компактный лог той же сессии (append-only). */
+export function desktopAilitCompactLogFileName(): string {
+  return "ailit-desktop-compact.log";
 }
 
 /**
@@ -29,8 +34,12 @@ export function agentMemoryChatLogSessionDirPosix(chatLogsRoot: string, chatId: 
   return joinPosixPath(chatLogsRoot, safe);
 }
 
-export function desktopDiagnosticLogAbsolutePathPosix(chatLogsRoot: string, chatId: string): string {
-  return joinPosixPath(agentMemoryChatLogSessionDirPosix(chatLogsRoot, chatId), desktopDiagnosticLogFileName(chatId));
+export function desktopAilitFullLogAbsolutePathPosix(chatLogsRoot: string, chatId: string): string {
+  return joinPosixPath(agentMemoryChatLogSessionDirPosix(chatLogsRoot, chatId), desktopAilitFullLogFileName());
+}
+
+export function desktopAilitCompactLogAbsolutePathPosix(chatLogsRoot: string, chatId: string): string {
+  return joinPosixPath(agentMemoryChatLogSessionDirPosix(chatLogsRoot, chatId), desktopAilitCompactLogFileName());
 }
 
 export function agentMemoryVerboseLogAbsolutePathPosix(chatLogsRoot: string, chatId: string): string {

@@ -33,10 +33,8 @@ import {
   type PagGraphTraceDelta
 } from "./pagGraphTraceDeltas";
 import {
-  formatMemoryPagGraphDiagnosticLine,
-  formatMemoryW14GraphHighlightDiagnosticLine,
-  formatTraceOnlyPagModeDiagnosticLine,
-  mapPagSearchHighlightReasonToDiagnosticSource
+  mapPagSearchHighlightReasonToDiagnosticSource,
+  PAG_MODE_TRACE_ONLY_ACCUMULATION
 } from "./desktopSessionDiagnosticLog";
 
 function str(x: unknown): string {
@@ -84,8 +82,8 @@ export type PagGraphTraceMergeEmitHooks = {
     readonly kind: "user_refresh" | "poll_retry" | "initial_load";
     readonly namespaces: readonly string[];
   };
-  /** UC-06 / task_8_1: компактные строки в `chat_logs/<safe>/desk-diagnostic-*.log` (без IPC в unit-тестах). */
-  readonly appendDiagnosticLines?: (lines: readonly string[]) => void;
+  /** Служебные source=D записи в `ailit-desktop-*.log` (без IPC в unit-тестах). */
+  readonly emitDesktopGraphDebug?: (event: string, detail: Record<string, unknown>) => void;
   /** Дедуп D-PAGMODE-1: ключ `sessionId\\u001fnamespace`. */
   readonly traceOnlyPagModeSentKeys?: Set<string>;
 };
@@ -348,9 +346,9 @@ function emitTraceOnlyPagModeDiagnostics(
   if (pagDatabasePresent || hooks == null) {
     return;
   }
-  const append: ((lines: readonly string[]) => void) | undefined = hooks.appendDiagnosticLines;
+  const emit: ((event: string, detail: Record<string, unknown>) => void) | undefined = hooks.emitDesktopGraphDebug;
   const sent: Set<string> | undefined = hooks.traceOnlyPagModeSentKeys;
-  if (append === undefined || sent === undefined) {
+  if (emit === undefined || sent === undefined) {
     return;
   }
   const ts: string = new Date().toISOString();
@@ -363,22 +361,21 @@ function emitTraceOnlyPagModeDiagnostics(
       continue;
     }
     sent.add(key);
-    append([
-      formatTraceOnlyPagModeDiagnosticLine({
-        isoTimestamp: ts,
-        namespace: ns,
-        sessionId: hooks.sessionId
-      })
-    ]);
+    emit("pag_mode_trace_only_accumulation", {
+      ts_utc: ts,
+      namespace: ns,
+      session_ui: hooks.sessionId,
+      pag_mode: PAG_MODE_TRACE_ONLY_ACCUMULATION
+    });
   }
 }
 
 function emitHighlightChangeDiagnostics(
   prev: Readonly<Record<string, PagSearchHighlightV1 | null>>,
   next: Readonly<Record<string, PagSearchHighlightV1 | null>>,
-  append?: (lines: readonly string[]) => void
+  emit?: (event: string, detail: Record<string, unknown>) => void
 ): void {
-  if (append === undefined) {
+  if (emit === undefined) {
     return;
   }
   const keys: Set<string> = new Set([...Object.keys(prev), ...Object.keys(next)]);
@@ -397,18 +394,19 @@ function emitHighlightChangeDiagnostics(
     if (fa === fb) {
       continue;
     }
-    const source: string = mapPagSearchHighlightReasonToDiagnosticSource(b.reason);
-    append([
-      formatMemoryW14GraphHighlightDiagnosticLine({
-        isoTimestamp: ts,
-        namespace: ns,
-        source,
-        nodeCount: b.nodeIds.length,
-        edgeCount: b.edgeIds.length,
-        ttlMs: b.ttlMs,
-        queryId: b.queryId
-      })
-    ]);
+    const highlightSource: string = mapPagSearchHighlightReasonToDiagnosticSource(b.reason);
+    emit("highlight_recomputed", {
+      ts_utc: ts,
+      namespace: ns,
+      highlight_source: highlightSource,
+      reason_raw: b.reason,
+      node_count: b.nodeIds.length,
+      edge_count: b.edgeIds.length,
+      ttl_ms: b.ttlMs,
+      query_id: b.queryId ?? null,
+      node_ids: b.nodeIds,
+      edge_ids: b.edgeIds
+    });
   }
 }
 
@@ -421,7 +419,7 @@ function applyDeltasInRange(
   namespaces: Readonly<Set<string>>,
   prevWarnings: readonly string[],
   useInitialTraceCatchup: boolean,
-  appendDiagnosticLines?: (lines: readonly string[]) => void
+  emitDesktopGraphDebug?: (event: string, detail: Record<string, unknown>) => void
 ): {
   readonly merged: MemoryGraphData;
   readonly revs: RevRec;
@@ -464,34 +462,31 @@ function applyDeltasInRange(
     if (revWarning !== null) {
       wlist.push(revWarning);
     }
-    if (appendDiagnosticLines !== undefined) {
+    if (emitDesktopGraphDebug !== undefined) {
       const tsLine: string = new Date().toISOString();
       if (d.kind === "pag.node.upsert") {
         const sid: string = str(d.node["id"]) || "node";
-        appendDiagnosticLines([
-          formatMemoryPagGraphDiagnosticLine({
-            isoTimestamp: tsLine,
-            op: "node",
-            namespace: d.namespace,
-            rev: d.rev,
-            subject: sid
-          })
-        ]);
+        emitDesktopGraphDebug("merge_pag_delta", {
+          ts_utc: tsLine,
+          op: "node",
+          namespace: d.namespace,
+          rev: d.rev,
+          subject: sid
+        });
       } else {
         const ids: string[] = d.edges
           .map((e) => str((e as Record<string, unknown>)["id"]))
           .filter((x) => x.length > 0);
         const subj: string =
           ids.length > 0 ? ids.slice(0, 4).join(",") : `edges=${String(d.edges.length)}`;
-        appendDiagnosticLines([
-          formatMemoryPagGraphDiagnosticLine({
-            isoTimestamp: tsLine,
-            op: "edge",
-            namespace: d.namespace,
-            rev: d.rev,
-            subject: subj
-          })
-        ]);
+        emitDesktopGraphDebug("merge_pag_delta", {
+          ts_utc: tsLine,
+          op: "edge",
+          namespace: d.namespace,
+          rev: d.rev,
+          subject: subj,
+          edge_batch_count: d.edges.length
+        });
       }
     }
   }
@@ -671,7 +666,7 @@ export class PagGraphSessionTraceMerge {
     const ns: Set<string> = new Set(namespaces);
     const lastRow: number = rows.length - 1;
     const prevHi: Readonly<Record<string, PagSearchHighlightV1 | null>> = prevSearchHighlights ?? {};
-    const diagAppend: ((lines: readonly string[]) => void) | undefined = hooks?.appendDiagnosticLines;
+    const diagEmit: ((event: string, detail: Record<string, unknown>) => void) | undefined = hooks?.emitDesktopGraphDebug;
     if (lastRow < 0) {
       const hi: {
         readonly merged: MemoryGraphData;
@@ -687,7 +682,7 @@ export class PagGraphSessionTraceMerge {
         pagDatabasePresent,
         hi.highlights
       );
-      emitHighlightChangeDiagnostics(prevHi, hi.highlights, diagAppend);
+      emitHighlightChangeDiagnostics(prevHi, hi.highlights, diagEmit);
       emitTraceOnlyPagModeDiagnostics(pagDatabasePresent, namespaces, hooks);
       emitPagGraphObservability({
         hooks,
@@ -696,6 +691,16 @@ export class PagGraphSessionTraceMerge {
         namespacesDeltaTouched: new Set(),
         isAfterFullLoad: true
       });
+      if (hooks?.emitDesktopGraphDebug !== undefined) {
+        hooks.emitDesktopGraphDebug("merge_after_full_load", {
+          last_applied_trace_index: snap0.lastAppliedTraceIndex,
+          merged_node_count: snap0.merged.nodes.length,
+          merged_link_count: snap0.merged.links.length,
+          graph_rev_by_namespace: snap0.graphRevByNamespace,
+          warnings_count: snap0.warnings.length,
+          pag_database_present: snap0.pagDatabasePresent
+        });
+      }
       return snap0;
     }
     const ap: {
@@ -703,7 +708,7 @@ export class PagGraphSessionTraceMerge {
       readonly revs: RevRec;
       readonly warnings: readonly string[];
       readonly namespacesDeltaTouched: ReadonlySet<string>;
-    } = applyDeltasInRange(merged0, revs0, rows, 0, lastRow, ns, [], true, diagAppend);
+    } = applyDeltasInRange(merged0, revs0, rows, 0, lastRow, ns, [], true, diagEmit);
     const hi2: {
       readonly merged: MemoryGraphData;
       readonly highlights: Readonly<Record<string, PagSearchHighlightV1 | null>>;
@@ -718,7 +723,7 @@ export class PagGraphSessionTraceMerge {
       pagDatabasePresent,
       hi2.highlights
     );
-    emitHighlightChangeDiagnostics(prevHi, hi2.highlights, diagAppend);
+    emitHighlightChangeDiagnostics(prevHi, hi2.highlights, diagEmit);
     emitTraceOnlyPagModeDiagnostics(pagDatabasePresent, namespaces, hooks);
     emitPagGraphObservability({
       hooks,
@@ -727,6 +732,16 @@ export class PagGraphSessionTraceMerge {
       namespacesDeltaTouched: ap.namespacesDeltaTouched,
       isAfterFullLoad: true
     });
+    if (hooks?.emitDesktopGraphDebug !== undefined) {
+      hooks.emitDesktopGraphDebug("merge_after_full_load", {
+        last_applied_trace_index: snap.lastAppliedTraceIndex,
+        merged_node_count: snap.merged.nodes.length,
+        merged_link_count: snap.merged.links.length,
+        graph_rev_by_namespace: snap.graphRevByNamespace,
+        warnings_count: snap.warnings.length,
+        pag_database_present: snap.pagDatabasePresent
+      });
+    }
     return snap;
   }
 
@@ -753,7 +768,7 @@ export class PagGraphSessionTraceMerge {
       return cur;
     }
     const useInitialTraceCatchup: boolean = cur.lastAppliedTraceIndex === -1 && start === 0;
-    const diagInc: ((lines: readonly string[]) => void) | undefined = hooks?.appendDiagnosticLines;
+    const diagInc: ((event: string, detail: Record<string, unknown>) => void) | undefined = hooks?.emitDesktopGraphDebug;
     const ap: {
       readonly merged: MemoryGraphData;
       readonly revs: RevRec;
@@ -800,6 +815,16 @@ export class PagGraphSessionTraceMerge {
       namespacesDeltaTouched: ap.namespacesDeltaTouched,
       isAfterFullLoad: false
     });
+    if (hooks?.emitDesktopGraphDebug !== undefined && nxt !== cur) {
+      hooks.emitDesktopGraphDebug("merge_after_incremental", {
+        last_applied_trace_index: nxt.lastAppliedTraceIndex,
+        merged_node_count: nxt.merged.nodes.length,
+        merged_link_count: nxt.merged.links.length,
+        graph_rev_by_namespace: nxt.graphRevByNamespace,
+        warnings_count: nxt.warnings.length,
+        pag_database_present: nxt.pagDatabasePresent
+      });
+    }
     return nxt;
   }
 }

@@ -3,7 +3,8 @@ import React from "react";
 import {
   agentMemoryChatLogSessionDirPosix,
   agentMemoryVerboseLogAbsolutePathPosix,
-  desktopDiagnosticLogAbsolutePathPosix,
+  desktopAilitCompactLogAbsolutePathPosix,
+  desktopAilitFullLogAbsolutePathPosix,
   joinPosixPath,
   traceJsonlRelativePath
 } from "@shared/tracePaths";
@@ -35,8 +36,10 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
   const supSock: string | null = p.runtimeDir ? joinPosixPath(p.runtimeDir, "supervisor.sock") : null;
   const sessionDir: string | null =
     p.chatLogsRoot && p.chatId ? agentMemoryChatLogSessionDirPosix(p.chatLogsRoot, p.chatId) : null;
-  const deskLog: string | null =
-    p.chatLogsRoot && p.chatId ? desktopDiagnosticLogAbsolutePathPosix(p.chatLogsRoot, p.chatId) : null;
+  const deskFullLog: string | null =
+    p.chatLogsRoot && p.chatId ? desktopAilitFullLogAbsolutePathPosix(p.chatLogsRoot, p.chatId) : null;
+  const deskCompactLog: string | null =
+    p.chatLogsRoot && p.chatId ? desktopAilitCompactLogAbsolutePathPosix(p.chatLogsRoot, p.chatId) : null;
   const agentMemLog: string | null =
     p.chatLogsRoot && p.chatId ? agentMemoryVerboseLogAbsolutePathPosix(p.chatLogsRoot, p.chatId) : null;
   return (
@@ -74,8 +77,8 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
         <div className="candyChatAsideSection">
           <h3 className="candyChatAsideH3">Диагностика (файлы сессии)</h3>
           <p className="candyChatAsideDesc">
-            Под runtime_dir — durable trace и supervisor; под chat_logs — каталог чата (диагностика UI и verbose
-            AgentMemory при memory.debug.verbose=1).
+            Под runtime_dir — durable trace и supervisor; под chat_logs — каталог чата (пара логов Desktop для графа
+            и verbose AgentMemory при memory.debug.verbose=1).
           </p>
           {p.runtimeDir ? (
             <ul className="candyChatAsidePathList">
@@ -99,7 +102,7 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
           ) : (
             <p className="candyChatAsideDesc">runtime_dir ещё не известен — дождитесь подключения supervisor.</p>
           )}
-          {p.chatLogsRoot && sessionDir && deskLog && agentMemLog ? (
+          {p.chatLogsRoot && sessionDir && deskFullLog && deskCompactLog && agentMemLog ? (
             <ul className="candyChatAsidePathList">
               <li>
                 <span className="candyChatAsidePathKey">chat_logs_root</span>
@@ -110,8 +113,12 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
                 <code className="candyChatAsidePathVal">{sessionDir}</code>
               </li>
               <li>
-                <span className="candyChatAsidePathKey">desktop (диагностика чата)</span>
-                <code className="candyChatAsidePathVal">{deskLog}</code>
+                <span className="candyChatAsidePathKey">desktop graph full</span>
+                <code className="candyChatAsidePathVal">{deskFullLog}</code>
+              </li>
+              <li>
+                <span className="candyChatAsidePathKey">desktop graph compact</span>
+                <code className="candyChatAsidePathVal">{deskCompactLog}</code>
               </li>
               <li>
                 <span className="candyChatAsidePathKey">agent_memory verbose</span>

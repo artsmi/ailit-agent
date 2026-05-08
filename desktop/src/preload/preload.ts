@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   AgentMemoryChatLogsRootResult,
-  AppendSessionDiagnosticResult,
+  AppendDesktopGraphPairLogResult,
   AppendTraceRowResult,
   EnsureChatLogSessionDirResult,
   BrokerRequestResult,
@@ -19,6 +19,7 @@ import type {
   TraceChannelEvent,
   MemoryJournalReadResult,
   DesktopConfigSnapshot,
+  DesktopGraphPairLogEntryIpc,
   SupervisorCreateOrGetBrokerParams
 } from "../shared/ipc";
 
@@ -95,11 +96,14 @@ const api: DesktopApi = {
   }): Promise<EnsureChatLogSessionDirResult> {
     return (await ipcRenderer.invoke("ailit:ensureChatLogSessionDir", params)) as EnsureChatLogSessionDirResult;
   },
-  async appendSessionDiagnostic(params: {
+  async appendDesktopGraphPairLog(params: {
     readonly chatId: string;
-    readonly lines: readonly string[];
-  }): Promise<AppendSessionDiagnosticResult> {
-    return (await ipcRenderer.invoke("ailit:appendSessionDiagnostic", params)) as AppendSessionDiagnosticResult;
+    readonly entries: readonly DesktopGraphPairLogEntryIpc[];
+  }): Promise<AppendDesktopGraphPairLogResult> {
+    return (await ipcRenderer.invoke(
+      "ailit:appendDesktopGraphPairLog",
+      params
+    )) as AppendDesktopGraphPairLogResult;
   },
   async pagGraphSlice(params: {
     readonly namespace: string;
