@@ -31,9 +31,10 @@ export function deriveCrossProjectDisplayMode(p: {
       last_updated_ms: p.nowMs
     };
   }
+  /** До выбора U/S при cross-edges сцена уже unified (G2); pending остаётся true для модалки. */
   if (p.resolution === "none") {
     return {
-      mode: "S",
+      mode: "U",
       pending_user_choice: true,
       hidden_cross_edges_count: 0,
       last_updated_ms: p.nowMs

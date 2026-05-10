@@ -5,11 +5,34 @@ import { applyPagGraphTraceDelta, parsePagGraphTraceDelta } from "./pagGraphTrac
 import {
   ensureHighlightNodes,
   levelFromNodeId,
+  linkFromPag,
   mergeMemoryGraph,
   nodeFromPag
 } from "./memoryGraphState";
 
 describe("memoryGraphState", () => {
+  it("linkFromPag: source_node_id/target_node_id и id вместо edge_id (G4)", () => {
+    const L = linkFromPag({
+      id: "e-alt",
+      source_node_id: "A:1",
+      target_node_id: "B:2"
+    });
+    expect(L).not.toBeNull();
+    expect(L?.source).toBe("A:1");
+    expect(L?.target).toBe("B:2");
+    expect(L?.id).toBe("e-alt");
+  });
+
+  it("linkFromPag: короткие ключи from/to", () => {
+    const L = linkFromPag({
+      edge_id: "e1",
+      from: "A:proj",
+      to: "B:x"
+    });
+    expect(L?.source).toBe("A:proj");
+    expect(L?.target).toBe("B:x");
+  });
+
   it("maps PAG nodes and D-level ids", () => {
     const node = nodeFromPag({
       namespace: "ns",
@@ -85,6 +108,49 @@ describe("memoryGraphState", () => {
     expect(o?.x).toBe(10);
     expect(o?.y).toBe(20);
     expect(o?.z).toBe(30);
+  });
+
+  it("applyPagGraphTraceDelta: pag.edge.upsert с source_node_id сохраняет связность A→B (G4)", () => {
+    const row: Record<string, unknown> = {
+      type: "topic.publish",
+      payload: {
+        type: "topic.publish",
+        topic: "chat",
+        event_name: "pag.edge.upsert",
+        payload: {
+          kind: "pag.edge.upsert",
+          namespace: "ns",
+          rev: 1,
+          edges: [
+            {
+              edge_id: "e-g4",
+              source_node_id: "A:1",
+              target_node_id: "B:2"
+            }
+          ]
+        }
+      }
+    };
+    const d: ReturnType<typeof parsePagGraphTraceDelta> = parsePagGraphTraceDelta(row);
+    expect(d).not.toBeNull();
+    if (d == null || d.kind !== "pag.edge.upsert") {
+      return;
+    }
+    const revsOut: Record<string, number> = {};
+    const base: ReturnType<typeof mergeMemoryGraph> = mergeMemoryGraph(
+      {
+        nodes: [
+          { id: "A:1", label: "a", level: "A", namespace: "ns" },
+          { id: "B:2", label: "b", level: "B", namespace: "ns" }
+        ],
+        links: []
+      },
+      { nodes: [], links: [] }
+    );
+    const r: ReturnType<typeof applyPagGraphTraceDelta> = applyPagGraphTraceDelta(base, d, {}, revsOut);
+    expect(r.data.links).toHaveLength(1);
+    expect(r.data.links[0]?.source).toBe("A:1");
+    expect(r.data.links[0]?.target).toBe("B:2");
   });
 
   it("applyPagGraphTraceDelta + merge: upsert PAG-ноды без координат не стирает уже выставленные x/y/z", () => {

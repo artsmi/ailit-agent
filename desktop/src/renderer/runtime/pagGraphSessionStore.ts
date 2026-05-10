@@ -475,7 +475,10 @@ function applyDeltasInRange(
         });
       } else {
         const ids: string[] = d.edges
-          .map((e) => str((e as Record<string, unknown>)["id"]))
+          .map((e) => {
+            const er: Record<string, unknown> = e as Record<string, unknown>;
+            return str(er["edge_id"]) || str(er["id"]);
+          })
           .filter((x) => x.length > 0);
         const subj: string =
           ids.length > 0 ? ids.slice(0, 4).join(",") : `edges=${String(d.edges.length)}`;

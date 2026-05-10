@@ -82,7 +82,7 @@ Subset gate **11** `memory_init_fix` (pytest + flake8, см. отчёт): вкл
 | `desktop/src/renderer/runtime/pagGraphTraceDeltas.test.ts` | Парсинг/применение дельт trace; тексты рассинхрона rev (`formatPagGraphRevMismatchWarning`). |
 | `desktop/src/renderer/runtime/pagHighlightFromTrace.test.ts` | D-HI-1: highlight из trace → `PagSearchHighlightV1` (расширенные сценарии §4). |
 | `desktop/src/renderer/runtime/loadPagGraphMerged.test.ts` | Слияние merged при caps/лимитах. |
-| `desktop/src/renderer/runtime/memoryGraphForceGraphProjection.test.ts` | UC-04 A + D-EDGE-GATE-1: фильтр рёбер, `keepNodesReachableToAnyA` (видим только узлы с путём до A; A видны всегда; синтетика запрещена), merge→проекция, multi-namespace. |
+| `desktop/src/renderer/runtime/memoryGraphForceGraphProjection.test.ts` | UC-04 A + полный набор узлов в `project`, нормализация концов рёбер, клон для рендерера; legacy-тесты `keepNodesReachableToAnyA`, merge→проекция, multi-namespace. |
 | `desktop/src/renderer/runtime/memoryGraph3DResolvedColors.test.ts` | Токены/цвета рёбер 3D. |
 | `desktop/src/renderer/runtime/memoryGraph3DLineStyle.test.ts` | Политика линий/частиц рёбер (ТЗ §4). |
 | `desktop/src/renderer/runtime/pagGraphLimits.test.ts` | D-SCL-1: caps 20k нод / 40k рёбер, согласование с Python `pag_slice_caps`. |

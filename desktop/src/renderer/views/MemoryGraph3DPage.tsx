@@ -9,11 +9,16 @@ import {
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
 import { type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
 import {
+  cloneMemoryGraphForForceGraphRender,
   MemoryGraphForceGraphProjector,
   findCrossNamespaceEdgesAmong,
   filterMemoryGraphToNamespacesUnion,
   sliceMemoryGraphToNamespace
 } from "../runtime/memoryGraphForceGraphProjection";
+import {
+  buildMem3dGraphHealthPayload,
+  mem3dGraphHealthSignature
+} from "../runtime/memoryGraphProjectionDiagnostics";
 import {
   type MemoryGraphData,
   type MemoryGraphLink,
@@ -439,6 +444,8 @@ type LayoutPanelSpec = {
   readonly panelId: string;
   readonly graphTestId: string;
   readonly displayNamespace: string;
+  /** Вход `MemoryGraphForceGraphProjector.project` (до UC-04A); для `mem3d_graph_health`. */
+  readonly inputGraphData: MemoryGraphData;
   readonly graphData: MemoryGraphData;
   readonly reactKey: string;
 };
@@ -457,6 +464,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
   const fgRegistryRef = useRef<Map<string, ForceGraphMethods>>(new Map());
   const crossEdgesRef = useRef<readonly MemoryGraphLink[]>([]);
   const fDiagnosticSentRef = useRef<boolean>(false);
+  const mem3dHealthSigRef = useRef<string>("");
 
   const [viewSize, setViewSize] = useState<{ w: number; h: number }>({
     w: 800,
@@ -506,15 +514,19 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     return xs[0] ?? "default";
   }, [namespaces]);
 
+  /** G2/C2: при 2+ namespace без cross-edges — всегда union; при cross-edges — U по умолчанию (resolution none|U), S|F — отдельные панели. */
   const layoutKind: "single" | "multi_separate" | "multi_unified" = useMemo((): "single" | "multi_separate" | "multi_unified" => {
     if (namespaces.length <= 1) {
       return "single";
     }
-    if (needsUserModal && resolution === "U") {
+    if (crossEdges.length === 0) {
       return "multi_unified";
     }
-    return "multi_separate";
-  }, [namespaces.length, needsUserModal, resolution]);
+    if (resolution === "S" || resolution === "F") {
+      return "multi_separate";
+    }
+    return "multi_unified";
+  }, [namespaces.length, crossEdges.length, resolution]);
 
   const graphDataKey: string = useMemo((): string => {
     return computeMemoryGraphDataKey({
@@ -536,12 +548,16 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
 
     if (namespaces.length <= 1) {
       const ns: string = namespaces[0] ?? "default";
-      const gd: MemoryGraphData = MemoryGraphForceGraphProjector.project(mergedFromSnap);
+      const inputGd: MemoryGraphData = mergedFromSnap;
+      const gd: MemoryGraphData = cloneMemoryGraphForForceGraphRender(
+        MemoryGraphForceGraphProjector.project(inputGd)
+      );
       return [
         {
           panelId: `single:${ns}`,
           graphTestId: mem3dForceGraphTestIdForNamespace(ns || "default"),
           displayNamespace: ns,
+          inputGraphData: inputGd,
           graphData: gd,
           reactKey: `${baseKey}::${ns}`
         }
@@ -549,12 +565,15 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     }
     if (layoutKind === "multi_unified") {
       const union: MemoryGraphData = filterMemoryGraphToNamespacesUnion(mergedFromSnap, namespaces);
-      const gd: MemoryGraphData = MemoryGraphForceGraphProjector.project(union);
+      const gd: MemoryGraphData = cloneMemoryGraphForForceGraphRender(
+        MemoryGraphForceGraphProjector.project(union)
+      );
       return [
         {
           panelId: "unified",
           graphTestId: "mem3d-force-graph-unified",
           displayNamespace: unifiedPrimaryNs,
+          inputGraphData: union,
           graphData: gd,
           reactKey: `${baseKey}::unified`
         }
@@ -566,11 +585,14 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
         continue;
       }
       const sliced: MemoryGraphData = sliceMemoryGraphToNamespace(mergedFromSnap, ns);
-      const gd: MemoryGraphData = MemoryGraphForceGraphProjector.project(sliced);
+      const gd: MemoryGraphData = cloneMemoryGraphForForceGraphRender(
+        MemoryGraphForceGraphProjector.project(sliced)
+      );
       out.push({
         panelId: `ns:${ns}`,
         graphTestId: mem3dForceGraphTestIdForNamespace(ns),
         displayNamespace: ns,
+        inputGraphData: sliced,
         graphData: gd,
         reactKey: `${baseKey}::${ns}`
       });
@@ -649,6 +671,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     setResolution("none");
     setFallbackHiddenCount(0);
     fDiagnosticSentRef.current = false;
+    mem3dHealthSigRef.current = "";
   }, [projectsKey]);
 
   const userDecisionTimeoutMs: number = Math.max(
@@ -695,6 +718,61 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     userDecisionTimeoutSConfig,
     logDesktopGraphDebug,
     unifiedPrimaryNs
+  ]);
+
+  useEffect((): void => {
+    if (snap == null) {
+      return;
+    }
+    if (pageView !== "ready" && pageView !== "missingPagTrace") {
+      return;
+    }
+    const payload = buildMem3dGraphHealthPayload({
+      chatId: mem3dChatId,
+      activeSessionId: s.activeSessionId,
+      graphDataKey,
+      layoutKind,
+      pageView,
+      lastAppliedTraceIndex: snap.lastAppliedTraceIndex,
+      pagDatabasePresent: snap.pagDatabasePresent,
+      merged: mergedFromSnap,
+      panels: layoutPanels.map((lp) => ({
+        panelId: lp.panelId,
+        inputGraphData: lp.inputGraphData,
+        graphData: lp.graphData
+      }))
+    });
+    const sig: string = mem3dGraphHealthSignature(payload);
+    if (sig === mem3dHealthSigRef.current) {
+      return;
+    }
+    mem3dHealthSigRef.current = sig;
+    const detail: Record<string, unknown> = {
+      chat_id: payload.chat_id,
+      active_session_id: payload.active_session_id,
+      graph_data_key: payload.graph_data_key,
+      layout_kind: payload.layout_kind,
+      page_view: payload.page_view,
+      last_applied_trace_index: payload.last_applied_trace_index,
+      pag_database_present: payload.pag_database_present,
+      merged_node_count: payload.merged_node_count,
+      merged_link_count: payload.merged_link_count,
+      merged_level_counts: { ...payload.merged_level_counts },
+      merged_orphan_links: payload.merged_orphan_links,
+      projected_node_total: payload.projected_node_total,
+      panels: payload.panels.map((r) => ({ ...r }))
+    };
+    logDesktopGraphDebug("mem3d_graph_health", detail);
+  }, [
+    snap,
+    mergedFromSnap,
+    layoutPanels,
+    graphDataKey,
+    layoutKind,
+    pageView,
+    mem3dChatId,
+    s.activeSessionId,
+    logDesktopGraphDebug
   ]);
 
   useLayoutEffect((): void | (() => void) => {

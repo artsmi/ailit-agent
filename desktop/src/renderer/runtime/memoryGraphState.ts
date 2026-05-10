@@ -67,10 +67,42 @@ export function nodeFromPag(raw: Record<string, unknown>): MemoryGraphNode | nul
   };
 }
 
+/**
+ * PAG edge JSON: канон `edge_id` + `from_node_id` / `to_node_id`.
+ * В проде встречались альтернативные ключи (`source_node_id`, короткие `from`/`to`, `id` вместо `edge_id`);
+ * без нормализации рёбра отбрасывались, BFS оставлял только A (G4).
+ */
+function strFieldPreferString(raw: Record<string, unknown>, key: string): string {
+  const v: unknown = raw[key];
+  if (typeof v === "string") {
+    const t: string = v.trim();
+    return t.length > 0 ? t : "";
+  }
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return String(Math.trunc(v));
+  }
+  return "";
+}
+
+function linkEndpointFromPag(raw: Record<string, unknown>): { readonly source: string; readonly target: string } {
+  const source: string =
+    strFieldPreferString(raw, "from_node_id") ||
+    strFieldPreferString(raw, "source_node_id") ||
+    strFieldPreferString(raw, "fromNodeId") ||
+    strFieldPreferString(raw, "from") ||
+    strFieldPreferString(raw, "source");
+  const target: string =
+    strFieldPreferString(raw, "to_node_id") ||
+    strFieldPreferString(raw, "target_node_id") ||
+    strFieldPreferString(raw, "toNodeId") ||
+    strFieldPreferString(raw, "to") ||
+    strFieldPreferString(raw, "target");
+  return { source, target };
+}
+
 export function linkFromPag(raw: Record<string, unknown>): MemoryGraphLink | null {
-  const id: string = str(raw["edge_id"]);
-  const source: string = str(raw["from_node_id"]);
-  const target: string = str(raw["to_node_id"]);
+  const id: string = strFieldPreferString(raw, "edge_id") || strFieldPreferString(raw, "id");
+  const { source, target }: { readonly source: string; readonly target: string } = linkEndpointFromPag(raw);
   if (!id || !source || !target) {
     return null;
   }

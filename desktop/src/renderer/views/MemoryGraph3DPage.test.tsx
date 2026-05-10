@@ -1,6 +1,6 @@
 import React from "react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 import { MEM3D_CROSS_PROJECT_MODAL_I18N_KEY } from "../state/crossProjectDisplayMode";
@@ -157,7 +157,7 @@ describe("MemoryGraph3DPage", () => {
     }
   });
 
-  it("TC-VITEST-LAYOUT-01: два namespace без cross-edges — два mock ForceGraph3D", () => {
+  it("TC-VITEST-LAYOUT-01: два namespace без cross-edges — один unified ForceGraph3D (G2)", () => {
     const merged: MemoryGraphData = {
       nodes: [
         { id: "A:proj-a", label: "pa", level: "A", namespace: "ns-a" },
@@ -191,9 +191,8 @@ describe("MemoryGraph3DPage", () => {
       </MemoryRouter>
     );
     const row: HTMLElement = screen.getByTestId("mem3d-layout-row");
-    expect(within(row).getAllByTestId("mock-force-graph-3d")).toHaveLength(2);
-    expect(within(row).getByTestId("mem3d-force-graph-ns-a")).toBeTruthy();
-    expect(within(row).getByTestId("mem3d-force-graph-ns-b")).toBeTruthy();
+    expect(within(row).getAllByTestId("mock-force-graph-3d")).toHaveLength(1);
+    expect(within(row).getByTestId("mem3d-force-graph-unified")).toBeTruthy();
   });
 
   it("TC-VITEST-MODE-01: cross-edge — модал и data-mem3d-i18n-key", () => {
@@ -284,9 +283,11 @@ describe("MemoryGraph3DPage", () => {
       expect(screen.getByText(new RegExp(`Режим F:.*${String(userDecisionTimeoutS)}`))).toBeTruthy();
       expect(screen.getByText(/Скрыто\s+межпроектных рёбер:\s+1\./)).toBeTruthy();
 
-      expect(logDesktopGraphDebug).toHaveBeenCalledTimes(1);
-      expect(logDesktopGraphDebug.mock.calls[0]?.[0]).toBe("cross_project_edge_decision_timeout");
-      const detail: unknown = logDesktopGraphDebug.mock.calls[0]?.[1];
+      const crossTimeoutCalls: unknown[][] = logDesktopGraphDebug.mock.calls.filter(
+        (c: unknown[]) => c[0] === "cross_project_edge_decision_timeout"
+      );
+      expect(crossTimeoutCalls).toHaveLength(1);
+      const detail: unknown = crossTimeoutCalls[0]?.[1];
       expect(detail).toMatchObject({
         hidden_cross_edges_count: 1,
         timeout_s: userDecisionTimeoutS,
@@ -297,7 +298,7 @@ describe("MemoryGraph3DPage", () => {
     }
   });
 
-  it("TC-3D-EDGE-GATE-01: A без рёбер — на сцене только A", () => {
+  it("TC-3D-UC04-01: A и B без рёбер — оба на сцене (нет reachability-gate)", () => {
     const merged: MemoryGraphData = {
       nodes: [
         { id: "A:proj", label: "proj", level: "A", namespace: "ns-a" },
@@ -319,11 +320,13 @@ describe("MemoryGraph3DPage", () => {
       </MemoryRouter>
     );
     const fg: HTMLElement = screen.getByTestId("mock-force-graph-3d");
-    expect(fg.getAttribute("data-mock-fg-node-ids")).toBe("A:proj");
+    expect(new Set((fg.getAttribute("data-mock-fg-node-ids") ?? "").split(",").filter((x) => x.length > 0))).toEqual(
+      new Set(["A:proj", "B:lonely"])
+    );
     expect(fg.getAttribute("data-mock-fg-link-count")).toBe("0");
   });
 
-  it("TC-3D-EDGE-GATE-02: B без пути до A — скрыта; синтетический корень не появляется", () => {
+  it("TC-3D-UC04-02: изолированный B и связанный B — все три узла; синтетический корень не появляется", () => {
     const merged: MemoryGraphData = {
       nodes: [
         { id: "A:proj", label: "proj", level: "A", namespace: "ns-a" },
@@ -347,15 +350,14 @@ describe("MemoryGraph3DPage", () => {
     );
     const fg: HTMLElement = screen.getByTestId("mock-force-graph-3d");
     const ids: string[] = (fg.getAttribute("data-mock-fg-node-ids") ?? "").split(",").filter((x) => x.length > 0);
-    expect(new Set(ids)).toEqual(new Set(["A:proj", "B:b1"]));
-    expect(ids).not.toContain("B:lonely");
+    expect(new Set(ids)).toEqual(new Set(["A:proj", "B:b1", "B:lonely"]));
     for (const id of ids) {
       expect(id.startsWith("ailit:trace-conn-root:")).toBe(false);
     }
     expect(fg.getAttribute("data-mock-fg-link-count")).toBe("1");
   });
 
-  it("TC-3D-EDGE-GATE-03: appearance ребра A→B не делает remount панели (panelReactKey стабилен)", () => {
+  it("TC-3D-UC04-03: appearance ребра A→B не делает remount панели (panelReactKey стабилен)", () => {
     const baseMerged: MemoryGraphData = {
       nodes: [
         { id: "A:proj", label: "proj", level: "A", namespace: "ns-a" },
@@ -378,7 +380,7 @@ describe("MemoryGraph3DPage", () => {
     );
     const fg1: HTMLElement = screen.getByTestId("mock-force-graph-3d");
     const ids1: string[] = (fg1.getAttribute("data-mock-fg-node-ids") ?? "").split(",").filter((x) => x.length > 0);
-    expect(ids1).toEqual(["A:proj"]);
+    expect(new Set(ids1)).toEqual(new Set(["A:proj", "B:b"]));
 
     const nextMerged: MemoryGraphData = {
       nodes: baseMerged.nodes,
@@ -406,7 +408,7 @@ describe("MemoryGraph3DPage", () => {
     expect(fg2.getAttribute("data-mock-fg-link-count")).toBe("1");
   });
 
-  it("TC-3D-EDGE-GATE-04: multi-namespace separate — каждая панель содержит только свою A", () => {
+  it("TC-3D-UC04-04: multi-namespace separate (режим S) — в панели все узлы своего namespace", () => {
     const merged: MemoryGraphData = {
       nodes: [
         { id: "A:pa", label: "pa", level: "A", namespace: "ns-a" },
@@ -414,7 +416,8 @@ describe("MemoryGraph3DPage", () => {
         { id: "B:lonely-a", label: "la", level: "B", namespace: "ns-a" },
         { id: "B:lonely-b", label: "lb", level: "B", namespace: "ns-b" }
       ],
-      links: []
+      /** Cross-edge нужен для модалки; без выбора S при G2 был бы unified. */
+      links: [{ id: "cross-ab", source: "B:lonely-a", target: "B:lonely-b" }]
     };
     const snap: PagGraphSessionSnapshot = buildPagSnapshot(merged);
     const session: DesktopSessionValue = buildDesktopSession({
@@ -432,6 +435,7 @@ describe("MemoryGraph3DPage", () => {
         </desktopSessionReactContext.Provider>
       </MemoryRouter>
     );
+    fireEvent.click(screen.getByRole("button", { name: "Режим S" }));
     const row: HTMLElement = screen.getByTestId("mem3d-layout-row");
     const fgs: HTMLElement[] = within(row).getAllByTestId("mock-force-graph-3d");
     expect(fgs).toHaveLength(2);
@@ -444,9 +448,8 @@ describe("MemoryGraph3DPage", () => {
     const containsAProj: (s: Set<string>, id: string) => boolean = (s, id) => s.has(id);
     expect(idSets.some((s) => containsAProj(s, "A:pa"))).toBe(true);
     expect(idSets.some((s) => containsAProj(s, "A:pb"))).toBe(true);
-    for (const s of idSets) {
-      expect(s.has("B:lonely-a")).toBe(false);
-      expect(s.has("B:lonely-b")).toBe(false);
-    }
+    expect(idSets.some((s) => s.has("A:pa") && s.has("B:lonely-a"))).toBe(true);
+    expect(idSets.some((s) => s.has("A:pb") && s.has("B:lonely-b"))).toBe(true);
+    expect(idSets.every((s) => s.size === 2)).toBe(true);
   });
 });

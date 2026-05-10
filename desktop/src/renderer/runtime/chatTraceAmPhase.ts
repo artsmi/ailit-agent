@@ -57,6 +57,28 @@ function isMemoryToWorkServiceRow(row: Record<string, unknown>, chatId: string):
   return strField(row, "to_agent") === `AgentWork:${chatId}`;
 }
 
+/**
+ * C1: ответ `memory.query_context` Memory→Work в проде может не повторять `payload.service`
+ * (есть только `memory_slice` / `agent_memory_result`).
+ */
+function isMemoryQueryContextResponsePayload(pl: Record<string, unknown> | null): boolean {
+  if (pl == null) {
+    return false;
+  }
+  if (String(pl["service"] ?? "") === "memory.query_context") {
+    return true;
+  }
+  const slice: unknown = pl["memory_slice"];
+  if (slice && typeof slice === "object" && !Array.isArray(slice)) {
+    return true;
+  }
+  const amr: unknown = pl["agent_memory_result"];
+  if (amr && typeof amr === "object" && !Array.isArray(amr)) {
+    return true;
+  }
+  return false;
+}
+
 function readWorkChatTopic(
   row: Record<string, unknown>,
   chatId: string
@@ -82,7 +104,7 @@ function memoryResponseClosesAwaiting(
     return null;
   }
   const pl: Record<string, unknown> | null = asDict(row["payload"]);
-  if (String(pl?.["service"] ?? "") !== "memory.query_context") {
+  if (!isMemoryQueryContextResponsePayload(pl)) {
     return null;
   }
   const ok: unknown = row["ok"];

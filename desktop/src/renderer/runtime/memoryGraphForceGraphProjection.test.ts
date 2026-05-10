@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  cloneMemoryGraphForForceGraphRender,
+  coerceGraphLinkEndpoint,
   MemoryGraphForceGraphProjector,
   filterMemoryGraphToNamespacesUnion,
   findCrossNamespaceEdgesAmong,
   keepNodesReachableToAnyA,
+  normalizeMemoryGraphLinkEndpoints,
   sliceMemoryGraphToNamespace
 } from "./memoryGraphForceGraphProjection";
 import {
   ensureHighlightNodes,
+  linkFromPag,
   mergeMemoryGraph,
-  type MemoryGraphData
+  type MemoryGraphData,
+  type MemoryGraphLink
 } from "./memoryGraphState";
 
 describe("memoryGraphForceGraphProjection (UC-04 A)", () => {
@@ -22,6 +27,25 @@ describe("memoryGraphForceGraphProjection (UC-04 A)", () => {
     const out: MemoryGraphData = MemoryGraphForceGraphProjector.filterEdgesUc04BranchA(data);
     expect(out.links).toHaveLength(0);
     expect(out.nodes).toHaveLength(1);
+  });
+
+  it("G4: рёбра с source_node_id/target_node_id — B остаётся в project после UC-04A", () => {
+    const L = linkFromPag({
+      edge_id: "e-g4",
+      source_node_id: "A:proj",
+      target_node_id: "B:b"
+    });
+    expect(L).not.toBeNull();
+    const data: MemoryGraphData = {
+      nodes: [
+        { id: "A:proj", label: "p", level: "A" },
+        { id: "B:b", label: "b", level: "B" }
+      ],
+      links: L != null ? [L] : []
+    };
+    const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(data);
+    expect(p.nodes.map((n) => n.id).sort()).toEqual(["A:proj", "B:b"]);
+    expect(p.links).toHaveLength(1);
   });
 
   it("UC-05: каждое ребро проекции ⊆ id узлов", () => {
@@ -43,16 +67,65 @@ describe("memoryGraphForceGraphProjection (UC-04 A)", () => {
       expect(ids.has(L.target)).toBe(true);
     }
   });
+
+  it("coerceGraphLinkEndpoint: объект с id как у d3 после симуляции", () => {
+    expect(coerceGraphLinkEndpoint({ id: "B:x" })).toBe("B:x");
+    expect(coerceGraphLinkEndpoint("A:1")).toBe("A:1");
+  });
+
+  it("normalizeMemoryGraphLinkEndpoints восстанавливает строковые концы", () => {
+    const raw: MemoryGraphLink = {
+      id: "e1",
+      source: { id: "A:1" } as unknown as string,
+      target: { id: "B:2" } as unknown as string
+    };
+    const data: MemoryGraphData = {
+      nodes: [
+        { id: "A:1", label: "a", level: "A" },
+        { id: "B:2", label: "b", level: "B" }
+      ],
+      links: [raw]
+    };
+    const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(data);
+    expect(p.links).toHaveLength(1);
+    expect(p.links[0]?.source).toBe("A:1");
+    expect(p.links[0]?.target).toBe("B:2");
+  });
+
+  it("cloneMemoryGraphForForceGraphRender — новые объекты узлов и рёбер", () => {
+    const n = { id: "A:1", label: "a", level: "A" as const };
+    const L: MemoryGraphLink = { id: "e", source: "A:1", target: "A:1" };
+    const data: MemoryGraphData = { nodes: [n], links: [L] };
+    const c: MemoryGraphData = cloneMemoryGraphForForceGraphRender(
+      MemoryGraphForceGraphProjector.project(data)
+    );
+    expect(c.nodes[0]).not.toBe(n);
+    expect(c.links[0]).not.toBe(L);
+    expect(c.nodes[0]?.id).toBe("A:1");
+  });
 });
 
-describe("memoryGraphForceGraphProjection (D-EDGE-GATE-1 reachability)", () => {
-  it("A без рёбер видна всегда", () => {
+describe("memoryGraphForceGraphProjection (3D project: UC-04A only, full node set)", () => {
+  it("A без рёбер — A на сцене", () => {
     const data: MemoryGraphData = {
       nodes: [{ id: "A:proj", label: "p", level: "A" }],
       links: []
     };
     const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(data);
     expect(p.nodes.map((n) => n.id)).toEqual(["A:proj"]);
+    expect(p.links).toHaveLength(0);
+  });
+
+  it("A + B без рёбер — оба узла видны (нет reachability-gate)", () => {
+    const data: MemoryGraphData = {
+      nodes: [
+        { id: "A:proj", label: "p", level: "A" },
+        { id: "B:lonely", label: "x", level: "B" }
+      ],
+      links: []
+    };
+    const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(data);
+    expect(p.nodes.map((n) => n.id).sort()).toEqual(["A:proj", "B:lonely"]);
     expect(p.links).toHaveLength(0);
   });
 
@@ -86,20 +159,7 @@ describe("memoryGraphForceGraphProjection (D-EDGE-GATE-1 reachability)", () => {
     expect(p.links.map((L) => L.id).sort()).toEqual(["e1", "e2"]);
   });
 
-  it("orphan B без рёбер скрыта; A видна", () => {
-    const data: MemoryGraphData = {
-      nodes: [
-        { id: "A:proj", label: "p", level: "A" },
-        { id: "B:lonely", label: "x", level: "B" }
-      ],
-      links: []
-    };
-    const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(data);
-    expect(p.nodes.map((n) => n.id)).toEqual(["A:proj"]);
-    expect(p.links).toHaveLength(0);
-  });
-
-  it("ребро B→C без A — обе скрыты (нет корня)", () => {
+  it("ребро B→C без A — оба узла и ребро остаются", () => {
     const data: MemoryGraphData = {
       nodes: [
         { id: "B:x", label: "x", level: "B" },
@@ -108,11 +168,11 @@ describe("memoryGraphForceGraphProjection (D-EDGE-GATE-1 reachability)", () => {
       links: [{ id: "e", source: "B:x", target: "C:y" }]
     };
     const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(data);
-    expect(p.nodes).toHaveLength(0);
-    expect(p.links).toHaveLength(0);
+    expect(p.nodes.map((n) => n.id).sort()).toEqual(["B:x", "C:y"]);
+    expect(p.links).toHaveLength(1);
   });
 
-  it("несколько A — каждая корень своей подкомпоненты", () => {
+  it("несколько A — все узлы и рёбра сохраняются", () => {
     const data: MemoryGraphData = {
       nodes: [
         { id: "A:1", label: "p1", level: "A" },
@@ -130,7 +190,7 @@ describe("memoryGraphForceGraphProjection (D-EDGE-GATE-1 reachability)", () => {
     expect(p.links.map((L) => L.id).sort()).toEqual(["e1", "e2"]);
   });
 
-  it("highlight placeholder без рёбер скрыт в проекции 3D", () => {
+  it("highlight placeholder без рёбер остаётся в проекции 3D", () => {
     const base: MemoryGraphData = {
       nodes: [{ id: "A:proj", label: "p", level: "A" }],
       links: []
@@ -138,7 +198,8 @@ describe("memoryGraphForceGraphProjection (D-EDGE-GATE-1 reachability)", () => {
     const withHl: MemoryGraphData = ensureHighlightNodes(base, ["X:hot"], "ns");
     expect(withHl.nodes.map((n) => n.id).sort()).toEqual(["A:proj", "X:hot"]);
     const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(withHl);
-    expect(p.nodes.map((n) => n.id)).toEqual(["A:proj"]);
+    expect(p.nodes.map((n) => n.id).sort()).toEqual(["A:proj", "X:hot"]);
+    expect(p.links).toHaveLength(0);
   });
 
   it("направление ребра не важно: ребро B→A → B видна", () => {
@@ -154,7 +215,7 @@ describe("memoryGraphForceGraphProjection (D-EDGE-GATE-1 reachability)", () => {
     expect(p.links.map((L) => L.id)).toEqual(["e"]);
   });
 
-  it("UC-04A до reachability: висячее ребро не делает ноду достижимой", () => {
+  it("UC-04A: висячее ребро отбрасывается; изолированный B остаётся", () => {
     const data: MemoryGraphData = {
       nodes: [
         { id: "A:proj", label: "p", level: "A" },
@@ -163,11 +224,11 @@ describe("memoryGraphForceGraphProjection (D-EDGE-GATE-1 reachability)", () => {
       links: [{ id: "phantom", source: "A:proj", target: "MISSING" }]
     };
     const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(data);
-    expect(p.nodes.map((n) => n.id)).toEqual(["A:proj"]);
+    expect(p.nodes.map((n) => n.id).sort()).toEqual(["A:proj", "B:lonely"]);
     expect(p.links).toHaveLength(0);
   });
 
-  it("D-EDGE-GATE-1: синтетический корень `ailit:trace-conn-root:` не появляется", () => {
+  it("синтетический корень `ailit:trace-conn-root:` не появляется", () => {
     const data: MemoryGraphData = {
       nodes: [
         { id: "A:proj", label: "p", level: "A" },
@@ -185,20 +246,7 @@ describe("memoryGraphForceGraphProjection (D-EDGE-GATE-1 reachability)", () => {
     }
   });
 
-  it("`keepNodesReachableToAnyA` без A → пустой граф", () => {
-    const data: MemoryGraphData = {
-      nodes: [
-        { id: "B:b1", label: "b1", level: "B" },
-        { id: "B:b2", label: "b2", level: "B" }
-      ],
-      links: [{ id: "e", source: "B:b1", target: "B:b2" }]
-    };
-    const out: MemoryGraphData = keepNodesReachableToAnyA(data);
-    expect(out.nodes).toHaveLength(0);
-    expect(out.links).toHaveLength(0);
-  });
-
-  it("пачка 6 нод (B без A) за один merge: проекция пуста (нет корней)", () => {
+  it("пачка 6 нод (B без A) за один merge: все узлы и цепочка рёбер", () => {
     let g: MemoryGraphData = { nodes: [], links: [] };
     for (let i: number = 0; i < 6; i += 1) {
       const chunk: MemoryGraphData = {
@@ -211,11 +259,11 @@ describe("memoryGraphForceGraphProjection (D-EDGE-GATE-1 reachability)", () => {
       g = mergeMemoryGraph(g, chunk);
     }
     const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(g);
-    expect(p.nodes).toHaveLength(0);
-    expect(p.links).toHaveLength(0);
+    expect(p.nodes).toHaveLength(6);
+    expect(p.links).toHaveLength(5);
   });
 
-  it("multi_unified union: A в одном NS — корень для B из другого NS, если их связывает cross-edge", () => {
+  it("multi_unified union: A в одном NS — cross-edge сохраняется", () => {
     const merged: MemoryGraphData = {
       nodes: [
         { id: "A:1", label: "p1", level: "A", namespace: "ns-a" },
@@ -231,6 +279,31 @@ describe("memoryGraphForceGraphProjection (D-EDGE-GATE-1 reachability)", () => {
     const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(union);
     expect(p.nodes.map((n) => n.id).sort()).toEqual(["A:1", "B:b1", "B:b2"]);
     expect(p.links.map((L) => L.id).sort()).toEqual(["cross", "e1"]);
+  });
+});
+
+describe("memoryGraphForceGraphProjection (keepNodesReachableToAnyA legacy)", () => {
+  it("`keepNodesReachableToAnyA` без A → пустой граф", () => {
+    const data: MemoryGraphData = {
+      nodes: [
+        { id: "B:b1", label: "b1", level: "B" },
+        { id: "B:b2", label: "b2", level: "B" }
+      ],
+      links: [{ id: "e", source: "B:b1", target: "B:b2" }]
+    };
+    const out: MemoryGraphData = keepNodesReachableToAnyA(data);
+    expect(out.nodes).toHaveLength(0);
+    expect(out.links).toHaveLength(0);
+  });
+
+  it("normalizeMemoryGraphLinkEndpoints не мутирует исходные ссылки на узлы", () => {
+    const data: MemoryGraphData = {
+      nodes: [{ id: "A:1", label: "a", level: "A" }],
+      links: [{ id: "e", source: "A:1", target: "A:1" }]
+    };
+    const n: MemoryGraphData = normalizeMemoryGraphLinkEndpoints(data);
+    expect(n.nodes).toBe(data.nodes);
+    expect(n.links[0]).toBe(data.links[0]);
   });
 });
 

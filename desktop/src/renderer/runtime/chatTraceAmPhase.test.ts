@@ -59,6 +59,22 @@ function memoryResponse(ok: boolean, memorySlice: Record<string, unknown> | null
   };
 }
 
+/** Прод-форма broker: ответ без `payload.service`, только `memory_slice` (C1). */
+function memoryResponseProdShape(ok: boolean): Record<string, unknown> {
+  return {
+    type: "service.request",
+    chat_id: CHAT,
+    from_agent: "AgentMemory:global",
+    to_agent: `AgentWork:${CHAT}`,
+    ok,
+    message_id: "mq-resp-prod",
+    created_at: new Date().toISOString(),
+    payload: {
+      memory_slice: { kind: "memory_slice", schema: "memory.slice.v1", level: "B", node_ids: [] }
+    }
+  };
+}
+
 function userPromptRow(): Record<string, unknown> {
   return {
     type: "action.start",
@@ -162,6 +178,40 @@ describe("projectBrokerMemoryRecallActive", () => {
       request_id: "r1"
     };
     expect(isMemoryQueryContextResponseToWorkForUi(row, CHAT)).toBe(true);
+  });
+
+  it("clears recall when Memory→Work payload has memory_slice but no service (prod broker)", () => {
+    const rows: Record<string, unknown>[] = [
+      userPromptRow(),
+      memoryQueryStart(),
+      memoryResponseProdShape(true),
+      topicFromWork("context.memory_injected", {
+        schema: "context.memory_injected.v2",
+        usage_state: "estimated",
+        project_refs: []
+      })
+    ];
+    expect(projectBrokerMemoryRecallActive(rows.slice(0, 2), CHAT)).toBe(true);
+    expect(projectBrokerMemoryRecallActive(rows.slice(0, 3), CHAT)).toBe(false);
+    expect(isMemoryQueryContextResponseToWorkForUi(rows[2]!, CHAT)).toBe(true);
+  });
+
+  it("clears recall on prod-shaped response with agent_memory_result only", () => {
+    const row: Record<string, unknown> = {
+      type: "service.request",
+      chat_id: CHAT,
+      from_agent: "AgentMemory:global",
+      to_agent: `AgentWork:${CHAT}`,
+      ok: true,
+      message_id: "mq-amr-only",
+      created_at: new Date().toISOString(),
+      payload: {
+        agent_memory_result: { schema_version: "agent_memory_result.v1", status: "complete", results: [] }
+      }
+    };
+    const rows: Record<string, unknown>[] = [memoryQueryStart(), row];
+    expect(projectBrokerMemoryRecallActive(rows.slice(0, 1), CHAT)).toBe(true);
+    expect(projectBrokerMemoryRecallActive(rows, CHAT)).toBe(false);
   });
 });
 

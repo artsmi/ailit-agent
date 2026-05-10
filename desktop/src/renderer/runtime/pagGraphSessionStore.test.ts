@@ -74,6 +74,36 @@ function rowMemoryQueryStart(chatId: string): Record<string, unknown> {
   };
 }
 
+/** Одна строка trace — два namespace в `project_refs` (G3 / unified multi highlight). */
+function rowContextMemoryInjectedV2DualNamespace(): Record<string, unknown> {
+  return {
+    type: "topic.publish",
+    payload: {
+      type: "topic.publish",
+      topic: "chat",
+      event_name: "context.memory_injected",
+      payload: {
+        schema: "context.memory_injected.v2",
+        project_refs: [
+          {
+            project_id: "p-a",
+            namespace: "ns-g3-a",
+            node_ids: ["B:g3-a.py"],
+            edge_ids: ["e-a"]
+          },
+          {
+            project_id: "p-b",
+            namespace: "ns-g3-b",
+            node_ids: ["B:g3-b.py"],
+            edge_ids: []
+          }
+        ],
+        decision_summary: "dual ref"
+      }
+    }
+  };
+}
+
 /** Триггер B: `user_prompt` в нормализации trace (`traceNormalize`) перед новым циклом AM. */
 function rowUserPrompt(chatId: string): Record<string, unknown> {
   return {
@@ -638,6 +668,27 @@ describe("pagGraphSessionStore", () => {
       expect(snap.searchHighlightsByNamespace[n1]).toBeNull();
       expect(snap.searchHighlightsByNamespace[n2]?.nodeIds).toContain("B:second-only.py");
       expect(snap.merged.nodes.map((n) => n.id)).toContain("B:second-only.py");
+    });
+
+    it("G3: single context.memory_injected v2 fills searchHighlightsByNamespace for both workspace namespaces", () => {
+      const n1: string = "ns-g3-a";
+      const n2: string = "ns-g3-b";
+      const rows: Record<string, unknown>[] = [rowContextMemoryInjectedV2DualNamespace()];
+      const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
+        PagGraphSessionTraceMerge.afterFullLoad(
+          { nodes: [], links: [] },
+          { [n1]: 1, [n2]: 1 },
+          rows,
+          [n1, n2],
+          n1,
+          true
+        );
+      expect(snap.searchHighlightsByNamespace[n1]?.nodeIds).toEqual(expect.arrayContaining(["B:g3-a.py"]));
+      expect(snap.searchHighlightsByNamespace[n1]?.edgeIds).toEqual(expect.arrayContaining(["e-a"]));
+      expect(snap.searchHighlightsByNamespace[n2]?.nodeIds).toEqual(expect.arrayContaining(["B:g3-b.py"]));
+      expect(snap.merged.nodes.map((n) => n.id)).toEqual(
+        expect.arrayContaining(["B:g3-a.py", "B:g3-b.py"])
+      );
     });
 
     it("splits per-namespace W14 on incremental merge", () => {

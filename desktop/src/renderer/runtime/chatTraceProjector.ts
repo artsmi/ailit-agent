@@ -42,6 +42,12 @@ export type ContextFillState = {
 
 export type ChatTraceProjection = {
   readonly chatLines: readonly ChatLine[];
+  /**
+   * Индикатор «ход ещё идёт» по durable trace: сбрасывается на финальных событиях
+   * (`assistant_final`, `turn_completed`, `turn_failed`, `session.cancelled`, …), а не по обрезке
+   * видимого текста в чате. Пока идут tool/model-шаги без финала, значение остаётся `true`.
+   * В Desktop UI статус «думает» дополнительно подавляется на окне recall памяти (`brokerMemoryRecallActive`).
+   */
   readonly agentTurnInProgress: boolean;
   readonly permModeLabel: string | null;
   readonly permModeGateId: string | null;

@@ -25,8 +25,8 @@ export function findCrossNamespaceEdgesAmong(
   const idToNs: ReadonlyMap<string, string> = buildNodeIdToNamespaceMap(data.nodes);
   const out: MemoryGraphLink[] = [];
   for (const L of data.links) {
-    const nsS: string = idToNs.get(L.source) ?? "";
-    const nsT: string = idToNs.get(L.target) ?? "";
+    const nsS: string = idToNs.get(coerceGraphLinkEndpoint(L.source)) ?? "";
+    const nsT: string = idToNs.get(coerceGraphLinkEndpoint(L.target)) ?? "";
     if (!wanted.has(nsS) || !wanted.has(nsT)) {
       continue;
     }
@@ -48,7 +48,7 @@ export function sliceMemoryGraphToNamespace(
   const nodes: MemoryGraphNode[] = data.nodes.filter((n) => (n.namespace ?? "") === namespace);
   const ids: Set<string> = new Set(nodes.map((n) => n.id));
   const links: MemoryGraphLink[] = data.links.filter(
-    (L) => ids.has(L.source) && ids.has(L.target)
+    (L) => ids.has(coerceGraphLinkEndpoint(L.source)) && ids.has(coerceGraphLinkEndpoint(L.target))
   );
   return { nodes, links };
 }
@@ -62,21 +62,74 @@ export function filterMemoryGraphToNamespacesUnion(
   const nodes: MemoryGraphNode[] = data.nodes.filter((n) => wanted.has(n.namespace ?? ""));
   const ids: Set<string> = new Set(nodes.map((n) => n.id));
   const links: MemoryGraphLink[] = data.links.filter(
-    (L) => ids.has(L.source) && ids.has(L.target)
+    (L) => ids.has(coerceGraphLinkEndpoint(L.source)) && ids.has(coerceGraphLinkEndpoint(L.target))
   );
   return { nodes, links };
 }
 
 /**
- * D-EDGE-GATE-1: оставить только узлы, у которых есть путь рёбер до **любой** A-ноды
+ * Привести конец ребра к строковому id (d3 / react-force-graph могут заменить на объект узла).
+ */
+export function coerceGraphLinkEndpoint(endpoint: unknown): string {
+  if (typeof endpoint === "string") {
+    return endpoint;
+  }
+  if (endpoint !== null && typeof endpoint === "object" && "id" in endpoint) {
+    const id: unknown = (endpoint as { readonly id: unknown }).id;
+    if (typeof id === "string") {
+      return id;
+    }
+    if (typeof id === "number" && Number.isFinite(id)) {
+      return String(Math.trunc(id));
+    }
+  }
+  return "";
+}
+
+/**
+ * Нормализовать `source`/`target` у рёбер без мутации узлов; нужно до UC-04A и для slice/cross-edge.
+ */
+export function normalizeMemoryGraphLinkEndpoints(data: MemoryGraphData): MemoryGraphData {
+  const links: MemoryGraphLink[] = data.links.map((L: MemoryGraphLink): MemoryGraphLink => {
+    const s: string = coerceGraphLinkEndpoint(L.source);
+    const t: string = coerceGraphLinkEndpoint(L.target);
+    if (s === L.source && t === L.target) {
+      return L;
+    }
+    return { ...L, source: s, target: t };
+  });
+  return { nodes: data.nodes, links };
+}
+
+/**
+ * Копия графа для `ForceGraph3D`: движок мутирует объекты; store (`merged`) не должен делиться ссылками.
+ */
+export function cloneMemoryGraphForForceGraphRender(data: MemoryGraphData): MemoryGraphData {
+  return {
+    nodes: data.nodes.map((n: MemoryGraphNode): MemoryGraphNode => ({ ...n })),
+    links: data.links.map(
+      (L: MemoryGraphLink): MemoryGraphLink => ({
+        ...L,
+        source: coerceGraphLinkEndpoint(L.source),
+        target: coerceGraphLinkEndpoint(L.target)
+      })
+    )
+  };
+}
+
+/**
+ * D-EDGE-GATE-1 (legacy): оставить только узлы, у которых есть путь рёбер до **любой** A-ноды
  * (BFS неориентированно). A-узлы остаются всегда. Если A нет — пустой граф.
  *
+ * Экспортируется для тестов и опциональных сценариев; **3D `project` больше не вызывает** эту функцию.
+ *
  * Запрещено: вводить синтетические узлы/рёбра, которых нет в `data` (см. canon
- * `context/arch/desktop-pag-graph-snapshot.md` — D-EDGE-GATE-1).
+ * `context/arch/desktop-pag-graph-snapshot.md` — исторический D-EDGE-GATE-1).
  */
 export function keepNodesReachableToAnyA(data: MemoryGraphData): MemoryGraphData {
+  const normalized: MemoryGraphData = normalizeMemoryGraphLinkEndpoints(data);
   const aIds: string[] = [];
-  for (const n of data.nodes) {
+  for (const n of normalized.nodes) {
     if (n.level === "A") {
       aIds.push(n.id);
     }
@@ -84,17 +137,19 @@ export function keepNodesReachableToAnyA(data: MemoryGraphData): MemoryGraphData
   if (aIds.length === 0) {
     return { nodes: [], links: [] };
   }
-  const idSet: Set<string> = new Set(data.nodes.map((n) => n.id));
+  const idSet: Set<string> = new Set(normalized.nodes.map((n) => n.id));
   const adj: Map<string, string[]> = new Map();
   for (const id of idSet) {
     adj.set(id, []);
   }
-  for (const L of data.links) {
-    if (!idSet.has(L.source) || !idSet.has(L.target)) {
+  for (const L of normalized.links) {
+    const s: string = coerceGraphLinkEndpoint(L.source);
+    const t: string = coerceGraphLinkEndpoint(L.target);
+    if (!idSet.has(s) || !idSet.has(t)) {
       continue;
     }
-    adj.get(L.source)!.push(L.target);
-    adj.get(L.target)!.push(L.source);
+    adj.get(s)!.push(t);
+    adj.get(t)!.push(s);
   }
   const reachable: Set<string> = new Set();
   const queue: string[] = [];
@@ -117,10 +172,12 @@ export function keepNodesReachableToAnyA(data: MemoryGraphData): MemoryGraphData
       }
     }
   }
-  const nodes: MemoryGraphNode[] = data.nodes.filter((n) => reachable.has(n.id));
-  const links: MemoryGraphLink[] = data.links.filter(
-    (L) => reachable.has(L.source) && reachable.has(L.target)
-  );
+  const nodes: MemoryGraphNode[] = normalized.nodes.filter((n) => reachable.has(n.id));
+  const links: MemoryGraphLink[] = normalized.links.filter((L) => {
+    const s: string = coerceGraphLinkEndpoint(L.source);
+    const t: string = coerceGraphLinkEndpoint(L.target);
+    return reachable.has(s) && reachable.has(t);
+  });
   return { nodes, links };
 }
 
@@ -130,18 +187,20 @@ export class MemoryGraphForceGraphProjector {
    */
   static filterEdgesUc04BranchA(data: MemoryGraphData): MemoryGraphData {
     const ids: Set<string> = new Set(data.nodes.map((n) => n.id));
-    const links: MemoryGraphLink[] = data.links.filter(
-      (L) => ids.has(L.source) && ids.has(L.target)
-    );
+    const links: MemoryGraphLink[] = data.links.filter((L) => {
+      const s: string = coerceGraphLinkEndpoint(L.source);
+      const t: string = coerceGraphLinkEndpoint(L.target);
+      return ids.has(s) && ids.has(t);
+    });
     return { nodes: data.nodes, links };
   }
 
   /**
-   * Проекция merged → graphData для `ForceGraph3D` (D-EDGE-GATE-1):
-   * `filterEdgesUc04BranchA` → `keepNodesReachableToAnyA`.
+   * Проекция merged → graphData для `ForceGraph3D`: нормализация концов рёбер → **только** UC-04A.
+   * Полный граф по узлам; фокус агента — подсветка (без reachability-gate).
    */
   static project(data: MemoryGraphData): MemoryGraphData {
-    const step1: MemoryGraphData = MemoryGraphForceGraphProjector.filterEdgesUc04BranchA(data);
-    return keepNodesReachableToAnyA(step1);
+    const step0: MemoryGraphData = normalizeMemoryGraphLinkEndpoints(data);
+    return MemoryGraphForceGraphProjector.filterEdgesUc04BranchA(step0);
   }
 }
