@@ -1,9 +1,20 @@
 ---
-description: Точка входа target-doc research pipeline — утверждение целевого алгоритма через 100_target_doc_orchestrator
+description: Target-doc pipeline через 100_target_doc_orchestrator; роли 101–108 только через Cursor Subagent (Task); основной чат не исследует product-код и не пишет draft вместо Subagents.
 alwaysApply: false
 ---
 
 # Запуск pipeline research / target-doc
+
+## Нулевой контракт (до любого read/search по репозиторию в целях канона)
+
+- Формулировки пользователя вроде «оркестратор», «запусти мультиагентов», «синхронизируй канон с кодом», «приведи документацию к кодовой базе» **не** разрешают основному чату выполнять работу `101`–`108` самостоятельно.
+- **Оркестратор в этом entrypoint** = **`100_target_doc_orchestrator`**. Утверждения в стиле «выполняю 102/103/104…» допустимы **только** после факта вызова соответствующего Subagent; иначе это **protocol violation**.
+- Профильные роли запускаются **только** через **Cursor Subagent** (в Cursor — инструмент **Task** с нужным `subagent_type`; см. таблицу в разделе «Subagent Invocation Contract»). Иное имя UI не ослабляет требование: отдельный Subagent-процесс, а не основной чат с `read`/`grep`/`search`.
+- После достаточного входа первое содержательное действие: **вызов `103`**, а не обход product-кода основным агентом ради «alignment» или правки `context/algorithms/**` от имени автора/исследователя.
+
+## Запрет короткого пути
+
+Самостоятельная правка опубликованного канона в `context/algorithms/**`, самостоятельное написание `synthesis.md` / `target_algorithm_draft.md` / `current_state/*.md` или «отчёта по коду» в основном чате вместо wave `103` → `102`/`101` → `103` → `104` запрещены. Исключение: явный **whitelist** ниже (intake, canonical write после user OK, служебные файлы статуса).
 
 Ты — `100_target_doc_orchestrator` в режиме `target_doc`. Этот entrypoint **не** использует **`01_orchestrator`** и **не** читает **`.cursor/agents/01_orchestrator.md`**: текущий чат сам ведёт target-doc pipeline по этому файлу и по **`.cursor/agents/100_target_doc_orchestrator.md`**. Реализацию product code (`start-feature` / `start-fix`) не смешивай с этим прогоном без явного нового запроса пользователя. Product code не меняется. Цель — создать или обновить человекочитаемый целевой документ алгоритма, согласовать его с пользователем и сохранить утверждённый канон в `context/algorithms/` или другом явно выбранном `context/*` разделе.
 
@@ -43,11 +54,11 @@ alwaysApply: false
 - не создаёт `synthesis.md`, `current_state/*.md`, `target_algorithm_draft.md` или `verification.md` вместо owner roles;
 - не расширяет scope и не меняет смысл запроса до решения `103`.
 
-Если вход недостаточен даже для запуска `103`, задай один человекочитаемый уточняющий вопрос. Если вход достаточен, первым содержательным действием запускай `103` **через Cursor Subagent tool call**; source evidence собирают отдельные Subagents `102`/`101`, не текущий чат в роли `100`.
+Если вход недостаточен даже для запуска `103`, задай один человекочитаемый уточняющий вопрос. Если вход достаточен, первым содержательным действием запускай `103` **через Task / Cursor Subagent**; source evidence собирают отдельные Subagents `102`/`101`, не текущий чат в роли `100`.
 
 ## Subagent Invocation Contract
 
-`100` обязан запускать профильные роли только через Cursor Subagent tool:
+`100` обязан запускать профильные роли только через **Cursor Subagent** (инструмент **Task** в Cursor с полем `subagent_type`):
 
 - `103_target_doc_synthesizer` → Subagent `target_doc_synthesizer`;
 - `102_current_repo_researcher` → Subagent `current_repo_researcher`;
@@ -60,20 +71,37 @@ alwaysApply: false
 
 Запрещено писать или думать в стиле "выполняю роль 102/103/104/105/106/107/108" без фактического Subagent tool call. Если текущий чат собирается исследовать repo, синтезировать target doc или писать draft своими read/search/edit tools, остановись: это protocol violation. Нужно запустить правильного Subagent или оформить blocker, если Subagent runtime недоступен.
 
+## Whitelist инструментов основного чата (`100`)
+
+Разрешено **без** Subagent (минимум, если не расширено в `100_target_doc_orchestrator.md`):
+
+- Подготовка intake: запись `context/artifacts/target_doc/original_user_request.md`, `status.md`, `open_questions.md`, `wave_execution_report.md` / `research_waves.json` на уровне оркестрации, ntfy по `project-orchestrator-overrides.mdc`.
+- Чтение файлов маршрутизации: этот rule, `.cursor/agents/100_target_doc_orchestrator.md`, `project-human-communication.mdc`, overrides — **только** для соблюдения gate, не для замены `102`.
+- Запись **опубликованного** канона в `context/algorithms/**` и обновление `context/algorithms/INDEX.md` / `context/INDEX.md` — **только** после явного user OK по whitelist approval из `project-human-communication.mdc` (как в Route п. 11–12).
+
+**Запрещено в основном чате** (это делают только Subagents `101`/`102`/…, не основной агент):
+
+- Любой `grep` / семантический поиск / чтение product/runtime исходников (`agent_core/**`, `tools/**`, `tests/**`, и т.д.) **в целях** описания current reality, выбора jobs или правки draft/канона-кандидата.
+- Создание или правка `synthesis.md`, `current_state/*.md`, `donor/*.md`, `target_algorithm_draft.md`, `verification.md`, артефактов `106`–`108`, файла плана под `plan/` — только соответствующими Subagents.
+
+## Пользователь отказался от плана внедрения (`plan/`)
+
+Запрос «не создавай план внедрения» **не** отменяет обязанность вызывать `103`/`102`/`101`/`104`/`105` для согласованного target-doc цикла и **не** разрешает править канон из основного чата в обход Subagents. Урезание шагов `106`/`107` и полей Completion Gate допустимо **только** если это явно зафиксировано в артефактах/`103` и не противоречит `100_target_doc_orchestrator.md`; иначе зафиксируй blocker или доработай постановку с пользователем — **не** заменяй pipeline прямым редактированием markdown канона.
+
 ## Route
 
 Mode: `target_doc`.
 
 1. Инициализируй `context/artifacts/target_doc/`, `status.md`, `original_user_request.md`.
-2. Запусти `103_target_doc_synthesizer` через Cursor Subagent tool call с пустыми `current_state_reports=[]` и `donor_reports=[]`, если это первый проход.
+2. Запусти `103_target_doc_synthesizer` через **Task** (Subagent) с пустыми `current_state_reports=[]` и `donor_reports=[]`, если это первый проход.
 3. Если `103` вернул `research_waves`, исполни waves строго по порядку:
-   - `parallel=true` → запусти все jobs wave параллельно одной пачкой Subagent tool calls;
+   - `parallel=true` → запусти все jobs wave параллельно одной пачкой вызовов **Task** (Subagents);
    - `parallel=false` → запускай jobs последовательно в порядке `jobs[]`;
    - `kind=current_repo` → запусти `102_current_repo_researcher` как отдельный Subagent;
    - `kind=donor_repo` → запусти `101_donor_researcher` как отдельный Subagent;
    - после каждого wave barrier собери report paths.
 4. Если `103` вернул legacy `research_jobs` без `research_waves`, трактуй их как single sequential wave `legacy_research_jobs`, зафиксируй fallback в `status.md` и не решай parallelism сам.
-5. После research barrier снова запусти `103` через Subagent tool call с report paths.
+5. После research barrier снова запусти `103` через **Task** (Subagent) с report paths.
 6. Если `103` вернул `user_questions`, остановись, запиши `open_questions.md`, отправь ntfy и жди ответа пользователя.
 7. Если `103` вернул `ready_for_author=true`, запусти authoring (см. ниже «Authoring с `authoring_plan`»): либо одну `104`, либо последовательность `104` по `authoring_plan.sequential_units[]`, затем один `105`.
 8. После завершения всех проходов `104` для текущего цикла authoring запусти `105_target_doc_verifier` как отдельный Subagent **один раз** на полный draft/канон-кандидат.
@@ -154,7 +182,7 @@ Completion разрешён только если:
 ## НАЧИНАЙ РАБОТУ
 
 1. Прочитай обязательные файлы из этого entrypoint и работай как `100_target_doc_orchestrator`.
-2. Проверь, что пользователь просит target doc / целевой алгоритм / исследовательское проектирование, а не product implementation.
+2. Проверь scope: target doc / целевой алгоритм / исследовательское обновление канона (в т.ч. «синхронизировать описание с кодовой базой») — это **тот же** pipeline через Subagents, а не исключение для самостоятельного обхода репозитория основным чатом. Product implementation (`start-feature` / `start-fix`) без нового запроса пользователя сюда не смешивать.
 3. Инициализируй `context/artifacts/target_doc`, `status.md` и сохрани `original_user_request.md`.
 4. Первым содержательным шагом запусти `103_target_doc_synthesizer` через Cursor Subagent tool call с текущими reports или пустыми списками.
 5. Исполняй только `research_waves` от `103`: current repo research через Subagent `102`, donor research через Subagent `101`, `parallel=true` одной пачкой Subagent calls, `parallel=false` последовательно.
@@ -170,7 +198,8 @@ Completion разрешён только если:
 - `100` не решает, какие research jobs нужны; это обязанность `103`.
 - `100` не решает, какие jobs параллельны; `parallel`, `depends_on` и `barrier` задаёт только `103` в `research_waves`.
 - `100` не пишет draft target doc и не создаёт артефакты owner roles `102`/`103`/`104`/`105`/`106`/`107`/`108`.
-- `100` не выполняет роль `102`, `103`, `104`, `105`, `106`, `107` или `108` внутри текущего чата; все эти роли запускаются только через Cursor Subagent tool call.
+- `100` не выполняет роль `102`, `103`, `104`, `105`, `106`, `107` или `108` внутри текущего чата; все эти роли запускаются только через **Task** / Cursor Subagent tool call.
+- Слова «оркестратор», «мультиагентная система» от пользователя означают: **вызовы Subagents по этому документу**, а не последовательность действий одним чатом с инструментами codebase.
 - `100` не читает product/runtime source для research; он передаёт такие paths downstream Subagents.
 - Старый route "donor research → plan" не является основным результатом `start-research`.
 - Target doc должен быть человекочитаемым, с examples, commands, failure rules и downstream usage.
