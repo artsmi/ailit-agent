@@ -6,11 +6,13 @@
 
 ## Статус
 
-`approved` — явное подтверждение пользователя в чате Cursor (2026-05-03). Описание разделов **«Текущая реализация»** периодически сверяется с репозиторием (последняя синхронизация: 2026-05-12): там зафиксировано фактическое поведение кода. Разделы **«Целевое поведение»** остаются нормативом для `start-feature` / `start-fix`; при конфликте «цель vs код» действует смысл пометок `implementation_backlog` и явных отсылок к исходникам в «Текущая реализация».
+`approved` — явное подтверждение пользователя в чате Cursor (2026-05-03). Разделы **«Целевое поведение»** остаются нормативом для `start-feature` / `start-fix`. Разделы **«Текущая реализация»** в файлах пакета сверяются с репозиторием при изменениях кода; **последняя выравнивающая правка канона под факты кода** (без изменения product code): 2026-05-12. **Повторное утверждение** пакета после doc-sync и снятия ссылок на удалённый план: 2026-05-12 (чат Cursor). При расхождении формулировки «цель» в этом индексе и фактов в «Текущая реализация» **источник правды для текущего поведения** — текст «Текущая реализация» и указанные там пути модулей; норматив сохраняется до снятия метки `implementation_backlog` или до изменения кода.
 
 ## Назначение
 
-Зафиксировать **целевое поведение** AgentMemory: кто инициирует запрос, как рантайм владеет базой и обходом, как LLM работает только в закрытом JSON-протоколе, какие типы рёбер графа допустимы, какие события видят CLI и брокер, и когда допустимы статусы `complete`, `partial`, `blocked`.
+> Аннотация: навигация по пакету, полная матрица OR и правило чтения «цель vs факт сейчас».
+
+Зафиксировать **целевое поведение** AgentMemory: кто инициирует запрос, как рантайм владеет базой и обходом, как LLM работает только в закрытом JSON-протоколе, какие типы рёбер графа допустимы, какие события видят CLI и брокер, и когда допустимы статусы `complete`, `partial`, `blocked`. Индекс **не** подменяет детальные контракты в `external-protocol.md`, `runtime-flow.md` и остальных файлах пакета.
 
 ## Части пакета
 
@@ -24,7 +26,7 @@
 | [`external-protocol.md`](external-protocol.md) | Инициаторы (оболочка агента, CLI, клиент брокера), формат запроса, события на границе, команда `ailit memory init`. |
 | [`desktop-realtime-graph-protocol.md`](desktop-realtime-graph-protocol.md) | Desktop (Electron): broker trace, PAG merge, 3D граф, подсветка из trace, целевой конфиг `~/.ailit/desktop`, multi-project и лимиты; **отдельная** матрица desktop OR-001…OR-017 ниже. |
 | [`failure-retry-observability.md`](failure-retry-observability.md) | Ошибки и повторы, лимиты и partial, журнал и компактные логи, критерии приёмки и имена тестов pytest. |
-| План внедрения | [`../../../plan/17-agent-memory-start-feature.md`](../../../plan/17-agent-memory-start-feature.md) — нарезка `start-feature`, слайсы S1–S5, gaps; **не** часть канона SoT. |
+| План внедрения | Отдельный markdown под `plan/*` для AgentMemory **не** используется (файл `plan/17-agent-memory-start-feature.md` удалён владельцем после утверждения канона 2026-05-12). Нарезка для `start-feature` / `start-fix` — из разделов этого пакета и постановки задачи; при необходимости см. исторические планы `plan/14-agent-memory-*.md`. **Не** часть канона SoT. |
 
 ## Исходная постановка (полная матрица OR-001…OR-015)
 
@@ -41,12 +43,27 @@
 | OR-007 | Типы связей B/C/D из постановки с confidence и источником | `memory-graph-links.md` |
 | OR-008 | Промпты для нескольких языков и не-кода; `file_kind`, сегментация; запреты CoT и сырых дампов | `prompts.md`, `llm-commands.md` |
 | OR-009 | Каталог промптов по состояниям/фазам | `prompts.md` |
-| OR-010 | Внешние события: heartbeat, progress, выделенные узлы, кандидаты и обновления связей, partial/complete/blocked; схема и правила логов | `external-protocol.md`, `failure-retry-observability.md` |
+| OR-010 | Внешние события и журналы: кандидаты и обновления связей, компактные логи, завершение `partial` / `complete` / `blocked`; схема envelope и правила redaction. **Уточнение по факту кода** — под таблицей «Уточнение OR-010» | `external-protocol.md`, `failure-retry-observability.md` |
 | OR-011 | CLI `ailit memory init`: запрос по умолчанию, прогресс, логи узлов и связей, семантика выхода | `external-protocol.md`, `failure-retry-observability.md` |
 | OR-012 | Конверт результата `agent_memory_result.v1` | `runtime-flow.md`, `external-protocol.md` |
 | OR-013 | Ошибки и повторы: невалидный JSON, неверный id узла, отклонение связи, лимиты, отсутствие файла, неизвестный язык | `failure-retry-observability.md` |
 | OR-014 | Минимум четыре человекочитаемых сценария (в постановке — пять направлений) | Примеры по файлам и этот индекс |
 | OR-015 | Проверяемые критерии приёмки из постановки | `INDEX.md`, `failure-retry-observability.md` |
+
+### Уточнение OR-010 (фактический journal vs каталог типов)
+
+**Слой для человека:** Исходная постановка перечисляет широкий набор внешних событий (включая heartbeat и progress). В **текущем** production-пути в JSONL как `memory.external_event` с envelope `agent_memory.external_event.v1` **записываются только** события с `event_type` **`link_candidates`** и **`links_updated`** — они строятся в ветке команды W14 `propose_links` и отражают кандидатов связей и итог валидации/записи. Остальные строковые значения типа событий, которые объявлены в коде (например heartbeat, progress, result-типы), остаются **частью типизации и документации модуля**; **отдельных production-эмиттеров** для них вне unit-тестов формы envelope **нет**. Читатель не должен трактовать каждый литерал `ExternalEventType` как обязательный high-frequency runtime-path.
+
+**Технический контракт (сводка):**
+
+| Правило | Значение |
+|---------|----------|
+| **Required journal emitters (production)** | `link_candidates`, `links_updated` при успешном прохождении ветки `propose_links` до логирования. |
+| **Default для прочих `event_type`** | Считать **не эмиттируемыми** в production, пока не появится явный call site в рантайме; новые эмиттеры описываются в «Текущая реализация» соответствующего файла. |
+| **Partial / complete / blocked для оператора** | Верхнеуровневый статус сессии и маркеры вроде `memory.result.returned` — по правилам сборки `agent_memory_result.v1` и журнала; это **не** то же самое, что «каждый тип из OR-010 обязан стать отдельной строкой `memory.external_event`». |
+| **Forbidden** | Утверждать обязательную частоту heartbeat/progress/result-events как факт без ссылки на call site в «Текущая реализация». |
+
+Подробности payload, compact-синков и redaction — в `failure-retry-observability.md` и `external-protocol.md`.
 
 ## Desktop: постановка и трассировка OR-001…OR-017
 
@@ -85,7 +102,7 @@
 | OR-007 | `memory-graph-links.md` |
 | OR-008 | `prompts.md`, `llm-commands.md` |
 | OR-009 | `prompts.md` |
-| OR-010 | `external-protocol.md`, `failure-retry-observability.md` |
+| OR-010 | Этот `INDEX.md` (подраздел «Уточнение OR-010»), `external-protocol.md`, `failure-retry-observability.md` |
 | OR-011 | `external-protocol.md`, `failure-retry-observability.md` |
 | OR-012 | `runtime-flow.md`, `external-protocol.md` |
 | OR-013 | `failure-retry-observability.md` |

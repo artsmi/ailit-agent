@@ -30,7 +30,7 @@
 | `planner_round` | `agent_memory.planner.plan_traversal` | Только JSON; whitelist `actions`; память проекта **не только Python**; явное учёт `file_kind` при выборе путей. |
 | `summarize_phase` / C | `agent_memory.summarize.c` | Строгая схема `agent_memory_command_output.v1`; вернуть `file_kind`, `language`, `semantic_chunk_kind`, кандидаты с доказательством. |
 | `summarize_phase` / B | `agent_memory.summarize.b` | Аналогично; ссылка на дочерние сводки C при необходимости. |
-| `propose_links` | `agent_memory.links.propose` | Только массив `agent_memory_link_candidate.v1[]`; запрет семантики «жёсткой записи» в БД из JSON. |
+| `propose_links` | `agent_memory.links.propose` | Инструкции к модели задают **содержимое `payload`** внутри полного конверта W14 `agent_memory_command_output.v1`: `command` = **`propose_links`**, `schema_version` конверта, `command_id`, top-level `status` ∈ {`ok`,`partial`,`refuse`}, поле **`payload.candidates`** или **`payload.link_batch.candidates`** — массив `agent_memory_link_candidate.v1[]` (см. D-PROPOSE-LINKS-1 в [`llm-commands.md`](llm-commands.md)). **Запрещено** описывать успешный ответ как корневой JSON «только массив кандидатов» без envelope. Запрет семантики прямой записи в SQLite из ответа модели — без изменений. |
 | `finish_assembly` | `agent_memory.finish.decision` | Выбор из кандидатов; `decision_summary` компактно; `recommended_next_step` с лимитом. |
 | `planner_repair` | `agent_memory.planner.repair_format` | Исправить JSON строго под схему; один раунд. |
 
@@ -76,3 +76,10 @@
 ### Лимиты размера полей
 
 Строковые поля и счётчики в публичных схемах событий и результатов ограничиваются в **символах UTF-8** и/или в количестве узлов/рёбер с флагом `truncated` (единая политика с [`failure-retry-observability.md`](failure-retry-observability.md)); не смешивать с токенами токенизатора в обязательных полях публичной схемы.
+
+## How start-feature / start-fix must use this
+
+- **`02_analyst`:** при задачах, затрагивающих промпты, многоязычие или `file_kind`, брать **требования к тексту инструкций** из этого файла и не смешивать их с wire-схемой W14 из `llm-commands.md` (роль промпта ≠ автономный JSON без конверта).
+- **`06_planner`:** трассировать work на строки таблицы фаз (`intake`, `planner_round`, `summarize_*`, `propose_links`, `finish_assembly`, `planner_repair`) и на OR-008 / OR-009; слайсы и порядок внедрения — только в `plan/*`, не в этом каноне.
+- **`11_test_runner`:** проверять согласованность «промпт говорит модели X» с тестами на запрет CoT/прозы и на схему вывода там, где тесты уже существуют для W14 / summary; новые имена тестов не выдумывать из этого файла без плана.
+- **`13_tech_writer`:** при изменении реальных строк промптов или фаз в коде обновить блоки «Текущая реализация» и таблицу каталога здесь так, чтобы они оставались согласованы с `llm-commands.md` и `failure-retry-observability.md`.

@@ -35,15 +35,56 @@
 
 **Норматив:** ответы `summarize_c` / `summarize_b` как **верхнеуровневый** конверт планера в целевом поведении **запрещены** — эти режимы выполняются как **внутренние фазы** рантайма после материализации и индексации, чтобы не оставлять дыр в валидации конверта.
 
-### Команда `propose_links` (расширение OR-006)
+### Команда `propose_links` (расширение OR-006, D-PROPOSE-LINKS-1)
 
-**Назначение:** отдельный раунд LLM, который возвращает **только** массив объектов-кандидатов связей (см. [`memory-graph-links.md`](memory-graph-links.md)), без прямой записи в БД.
+**Назначение:** раунд LLM, в котором модель предлагает кандидатов связей для последующей проверки S1/S3 и записи через графовый сервис (см. F-L1, F-L5 в [`memory-graph-links.md`](memory-graph-links.md)). Прямая запись в SQLite из ответа модели **запрещена**.
 
-**Вход (от рантайма):** компактный контекст: выбранные `node_id`, краткие сводки или хэши, ограниченные пути, лимиты.
+**Вход (от рантайма):** компактный контекст: выбранные `node_id`, краткие сводки или хэши, ограниченные пути, лимиты (в т.ч. **128** wire / **64** S3 — D-LIMITS-1).
 
-**Выход:** `schema_version=agent_memory_link_batch.v1`, массив кандидатов.
+**Выход (норматив, D-PROPOSE-LINKS-1):** **не** автономный документ «только `agent_memory_link_batch.v1`». Ожидается **полный конверт W14** `agent_memory_command_output.v1` с полями верхнего уровня как у остальных команд планера, в частности:
+
+- **`command`:** литерал **`propose_links`**.
+- **`payload`:** объект, из которого рантайм извлекает кандидатов по одному из поддерживаемых ключей:
+  - **`candidates`:** массив объектов схемы `agent_memory_link_candidate.v1`, **или**
+  - **`link_batch`:** объект с полем **`candidates`** — тот же массив (эквивалентная форма для совместимости).
+
+Иные корневые формы (например JSON, где корень — только массив кандидатов без `command` / `schema_version` конверта), считаются **невалидными** для production-пути: разбор и repair следуют общим правилам W14 в [`failure-retry-observability.md`](failure-retry-observability.md).
+
+**Do not implement this as:** описывать успешный ответ `propose_links` как автономный **`agent_memory_link_batch.v1`** без оболочки **`agent_memory_command_output.v1`** — это противоречит D-PROPOSE-LINKS-1 и разбору в pipeline.
 
 **Запрещено:** произвольные поля доступа к файловой системе и инструментам, выполнение shell, абсолютные пути, сырой файл целиком.
+
+### Пример: каркас ответа `propose_links` (D-PROPOSE-LINKS-1)
+
+```json
+{
+  "schema_version": "agent_memory_command_output.v1",
+  "command_id": "string, required, non-empty",
+  "command": "propose_links",
+  "payload": {
+    "candidates": [
+      {
+        "schema_version": "agent_memory_link_candidate.v1",
+        "link_id": "example-1",
+        "link_type": "references",
+        "source_node_id": "…",
+        "target_node_id": "…",
+        "target_external_ref": null,
+        "source_path": "src/a.py",
+        "target_path": "src/b.py",
+        "evidence": { "kind": "line_range", "value": "…", "start_line": 1, "end_line": 2 },
+        "confidence": "medium",
+        "created_by": "llm_inferred",
+        "reason": "short human reason"
+      }
+    ]
+  },
+  "status": "ok",
+  "legacy": "forbidden unless explicitly allowed by migration policy"
+}
+```
+
+Эквивалентно поле **`payload.link_batch.candidates`** может заменить **`payload.candidates`** при том же конверте.
 
 ### Режим исправления невалидного ответа
 
@@ -62,7 +103,7 @@
 }
 ```
 
-**Норматив по полю `status`:** допустимый whitelist top-level для W14 envelope — **`ok` \| `partial` \| `refuse`**; значение вроде **`in_progress`** из ответа LLM **не** является разрешённым смыслом top-level статуса (прогресс `plan_traversal` — из `payload.is_final` / `payload.actions`, см. [`../../proto/memory-query-context-init.md`](../../proto/memory-query-context-init.md) C1–C2). Каноникализация легаси-строк выполняется в `validate_or_canonicalize_w14_command_envelope_object`.
+**Норматив по полю `status`:** допустимый whitelist top-level для W14 envelope — **`ok` \| `partial` \| `refuse`**; значение вроде **`in_progress`** из ответа LLM **не** является разрешённым смыслом top-level статуса конверта. Для **`plan_traversal`** прогресс раунда читается из **`payload.is_final`** и содержимого **`payload.actions`**, а не из отдельного «статуса работы» на корне JSON. Каноникализация легаси-строк выполняется в `validate_or_canonicalize_w14_command_envelope_object`.
 
 **Запрещённые поля в JSON, предназначенном для LLM:** сырые промпты, chain-of-thought, секреты, полные дампы файлов вне выбранных окон строк.
 
@@ -70,3 +111,10 @@
 
 - **Успех:** модель возвращает валидный JSON `plan_traversal` → рантайм материализует данные → внутренние фазы сводки → завершение.
 - **Невалидный ответ и восстановление:** при классе ошибки, допускающем repair, — один вызов исправления → повторный разбор; при повторном провале — `partial` с причиной вроде `w14_parse_failed` (подробности в [`failure-retry-observability.md`](failure-retry-observability.md)).
+
+## How start-feature / start-fix must use this
+
+- **`02_analyst`:** для любой задачи с участием LLM в памяти использовать этот файл как SoT по **именам команд конверта**, whitelist `status`, запрету top-level `summarize_*` как публичного ответа планера и по правилу D-PROPOSE-LINKS-1 для `propose_links`.
+- **`06_planner`:** декомпозировать изменения по шагам Target flow из `runtime-flow.md`, но **контракт JSON** для ответа модели — отсюда; не планировать отдельный «массив кандидатов без envelope» как допустимый production-wire.
+- **`11_test_runner`:** регрессии W14 и разбор конверта — по путям и именам из [`failure-retry-observability.md`](failure-retry-observability.md) и существующим `test_g14*`; при смене схемы envelope добавить или обновить проверки согласно плану, а не только по тексту примеров JSON здесь.
+- **`13_tech_writer`:** при смене `AgentMemoryCommandName`, repair-политики или полей envelope обновить этот файл и перекрёстные ссылки в `prompts.md` / `memory-graph-links.md` в том же изменении канона.
