@@ -321,7 +321,7 @@ approved | rework_required | needs_user_answer | blocked | rejected
 - <bullet с измеримым критерием>
 - …
 
-Дальше: `18` запускает `23_target_doc_reader_reviewer` (human approval package), затем запросит ваш OK по whitelist.
+Дальше: `18` запускает `23`→`24`→`25` (план, ревью плана, human approval package), затем запросит ваш OK по whitelist.
 
 Пожалуйста, ответьте в чат **одной из явных форм** согласия из `project-human-communication.mdc` (`ок`, `утверждаю`, `согласовано`, `approved`, `да, это целевое состояние`) или напишите замечания.
 ```
@@ -445,7 +445,7 @@ Notes: Нужно потом добавить failure rules.
 - bounded repair / no-progress — явное правило в draft + `failure-retry-observability.md`;
 - downstream: роли `02`/`06`/`08`/`11`/`13` названы в draft.
 
-Далее `18` запускает `23` для human approval package и запрашивает ваш OK.
+Далее `18` запускает цепочку `23`→`24`→`25` и запрашивает ваш OK.
 
 Ответьте одной из форм whitelist (`ок`, `утверждаю`, …) или замечаниями.
 ```

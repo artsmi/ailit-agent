@@ -65,8 +65,10 @@ Product code не менять. Product tests не менять. Runtime/config 
 5. `18` исполняет waves только из `research_waves.json`.
 6. `21_target_doc_author` правит документы только по `synthesis.md`, reports, verifier/reader findings. `21` не читает `tools/**`, `tests/**`, `plan/**`, `context/proto/**` для добычи новых фактов.
 7. `22_target_doc_verifier` проверяет техническую полноту.
-8. `23_target_doc_reader_reviewer` обязательно проверяет документ как человек и создаёт human approval package.
-9. User approval запрашивается только после `22 approved` и `23 approved_for_user_review`, через ntfy.
+8. `23_implementation_plan_author` создаёт файл плана под `plan/` по `implementation_plan_path`.
+9. `24_implementation_plan_reviewer` проверяет план и пишет `plan_review_latest.json`.
+10. `25_target_doc_reader_reviewer` обязательно проверяет документ как человек и создаёт human approval package.
+11. User approval запрашивается только после `22 approved`, `24` approved плана и `25 approved_for_user_review`, через ntfy.
 
 ## Required Rework Outcomes
 
@@ -80,7 +82,7 @@ Product code не менять. Product tests не менять. Runtime/config 
 - `context/artifacts/target_doc/open_gaps_and_waivers.md`
 - `context/artifacts/target_doc/reader_review.md`
 
-Эти файлы должны быть produced by `23_target_doc_reader_reviewer`.
+Эти файлы должны быть produced by `25_target_doc_reader_reviewer`.
 
 ### 2. Prompts Section Must Be Expanded
 
@@ -142,7 +144,7 @@ Depth:
 
 | Section/File | Human clarity | Technical completeness | Examples | Commands / proof | Gaps | Verdict |
 
-Если core section имеет `low`, `23` не должен давать `approved_for_user_review`.
+Если core section имеет `low`, `25` не должен давать `approved_for_user_review`.
 
 ### 5. Gaps And Waivers
 
@@ -206,9 +208,20 @@ Waiver запрещён для:
 - использовать `requires_new_research=true`, если нужно добыть новые facts;
 - вернуть `approved` только если документ технически готов.
 
-## What 23 Should Do
+## What 23 / 24 / 25 Should Do
 
-`23_target_doc_reader_reviewer` должен:
+`23_implementation_plan_author` должен:
+
+- создать один markdown-файл плана по `implementation_plan_path`;
+- включить трассировку к канону, тесты/DoD, пользовательские сценарии;
+- поставить marker `Produced by: 23_implementation_plan_author`.
+
+`24_implementation_plan_reviewer` должен:
+
+- записать `context/artifacts/target_doc/plan_review_latest.json`;
+- вернуть JSON с `approved` или `rework_required` (rework → новый вызов `23`).
+
+`25_target_doc_reader_reviewer` должен:
 
 - проверить документ как человек;
 - создать human approval package;
@@ -222,7 +235,8 @@ Waiver запрещён для:
 Workflow можно завершить только если:
 
 - `22` approved;
-- `23` approved_for_user_review;
+- `24` вернул `approved` для плана (`plan_review_latest.json`);
+- `25` approved_for_user_review;
 - `human_review_packet.md` ясно объясняет, что утверждается;
 - `source_request_coverage.md` не имеет critical `missing` / `thin`;
 - `target_doc_quality_matrix.md` не имеет core `low`;

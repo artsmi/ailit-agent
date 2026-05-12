@@ -6,7 +6,7 @@
 
 **Канон (единственный SoT по цели продукта):** [`../context/algorithms/agent-memory/INDEX.md`](../context/algorithms/agent-memory/INDEX.md) и файлы пакета рядом с ним.
 
-Produced by: 23_target_doc_reader_reviewer
+Produced by: 23_implementation_plan_author
 
 ---
 

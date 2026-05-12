@@ -372,7 +372,7 @@ If a round processes the same selected files and produces zero new usable candid
 ## How start-feature / start-fix Must Use This
 
 - `02_analyst` must read this document before writing technical_specification.md when the task touches `<topic>`.
-- `06_planner` must trace tasks to Target Flow steps and Acceptance Criteria; **implementation slices and sequencing** live in `plan/<NN>-*.md` (owner `23`), not inside this canon package.
+- `06_planner` must trace tasks to Target Flow steps and Acceptance Criteria; **implementation slices and sequencing** live in `plan/<NN>-*.md` (owner **`23_implementation_plan_author`**), not inside this canon package.
 - `11_test_runner` must verify commands from `Commands` or mark them blocked with reason.
 - `13_tech_writer` must update this document only if implementation intentionally changes target behavior.
 ```
@@ -387,7 +387,7 @@ If a round processes the same selected files and produces zero new usable candid
 | D1 | User decision | `<user_answers.md>` | Failure Rules |
 | O1 | Option selected | `<synthesis.md>` | Scope |
 
-В **опубликованном каноне** `context/algorithms/**` эту таблицу **не** копируй: перенеси смысл в текст разделов и в «Связь с исходной постановкой»; машинная трассировка остаётся в артефактах `source_request_coverage.md` / quality matrix (`23`).
+В **опубликованном каноне** `context/algorithms/**` эту таблицу **не** копируй: перенеси смысл в текст разделов и в «Связь с исходной постановкой»; машинная трассировка остаётся в артефактах `source_request_coverage.md` / quality matrix (`25_target_doc_reader_reviewer`).
 
 ## Если Есть Нерешённые Вопросы
 

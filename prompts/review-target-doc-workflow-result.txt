@@ -25,7 +25,9 @@
 - `.cursor/agents/20_target_doc_synthesizer.md`
 - `.cursor/agents/21_target_doc_author.md`
 - `.cursor/agents/22_target_doc_verifier.md`
-- `.cursor/agents/23_target_doc_reader_reviewer.md`
+- `.cursor/agents/23_implementation_plan_author.md`
+- `.cursor/agents/24_implementation_plan_reviewer.md`
+- `.cursor/agents/25_target_doc_reader_reviewer.md`
 
 Не исправляй файлы. Только читай и делай review.
 
@@ -79,7 +81,7 @@
 - `subagent_ledger.md` существует.
 - Есть записи для `20`.
 - Если были research waves, есть записи для всех `19` / `14`.
-- Есть записи для `21`, `22`, `23`.
+- Есть записи для `21`, `22`, `23`, `24`, `25`.
 - Для каждой записи указаны role, subagent type, input, output, status.
 - Нет признаков inline-исполнения ролей.
 
@@ -152,7 +154,7 @@
 - содержит What Is Missing;
 - содержит Original Request Requirements с IDs `OR-*`;
 - содержит Requirements For 21;
-- содержит Requirements For 23;
+- содержит Requirements For 23 / 24 / 25;
 - содержит Small-Scope Recommendations для большого target doc;
 - если есть research waves, ссылается на `research_waves.json/md`.
 
@@ -210,7 +212,7 @@
 22 approved, но prompts.md thin или source_request_coverage.md missing.
 ```
 
-## 9. Reader review by 23
+## 9. Reader review by 25 (human package)
 
 Проверь, что существуют:
 
@@ -219,15 +221,16 @@
 - `target_doc_quality_matrix.md`
 - `open_gaps_and_waivers.md`
 - `reader_review.md`
-- файл по `implementation_plan_path` под `plan/` (см. JSON `20` / `23`)
+- файл по `implementation_plan_path` под `plan/` (см. JSON `20`; owner **`23_implementation_plan_author`**)
+- `context/artifacts/target_doc/plan_review_latest.json` (owner **`24_implementation_plan_reviewer`**, `stage_status=approved`)
 
 Каждый файл под `context/artifacts/target_doc/` из списка выше должен иметь:
 
 ```text
-Produced by: 23_target_doc_reader_reviewer
+Produced by: 25_target_doc_reader_reviewer
 ```
 
-Файл под `plan/` должен содержать строку `Produced by: 23_target_doc_reader_reviewer` в теле.
+Файл под `plan/` должен содержать строку `Produced by: 23_implementation_plan_author` в теле.
 
 Проверь `source_request_coverage.md`:
 
@@ -280,17 +283,24 @@ Produced by: 23_target_doc_reader_reviewer
 
 Если старый `approval.md` маскирует новый rework, это `fail`.
 
-## 12. План внедрения (`plan/`)
+## 12. План внедрения (`plan/`) и ревью `24`
 
 Проверь файл по **`implementation_plan_path`** (каталог `plan/`):
 
-- есть `Produced by: 23_target_doc_reader_reviewer`;
+- есть `Produced by: 23_implementation_plan_author`;
 - есть раздел трассировки «слайсы / этапы → канон» со ссылками на markdown в `context/algorithms/…`;
 - есть Forbidden Broad Scope;
 - есть входы для start-feature (ссылка на канон);
 - есть ожидаемые доказательства со ссылками на канон;
 - есть Known Gaps / таблица gaps;
 - есть small-scope recommendations или эквивалент в таблице слайсов.
+
+Проверь `context/artifacts/target_doc/plan_review_latest.json`:
+
+- валидный JSON;
+- `"role":"24_implementation_plan_reviewer"`;
+- `"stage_status":"approved"`;
+- `implementation_plan_file` совпадает с путём плана.
 
 Плохой признак:
 
@@ -361,7 +371,9 @@ Required fix:
 - `.cursor/agents/20_target_doc_synthesizer.md`
 - `.cursor/agents/21_target_doc_author.md`
 - `.cursor/agents/22_target_doc_verifier.md`
-- `.cursor/agents/23_target_doc_reader_reviewer.md`
+- `.cursor/agents/23_implementation_plan_author.md`
+- `.cursor/agents/24_implementation_plan_reviewer.md`
+- `.cursor/agents/25_target_doc_reader_reviewer.md`
 - `.cursor/rules/start-research.mdc`
 - `.cursor/rules/project/project-human-communication.mdc`
 

@@ -41,7 +41,7 @@ description: Координирует pipeline, артефакты, gates и Sub
 Ты делаешь:
 
 - Инициализируешь и ведёшь `artifacts_dir`, всегда `context/artifacts`.
-- Запускаешь роли `02+` через Cursor Subagents строго с моделью из `project-agent-models.mdc`: `analyst`, `tz_reviewer`, `architect`, `architecture_reviewer`, `planner`, `plan_reviewer`, `developer`, `code_reviewer`, `test_runner`, `change_inventory`, `tech_writer`, а также research/target-doc роли `14`-`22` через их agent prompt files.
+- Запускаешь роли `02+` через Cursor Subagents строго с моделью из `project-agent-models.mdc`: `analyst`, `tz_reviewer`, `architect`, `architecture_reviewer`, `planner`, `plan_reviewer`, `developer`, `code_reviewer`, `test_runner`, `change_inventory`, `tech_writer`, а также research/target-doc роли `14`, `19`-`25` через их agent prompt files.
 - Парсишь JSON в начале ответа каждого агента и сверяешь его с ожидаемой схемой этой роли.
 - Обновляешь `{artifacts_dir}/status.md` сразу после значимых событий.
 - Управляешь review loops, `task_waves`, parallel barriers, `fix_by_review`, `fix_by_tests`, blockers и final completion.
@@ -200,7 +200,7 @@ Subagent types:
 - `21_target_doc_author` → `tech_writer` role prompt `.cursor/agents/21_target_doc_author.md`
 - `22_target_doc_verifier` → `research_plan_reviewer` role prompt `.cursor/agents/22_target_doc_verifier.md`
 
-Если нужно запустить несколько независимых дорожек одной parallel wave, отправь несколько Subagent tool calls в одном сообщении. Не запускай внешние процессы как замену ролям `02+`. Если runtime не поддерживает custom research/target-doc roles `14`-`22`, остановись с blocker и укажи, какой role prompt невозможно запустить.
+Если нужно запустить несколько независимых дорожек одной parallel wave, отправь несколько Subagent tool calls в одном сообщении. Не запускай внешние процессы как замену ролям `02+`. Если runtime не поддерживает custom research/target-doc роли `14`, `19`-`25`, остановись с blocker и укажи, какой role prompt невозможно запустить.
 
 ### State Machine Feature/Fix
 
@@ -1048,7 +1048,7 @@ Commit / ntfy:
 Хорошо:
 
 ```markdown
-Блокер в `target_doc` на gate `reader_review`: `23` нашёл `prompts.md` как `thin`. Без rework пользователь утвердит неполный prompt contract. Варианты: вернуть в `21` или явно принять waiver. После ответа продолжим с `18 -> 21`.
+Блокер в `target_doc` на gate `reader_review`: `25` нашёл `prompts.md` как `thin`. Без rework пользователь утвердит неполный prompt contract. Варианты: вернуть в `21` или явно принять waiver. После ответа продолжим с `18 -> 21`.
 ```
 
 `01` обязан проверять:
