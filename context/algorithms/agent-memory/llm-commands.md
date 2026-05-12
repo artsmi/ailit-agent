@@ -13,6 +13,7 @@
 ## Текущая реализация
 
 - Имена команд **конверта** (`AgentMemoryCommandName` в `agent_memory_runtime_contract.py`): `plan_traversal`, `summarize_c`, `summarize_b`, `finish_decision`, **`propose_links`** (wire batch `agent_memory_link_candidate.v1`, см. [`memory-graph-links.md`](memory-graph-links.md) и `AgentMemoryQueryPipeline`).
+- Продуктовый путь `memory.query_context` реализован **только** через `AgentMemoryQueryPipeline` (W14). Цикл **G13** в виде `AgentMemoryLLMLoop` (`memory_llm.py`) в этот путь **не** входит.
 - Первый раунд планера использует системный промпт **только** под команду `plan_traversal`.
 - Для `plan_traversal` список допустимых **действий** в payload ограничен: например `list_children`, `get_b_summary`, `get_c_content`, `decompose_b_to_c`, `summarize_b`, `finish`. Рантайм собирает пути из действий, где есть поле `path`, без полного перечисления всех видов действий вручную.
 - **Исправление ответа (repair):** при ошибке разбора `W14CommandParseError` допускается не более **одного** дополнительного вызова LLM для исправления формата; в журнале это фаза `planner_repair`. Отдельного имени команды конверта `repair_invalid_response` в ответе модели **нет** — это режим работы рантайма, а не публичное имя команды.

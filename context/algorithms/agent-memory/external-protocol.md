@@ -21,9 +21,17 @@
 
 Запрос к сервису памяти имеет вид `memory.query_context`. В теле задаётся версия схемы `agent_work_memory_query.v1` и обязательные поля версии v1. Дополнительно инициатор может передать `query_kind` и `level` как **подсказки** из произвольного словаря; парсер v1 их не валидирует строго.
 
+**Жёсткие флаги payload (факт кода `AgentMemoryWorker.handle`):**
+
+- Если `memory_init` строго **`true`**, поля `path` и `hint_path` в envelope **должны быть пустыми**; иначе ответ `ok: false`, `code: memory_init_path_forbidden` (узкий init только через `goal`).
+- Поле **`requested_reads`** в клиентском payload при включённом флаге чистой замены W14 отклоняется целиком: `ok: false`, `code: legacy_contract_rejected` (см. `w14_clean_replacement` в коде).
+- Для v1-запроса без явного `project_root` worker может подставить корень из **`broker_workspace`** конфига подпроцесса; если список **`workspace_projects`** в payload пуст, worker может синтезировать его из записей workspace-файла брокера (массив объектов с `namespace` и `project_root`).
+
 Ответ содержит срез памяти, конверт `agent_memory_result`, поле `grants` и дублирование некоторых полей (`decision_summary`, `recommended_next_step`) на верхнем уровне и внутри `agent_memory_result`. **Единый авторитет для продолжения диалога** — объект `agent_memory_result`: при конфликте с дублями наверху приоритет у него.
 
-**Заметка для кода:** поле `grants` присутствует в ответе, но в одном из показанных путей оболочка агента **не** подключает его к проверке прав чтения файлов — это намеренно помечено как **`implementation_backlog`** до выравнивания.
+**Отмена:** второй сервис в том же процессе — **`memory.cancel_query_context`** с тем же `query_id`, что у активного запроса; при успешной отмене pipeline прерывается, в ответе `memory.query_context` — ошибка `memory_query_cancelled`.
+
+**Заметка для кода:** поле `grants` заполняется worker (в т.ч. `_grants_for_am_read_lines` при терминальном W14-finish), но **`ToolExecutor` в основном цикле сессии** (`session/loop.py`) создаётся без `MemoryGrantChecker`, то есть выданные гранты **не** автоматически сужают `read_file` / `read_symbol` — это по-прежнему **`implementation_backlog`** до явного подключения в AgentWork.
 
 ### CLI
 
@@ -96,7 +104,7 @@
 #### Кратко по обязательным полям payload
 
 - **`heartbeat`:** `session_alive=true`.
-- **`progress`:** `runtime_state` (строка из целевой машины состояний), `message` компактно.
+- **`progress`:** `runtime_state` — компактная строка фазы (в реализации W14 часто операционные имена вроде `llm_await`, `w14_intermediate_slice`; целевой канон допускает выравнивание с машиной состояний из [`runtime-flow.md`](runtime-flow.md)); `message` компактно.
 - **`highlighted_nodes`:** `node_ids: string[]` (ограниченное число), `reason` коротко.
 - **`link_candidates`:** массив `agent_memory_link_candidate.v1` **до** валидации (опционально для CLI, обязательно для Desktop при включённой функции).
 - **`links_updated`:** `{ "applied": [...], "rejected": [{ "link_id", "reason"}] }`.

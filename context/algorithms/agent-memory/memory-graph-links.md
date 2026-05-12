@@ -14,6 +14,7 @@
 ## Текущая реализация
 
 - Хранилище PAG: SQLite, рёбра в таблице с полями класса и типа; распространённый паттерн — `contains` и провенанс `derived_from` для D→B/C.
+- Промежуточный **`plan_traversal`** в W14: после выбора путей рантайм **материализует** узлы B и иерархию `contains` в `_run_w14_action_runtime` (`agent_memory_query_pipeline.py`), затем индексатор и сводки; это не отдельный «тихий» side-channel.
 - Wire-команда **`propose_links`:** кандидаты `agent_memory_link_candidate.v1` проходят **`AgentMemoryLinkCandidateValidator`** (`tools/agent_core/runtime/agent_memory_link_candidate_validator.py`); применимые рёбра пишутся через **`PagGraphWriteService`** (`pag_graph_write_service.py`), а не напрямую из ответа LLM.
 - **Риск:** два шаблона идентификатора узла уровня **A** (в материализации W14 и в индексаторе) — возможный **дрейф** идентификаторов; целевое поведение — один канонический шаблон на пару `(namespace, идентичность репозитория)` (**`implementation_backlog`** с миграцией).
 

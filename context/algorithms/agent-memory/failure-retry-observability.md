@@ -16,6 +16,7 @@
 ## Текущая реализация
 
 - Repair планера: **один** дополнительный вызов LLM при части ошибок; политика функции «разрешать ли repair» отклоняет repair для некоторых текстов ошибок (например явное «должен быть только json» / «invalid json»).
+- Отмена: `memory.cancel_query_context` → `MemoryQueryCancelledError` внутри pipeline → ответ с `memory_query_cancelled` (без полноценного `agent_memory_result` в успешном теле того же round — см. обработчик в `memory_agent.py`).
 - Множество имён `event_name` в журнале памяти **шире**, чем короткий каталог внешних событий D-OBS.
 - Подсветка графа: stdout с именем вроде `memory.w14.graph_highlight`; в компактном файле имя может нормализоваться (например без точки в середине).
 - Исторические имена тестов из старых планов (например `*_prompt_contains_*`) в репозитории **отсутствуют**; норматив — только фактические имена ниже.
@@ -40,6 +41,7 @@
 | Файл отсутствует / не читается | `partial` | нет | `file_missing` |
 | Язык неизвестен | `partial` (эвристический фрагмент) | нет | `language_unknown_fallback` |
 | Превышены лимиты (запросы на turn, узлы, рёбра) | `partial` | нет | `cap_exceeded` |
+| Отмена по `memory.cancel_query_context` | ошибка RPC / не `ok` | нет | `memory_query_cancelled` |
 | Раунд без прогресса (FR-no-progress): тот же выбор при нуле usable-кандидатов при ненулевом C-scope | `partial` | нет | `no_progress` |
 | Нет данных в PAG | разрешённый рост/индекс **или** `partial` с причиной | ограниченно | `empty_graph` |
 | KB отсутствует на пути init | по политике транзакций | — | `kb_*` (только init) |
@@ -103,7 +105,7 @@ SoT: `STDOUT_INTERNAL_TO_COMPACT_EVENT` в `tools/agent_core/runtime/agent_memor
 
 ## Сводка implementation_backlog (см. глоссарий)
 
-- AgentWork: подключить `grants` к проверке чтения файлов.
+- AgentWork / цикл инструментов: передать `grants` из ответа памяти в `MemoryGrantChecker` при создании `ToolExecutor` (сейчас checker в типичном loop не задаётся).
 - Единый id узла A (см. [`memory-graph-links.md`](memory-graph-links.md)).
 - Расширение D-OBS или второй каталог внутреннего журнала.
 - Ручной smoke `ailit memory init ./` для полного операторского DoD, если gate **11** его не включал ([`external-protocol.md`](external-protocol.md)).

@@ -14,11 +14,14 @@
 
 ## Текущая реализация
 
-- Два пути доставки: через **брокер** в подпроцесс `memory_agent` и **CLI** `ailit memory init` (in-process worker).
-- Конвейер **W14:** раунды планера включают `plan_traversal`, отдельную фазу wire для **`propose_links`** (кандидаты связей → валидатор → PAG), `finish_decision`; детали имён шагов и терминальных веток — `agent_memory_query_pipeline.py`, см. [`llm-commands.md`](llm-commands.md).
-- В коде есть перечень «состояний рантайма» и функции проверки переходов, но на показанном пути обработки переходы **не** проверяются assert-ами; шаги журналируются как `memory.runtime.step` со **строковыми** именами шагов без жёсткой привязки к графу целевых состояний.
-- Рост PAG на основном пути с LLM в одном из вариантов кода не вызывается из центрального обработчика действий; отдельный путь без LLM может вызывать рост графа.
-- База знаний **KB** на пути обычного `memory.query_context` в worker может не использоваться; на пути init участвует по политике транзакций.
+- Два пути доставки: через **брокер** в подпроцесс `memory_agent` (`tools/agent_core/runtime/subprocess_agents/memory_agent.py`, класс `AgentMemoryWorker`) и **CLI** `ailit memory init` (тот же конвейер W14 внутри worker при корректном конверте запроса).
+- Основной планер **W14** (не G13): `AgentMemoryQueryPipeline.run` в `tools/agent_core/runtime/agent_memory_query_pipeline.py` — после политики LLM и короткого пути **mechanical slice** (без провайдера) идёт первый раунд `plan_traversal`, при ошибке разбора — до одного **repair**; ветки верхнего уровня: `finish_decision`, **`propose_links`** (кандидаты → `AgentMemoryLinkCandidateValidator` → `PagGraphWriteService`), либо промежуточный `plan_traversal`, который обрабатывается в **`_run_w14_action_runtime`**: выбор B-путей, **`_materialize_b_paths`**, **`PagIndexer.sync_changes`**, журнал `memory.index.node_updated`, внутренние фазы **`summarize_c` / `summarize_b`** через `AgentMemorySummaryService`, сборка `memory_slice` и при готовности — явные результаты для `agent_memory_result.v1`. То есть **рост и обновление PAG на пути с включённым LLM выполняются в этом же pipeline**, а не только «сбоку».
+- Устаревший цикл **G13** / `AgentMemoryLLMLoop` в `memory_llm.py` для ответа на `memory.query_context` **не** подключается: класс остаётся в репозитории для тестов и совместимости модулей, продуктовый запрос памяти идёт через W14.
+- **Без LLM** (`memory.llm` выключен политикой): `_fallback_without_llm` вызывает **`_grow_pag_for_query`** (`QueryDrivenPagGrowth` в `memory_growth.py`) — эвристический shortlist путей и узлов без раундов `plan_traversal`, затем `_slice_from_pag` или fallback-slice.
+- Журнал шагов W14: `log_memory_w14_runtime_step` пишет поля `state` и `next_state` с **операционными** именами из кода (`start`, `llm_await`, `w14_command_parsed`, `w14_intermediate_slice`, `terminal` и т.д.), а не с полным набором имён целевой машины из раздела «Целевое поведение» ниже; assert-проверок графа переходов нет.
+- Отмена долгого запроса: отдельный сервис **`memory.cancel_query_context`** по `query_id` (реестр событий в том же worker); pipeline бросает `MemoryQueryCancelledError`, ответ с `code: memory_query_cancelled`.
+- Дополнительные входы worker (не полный query): **`memory.file_changed`**, **`memory.change_feedback`** — вне основного потока «один query → один W14-run».
+- **KB** в `memory_agent.py` и `agent_memory_query_pipeline.py` не вызывается; вспомогательные пути (например init) могут трогать KB по другим модулям — см. оркестратор init, не этот pipeline.
 
 ## Целевое поведение
 
