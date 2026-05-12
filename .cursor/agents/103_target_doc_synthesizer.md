@@ -327,6 +327,8 @@ Legacy fallback:
 
 Не запускай donors "для красоты". Каждый donor job должен иметь research question.
 
+Ожидаемый результат от `101` для downstream `106`: в отчёте **обязательны** диапазоны строк и раздел **Borrow index** (см. `.cursor/agents/101_donor_researcher.md`), чтобы в `plan/*.md` заполнилась **минимальная таблица donor ref** без догадок.
+
 Пример:
 
 ```json

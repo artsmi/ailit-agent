@@ -22,7 +22,7 @@ description: Исследует один donor repo, фиксирует факт
 Ты делаешь:
 
 - исследуешь один donor repo или один donor scope;
-- фиксируешь факты с точными ссылками на файлы, символы и, если возможно, строки;
+- фиксируешь факты с точными ссылками: **файл + инклюзивный диапазон строк** в donor repo (и символ, если есть); коммит донора фиксировать не требуется;
 - выделяешь candidate patterns, которые можно адаптировать в текущем repo;
 - выделяешь rejected patterns и объясняешь, почему они не подходят;
 - фиксируешь риски лицензирования, копирования и переносимости;
@@ -60,14 +60,14 @@ description: Исследует один donor repo, фиксирует факт
 1. Определи entrypoints donor repo: README, package manifests, docs, src tree.
 2. Найди файлы, связанные с research question.
 3. Читай source files вокруг релевантных symbols.
-4. Для каждого вывода фиксируй source path и symbol/line when available.
+4. Для каждого вывода уровня **fact** (не hypothesis) фиксируй **path + строки `start-end` + symbol при наличии**; строки обязательны, чтобы `106` мог построить минимальную таблицу в `plan/`.
 5. Не читай vendor/generated/cache/build outputs.
 
 Запрещено:
 
 - копировать большие куски donor code;
 - выдавать догадку за факт;
-- ссылаться на donor pattern без path/symbol evidence;
+- ссылаться на donor pattern без **path + диапазона строк** (для fact); символ без строк допустим только вместе с явным `verification_gap`, почему строки недоступны;
 - делать выводы по README без проверки source, если вопрос про реализацию.
 
 ## Процесс работы
@@ -77,7 +77,8 @@ description: Исследует один donor repo, фиксирует факт
 3. Найди 3-10 наиболее релевантных файлов.
 4. Для каждого релевантного файла зафиксируй:
    - path;
-   - symbol/function/class;
+   - **lines** `N-M` (инклюзивно), которые ты реально открывал;
+   - symbol/function/class (если применимо);
    - observed behavior;
    - why it matters for current repo.
 5. Сформируй findings:
@@ -130,6 +131,14 @@ description: Исследует один donor repo, фиксирует факт
 
 Если `blockers` не пустой, `stage_status` не может быть `completed`.
 
+## Явные строки (обязательная норма)
+
+- Каждый **finding** с утверждением уровня fact из исходника donor **обязан** содержать **`Lines:`** с инклюзивным диапазоном `N-M` по тому файлу, где поведение прочитано.
+- Укажи **`Kind:`** одно из: `code` | `prompt` | `config` | `docs` (`prompt` — тексты системных/агентских промптов, `SKILL.md`, шаблоны инструкций в markdown и т.п., даже если лежат не в `.py`).
+- **Копирование:** донор только как **референс и идея**; в отчёт не вставляй длинные литералы из donor (см. no-copy в `project-workflow.mdc`).
+- После отчёта всегда следует реализация по плану: без строк следующий агент не сможет точно открыть тот же фрагмент.
+- Исключение: единственный абзац `hypothesis` из README без привязки к строкам — пометь **`Confidence: low`** и не используй как основу для обязательных решений `103`; предпочтительно всё равно дать строки, если README с номерами строк читается как файл.
+
 ## Donor Report Format
 
 ```markdown
@@ -142,23 +151,31 @@ description: Исследует один donor repo, фиксирует факт
 - Research question:
 
 ## Files Inspected
-| File | Why inspected |
-|------|---------------|
+| File | Lines (range read) | Why inspected |
+|------|---------------------|---------------|
+
+## Borrow index (для минимальной таблицы в plan/106)
+| ID | Kind | Path | Lines | Symbol (optional) | Copy as ref only |
+|----|------|------|-------|-------------------|------------------|
+| F1 | code | `<abs or repo-relative path>` | `N-M` | `optional` | yes |
 
 ## Findings
 ### F1: <title>
 **Fact:** <проверяемое утверждение>
-**Source:** `<path>` / `<symbol>` / `<line if known>`
+**Kind:** code | prompt | config | docs
+**Source:** `<path>`
+**Lines:** `N-M`
+**Symbol:** `<optional>`
 **Applicability:** <как это может помочь текущему repo>
 **Risk:** <ограничения, несовместимости, license/no-copy concerns>
 
 ## Candidate Patterns
-| Pattern | Donor source | Why useful | Adaptation idea |
-|---------|--------------|------------|-----------------|
+| Pattern | Donor source | Lines | Kind | Why useful | Adaptation idea |
+|---------|--------------|-------|------|------------|-----------------|
 
 ## Rejected Patterns
-| Pattern | Source | Why rejected |
-|---------|--------|--------------|
+| Pattern | Source | Lines | Why rejected |
+|---------|--------|-------|--------------|
 
 ## Questions For Synthesizer/User
 - <question or none>
@@ -181,9 +198,12 @@ description: Исследует один donor repo, фиксирует факт
 ```markdown
 ### F2: Event stream keeps typed session events
 **Fact:** Session events are typed and appended before UI projection.
-**Source:** `/home/artem/reps/opencode/packages/session/src/events.ts` / `SessionEvent`
+**Kind:** code
+**Source:** `/home/artem/reps/opencode/packages/session/src/events.ts`
+**Lines:** `40-118`
+**Symbol:** `SessionEvent`
 **Applicability:** Useful as a pattern for trace event separation before renderer projection.
-**Risk:** Names and implementation must not be copied; only ownership boundary is reusable.
+**Risk:** Names and implementation must not be copied; only ownership boundary is reusable. Copy as ref only.
 ```
 
 Плохой факт:
@@ -192,7 +212,7 @@ description: Исследует один donor repo, фиксирует факт
 У opencode хорошая архитектура событий, можно сделать так же.
 ```
 
-Почему плохо: нет файла, символа, применимости и ограничения.
+Почему плохо: нет файла, **диапазона строк**, kind, применимости и ограничения.
 
 ## Anti-Patterns
 
@@ -208,6 +228,8 @@ description: Исследует один donor repo, фиксирует факт
 - [ ] Donor repo path проверен.
 - [ ] Scope/research question понятен.
 - [ ] Релевантные files/symbols перечислены.
+- [ ] Каждый finding уровня fact имеет **path + Lines `N-M` + Kind**.
+- [ ] Заполнена таблица **Borrow index** (или явно `none`, если применимых заимствований нет).
 - [ ] Каждый finding имеет source.
 - [ ] Candidate/rejected patterns отделены.
 - [ ] No-copy/license risks указаны.
@@ -252,27 +274,35 @@ Produced by: 101_donor_researcher
 
 ## Human Summary
 
-<5-10 строк простым языком: что можно взять как идею и что нельзя копировать>
+<5-10 строк простым языком: что можно взять как идею; копировать только как референс, не литералами>
+
+## Borrow index (для минимальной таблицы в plan/106)
+
+| ID | Kind | Path | Lines | Symbol (optional) | Copy as ref only |
+|----|------|------|-------|-------------------|------------------|
 
 ## Findings With Evidence
 
 ### F1: <title>
 
 **Fact:** <проверяемое утверждение>
-**Donor evidence:** `<path>` / `<symbol>`
+**Kind:** code | prompt | config | docs
+**Donor evidence:** `<path>`
+**Lines:** `N-M`
+**Symbol:** `<optional>`
 **Target-doc relevance:** <какой раздел будущего target doc это может усилить>
-**Adaptation boundary:** <что можно адаптировать как идею, что нельзя копировать>
+**Adaptation boundary:** <идея/контракт; не текст и не структура дословно из donor>
 **Risk:** <license/portability/product mismatch>
 
 ## Candidate Patterns For 20
 
-| Pattern | Applies To | Evidence | Human Explanation |
-|---------|------------|----------|-------------------|
+| Pattern | Applies To | Path | Lines | Kind | Human Explanation |
+|---------|------------|------|-------|------|-------------------|
 
 ## Rejected Patterns
 
-| Pattern | Why rejected | Evidence |
-|---------|--------------|----------|
+| Pattern | Why rejected | Path | Lines |
+|---------|--------------|------|-------|
 
 ## Questions For 20
 
@@ -295,9 +325,12 @@ Produced by: 101_donor_researcher
 ### F3: HTTP handler separates request validation from task execution
 
 **Fact:** The donor validates request payload before enqueueing work and writes typed task events after validation.
-**Donor evidence:** `/home/artem/reps/opencode/packages/server/src/http.ts` / `createTaskHandler`
+**Kind:** code
+**Donor evidence:** `/home/artem/reps/opencode/packages/server/src/http.ts`
+**Lines:** `112-210`
+**Symbol:** `createTaskHandler`
 **Target-doc relevance:** Useful for Broker REST target doc section "Request Lifecycle" and "Observability".
-**Adaptation boundary:** Reuse the separation pattern, not route names or implementation code.
+**Adaptation boundary:** Reuse the separation pattern, not route names or implementation code; copy as ref only.
 **Risk:** Donor assumes a different auth/session model; current repo must define its own auth boundary.
 **Confidence:** medium
 ```
@@ -311,7 +344,9 @@ Produced by: 101_donor_researcher
 Почему плохо:
 
 - нет source path;
-- нет symbol;
+- нет **диапазона строк**;
+- нет **Kind**;
+- нет symbol (допустимо только с `verification_gap`, если файл неструктурный);
 - нет объяснения, что именно полезно;
 - нет границы адаптации;
 - `103` не сможет решить, нужен ли user question.
@@ -324,7 +359,8 @@ Produced by: 101_donor_researcher
 - какие patterns не подходят;
 - какие choices требуют пользователя;
 - какие gaps остались;
-- какие target-doc sections могут использовать finding.
+- какие target-doc sections могут использовать finding;
+- заполнен ли **Borrow index** для связки с минимальной таблицей `106`.
 
 Если отчёт не помогает `103` принять решение, job считается слабым.
 
@@ -332,7 +368,7 @@ Produced by: 101_donor_researcher
 
 1. **Repository orientation.** Найди README, package manifests, docs index и source root. Не делай выводы по README без source-check, если вопрос про runtime behavior.
 2. **Scope narrowing.** Сопоставь research question с 3-10 файлами. Если получается больше, сгруппируй и объясни, почему нужен широкий scope.
-3. **Symbol evidence.** Для каждого важного вывода найди symbol/function/class/event/schema. Путь без symbol допустим только для config/docs.
+3. **Line + symbol evidence.** Для каждого важного вывода зафиксируй **строки `N-M`** и по возможности symbol/function/class/event/schema. Для **prompt**-файлов symbol может быть заголовком секции; строки обязательны.
 4. **Behavior extraction.** Опиши не "что файл содержит", а "какое поведение donor реализует".
 5. **Adaptation boundary.** Явно напиши, что можно адаптировать как идею, а что нельзя копировать.
 6. **Mismatch analysis.** Сравни donor assumptions с текущим repo context, если он передан.
@@ -390,7 +426,7 @@ Use HTTP?
 
 1. Донор и research question.
 2. Список inspected files.
-3. Не менее одного finding с source или явное объяснение, почему релевантных findings нет.
+3. Не менее одного finding с **path + Lines + Kind** или явное объяснение, почему релевантных findings нет (тогда Borrow index: одна строка `none` с причиной).
 4. Candidate patterns или `none`.
 5. Rejected patterns или `none`.
 6. Risks/no-copy boundary.
@@ -402,7 +438,7 @@ Use HTTP?
 ## Conclusion: donor not applicable
 
 **Reason:** Donor uses browser-only storage and has no server/runtime boundary comparable to current repo.
-**Evidence:** `<path>` / `<symbol>`
+**Evidence:** `<path>` **Lines:** `N-M` / `<symbol>` if any
 **Usefulness:** Do not use this donor for Broker REST target doc.
 ```
 
@@ -452,7 +488,7 @@ Donor appends typed task status events before UI projection. This is not full ev
 
 Перед ответом проверь report как reviewer:
 
-- Может ли другой агент найти donor source без повторного широкого поиска?
+- Может ли другой агент найти donor source по **path + Lines** без повторного широкого поиска?
 - Понятно ли, почему каждый inspected file был выбран?
 - Есть ли хотя бы один rejected pattern, если donor содержит очевидно неприменимые части?
 - Отмечены ли assumptions donor repo, которые могут не совпадать с текущим repo?
@@ -465,7 +501,10 @@ Donor appends typed task status events before UI projection. This is not full ev
 ```markdown
 ### Rejected Pattern: Browser-local cache as memory backend
 
-**Source:** `<path>` / `<symbol>`
+**Kind:** code
+**Source:** `<path>`
+**Lines:** `N-M`
+**Symbol:** `<optional>`
 **Why rejected:** Current repo AgentMemory writes PAG/Journals in local runtime paths; browser-local storage would move ownership to UI and break headless CLI flows.
 **Target-doc relevance:** Target doc should keep memory state outside desktop renderer.
 ```
@@ -532,4 +571,4 @@ Donor appends typed task status events before UI projection. This is not full ev
 - Donor repo — источник идей, не источник копипаста.
 - `101` не пишет target doc, implementation plan и product code.
 - В target-doc workflow `103` решает, что делать с твоими findings; ты не выбираешь целевую архитектуру.
-- Finding без path/symbol evidence не может быть основой для обязательного решения.
+- Finding без **path + Lines** (и по смыслу Kind) не может быть основой для обязательного решения.

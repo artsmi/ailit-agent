@@ -174,7 +174,7 @@ Completion разрешён только если:
 - `target_algorithm_draft.md` существует;
 - `verification.md` существует и `105` approved;
 - `human_review_packet.md`, `source_request_coverage.md`, `target_doc_quality_matrix.md`, `open_gaps_and_waivers.md`, `reader_review.md` существуют и созданы `108_target_doc_reader_reviewer`;
-- файл плана внедрения под `plan/` существует по пути из JSON `103` (`implementation_plan_path` / `implementation_plan_file`), содержит marker `Produced by: 106_implementation_plan_author`, **не** лежит в `context/algorithms/**`;
+- файл плана внедрения под `plan/` существует по пути из JSON `103` (`implementation_plan_path` / `implementation_plan_file`), содержит marker `Produced by: 106_implementation_plan_author`, **не** лежит в `context/algorithms/**`, и содержит раздел **«Donor ref (минимальная таблица)»** по контракту `.cursor/agents/106_implementation_plan_author.md` (или явное `none`, если донор не использовался);
 - `context/artifacts/target_doc/plan_review_latest.json` существует, валидный JSON, `"role":"107_implementation_plan_reviewer"`, `"stage_status":"approved"`, `implementation_plan_file` согласован с путём плана;
 - если `wave_execution_report.md` перечисляет `wave_id` и jobs, то `research_waves.json` содержит непустой `research_waves` с согласованными `wave_id` / `job_id` / `output_file` (`103` не затирает JSON после barrier); если research не проводился, оба артефакта явно пустые; `status.md` существует и содержит marker `100`;
 - если `105.required_author_rework[*].requires_new_research=true`, перед author rework выполнен маршрут `105 → 103 → research_waves → 103 → 104`;
