@@ -531,7 +531,17 @@ curl -d "Нужен ответ по target-doc: <кратко тема и что
 
 Если `target_algorithm_draft.md` уже существует до запуска `21` и не содержит `Produced by: 21_target_doc_author`, не используй его как валидный draft.
 
-Handoff для `21`:
+### План authoring (`authoring_plan` от `20`)
+
+Если последний JSON `20` содержит `authoring_plan.mode=sequential` и непустой массив `authoring_plan.sequential_units`:
+
+1. Отсортируй `sequential_units` по возрастанию `order`.
+2. Для **каждого** unit подряд запусти Subagent `21` с handoff ниже, добавив блок **AUTHORING_UNIT** и список `completed_authoring_unit_ids` (накапливай `unit_id` после каждого успешного JSON `21` со `stage_status=completed`).
+3. После последнего unit переходи к **Verification Gate** (один вызов `22` на полный draft).
+
+Если `authoring_plan` отсутствует, `mode!=sequential` или `sequential_units` пуст — **один** вызов `21`, затем **Verification Gate**.
+
+Handoff для `21` (дополняй при sequential units):
 
 ```markdown
 КОНТЕКСТ:
@@ -544,14 +554,18 @@ Handoff для `21`:
 - User answers: `<path or none>`
 - Draft path: `context/artifacts/target_doc/target_algorithm_draft.md`
 - Canonical candidate: `context/algorithms/<topic>.md`
+- Authoring plan (JSON copy from `20`): `<json or none>`
+- Authoring unit (current): `<json object or none>`
+- Completed authoring unit ids: `<list>`
+- Authoring mode: `full` | `language_polish_only`
 
 ЗАДАЧА:
-Напиши человекочитаемый target algorithm document с техническим контрактом и примерами.
+Напиши или обнови человекочитаемый target algorithm document с техническим контрактом и примерами (или выполни `language_polish_only`, если указано в Verification Gate после `22`).
 ```
 
 ## Verification Gate
 
-После `21` запускай `22_target_doc_verifier`.
+После **завершения всех** вызовов `21` для текущего authoring-цикла запускай `22_target_doc_verifier` **один раз** на полный draft/канон-кандидат.
 
 Перед запуском `22` проверь, что draft содержит `Produced by: 21_target_doc_author`. Если нет — blocker, потому что draft создан не owner role или provenance потерян.
 
@@ -563,7 +577,8 @@ Handoff для `21`:
 - user answers;
 - draft doc;
 - canonical candidate path;
-- project communication rule.
+- project communication rule;
+- при наличии — последний JSON `20` с `authoring_plan` (для контекста объёма).
 
 `22` должен вернуть:
 
@@ -572,6 +587,8 @@ Handoff для `21`:
   "role": "22_target_doc_verifier",
   "stage_status": "approved",
   "review_file": "context/artifacts/target_doc/verification.md",
+  "has_blocking_issues": false,
+  "language_polish_recommended": false,
   "user_questions": [],
   "required_author_rework": [],
   "ready_for_user_approval": true,
@@ -581,10 +598,14 @@ Handoff для `21`:
 
 Если `required_author_rework` не пуст:
 
-- если каждый item имеет `requires_new_research=false` или поле отсутствует и rework явно редакторский — верни draft в `21`;
 - если хотя бы один item имеет `requires_new_research=true` — не запускай `21`; запусти `20` с `verification.md`, draft и reports, чтобы `20` сформировал follow-up `research_waves`;
+- иначе, если `language_polish_recommended=true`, **у каждого** item явно `rework_category=readability_canon`, ни у одного item нет `requires_new_research=true`, и в `status.md` ещё **нет** `language_polish_pass_used=true`:
+  1. Запиши `language_polish_pass_used=true` в `status.md` **до** Subagent `21`.
+  2. Запусти **один** Subagent `21` с `Authoring mode: language_polish_only`, тем же draft path и последним `verification.md` в handoff; контрактные поля менять запрещено (см. роль `21`).
+  3. Снова запусти `22` и оцени результат; второй polish без пользователя запрещён.
+- иначе — верни draft в `21` с `authoring_mode=full` (обычный rework);
 - передай только конкретные findings;
-- максимум два author/review цикла без пользователя;
+- максимум два author/review цикла без пользователя (считай **каждую** пару `21→22` за пол-цикла; последовательные `21` по `authoring_plan` до первого `22` считаются **одним** authoring-циклом);
 - после лимита оформи blocker.
 
 Если `user_questions` не пуст:
@@ -666,7 +687,7 @@ User approval gate запрещён без файлов:
 
 Если approval получен:
 
-0. **Canonical scrub:** перед записью/фиксацией убедись, что дерево `context/algorithms/**` для данного топика не содержит путей `context/artifacts/…` и не ссылается на `original_user_request.md` / `synthesis.md` / `current_state` / `donor` как на обязательную опору для читателя (см. `start-research.mdc`). При необходимости верни на `21` для правки канона, не коммить «грязный» канон.
+0. **Canonical scrub:** перед записью/фиксацией убедись, что дерево `context/algorithms/**` для данного топика не нарушает **CR4–CR6** (нет путей `context/artifacts/…`, нет обязательной опоры читателя на `original_user_request.md` / `synthesis.md` / `current_state` / `donor` вместо переноса смысла в текст; глоссарий/INDEX по **CR3**, **CR8**). При необходимости верни на `21` для правки канона, не коммить «грязный» канон.
 
 1. Создай approval artifact по iteration:
    - `approval_primary.md` для первичной публикации;

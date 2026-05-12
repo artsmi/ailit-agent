@@ -554,7 +554,57 @@ G1...
     "small_scope_recommendations_required": ["S1"]
   },
   "next_action": "run_author",
-  "next_role": "21_target_doc_author"
+  "next_role": "21_target_doc_author",
+  "authoring_plan": {
+    "mode": "single",
+    "rationale": "",
+    "sequential_units": []
+  }
+}
+```
+
+Поле **`authoring_plan`** опционально. Если `mode` равен `single` или `sequential_units` пустой, `18` запускает **один** Subagent `21`, затем `22`. Если `mode=sequential` и `sequential_units` непустой, `18` запускает **по одному** `21` на каждый unit в порядке `order`, затем **один** `22` на весь draft (см. `start-research.mdc`, «Authoring с `authoring_plan`»).
+
+## Authoring plan для крупных target doc
+
+Используй `authoring_plan`, когда без нарезки один вызов `21` перегрузит контекст или смешает несвязные подсистемы. Триггеры (достаточно одного):
+
+- пакет канона: более двух новых файлов под `context/algorithms/<topic>/`;
+- более **восьми** активных `OR-*` с разными target-flow ветками;
+- synthesis явно описывает **несколько независимых** целевых подсистем в одном запросе.
+
+Правила:
+
+- `sequential_units[*].unit_id` — уникальные строки; `order` — строго 0..N-1 без дыр.
+- Каждый unit содержит `human_title`, `focus_sections` (подсказки разделов для `21`), опционально `canon_paths_hint` (пути файлов пакета), опционально `synthesis_anchor` (где в `synthesis.md` искать факты).
+- Не более **8** units без нового user scope decision.
+- Units **не** дублируют research jobs: это только нарезка authoring.
+- В `synthesis.md` добавь раздел **Authoring plan summary** с таблицей units и rationale.
+
+Пример `authoring_plan`:
+
+```json
+"authoring_plan": {
+  "mode": "sequential",
+  "rationale": "Отдельно каркас пакета и глоссарий, затем протокол и примеры — меньше потерь контекста в одном вызове `21`.",
+  "sequential_units": [
+    {
+      "unit_id": "u_package_skeleton",
+      "order": 0,
+      "human_title": "INDEX, scope, glossary, связь с постановкой",
+      "focus_sections": ["Исходная цель", "Scope", "Связь с исходной постановкой", "glossary"],
+      "canon_paths_hint": ["context/algorithms/my-topic/INDEX.md", "context/algorithms/my-topic/glossary.md"],
+      "synthesis_anchor": "Target Algorithm Candidate / scope"
+    },
+    {
+      "unit_id": "u_flow_contracts",
+      "order": 1,
+      "human_title": "Target flow, examples, commands, observability, failure rules",
+      "focus_sections": ["Target Flow", "Examples", "Commands", "Observability", "Failure And Retry Rules", "Acceptance Criteria"],
+      "canon_paths_hint": ["context/algorithms/my-topic/core-behavior.md"],
+      "synthesis_anchor": "Requirements For 21"
+    }
+  ]
 }
 ```
 
@@ -576,6 +626,7 @@ G1...
 - возвращать unknown `research_waves[*].jobs[*].kind`;
 - закрывать workflow без `22` и user OK.
 - возвращать `ready_for_author=true` без `Original Request Requirements` и `Small-Scope Recommendations` для большого target doc.
+- игнорировать триггеры **Authoring plan** и отдавать весь объём в один `21`, когда нарезка явно нужна по правилам секции «Authoring plan для крупных target doc».
 
 ## Checklist
 
@@ -591,6 +642,7 @@ G1...
 - [ ] User questions человекочитаемые и с последствиями.
 - [ ] `ready_for_author` только при полной структуре для `21`.
 - [ ] При `ready_for_author=true` указан `next_role=21_target_doc_author`.
+- [ ] Если target doc крупный, в JSON есть осмысленный `authoring_plan` (`sequential` + units или явный `single`).
 - [ ] `synthesis.md` обновлён.
 - [ ] JSON-first ответ валиден.
 

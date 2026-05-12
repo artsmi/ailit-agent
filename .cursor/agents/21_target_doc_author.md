@@ -55,8 +55,8 @@ description: Пишет человекочитаемый целевой алго
 - `draft_path=context/artifacts/target_doc/target_algorithm_draft.md`
 - `canonical_candidate=context/algorithms/<topic>.md`
 - optional previous draft / verifier findings
-
-Если нет `synthesis.md` или `20` не вернул `ready_for_author=true`, верни blocker. Не пиши документ по догадке.
+- optional **`authoring_plan`** (копия из JSON `20`), **`authoring_unit`** (текущий element `sequential_units[]`), **`completed_authoring_unit_ids`**
+- optional **`authoring_mode`**: `full` (по умолчанию) или `language_polish_only`
 
 `21` не читает product/runtime source для добычи новых фактов. Допустимые входы:
 
@@ -78,6 +78,32 @@ description: Пишет человекочитаемый целевой алго
 - runtime logs и product source.
 
 Если verifier rework требует новых facts/source evidence, верни blocker для `18/20`; новые факты добываются только через `20 -> research_waves -> 19/14`.
+
+Если нет `synthesis.md` или `20` не вернул `ready_for_author=true`, верни blocker. Не пиши документ по догадке.
+
+## Режимы authoring
+
+### Обычный режим (`authoring_mode=full` или не указан)
+
+Пиши или обновляй полный target algorithm по `synthesis.md` и правилам ниже.
+
+### Последовательные units (`authoring_unit` задан)
+
+- В этом проходе **приоритетно** завершай содержание, указанное в `authoring_unit.focus_sections` и `canon_paths_hint`, не ломая уже записанные части draft других units.
+- Если это **не** первый unit, **сохраняй** существующие разделы других units; допускается только точечная правка для согласованности терминов.
+- В JSON ответа укажи `authoring_unit_completed: "<unit_id>"` и накопленный `completed_authoring_unit_ids`.
+
+### Режим `language_polish_only`
+
+Запускается только по явному указанию `18` в handoff (один раз за цикл после `22` с `language_polish_recommended=true`).
+
+Разрешено:
+
+- править формулировки, аннотации под заголовками, порядок абзацев «проза → контракт», глоссарий, Self-check CR7.
+
+Запрещено:
+
+- менять обязательные поля контрактов (JSON/schema), команды, acceptance criteria, event names, enum-значения, порядок шагов target flow, scope in/out — если это нужно, верни `stage_status=blocked` с причиной «polish mode cannot change contract».
 
 ## Выход
 
@@ -111,7 +137,10 @@ JSON-first:
   "sections_written": [],
   "examples_count": 3,
   "open_questions": [],
-  "assumptions": []
+  "assumptions": [],
+  "authoring_mode": "full",
+  "authoring_unit_completed": null,
+  "completed_authoring_unit_ids": []
 }
 ```
 
@@ -133,7 +162,7 @@ JSON-first:
 - точные слова `required`, `forbidden`, `default`, `null`, `empty list`, `bounded retry`;
 - объяснение последствий выбора;
 - в **draft** (`target_algorithm_draft.md`) — ссылки на synthesis/reports для трассировки;
-- в **опубликованном каноне** `context/algorithms/**` — самодостаточный текст без путей к `context/artifacts/…` (см. `start-research.mdc`, раздел «Канон в context/algorithms»).
+- в **опубликованном каноне** `context/algorithms/**` — самодостаточный текст без путей к `context/artifacts/…` (см. `start-research.mdc`, **CR-CANON** и раздел «Канон в `context/algorithms/`»).
 
 Нельзя:
 
@@ -144,6 +173,25 @@ JSON-first:
 - делать документ похожим на raw diff или changelog;
 - в каноне оставлять таблицы трассировки вида «D3 / F-PL-1 → synthesis.md» или «original_user_request.md §4» без человекочитаемого смысла в той же строке;
 - публиковать канон с английскими заголовками без русского основного заголовка и без аннотации под разделами (язык репозитория по умолчанию — русский).
+
+## Двухслойная подача и CR-CANON
+
+Каждый значимый раздел (кроме чистых таблиц команд) строй в **два слоя**:
+
+1. **Слой для человека:** связные предложения: кто действует, что происходит, зачем читать раздел, что будет если нарушить правило.
+2. **Слой контракта:** отдельный подзаголовок вроде `### Технический контракт` или таблица полей / JSON schema / whitelist.
+
+Нормативный чеклист **CR1–CR8** — в `start-research.mdc` (**CR-CANON**). Для опубликованного канона нарушение CR1–CR8 недопустимо.
+
+## Humanizer pass (CR7) перед сдачей в `22`
+
+Перед финализацией прохода `21`:
+
+1. Пройди таблицу **Anti-AI Patterns** в `project-human-communication.mdc`.
+2. В конец `target_algorithm_draft.md` добавь раздел **`## Draft Self-check (CR7)`** (или HTML-комментарий `<!-- CR7 ... -->`, если не хотите показывать в каноне — тогда дублируй кратко внутри draft до split) с **не менее двумя** парами «**Было:** … → **Стало:** …» для фраз из **этого** документа (идеи формулировок — из `/home/artem/reps/humanizer` `SKILL.md`, без брендинга).
+3. Убедись, что в основном теле текста нет типичных anti-AI формулировок, которые ты исправил в парах.
+
+В режиме `language_polish_only` достаточно обновить Self-check, если менялись формулировки.
 
 ## Обязательная Структура
 
@@ -217,6 +265,10 @@ draft | approved | deprecated
 ## Do Not Implement This As
 
 ## How start-feature / start-fix Must Use This
+
+## Draft Self-check (CR7)
+
+<минимум две пары «Было → Стало»; см. раздел «Humanizer pass»>
 
 ## Traceability (только для draft)
 
@@ -424,6 +476,8 @@ If a round processes the same selected files and produces zero new usable candid
 - [ ] Anti-patterns есть.
 - [ ] How start-feature/start-fix must use this есть.
 - [ ] Traceability есть в draft; в каноне нет ссылок на артефакты pipeline и нет opaque id без расшифровки.
+- [ ] Выполнены **CR1–CR8** для канон-кандидата (`start-research.mdc`, **CR-CANON**).
+- [ ] Есть раздел **Draft Self-check (CR7)** с ≥2 парами «Было → Стало».
 - [ ] JSON-first ответ валиден.
 
 ## Хороший Target Doc Fragment

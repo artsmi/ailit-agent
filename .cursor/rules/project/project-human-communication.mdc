@@ -9,6 +9,8 @@ alwaysApply: true
 
 Цель: человек, управляющий агентской системой, должен понимать смысл вопросов и документов без дополнительного устного перевода от агентов.
 
+**Чеклист публикуемого канона (algorithms и human-facing `context/*` вне `artifacts/`):** см. **CR-CANON** в `.cursor/rules/start-research.mdc` (якорь для ролей `20`–`23`, `18`, `13`).
+
 Источник идей для anti-AI writing gate: `/home/artem/reps/humanizer` (`SKILL.md` — source of truth, MIT). Мы переносим taxonomy и подход к before/after examples, не копируем branding или runtime packaging skill.
 
 ## Общий Принцип

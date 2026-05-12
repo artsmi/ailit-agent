@@ -67,6 +67,7 @@ Verified draft producer: 21_target_doc_author
   "stage_status": "approved",
   "review_file": "context/artifacts/target_doc/verification.md",
   "has_blocking_issues": false,
+  "language_polish_recommended": false,
   "required_author_rework": [],
   "user_questions": [],
   "ready_for_user_approval": true,
@@ -107,7 +108,9 @@ Verified draft producer: 21_target_doc_author
 - есть только schema/JSON без человеческого объяснения;
 - выборы описаны внутренними ID без последствий;
 - нет примеров happy/partial/failure;
-- важные ограничения спрятаны в длинном техническом абзаце.
+- важные ограничения спрятаны в длинном техническом абзаце;
+- **нарушен любой пункт CR1–CR8** из раздела **CR-CANON** в `start-research.mdc` (для draft/канон-кандидата под `context/algorithms/**`);
+- в `target_algorithm_draft.md` отсутствует подраздел или блок **Self-check / CR7** с **не менее двумя** парами «было → стало» (humanizer-style), как требует **CR7**.
 
 Finding:
 
@@ -118,6 +121,7 @@ Severity: MAJOR
 Problem: ...
 Why it matters: ...
 Required rework for 21: ...
+rework_category: readability_canon
 ```
 
 ## Technical Gate
@@ -154,15 +158,20 @@ Required rework for 21: ...
 
 ## Canonical Readability Gate (`context/algorithms/**`)
 
-Если verifier проверяет **опубликованный** канон или `canonical_candidate` под `context/algorithms/`:
+Проверь **CR1–CR8** из `start-research.mdc` (раздел **CR-CANON**) для draft и для канон-кандидата под `context/algorithms/**`. Краткая сводка:
 
-- **Заголовки:** основной язык — язык репозитория (по умолчанию русский); под значимыми разделами есть краткая аннотация.
-- **Глоссарий:** для пакета есть `glossary.md` или эквивалент в `INDEX.md`; сокращения (SoT, TBD, GAP, D-OBS, W14, OR-00x) не остаются без расшифровки при первом важном использовании или в глоссарии.
-- **Подача:** до плотных технических однострочников есть человеческий абзац «кто / что / зачем».
-- **Пакет:** каждый файл содержит раздел **«Связь с исходной постановкой»** с релевантными OR и развёрнутой формулировкой, не только id.
-- **Запрет:** нет таблиц «Traceability» с opaque id (`D3 repair`, `F-PL-1`) **без** человекочитаемого смысла в той же строке; нет ссылок вида `original_user_request.md §4` в каноне.
+- **CR1–CR2:** заголовки с аннотациями; проза «кто/что/зачем» до плотного протокола.
+- **CR3:** глоссарий или расшифровки в `INDEX.md` / `glossary.md`.
+- **CR4–CR5:** нет опоры читателя на `context/artifacts/…` в каноне; «Связь с исходной постановкой» в каждом файле пакета; нет opaque id без смысла.
+- **CR6:** scrub готовности к публикации (если канон уже в дереве algorithms).
+- **CR7:** Self-check с ≥2 парами «было → стало» в draft.
+- **CR8:** `INDEX.md` пакета навигационно полезен.
 
-При нарушении: `rework_required` с finding severity `MAJOR` для `21` (или уточни, что scrub выполняет `18` перед финальным commit, если канон ещё не записан).
+При нарушении: `rework_required` с finding severity `MAJOR` (или `BLOCKING`, если отсутствует целый обязательный раздел целевого документа) для `21`; в каждом элементе `required_author_rework` укажи поле:
+
+- `rework_category` (обязательно для новых отчётов): одно из `content` | `readability_canon` | `traceability` | `technical_contract` | `research_gap`.
+
+`readability_canon` — только нарушения CR1–CR3, CR5–CR8 и стиль/humanizer без смены технического смысла.
 
 ## start-feature / start-fix Gate
 
@@ -267,13 +276,15 @@ approved | rework_required | needs_user_answer | blocked | rejected
   "stage_status": "rework_required",
   "review_file": "context/artifacts/target_doc/verification.md",
   "has_blocking_issues": false,
+  "language_polish_recommended": false,
   "required_author_rework": [
     {
       "id": "MAJOR-1",
       "section": "Failure And Retry Rules",
       "problem": "No bounded no-progress rule",
       "required_change": "Add exact rule for no-progress rounds.",
-      "requires_new_research": false
+      "requires_new_research": false,
+      "rework_category": "technical_contract"
     }
   ],
   "user_questions": [],
@@ -281,6 +292,19 @@ approved | rework_required | needs_user_answer | blocked | rejected
   "canonical_doc_path": "context/algorithms/agent-memory.md"
 }
 ```
+
+### Поля `required_author_rework` и `language_polish_recommended`
+
+Каждый объект в `required_author_rework` **должен** содержать `rework_category` (для обратной совместимости со старыми отчётами, если поле отсутствует, трактуй как `content`).
+
+Установи верхнеуровневое поле **`language_polish_recommended=true`** только если одновременно:
+
+- `stage_status=rework_required`;
+- `required_author_rework` непустой;
+- **каждый** item содержит явное поле `rework_category=readability_canon` и `requires_new_research` не `true`;
+- нет findings с severity `BLOCKING` (кроме случаев, когда `18` уже оформил отдельный protocol blocker).
+
+Иначе `language_polish_recommended=false`. Это сигнал для `18` о возможном **одном** проходе `21` в режиме `language_polish_only` (см. `start-research.mdc`, Route п.9 и `18_target_doc_orchestrator.md`, Verification Gate).
 
 ## Approval Recommendation
 
@@ -464,7 +488,8 @@ Notes: Нужно потом добавить failure rules.
   "section": "Observability",
   "problem": "The draft says compact log must show progress, but does not list required events or fields.",
   "required_change": "Add event names, minimal payload fields and forbidden raw data.",
-  "requires_new_research": false
+  "requires_new_research": false,
+  "rework_category": "technical_contract"
 }
 ```
 
@@ -477,7 +502,7 @@ Notes: Нужно потом добавить failure rules.
 }
 ```
 
-Почему плохо: author не сможет исправить точечно.
+Почему плохо: author не сможет исправить точечно; отсутствует `rework_category` для маршрутизации `18`/`language_polish_only`.
 
 ## Final Approval Checklist For 18
 
@@ -513,10 +538,12 @@ Residual risk допустим только если:
 
 - Не стал ли ты соавтором документа вместо reviewer?
 - Каждый finding имеет section и required change?
-- Не пропустил ли ты human-readability gate?
+- У каждого `required_author_rework` указан `rework_category`?
+- Не пропущен ли human-readability gate и **CR-CANON (CR1–CR8)**?
 - Не approve ли ты документ, который человек не сможет осознанно подтвердить?
 - Есть ли у `18` готовый текст для user approval?
 - Не спрятан ли user choice в residual risk?
+- Если только `readability_canon`, корректно ли выставлено `language_polish_recommended`?
 
 ## Хорошая Связь С 18
 

@@ -1,8 +1,8 @@
 # Архитектура — индекс
 
-Процессы ОС, границы подсистем desktop/runtime и точки интеграции. Протоколы обмена — в [`../proto/INDEX.md`](../proto/INDEX.md). **UC-03:** observability CLI `memory init` (`ailit-cli-*` / compact на stderr vs desktop flat) — [`../proto/memory-query-context-init.md`](../proto/memory-query-context-init.md).
+Процессы ОС, границы подсистем desktop/runtime и точки интеграции. Протоколы обмена — в [`../proto/INDEX.md`](../proto/INDEX.md). **Читатель:** сначала выбери строку таблицы по сценарию; внутри файлов — краткие аннотации у разделов и проза до плотных цепочек (см. **CR1–CR3** в **CR-CANON**, `.cursor/rules/start-research.mdc`). **UC-03:** observability CLI `memory init` (`ailit-cli-*` / compact на stderr vs desktop flat) — [`../proto/memory-query-context-init.md`](../proto/memory-query-context-init.md).
 
-| Документ | Содержание |
+| Документ | Для кого / что внутри |
 |----------|------------|
 | [`system-elements.md`](system-elements.md) | Процессы P1–P6; P3 — broker/workers, UC 2.4, W14 envelope / `memory.command.normalized`, **`propose_links`** (validator + `PagGraphWriteService`), **`memory.external_event`**, журнал **`durability`**, OR-013, **UC-05**, SoT `memory_continuation_required`, D-OBS-1 (proto). |
 | [`desktop-pag-graph-snapshot.md`](desktop-pag-graph-snapshot.md) | Снимок PAG-графа в renderer, `pagDatabasePresent`, full load, поллер ожидания sqlite, 3D UI; **UC-04 A** на 3D-проекции (полный набор узлов входа; клон для `ForceGraph3D`; без reachability-gate), порядок **X→Y** (§5.2 `architecture.md`), Refresh → `pag_snapshot_refreshed` / `pag_graph_rev_reconciled` (`pagGraphObservabilityCompact.ts`, proto 1_2); **warnings / graph_rev** — `pagGraphRevWarningFormat.ts` + trace deltas; **1.3** — `graphDataKey` (без `n` по числу нод), merge с сохранением `x..fz`, G16.4; gate Vitest §5.0 — `context/tests/INDEX.md`, отчёт `11` — `artifacts/reports/test_run_11_final.md` при наличии. |
