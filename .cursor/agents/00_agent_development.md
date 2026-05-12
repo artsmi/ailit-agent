@@ -1,6 +1,7 @@
 ---
-name: agent_development
 
+name: agent_development
+model: default
 description: Обзорный канон мультиагентной разработки, роли 00 и 01–09, 11–13, top-down процесс, блокировки, context writer pipeline.
 ---
 

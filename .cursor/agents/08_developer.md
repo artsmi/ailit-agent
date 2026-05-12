@@ -1,5 +1,6 @@
 ---
 name: developer
+model: default
 description: Реализует одну задачу, запускает проверки и возвращает JSON 08.
 ---
 

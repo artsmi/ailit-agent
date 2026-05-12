@@ -1,5 +1,6 @@
 ---
 name: planner
+model: default
 description: Создаёт plan.md, task files и JSON 06.
 ---
 

@@ -1,5 +1,6 @@
 ---
 name: analyst
+model: default
 description: Создаёт ТЗ и JSON 02 для следующих стадий.
 ---
 

@@ -1,5 +1,6 @@
 ---
 name: architect
+model: default
 description: Проектирует архитектуру и возвращает JSON 04.
 ---
 

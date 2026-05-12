@@ -1,5 +1,6 @@
 ---
 name: tz_reviewer
+model: default
 description: Ревью ТЗ, tz_review.md и JSON 03.
 ---
 
