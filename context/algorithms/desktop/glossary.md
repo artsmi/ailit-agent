@@ -1,4 +1,4 @@
-# Глоссарий пакета `context/desktop/`
+# Глоссарий пакета `context/algorithms/desktop/`
 
 > **Аннотация:** расшифровки сокращений и терминов, встречающихся в [`INDEX.md`](INDEX.md), [`graph-3dmvc.md`](graph-3dmvc.md) и [`realtime-graph-client.md`](realtime-graph-client.md).
 

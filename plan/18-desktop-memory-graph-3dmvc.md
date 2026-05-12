@@ -2,15 +2,15 @@
 
 **Идентификатор:** `desktop-memory-graph-3dmvc`  
 **Файл:** `plan/18-desktop-memory-graph-3dmvc.md`  
-**Статус:** утверждён вместе с каноном `context/desktop/` — user OK в чате (**2026-05-12**); ревью `107`: `plan_review_latest.json` (`approved`).
+**Статус:** утверждён вместе с каноном `context/algorithms/desktop/` — user OK в чате (**2026-05-12**); ревью `107`: `plan_review_latest.json` (`approved`).
 
 ## Канон и источники правды
 
 | Роль | Путь |
 |------|------|
 | **SoT поведения (до публикации пакета)** | [`context/artifacts/target_doc/target_algorithm_draft.md`](../context/artifacts/target_doc/target_algorithm_draft.md) — `Produced by: 104_target_doc_author`; верификация `105`: [`verification.md`](../context/artifacts/target_doc/verification.md) (`approved`, pass 2). |
-| **Будущий хаб пакета** | `context/desktop/INDEX.md` (появляется после user OK и split текста из draft; см. раздел «Миграция» в draft). |
-| **Старый путь протокола (миграция)** | [`context/algorithms/agent-memory/desktop-realtime-graph-protocol.md`](../context/algorithms/agent-memory/desktop-realtime-graph-protocol.md) → stub/redirect на `context/desktop/*` без устаревших чисел/remount (OR-007). |
+| **Будущий хаб пакета** | `context/algorithms/desktop/INDEX.md` (появляется после user OK и split текста из draft; см. раздел «Миграция» в draft). |
+| **Старый путь протокола (миграция)** | [`context/algorithms/agent-memory/desktop-realtime-graph-protocol.md`](../context/algorithms/agent-memory/desktop-realtime-graph-protocol.md) → stub/redirect на `context/algorithms/desktop/*` без устаревших чисел/remount (OR-007). |
 | **Архитектура snapshot (согласование OR-012)** | [`context/arch/desktop-pag-graph-snapshot.md`](../context/arch/desktop-pag-graph-snapshot.md). |
 
 Produced by: 106_implementation_plan_author
@@ -21,12 +21,12 @@ Produced by: 106_implementation_plan_author
 
 ### 1.1 Цель
 
-Выровнять **renderer pipeline** Desktop (Electron): память/trace/PAG slice → **Model/Controller** → проекция **scene graph DTO** → **View** (3dmvc), устранить конфликт **OR-003** с текущим `ensureHighlightNodes` (**default target: D-ORPHAN-B**), зафиксировать **производительность** (anti-flicker, бюджеты refresh/replay, классы нагрузки main IPC), опубликовать нормативку в **`context/desktop/*`** и выполнить **stub-миграцию** старого `desktop-realtime-graph-protocol.md`.
+Выровнять **renderer pipeline** Desktop (Electron): память/trace/PAG slice → **Model/Controller** → проекция **scene graph DTO** → **View** (3dmvc), устранить конфликт **OR-003** с текущим `ensureHighlightNodes` (**default target: D-ORPHAN-B**), зафиксировать **производительность** (anti-flicker, бюджеты refresh/replay, классы нагрузки main IPC), опубликовать нормативку в **`context/algorithms/desktop/*`** и выполнить **stub-миграцию** старого `desktop-realtime-graph-protocol.md`.
 
 ### 1.2 In scope
 
 - TypeScript/React код под `desktop/src/` (renderer + main/preload по цепочке slice/log).
-- Новые markdown-файлы пакета `context/desktop/` и правка stub в `context/algorithms/agent-memory/desktop-realtime-graph-protocol.md` (после утверждения канона человеком).
+- Новые markdown-файлы пакета `context/algorithms/desktop/` и правка stub в `context/algorithms/agent-memory/desktop-realtime-graph-protocol.md` (после утверждения канона человеком).
 - Регрессии: существующие pytest/vitest из draft; при необходимости — новые vitest на проекцию/orphan (только если пользователь/план этапа явно расширяют приёмку; базовый минимум — имена из draft).
 
 ### 1.3 Out of scope (жёстко)
@@ -76,17 +76,17 @@ Produced by: 106_implementation_plan_author
 
 ## 4. Этапы (слайсы) и зависимости
 
-Зависимости: **G0** (публикация канона) блокируется **user OK** на target-doc пакет. **G1** может стартовать в коде параллельно подготовке G0 только если не меняется публичный контракт без канона — на практике связать: сначала зафиксировать текст D-ORPHAN-B в репо (`context/desktop/graph-3dmvc.md` или draft до split), затем merge кода G1. Рекомендуемый порядок: **G0 → G1 → G3 → G4**, **G2** — непрерывный регресс в CI на каждом PR.
+Зависимости: **G0** (публикация канона) блокируется **user OK** на target-doc пакет. **G1** может стартовать в коде параллельно подготовке G0 только если не меняется публичный контракт без канона — на практике связать: сначала зафиксировать текст D-ORPHAN-B в репо (`context/algorithms/desktop/graph-3dmvc.md` или draft до split), затем merge кода G1. Рекомендуемый порядок: **G0 → G1 → G3 → G4**, **G2** — непрерывный регресс в CI на каждом PR.
 
-### G0 — Пакет `context/desktop/` + stub OR-007
+### G0 — Пакет `context/algorithms/desktop/` + stub OR-007
 
 | Поле | Содержание |
 |------|------------|
-| **Цель** | Создать `context/desktop/INDEX.md`, `graph-3dmvc.md`, `realtime-graph-client.md`, `glossary.md` (default; исключение `minimal_pack_no_glossary_file` только если явно записано в approval/этом плане — сейчас **не** записываем). Заменить тело `desktop-realtime-graph-protocol.md` на stub со ссылками. |
-| **Implementation anchors** | Новые файлы под `context/desktop/`; [`context/algorithms/agent-memory/desktop-realtime-graph-protocol.md`](../context/algorithms/agent-memory/desktop-realtime-graph-protocol.md). |
+| **Цель** | Создать `context/algorithms/desktop/INDEX.md`, `graph-3dmvc.md`, `realtime-graph-client.md`, `glossary.md` (default; исключение `minimal_pack_no_glossary_file` только если явно записано в approval/этом плане — сейчас **не** записываем). Заменить тело `desktop-realtime-graph-protocol.md` на stub со ссылками. |
+| **Implementation anchors** | Новые файлы под `context/algorithms/desktop/`; [`context/algorithms/agent-memory/desktop-realtime-graph-protocol.md`](../context/algorithms/agent-memory/desktop-realtime-graph-protocol.md). |
 | **Трассировка draft** | draft §Миграция, §Планируемая структура пакета, §Scope (глоссарий). |
 | **Anti-patterns** | Оставлять в stub числа 20k/40k или описание remount с `graphRev`; дублировать полный протокол в двух местах. |
-| **Приёмка** | В дереве есть `context/desktop/INDEX.md` со ссылками на файлы пакета и на `plan/18-desktop-memory-graph-3dmvc.md`; старый файл — только stub + ссылки; `13_tech_writer` / human scrub: **нет** ссылок читателя на `context/artifacts/…` внутри опубликованного пакета. |
+| **Приёмка** | В дереве есть `context/algorithms/desktop/INDEX.md` со ссылками на файлы пакета и на `plan/18-desktop-memory-graph-3dmvc.md`; старый файл — только stub + ссылки; `13_tech_writer` / human scrub: **нет** ссылок читателя на `context/artifacts/…` внутри опубликованного пакета. |
 
 ### G1 (S1) — OR-003 / D-ORPHAN-B + highlight semantics
 
@@ -117,7 +117,7 @@ Produced by: 106_implementation_plan_author
 | **Трассировка draft** | draft §Highlight policy, OR-012, synthesis **S3**. |
 | **Зависимости** | После G1 (иначе дважды менять контракт highlight). |
 | **Anti-patterns** | Полный rewrite 2D UI в одном PR без постановки. |
-| **Приёмка** | Один источник SoT для highlight DTO, согласованный с `context/arch/desktop-pag-graph-snapshot.md` или зафиксированное отклонение в `context/desktop/*.md`. |
+| **Приёмка** | Один источник SoT для highlight DTO, согласованный с `context/arch/desktop-pag-graph-snapshot.md` или зафиксированное отклонение в `context/algorithms/desktop/*.md`. |
 
 ### G4 (S4) — Performance: replay, refresh, IPC logging
 
@@ -194,23 +194,23 @@ Produced by: 106_implementation_plan_author
 
 | Этап | Файл(ы) канона после split | Раздел / якорь в draft (до split) | Что проверяем |
 |------|----------------------------|-----------------------------------|---------------|
-| G0 | [`context/desktop/INDEX.md`](../context/desktop/INDEX.md) (будущий), [`context/desktop/glossary.md`](../context/desktop/glossary.md), stub [`desktop-realtime-graph-protocol.md`](../context/algorithms/agent-memory/desktop-realtime-graph-protocol.md) | draft §Миграция, §Планируемая структура пакета, §Scope | Навигация; нет артефактных ссылок в пакете; stub без stale чисел. |
-| G1 | [`context/desktop/graph-3dmvc.md`](../context/desktop/graph-3dmvc.md) | draft §Инварианты View, §OR-003 predicate, §Anti-patterns | OR-003 + **D-ORPHAN-B** в поведении и тексте. |
-| G2 | [`context/desktop/realtime-graph-client.md`](../context/desktop/realtime-graph-client.md) | draft §Current reality F6/F12, §Commands | pytest caps + vitest `TC-3D-UC04-03`. |
-| G3 | `context/desktop/graph-3dmvc.md` + при необходимости правка `context/arch/desktop-pag-graph-snapshot.md` | draft §Highlight policy, OR-012 | Нет F11 drift по согласованному критерию этапа. |
-| G4 | `context/desktop/realtime-graph-client.md` | draft §Performance, §Observability, §State lifecycle | Компактные события; mitigations IPC/refresh/replay задокументированы и частично в коде. |
+| G0 | [`context/algorithms/desktop/INDEX.md`](../context/algorithms/desktop/INDEX.md) (будущий), [`context/algorithms/desktop/glossary.md`](../context/algorithms/desktop/glossary.md), stub [`desktop-realtime-graph-protocol.md`](../context/algorithms/agent-memory/desktop-realtime-graph-protocol.md) | draft §Миграция, §Планируемая структура пакета, §Scope | Навигация; нет артефактных ссылок в пакете; stub без stale чисел. |
+| G1 | [`context/algorithms/desktop/graph-3dmvc.md`](../context/algorithms/desktop/graph-3dmvc.md) | draft §Инварианты View, §OR-003 predicate, §Anti-patterns | OR-003 + **D-ORPHAN-B** в поведении и тексте. |
+| G2 | [`context/algorithms/desktop/realtime-graph-client.md`](../context/algorithms/desktop/realtime-graph-client.md) | draft §Current reality F6/F12, §Commands | pytest caps + vitest `TC-3D-UC04-03`. |
+| G3 | `context/algorithms/desktop/graph-3dmvc.md` + при необходимости правка `context/arch/desktop-pag-graph-snapshot.md` | draft §Highlight policy, OR-012 | Нет F11 drift по согласованному критерию этапа. |
+| G4 | `context/algorithms/desktop/realtime-graph-client.md` | draft §Performance, §Observability, §State lifecycle | Компактные события; mitigations IPC/refresh/replay задокументированы и частично в коде. |
 
-**Сквозной DoD workflow 18:** канон опубликован в `context/desktop/*` (после user OK), stub на месте, G1–G4 закрыты или явно отложены с gap-id, pytest + vitest из §5 зелёные на `main`, ручной smoke из §6 пройден либо помечен `blocked_by_environment`.
+**Сквозной DoD workflow 18:** канон опубликован в `context/algorithms/desktop/*` (после user OK), stub на месте, G1–G4 закрыты или явно отложены с gap-id, pytest + vitest из §5 зелёные на `main`, ручной smoke из §6 пройден либо помечен `blocked_by_environment`.
 
 ---
 
 ## 11. Как использовать план в `start-feature` / `start-fix`
 
-- **`02_analyst`:** трассировать ТЗ к OR-id и к файлам `context/desktop/*` после публикации.  
+- **`02_analyst`:** трассировать ТЗ к OR-id и к файлам `context/algorithms/desktop/*` после публикации.  
 - **`06_planner`:** нарезать PR по этапам G0–G4; не смешивать G1 с Python runtime без OR-006.  
 - **`08` / реализация:** якоря из §4; donor — только идеи (таблица §9).  
 - **`11_test_runner`:** команды §5 + smoke §6.  
-- **`13_tech_writer`:** обновлять `context/desktop/*` при смене поведения; синхронизировать arch при OR-012.
+- **`13_tech_writer`:** обновлять `context/algorithms/desktop/*` при смене поведения; синхронизировать arch при OR-012.
 
 ---
 

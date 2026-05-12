@@ -85,7 +85,7 @@
 - **SoT для 3D highlight** — snapshot, не параллельный parse trace в View.
 - **Target:** единый highlight controller в M/C для 2D и 3D (backlog slice в плане внедрения), без дублирования семантики в двух ветках View.
 
-**Связь с arch:** [`../arch/desktop-pag-graph-snapshot.md`](../arch/desktop-pag-graph-snapshot.md) должен оставаться согласованным с фактом 3D (подсветка из snapshot); расхождения закрываются правкой arch или явным SoT в этом пакете — задача плана, не «тихая» правка только View.
+**Связь с arch:** [`../../arch/desktop-pag-graph-snapshot.md`](../../arch/desktop-pag-graph-snapshot.md) должен оставаться согласованным с фактом 3D (подсветка из snapshot); расхождения закрываются правкой arch или явным SoT в этом пакете — задача плана, не «тихая» правка только View.
 
 | Потребитель | Required source (target) | Forbidden drift |
 |-------------|---------------------------|-----------------|

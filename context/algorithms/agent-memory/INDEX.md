@@ -24,7 +24,7 @@
 | [`llm-commands.md`](llm-commands.md) | Команды от рантайма к LLM: конверт ответа, действия планера, фаза исправления невалидного JSON, целевая команда `propose_links`. |
 | [`prompts.md`](prompts.md) | Роли промптов по фазам, многоязычие и `file_kind`, запреты на CoT и сырые дампы. |
 | [`external-protocol.md`](external-protocol.md) | Инициаторы (оболочка агента, CLI, клиент брокера), формат запроса, события на границе, команда `ailit memory init`. |
-| [`desktop-realtime-graph-protocol.md`](desktop-realtime-graph-protocol.md) | **Redirect:** нормативный текст перенесён в пакет [`../../desktop/INDEX.md`](../../desktop/INDEX.md) (approved **2026-05-12**); этот путь — stub для старых ссылок. |
+| [`desktop-realtime-graph-protocol.md`](desktop-realtime-graph-protocol.md) | **Redirect:** нормативный текст перенесён в пакет [`../desktop/INDEX.md`](../desktop/INDEX.md) (approved **2026-05-12**); этот путь — stub для старых ссылок. |
 | [`failure-retry-observability.md`](failure-retry-observability.md) | Ошибки и повторы, лимиты и partial, журнал и компактные логи, критерии приёмки и имена тестов pytest. |
 | План внедрения | Отдельный markdown под `plan/*` для AgentMemory **не** используется (файл `plan/17-agent-memory-start-feature.md` удалён владельцем после утверждения канона 2026-05-12). Нарезка для `start-feature` / `start-fix` — из разделов этого пакета и постановки задачи; при необходимости см. исторические планы `plan/14-agent-memory-*.md`. **Не** часть канона SoT. |
 
@@ -67,14 +67,14 @@
 
 ## Desktop: постановка и трассировка (legacy OR-001…OR-017)
 
-Историческая матрица **desktop OR-001…OR-017** относилась к полнотекстовому файлу [`desktop-realtime-graph-protocol.md`](desktop-realtime-graph-protocol.md). С **2026-05-12** нормативный SoT по Desktop-graph, 3dmvc, лимитам **100k/200k**, ключу remount **без** `graphRev` в React-key и приёмке — пакет **[`../../desktop/INDEX.md`](../../desktop/INDEX.md)** (постановка там в форме **OR-001…OR-012** для Cycle C). Ниже — **архивная** таблица соответствия «старый id → новый пакет» (без дублирования текста требований).
+Историческая матрица **desktop OR-001…OR-017** относилась к полнотекстовому файлу [`desktop-realtime-graph-protocol.md`](desktop-realtime-graph-protocol.md). С **2026-05-12** нормативный SoT по Desktop-graph, 3dmvc, лимитам **100k/200k**, ключу remount **без** `graphRev` в React-key и приёмке — пакет **[`../desktop/INDEX.md`](../desktop/INDEX.md)** (постановка там в форме **OR-001…OR-012** для Cycle C). Ниже — **архивная** таблица соответствия «старый id → новый пакет» (без дублирования текста требований).
 
 | Legacy desktop OR | Где искать норматив сейчас |
 |--------------------|----------------------------|
-| OR-001…OR-005, OR-007, OR-009…OR-016 | [`../../desktop/realtime-graph-client.md`](../../desktop/realtime-graph-client.md), [`../../desktop/graph-3dmvc.md`](../../desktop/graph-3dmvc.md), [`../../desktop/INDEX.md`](../../desktop/INDEX.md) |
+| OR-001…OR-005, OR-007, OR-009…OR-016 | [`../desktop/realtime-graph-client.md`](../desktop/realtime-graph-client.md), [`../desktop/graph-3dmvc.md`](../desktop/graph-3dmvc.md), [`../desktop/INDEX.md`](../desktop/INDEX.md) |
 | OR-006 (брендбук) | [`../../../docs/web-ui-book/INDEX.md`](../../../docs/web-ui-book/INDEX.md) |
-| OR-008 (связь с agent-memory) | Этот `INDEX.md`, [`external-protocol.md`](external-protocol.md), пакет [`../../desktop/`](../../desktop/INDEX.md) |
-| OR-017 (лимиты yaml vs caps) | [`../../desktop/realtime-graph-client.md`](../../desktop/realtime-graph-client.md) (**OR-010**), pytest `tests/test_pag_slice_caps_alignment.py` |
+| OR-008 (связь с agent-memory) | Этот `INDEX.md`, [`external-protocol.md`](external-protocol.md), пакет [`../desktop/`](../desktop/INDEX.md) |
+| OR-017 (лимиты yaml vs caps) | [`../desktop/realtime-graph-client.md`](../desktop/realtime-graph-client.md) (**OR-010**), pytest `tests/test_pag_slice_caps_alignment.py` |
 
 ## Трассировка OR → файлы пакета
 

@@ -99,7 +99,7 @@
 | OR-002 | Документирован поток 3dmvc + этот target flow. |
 | OR-003 | Default **D-ORPHAN-B**; **A** deferred; **C** только waiver — см. [`graph-3dmvc.md`](graph-3dmvc.md). |
 | OR-004 | Политика ключа, throttled refresh, запрет remount как единственного ответа на rev. |
-| OR-005 | Пакет `context/desktop/` с `INDEX.md` и `glossary.md` опубликован. |
+| OR-005 | Пакет `context/algorithms/desktop/` с `INDEX.md` и `glossary.md` опубликован. |
 | OR-006 | Нет скрытых задач на Python AgentMemory без user OK. |
 | OR-007 | Stub в legacy-файле; SoT — этот пакет. |
 | OR-008 | Раздел Killer feature выше. |
@@ -110,7 +110,7 @@
 
 ## How start-feature / start-fix must use this
 
-- **`02` / `06`:** читать [`INDEX.md`](INDEX.md), [`graph-3dmvc.md`](graph-3dmvc.md), этот файл и [`../../plan/18-desktop-memory-graph-3dmvc.md`](../../plan/18-desktop-memory-graph-3dmvc.md) для задач по Desktop memory graph.
+- **`02` / `06`:** читать [`INDEX.md`](INDEX.md), [`graph-3dmvc.md`](graph-3dmvc.md), этот файл и [`../../../plan/18-desktop-memory-graph-3dmvc.md`](../../../plan/18-desktop-memory-graph-3dmvc.md) для задач по Desktop memory graph.
 - **`08`:** не восстанавливать SoT в stub legacy-файле; не включать `graphRevByNamespace` в ключ «для простоты»; не использовать **D-ORPHAN-C** без waiver.
 - **`11`:** минимум команды из таблицы выше.
 - **`13`:** обновлять этот пакет только при сознательном изменении целевого поведения.

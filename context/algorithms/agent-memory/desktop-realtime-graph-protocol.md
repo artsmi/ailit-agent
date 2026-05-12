@@ -1,6 +1,6 @@
 # Desktop realtime graph protocol (redirect)
 
-> **Аннотация:** этот путь в пакете **agent-memory** сохранён для обратной совместимости ссылок. **Нормативный** текст протокола Desktop (Electron): trace, PAG slice, merged, 3D, подсветка, лимиты, remount, observability и приёмка — перенесён в пакет **`context/desktop/`**.
+> **Аннотация:** этот путь в пакете **agent-memory** сохранён для обратной совместимости ссылок. **Нормативный** текст протокола Desktop (Electron): trace, PAG slice, merged, 3D, подсветка, лимиты, remount, observability и приёмка — перенесён в пакет **`context/algorithms/desktop/`**.
 
 ## Status
 
@@ -8,14 +8,14 @@
 
 ## Куда смотреть
 
-- **Хаб канона:** [`../../desktop/INDEX.md`](../../desktop/INDEX.md)
-- **3dmvc и инварианты View:** [`../../desktop/graph-3dmvc.md`](../../desktop/graph-3dmvc.md)
-- **Поток клиента, фазы, команды:** [`../../desktop/realtime-graph-client.md`](../../desktop/realtime-graph-client.md)
-- **Глоссарий пакета desktop:** [`../../desktop/glossary.md`](../../desktop/glossary.md)
+- **Хаб канона:** [`../desktop/INDEX.md`](../desktop/INDEX.md)
+- **3dmvc и инварианты View:** [`../desktop/graph-3dmvc.md`](../desktop/graph-3dmvc.md)
+- **Поток клиента, фазы, команды:** [`../desktop/realtime-graph-client.md`](../desktop/realtime-graph-client.md)
+- **Глоссарий пакета desktop:** [`../desktop/glossary.md`](../desktop/glossary.md)
 - **Память на границе агента (общий контракт):** [`external-protocol.md`](external-protocol.md)
 - **План внедрения (не канон SoT):** [`../../../plan/18-desktop-memory-graph-3dmvc.md`](../../../plan/18-desktop-memory-graph-3dmvc.md)
 
 ## Запрещено
 
-- Копировать сюда обновлённые числа, шаги алгоритма или acceptance без синхронизации с **`context/desktop/`** — дублирование создаёт второй SoT.
+- Копировать сюда обновлённые числа, шаги алгоритма или acceptance без синхронизации с **`context/algorithms/desktop/`** — дублирование создаёт второй SoT.
 - Ссылаться на этот файл в новых постановках как на полнотекстовый канон Desktop-graph.
