@@ -298,7 +298,7 @@ describe("MemoryGraph3DPage", () => {
     }
   });
 
-  it("TC-3D-UC04-01: A и B без рёбер — оба на сцене (нет reachability-gate)", () => {
+  it("TC-3D-UC04-01: A и B без рёбер — пустая N_scene (D-ORPHAN-B / OR-003)", () => {
     const merged: MemoryGraphData = {
       nodes: [
         { id: "A:proj", label: "proj", level: "A", namespace: "ns-a" },
@@ -321,12 +321,12 @@ describe("MemoryGraph3DPage", () => {
     );
     const fg: HTMLElement = screen.getByTestId("mock-force-graph-3d");
     expect(new Set((fg.getAttribute("data-mock-fg-node-ids") ?? "").split(",").filter((x) => x.length > 0))).toEqual(
-      new Set(["A:proj", "B:lonely"])
+      new Set()
     );
     expect(fg.getAttribute("data-mock-fg-link-count")).toBe("0");
   });
 
-  it("TC-3D-UC04-02: изолированный B и связанный B — все три узла; синтетический корень не появляется", () => {
+  it("TC-3D-UC04-02: изолированный B отфильтрован; A—B:b1 на сцене; синтетический корень не появляется", () => {
     const merged: MemoryGraphData = {
       nodes: [
         { id: "A:proj", label: "proj", level: "A", namespace: "ns-a" },
@@ -350,7 +350,7 @@ describe("MemoryGraph3DPage", () => {
     );
     const fg: HTMLElement = screen.getByTestId("mock-force-graph-3d");
     const ids: string[] = (fg.getAttribute("data-mock-fg-node-ids") ?? "").split(",").filter((x) => x.length > 0);
-    expect(new Set(ids)).toEqual(new Set(["A:proj", "B:b1", "B:lonely"]));
+    expect(new Set(ids)).toEqual(new Set(["A:proj", "B:b1"]));
     for (const id of ids) {
       expect(id.startsWith("ailit:trace-conn-root:")).toBe(false);
     }
@@ -380,7 +380,7 @@ describe("MemoryGraph3DPage", () => {
     );
     const fg1: HTMLElement = screen.getByTestId("mock-force-graph-3d");
     const ids1: string[] = (fg1.getAttribute("data-mock-fg-node-ids") ?? "").split(",").filter((x) => x.length > 0);
-    expect(new Set(ids1)).toEqual(new Set(["A:proj", "B:b"]));
+    expect(new Set(ids1)).toEqual(new Set());
 
     const nextMerged: MemoryGraphData = {
       nodes: baseMerged.nodes,
@@ -416,8 +416,12 @@ describe("MemoryGraph3DPage", () => {
         { id: "B:lonely-a", label: "la", level: "B", namespace: "ns-a" },
         { id: "B:lonely-b", label: "lb", level: "B", namespace: "ns-b" }
       ],
-      /** Cross-edge нужен для модалки; без выбора S при G2 был бы unified. */
-      links: [{ id: "cross-ab", source: "B:lonely-a", target: "B:lonely-b" }]
+      /** Cross-edge для модалки; внутри NS — рёбра к A, иначе после slice узлы стали бы степени 0. */
+      links: [
+        { id: "ra", source: "A:pa", target: "B:lonely-a" },
+        { id: "rb", source: "A:pb", target: "B:lonely-b" },
+        { id: "cross-ab", source: "B:lonely-a", target: "B:lonely-b" }
+      ]
     };
     const snap: PagGraphSessionSnapshot = buildPagSnapshot(merged);
     const session: DesktopSessionValue = buildDesktopSession({

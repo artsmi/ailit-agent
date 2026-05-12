@@ -196,11 +196,48 @@ export class MemoryGraphForceGraphProjector {
   }
 
   /**
-   * Проекция merged → graphData для `ForceGraph3D`: нормализация концов рёбер → **только** UC-04A.
-   * Полный граф по узлам; фокус агента — подсветка (без reachability-gate).
+   * **D-ORPHAN-B** (default): на индуцированном подграфе после UC-04A удалить узлы степени 0
+   * и рёбра с концом вне **N_scene** (predicate **OR-003** для `ForceGraph3D`).
+   *
+   * Степень считается по множеству рёбер `data.links` (уже после UC-04A), концы — `coerceGraphLinkEndpoint`.
+   */
+  static filterDegreeZeroNodesDOrphanB(data: MemoryGraphData): MemoryGraphData {
+    const idSet: Set<string> = new Set(data.nodes.map((n: MemoryGraphNode): string => n.id));
+    const degree: Map<string, number> = new Map();
+    for (const id of idSet) {
+      degree.set(id, 0);
+    }
+    for (const L of data.links) {
+      const s: string = coerceGraphLinkEndpoint(L.source);
+      const t: string = coerceGraphLinkEndpoint(L.target);
+      if (!idSet.has(s) || !idSet.has(t)) {
+        continue;
+      }
+      degree.set(s, (degree.get(s) ?? 0) + 1);
+      degree.set(t, (degree.get(t) ?? 0) + 1);
+    }
+    const nScene: Set<string> = new Set();
+    for (const n of data.nodes) {
+      if ((degree.get(n.id) ?? 0) >= 1) {
+        nScene.add(n.id);
+      }
+    }
+    const nodes: MemoryGraphNode[] = data.nodes.filter((n: MemoryGraphNode): boolean => nScene.has(n.id));
+    const links: MemoryGraphLink[] = data.links.filter((L: MemoryGraphLink): boolean => {
+      const s: string = coerceGraphLinkEndpoint(L.source);
+      const t: string = coerceGraphLinkEndpoint(L.target);
+      return nScene.has(s) && nScene.has(t);
+    });
+    return { nodes, links };
+  }
+
+  /**
+   * Проекция workset → **N_scene** / **E_scene** для `ForceGraph3D`:
+   * нормализация концов рёбер → UC-04A → **D-ORPHAN-B** (без reachability-gate).
    */
   static project(data: MemoryGraphData): MemoryGraphData {
     const step0: MemoryGraphData = normalizeMemoryGraphLinkEndpoints(data);
-    return MemoryGraphForceGraphProjector.filterEdgesUc04BranchA(step0);
+    const step1: MemoryGraphData = MemoryGraphForceGraphProjector.filterEdgesUc04BranchA(step0);
+    return MemoryGraphForceGraphProjector.filterDegreeZeroNodesDOrphanB(step1);
   }
 }

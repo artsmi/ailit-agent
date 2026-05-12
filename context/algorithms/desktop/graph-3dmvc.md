@@ -58,9 +58,7 @@
 
 **OR-003:** в отображаемом наборе scene graph View **не** показывает узлы без инцидентных рёбер (степень 0 в переданном edge-list), если не активирован явный waiver **D-ORPHAN-C** (см. [`glossary.md`](glossary.md)).
 
-**Current reality (до выравнивания кода):** `ensureHighlightNodes` может добавлять узлы highlight без рёбер; проектор с UC-04A отбрасывает только «плохие» рёбра, **не** изолированные узлы. Это конфликтует с **OR-003** при target default **D-ORPHAN-B**.
-
-**Target default (ровно один):** **D-ORPHAN-B** — перед View выполняется шаг проекции (например `filterDegreeZeroNodes` или семантический эквивалент), удаляющий из **node-list для layout/WebGL** узлы степени 0; подсветка существующих узлов может оставаться в **side-channel**, согласованном с highlight controller.
+**Поведение репозитория (после слайса G1, default D-ORPHAN-B):** `MemoryGraphForceGraphProjector.project` строит **N_scene** / **E_scene** для `ForceGraph3D` в фиксированном порядке: нормализация концов рёбер → UC-04A (`filterEdgesUc04BranchA`) → **`filterDegreeZeroNodesDOrphanB`** (степень по уже отфильтрованным рёбрам; узлы степени 0 и висячие концы исключаются из списка узлов и рёбер сцены). **Model/Controller** по-прежнему может наполнять `PagGraphSessionSnapshot.merged` **суперсетом** (в т.ч. highlight-only узлы для 2D и trace-merge); отличие **N_scene** от этого суперсета задаётся только выходом `project`, а не копированием `merged.nodes` в View. Подсветка для 3D читается из **`searchHighlightsByNamespace`** снимка (side-channel), а не из полного trace на странице: узел может быть «hot» в канале подсветки и при этом **отсутствовать** в **N_scene**, если для него нет рёбер после UC-04A — без автодобавления фантомных узлов в node-list сцены. Перед props `ForceGraph3D` обязателен вызов `project` (или эквивалент с тем же порядком шагов).
 
 **D-ORPHAN-A (non-default):** см. [`glossary.md`](glossary.md); активация только если в плане внедрения или approval записан явный выбор **A** и отказ от обязательности **B** для релиза, с приёмкой predicate **OR-003**.
 
@@ -70,7 +68,7 @@
 
 **Required (target):** ∀`v` ∈ `N_scene` ∃ ребро в `E` с концом `v` (степень в индуцированном подграфе ≥ 1), если **D-ORPHAN-C** не активирован документированно.
 
-**Default:** **D-ORPHAN-B**; **D-ORPHAN-A** не эквивалентен default до явного слайса.
+**Default:** **D-ORPHAN-B** (в коде — `filterDegreeZeroNodesDOrphanB` внутри `MemoryGraphForceGraphProjector.project`); **D-ORPHAN-A** не эквивалентен default до явного слайса.
 
 **Forbidden:** документировать **D-ORPHAN-C** как неявный компромисс без строки waiver.
 
@@ -78,19 +76,16 @@
 
 ## Highlight policy (**OR-012**, **D-HI-OWN-1**)
 
-Сейчас возможны два пути (риск расхождения): 3D читает `snap.searchHighlightsByNamespace`; 2D может парсить `rawTraceRows` для `ns0`.
+**3D (зафиксировано кодом G1):** источник истины подсветки на странице — **`snap.searchHighlightsByNamespace`** (снимок сессии), а не параллельный разбор полного trace / `rawTraceRows` в React для решения «кого подсветить».
 
-**Целевое правило:**
+**OR-012 (target):** один highlight controller в M/C для 2D и 3D без дублирования семантики в двух ветках View; до полного выравнивания 2D может отличаться по пути данных — проверять факт кода при изменениях 2D-панели.
 
-- **SoT для 3D highlight** — snapshot, не параллельный parse trace в View.
-- **Target:** единый highlight controller в M/C для 2D и 3D (backlog slice в плане внедрения), без дублирования семантики в двух ветках View.
+**Связь с arch:** [`../../arch/desktop-pag-graph-snapshot.md`](../../arch/desktop-pag-graph-snapshot.md) описывает снимок и merge; формулировки про 3D должны совпадать с правилом side-channel выше.
 
-**Связь с arch:** [`../../arch/desktop-pag-graph-snapshot.md`](../../arch/desktop-pag-graph-snapshot.md) должен оставаться согласованным с фактом 3D (подсветка из snapshot); расхождения закрываются правкой arch или явным SoT в этом пакете — задача плана, не «тихая» правка только View.
-
-| Потребитель | Required source (target) | Forbidden drift |
-|-------------|---------------------------|-----------------|
-| 3D View | Snapshot channel, согласованный с `pagHighlightFromTrace` / W14 gating | Прямой разбор полного trace в странице для решения «кого подсветить» |
-| 2D View | Тот же controller output, что и 3D, после выравнивающего slice | Долгосрочно: уникальная логика только в 2D |
+| Потребитель | Required source | Forbidden drift |
+|-------------|-----------------|-----------------|
+| 3D View | `searchHighlightsByNamespace` + согласованный M/C (`pagHighlightFromTrace` / W14 gating пишут в снимок) | Прямой разбор полного trace в странице для highlight |
+| 2D View | Target: тот же controller output, что и 3D | Долгосрочно: уникальная логика только в 2D |
 
 ---
 

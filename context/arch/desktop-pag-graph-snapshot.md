@@ -15,15 +15,15 @@
 - Рёбра, у которых оба конца (`source` / `target`) **не** входят во множество `id` узлов **текущей** проекции в 3D, **исключаются** из финального списка для ForceGraph **до** появления обоих концов в merged/проекции.
 - **Запрещено** одновременно вводить плейсхолдер-ноды для «висячих» концов (ветка **B**) в том же payload, что и фильтр A: в каноне зафиксирована **только ветка A** (см. `architecture.md` §4 «UC-04 ветка **A**» и таблицу трассировки UC-04 в §14).
 
-### 3D-проекция: UC-04A + полный набор узлов (без reachability-gate)
+### 3D-проекция: UC-04A + D-ORPHAN-B (**N_scene**, без reachability-gate)
 
-- **Назначение:** в 3D показывать **все** узлы входа (`merged` после slice/union для панели). Фокус агента — **подсветка** (trace / W14), а не скрытие подграфа по пути до A.
-- **Алгоритм** (`MemoryGraphForceGraphProjector.project`): нормализация концов рёбер (`coerceGraphLinkEndpoint` — защита от мутаций d3/force-graph) → UC-04A (`filterEdgesUc04BranchA` — отбросить рёбра без **обоих** концов во множестве `id` узлов). Узлы не отрезаются.
+- **Назначение:** на вход в проектор подаётся workset из `merged` (после slice/union для панели по **C-SCOPE**). **Снимок** может оставаться **суперсетом** (в т.ч. highlight-only узлы для 2D и правила merge в `applyHighlightFromTraceRows`); **N_scene** для `ForceGraph3D` — только выход `MemoryGraphForceGraphProjector.project`, а не «все узлы merged».
+- **Алгоритм** (`MemoryGraphForceGraphProjector.project`): нормализация концов рёбер (`coerceGraphLinkEndpoint`) → UC-04A (`filterEdgesUc04BranchA`) → **D-ORPHAN-B** (`filterDegreeZeroNodesDOrphanB`: узлы степени 0 на индуцированном подграфе и связанные рёбра удаляются из DTO сцены). Степень считается по рёбрам после UC-04A.
 - **Область данных (C-SCOPE) для входа в `project`:**
   - `single` / первая панель: весь `merged` выбранного набора namespace (один ns — как раньше без slice-дробления на уровне канона).
   - `multi_separate`: `sliceMemoryGraphToNamespace` по каждому ns.
   - `multi_unified`: `filterMemoryGraphToNamespacesUnion`.
-- **Подсветка:** placeholder-узлы из `ensureHighlightNodes` **могут** отображаться в 3D (как узлы без рёбер), если присутствуют во входе проекции; визуальный акцент — highlight.
+- **Подсветка 3D:** визуальный hot-state берётся из **`searchHighlightsByNamespace`** снимка; узлы только из highlight/trace **не** попадают в **N_scene**, если после UC-04A у них нет инцидентных рёбер (default **D-ORPHAN-B**). Имитация узла в сцене без рёбер для подсветки — только с named waiver **D-ORPHAN-C**, не «тихий» default.
 - **Запрещено:** вводить «синтетический корень связности» или любые другие искусственные узлы/рёбра, которых нет в PAG/`merged`. Префикс `ailit:trace-conn-root:` не используется и не должен появляться нигде в `desktop/`.
 - **Изоляция рендерера:** в `ForceGraph3D` передаётся **`cloneMemoryGraphForForceGraphRender(project(...))`**, чтобы движок не мутировал объекты в `PagGraphSessionSnapshot.merged`.
 - **Legacy:** `keepNodesReachableToAnyA` остаётся в `memoryGraphForceGraphProjection.ts` для тестов/экспериментов; **целевой 3D-путь её не вызывает**.
@@ -50,8 +50,8 @@
 
 - Единый визуальный канал: `PagSearchHighlightV1` и маппинг строк ledger / W14 в `desktop/src/renderer/runtime/pagHighlightFromTrace.ts` (`highlightFromTraceRow`).
 - Итог по сессии: `lastPagSearchHighlightFromTrace` — по порядку trace побеждает **последнее** ненулевое событие после фильтра namespace внутри маппера (не только «хвост» массива).
-- Слияние в merged: `PagGraphSessionTraceMerge.applyHighlightFromTraceRows`; при инкременте без новых trace-строк снимок не пересчитывается (`applyIncremental`, architecture §4.3 — анти-мигание).
-- 2D/3D UI берёт тот же `lastPagSearchHighlightFromTrace` из `rawTraceRows`, без второго параллельного стека в React вне этого правила.
+- Слияние в merged: `PagGraphSessionTraceMerge.applyHighlightFromTraceRows`; при инкременте без новых trace-строк снимок не пересчитывается (`applyIncremental`, architecture §4.3 — анти-мигание). Для 2D `merged` может оставаться **суперсетом** с highlight-only узлами; **N_scene** в 3D строится отдельно через `MemoryGraphForceGraphProjector.project`.
+- **3D:** страница читает подсветку из **`searchHighlightsByNamespace`** снимка, а не из полного trace как SoT на View. **2D:** до полного выравнивания с **OR-012** проверять факт кода панели; контроллер trace→highlight по-прежнему централизуется в `pagHighlightFromTrace` / merge store.
 
 ## `warnings` и `graph_rev` (задача 1.1, D-GR-1)
 

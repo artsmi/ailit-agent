@@ -105,18 +105,18 @@ describe("memoryGraphForceGraphProjection (UC-04 A)", () => {
   });
 });
 
-describe("memoryGraphForceGraphProjection (3D project: UC-04A only, full node set)", () => {
-  it("A без рёбер — A на сцене", () => {
+describe("memoryGraphForceGraphProjection (3D project: UC-04A + D-ORPHAN-B / OR-003)", () => {
+  it("A без рёбер — не в N_scene (D-ORPHAN-B)", () => {
     const data: MemoryGraphData = {
       nodes: [{ id: "A:proj", label: "p", level: "A" }],
       links: []
     };
     const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(data);
-    expect(p.nodes.map((n) => n.id)).toEqual(["A:proj"]);
+    expect(p.nodes).toHaveLength(0);
     expect(p.links).toHaveLength(0);
   });
 
-  it("A + B без рёбер — оба узла видны (нет reachability-gate)", () => {
+  it("A + B без рёбер — пустая сцена (степень 0)", () => {
     const data: MemoryGraphData = {
       nodes: [
         { id: "A:proj", label: "p", level: "A" },
@@ -125,7 +125,7 @@ describe("memoryGraphForceGraphProjection (3D project: UC-04A only, full node se
       links: []
     };
     const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(data);
-    expect(p.nodes.map((n) => n.id).sort()).toEqual(["A:proj", "B:lonely"]);
+    expect(p.nodes).toHaveLength(0);
     expect(p.links).toHaveLength(0);
   });
 
@@ -190,7 +190,7 @@ describe("memoryGraphForceGraphProjection (3D project: UC-04A only, full node se
     expect(p.links.map((L) => L.id).sort()).toEqual(["e1", "e2"]);
   });
 
-  it("highlight placeholder без рёбер остаётся в проекции 3D", () => {
+  it("highlight placeholder в merged; D-ORPHAN-B убирает степень-0 из проекции 3D", () => {
     const base: MemoryGraphData = {
       nodes: [{ id: "A:proj", label: "p", level: "A" }],
       links: []
@@ -198,7 +198,7 @@ describe("memoryGraphForceGraphProjection (3D project: UC-04A only, full node se
     const withHl: MemoryGraphData = ensureHighlightNodes(base, ["X:hot"], "ns");
     expect(withHl.nodes.map((n) => n.id).sort()).toEqual(["A:proj", "X:hot"]);
     const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(withHl);
-    expect(p.nodes.map((n) => n.id).sort()).toEqual(["A:proj", "X:hot"]);
+    expect(p.nodes).toHaveLength(0);
     expect(p.links).toHaveLength(0);
   });
 
@@ -215,7 +215,7 @@ describe("memoryGraphForceGraphProjection (3D project: UC-04A only, full node se
     expect(p.links.map((L) => L.id)).toEqual(["e"]);
   });
 
-  it("UC-04A: висячее ребро отбрасывается; изолированный B остаётся", () => {
+  it("UC-04A: висячее ребро отбрасывается; затем D-ORPHAN-B убирает изолированные узлы", () => {
     const data: MemoryGraphData = {
       nodes: [
         { id: "A:proj", label: "p", level: "A" },
@@ -224,7 +224,7 @@ describe("memoryGraphForceGraphProjection (3D project: UC-04A only, full node se
       links: [{ id: "phantom", source: "A:proj", target: "MISSING" }]
     };
     const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(data);
-    expect(p.nodes.map((n) => n.id).sort()).toEqual(["A:proj", "B:lonely"]);
+    expect(p.nodes).toHaveLength(0);
     expect(p.links).toHaveLength(0);
   });
 
@@ -238,6 +238,8 @@ describe("memoryGraphForceGraphProjection (3D project: UC-04A only, full node se
       links: [{ id: "e", source: "A:proj", target: "B:b" }]
     };
     const p: MemoryGraphData = MemoryGraphForceGraphProjector.project(data);
+    expect(p.nodes.map((n) => n.id).sort()).toEqual(["A:proj", "B:b"]);
+    expect(p.links).toHaveLength(1);
     for (const n of p.nodes) {
       expect(n.id.startsWith("ailit:trace-conn-root:")).toBe(false);
     }

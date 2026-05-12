@@ -444,7 +444,7 @@ type LayoutPanelSpec = {
   readonly panelId: string;
   readonly graphTestId: string;
   readonly displayNamespace: string;
-  /** Вход `MemoryGraphForceGraphProjector.project` (до UC-04A); для `mem3d_graph_health`. */
+  /** Workset до `MemoryGraphForceGraphProjector.project` (C-SCOPE → normalize → UC-04A → D-ORPHAN-B); для `mem3d_graph_health`. */
   readonly inputGraphData: MemoryGraphData;
   readonly graphData: MemoryGraphData;
   readonly reactKey: string;

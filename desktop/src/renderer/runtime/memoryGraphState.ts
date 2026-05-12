@@ -163,6 +163,13 @@ export function mergeMemoryGraph(
   };
 }
 
+/**
+ * Добавляет в **merged** узлы из `nodeIds`, которых ещё нет (2D / суперсет M/C).
+ *
+ * **G1 / OR-003:** идентификаторы подсветки не обязаны попадать в **N_scene** для 3D;
+ * `MemoryGraphForceGraphProjector.project` применяет **D-ORPHAN-B** и не восстанавливает
+ * степень-0 узлы в node-list WebGL — hot id остаются в side-channel (`PagSearchHighlightV1`).
+ */
 export function ensureHighlightNodes(
   data: MemoryGraphData,
   nodeIds: readonly string[],

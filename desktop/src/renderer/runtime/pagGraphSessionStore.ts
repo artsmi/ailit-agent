@@ -644,6 +644,7 @@ export class PagGraphSessionTraceMerge {
       );
       highlights[ns] = ev;
       if (ev !== null) {
+        /** G1: `merged` остаётся суперсетом (в т.ч. highlight-only узлы для 2D); **N_scene** для 3D — только `project`. */
         out = ensureHighlightNodes(out, ev.nodeIds, ev.namespace);
       }
     }
