@@ -1,6 +1,6 @@
 Нужно запустить `start-research` / target-doc workflow для **переработки уже опубликованного описания алгоритма AgentMemory**, а не создавать документ с нуля.
 
-Ты — `18_target_doc_orchestrator`, работаешь строго по правилу `.cursor/rules/start-research.mdc`.
+Ты — `100_target_doc_orchestrator`, работаешь строго по правилу `.cursor/rules/start-research.mdc`.
 
 Product code не менять. Product tests не менять. Runtime/config не менять. Результат — обновлённый, более полный и человекочитаемый target-doc canon по AgentMemory, пригодный как опора для будущих `start-feature` / `start-fix`.
 
@@ -52,23 +52,23 @@ Product code не менять. Product tests не менять. Runtime/config 
 
 ## Required Workflow Discipline
 
-`18` не должен читать product source для research и не должен писать draft сам.
+`100` не должен читать product source для research и не должен писать draft сам.
 
 Обязательный порядок:
 
 1. Сохрани этот prompt как новый `original_user_request.md` или как update request рядом с текущим `target_doc` artifacts.
-2. Первым содержательным шагом запусти `20_target_doc_synthesizer` через Cursor Subagent tool call.
-3. `20` должен решить, достаточно ли текущих reports или нужны follow-up `research_waves`.
-4. Если нужны follow-up facts, `20` должен создать:
+2. Первым содержательным шагом запусти `103_target_doc_synthesizer` через Cursor Subagent tool call.
+3. `103` должен решить, достаточно ли текущих reports или нужны follow-up `research_waves`.
+4. Если нужны follow-up facts, `103` должен создать:
    - `context/artifacts/target_doc/research_waves.json`
    - `context/artifacts/target_doc/research_waves.md`
-5. `18` исполняет waves только из `research_waves.json`.
-6. `21_target_doc_author` правит документы только по `synthesis.md`, reports, verifier/reader findings. `21` не читает `tools/**`, `tests/**`, `plan/**`, `context/proto/**` для добычи новых фактов.
-7. `22_target_doc_verifier` проверяет техническую полноту.
-8. `23_implementation_plan_author` создаёт файл плана под `plan/` по `implementation_plan_path`.
-9. `24_implementation_plan_reviewer` проверяет план и пишет `plan_review_latest.json`.
-10. `25_target_doc_reader_reviewer` обязательно проверяет документ как человек и создаёт human approval package.
-11. User approval запрашивается только после `22 approved`, `24` approved плана и `25 approved_for_user_review`, через ntfy.
+5. `100` исполняет waves только из `research_waves.json`.
+6. `104_target_doc_author` правит документы только по `synthesis.md`, reports, verifier/reader findings. `104` не читает `tools/**`, `tests/**`, `plan/**`, `context/proto/**` для добычи новых фактов.
+7. `105_target_doc_verifier` проверяет техническую полноту.
+8. `106_implementation_plan_author` создаёт файл плана под `plan/` по `implementation_plan_path`.
+9. `107_implementation_plan_reviewer` проверяет план и пишет `plan_review_latest.json`.
+10. `108_target_doc_reader_reviewer` обязательно проверяет документ как человек и создаёт human approval package.
+11. User approval запрашивается только после `105 approved`, `107` approved плана и `108 approved_for_user_review`, через ntfy.
 
 ## Required Rework Outcomes
 
@@ -82,7 +82,7 @@ Product code не менять. Product tests не менять. Runtime/config 
 - `context/artifacts/target_doc/open_gaps_and_waivers.md`
 - `context/artifacts/target_doc/reader_review.md`
 
-Эти файлы должны быть produced by `25_target_doc_reader_reviewer`.
+Эти файлы должны быть produced by `108_target_doc_reader_reviewer`.
 
 ### 2. Prompts Section Must Be Expanded
 
@@ -144,7 +144,7 @@ Depth:
 
 | Section/File | Human clarity | Technical completeness | Examples | Commands / proof | Gaps | Verdict |
 
-Если core section имеет `low`, `25` не должен давать `approved_for_user_review`.
+Если core section имеет `low`, `108` не должен давать `approved_for_user_review`.
 
 ### 5. Gaps And Waivers
 
@@ -177,20 +177,20 @@ Waiver запрещён для:
 
 ## What 20 Should Decide
 
-`20_target_doc_synthesizer` должен решить:
+`103_target_doc_synthesizer` должен решить:
 
 - достаточно ли текущих artifacts для rework;
-- нужны ли follow-up `19_current_repo_researcher` jobs;
+- нужны ли follow-up `102_current_repo_researcher` jobs;
 - нужны ли donor jobs;
 - какие `research_waves` нужны;
-- какие sections must be re-authored by `21`;
+- какие sections must be re-authored by `104`;
 - какие user questions/waivers нужны.
 
-`20` не должен просить `18` самому решить parallelism.
+`103` не должен просить `100` самому решить parallelism.
 
 ## What 21 Should Do
 
-`21_target_doc_author` должен:
+`104_target_doc_author` должен:
 
 - не читать product source;
 - не добывать новые facts;
@@ -201,7 +201,7 @@ Waiver запрещён для:
 
 ## What 22 Should Do
 
-`22_target_doc_verifier` должен:
+`105_target_doc_verifier` должен:
 
 - проверить technical completeness;
 - не пропустить thin `prompts.md`;
@@ -210,18 +210,18 @@ Waiver запрещён для:
 
 ## What 23 / 24 / 25 Should Do
 
-`23_implementation_plan_author` должен:
+`106_implementation_plan_author` должен:
 
 - создать один markdown-файл плана по `implementation_plan_path`;
 - включить трассировку к канону, тесты/DoD, пользовательские сценарии;
-- поставить marker `Produced by: 23_implementation_plan_author`.
+- поставить marker `Produced by: 106_implementation_plan_author`.
 
-`24_implementation_plan_reviewer` должен:
+`107_implementation_plan_reviewer` должен:
 
 - записать `context/artifacts/target_doc/plan_review_latest.json`;
-- вернуть JSON с `approved` или `rework_required` (rework → новый вызов `23`).
+- вернуть JSON с `approved` или `rework_required` (rework → новый вызов `106`).
 
-`25_target_doc_reader_reviewer` должен:
+`108_target_doc_reader_reviewer` должен:
 
 - проверить документ как человек;
 - создать human approval package;
@@ -234,9 +234,9 @@ Waiver запрещён для:
 
 Workflow можно завершить только если:
 
-- `22` approved;
-- `24` вернул `approved` для плана (`plan_review_latest.json`);
-- `25` approved_for_user_review;
+- `105` approved;
+- `107` вернул `approved` для плана (`plan_review_latest.json`);
+- `108` approved_for_user_review;
 - `human_review_packet.md` ясно объясняет, что утверждается;
 - `source_request_coverage.md` не имеет critical `missing` / `thin`;
 - `target_doc_quality_matrix.md` не имеет core `low`;
@@ -245,7 +245,7 @@ Workflow можно завершить только если:
 
 ## Expected User Approval Request
 
-Когда всё готово, `18` должен попросить пользователя читать не только target docs, а именно:
+Когда всё готово, `100` должен попросить пользователя читать не только target docs, а именно:
 
 - `context/artifacts/target_doc/human_review_packet.md`
 - `context/artifacts/target_doc/source_request_coverage.md`

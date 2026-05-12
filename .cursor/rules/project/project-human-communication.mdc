@@ -9,7 +9,7 @@ alwaysApply: true
 
 Цель: человек, управляющий агентской системой, должен понимать смысл вопросов и документов без дополнительного устного перевода от агентов.
 
-**Чеклист публикуемого канона (algorithms и human-facing `context/*` вне `artifacts/`):** см. **CR-CANON** в `.cursor/rules/start-research.mdc` (якорь для ролей `20`–`25`, `18`, `13`).
+**Чеклист публикуемого канона (algorithms и human-facing `context/*` вне `artifacts/`):** см. **CR-CANON** в `.cursor/rules/start-research.mdc` (якорь для ролей `103`–`108`, `100`, `13`).
 
 Источник идей для anti-AI writing gate: `/home/artem/reps/humanizer` (`SKILL.md` — source of truth, MIT). Мы переносим taxonomy и подход к before/after examples, не копируем branding или runtime packaging skill.
 
@@ -43,7 +43,7 @@ alwaysApply: true
 
 Каждое важное утверждение должно иметь:
 
-- **actor:** кто действует (`18`, `20`, `AgentMemoryWorker`, `11_test_runner`);
+- **actor:** кто действует (`100`, `103`, `AgentMemoryWorker`, `11_test_runner`);
 - **action:** что делает;
 - **artifact:** какой файл, event, command или path меняется/проверяется;
 - **evidence/check:** как это проверить;
@@ -58,7 +58,7 @@ alwaysApply: true
 Хорошо:
 
 ```text
-`25_target_doc_reader_reviewer` создаёт `source_request_coverage.md`. `18` не может запросить approval, если этот файл отсутствует или не содержит `Produced by: 25_target_doc_reader_reviewer`.
+`108_target_doc_reader_reviewer` создаёт `source_request_coverage.md`. `100` не может запросить approval, если этот файл отсутствует или не содержит `Produced by: 108_target_doc_reader_reviewer`.
 ```
 
 ## Anti-AI Patterns For Agents
@@ -67,8 +67,8 @@ alwaysApply: true
 
 | Pattern | Плохо | Хорошо |
 |---------|-------|--------|
-| Significance inflation | "ключевой этап эволюции workflow" | "`18` теперь проверяет `artifact_validation.md` перед approval" |
-| Vague attribution | "агенты считают документ готовым" | "`22` вернул `approved`; `25` вернул `approved_for_user_review`" |
+| Significance inflation | "ключевой этап эволюции workflow" | "`100` теперь проверяет `artifact_validation.md` перед approval" |
+| Vague attribution | "агенты считают документ готовым" | "`105` вернул `approved`; `108` вернул `approved_for_user_review`" |
 | Superficial `-ing` | "усиливая прозрачность и обеспечивая качество" | "добавлен `subagent_ledger.md`; он фиксирует role, input, output, status" |
 | Promotional language | "мощный и гибкий pipeline" | "pipeline создаёт `research_waves.json`, `reader_review.md`, `approval_latest.md`" |
 | AI vocabulary | "crucial/pivotal/robust/seamless" | "required/blocking/optional с причиной" |
@@ -77,15 +77,15 @@ alwaysApply: true
 | Rule of three | "быстро, надёжно и удобно" | перечислить реальные свойства, сколько их есть |
 | Synonym cycling | "канон/док/материал/артефакт" | повторять точный термин `target doc`, если речь о нём |
 | False ranges | "от runtime до UX" | "runtime flow, LLM command protocol, external events" |
-| Hidden actor/passive | "создаётся отчёт" | "`25` создаёт `reader_review.md`" |
+| Hidden actor/passive | "создаётся отчёт" | "`108` создаёт `reader_review.md`" |
 | Em dash overuse | драматические вставки через тире | точка, двоеточие или короткое предложение |
 | Boldface overuse | выделять каждое важное слово | выделять только gate/status, если нужно |
-| Inline-header list | `**Качество:** качество улучшено` | "`22` проверяет `target_doc_quality_matrix.md`" |
+| Inline-header list | `**Качество:** качество улучшено` | "`105` проверяет `target_doc_quality_matrix.md`" |
 | Title Case headings | `## Target Doc Quality Matrix` в русском документе | `## Матрица качества target doc` |
 | Emojis | любые декоративные emoji | не использовать |
 | Chatbot artifacts | "отличный вопрос", "надеюсь, помогло" | отвечать сразу по сути |
 | Cutoff disclaimers | "насколько известно" | "source не найден; gap `verification_gap`" |
-| Sycophantic tone | "вы абсолютно правы" | "да, это нарушение роли `18`" |
+| Sycophantic tone | "вы абсолютно правы" | "да, это нарушение роли `100`" |
 | Filler | "следует отметить", "в рамках" | удалить или заменить фактом |
 | Excessive hedging | "может потенциально" | "может", если действительно неопределённо |
 | Generic conclusion | "workflow готов к развитию" | "следующий slice: `prompts.md` contract alignment" |
@@ -223,9 +223,9 @@ Target document должен быть человекочитаемым и тех
 - `context/artifacts/target_doc/source_request_coverage.md` — покрытие исходного запроса.
 - `context/artifacts/target_doc/target_doc_quality_matrix.md` — качество разделов.
 - `context/artifacts/target_doc/open_gaps_and_waivers.md` — gaps, TBD и waiver candidates.
-- `context/artifacts/target_doc/reader_review.md` — решение `25_target_doc_reader_reviewer`.
-- `plan/<NN>-<slug>.md` — план внедрения для следующего `start-feature` (путь **`implementation_plan_path`** из JSON `20`; owner **`23_implementation_plan_author`**; **не** часть канона `context/algorithms/**`).
-- `context/artifacts/target_doc/plan_review_latest.json` — последнее ревью плана (**owner `24_implementation_plan_reviewer`**, JSON на диске для аудита и gate `25`).
+- `context/artifacts/target_doc/reader_review.md` — решение `108_target_doc_reader_reviewer`.
+- `plan/<NN>-<slug>.md` — план внедрения для следующего `start-feature` (путь **`implementation_plan_path`** из JSON `103`; owner **`106_implementation_plan_author`**; **не** часть канона `context/algorithms/**`).
+- `context/artifacts/target_doc/plan_review_latest.json` — последнее ревью плана (**owner `107_implementation_plan_reviewer`**, JSON на диске для аудита и gate `108`).
 
 User approval должен запрашиваться на **human review packet + target doc + план в `plan/` + `plan_review_latest.json`**, а не только на технический draft.
 
@@ -240,7 +240,7 @@ Gap taxonomy для `open_gaps_and_waivers.md`:
 - `current_target_mismatch`: current reality отличается от target;
 - `verification_gap`: нет проверки или observability proof.
 
-Файл плана под `plan/` (см. `implementation_plan_path`) создаёт **`23_implementation_plan_author`** по структуре крупных `plan/*-*.md`, с трассировкой «слайс → канон» со **ссылками на markdown канона** и явным запретом broad scope. Машинное ревью — **`24_implementation_plan_reviewer`** (`plan_review_latest.json`).
+Файл плана под `plan/` (см. `implementation_plan_path`) создаёт **`106_implementation_plan_author`** по структуре крупных `plan/*-*.md`, с трассировкой «слайс → канон» со **ссылками на markdown канона** и явным запретом broad scope. Машинное ревью — **`107_implementation_plan_reviewer`** (`plan_review_latest.json`).
 
 ## Примеры В Target Doc
 
@@ -276,7 +276,7 @@ ailit memory init ./
 
 Агент должен оценить смысл ответа. Если ответ содержит замечания, это не approval.
 
-`18_target_doc_orchestrator` при записи `approval_*.md` обязан:
+`100_target_doc_orchestrator` при записи `approval_*.md` обязан:
 
 - копировать **дословно** одну из форм выше **или** явную форму «утверждаю target doc …» с именем пакета;
 - если пользователь написал иное (например «продолжай работу» без ссылки на пакет), трактовать как **`ambiguous_user_response`**: не ставить `completion_allowed=true`, запросить повтор одной из форм whitelist или уточняющий вопрос.
@@ -285,29 +285,29 @@ ailit memory init ./
 
 Агентская система использует строгую модель ownership:
 
-- Только оркестраторы `01_orchestrator` и `18_target_doc_orchestrator` имеют право запускать других агентов.
-- Все остальные роли (`02`-`17`, `19`-`25`) не запускают агентов, не имитируют их ответы и не управляют pipeline. Они возвращают JSON, markdown-артефакт, blockers или requested follow-up для оркестратора.
+- Только оркестраторы `01_orchestrator` и `100_target_doc_orchestrator` имеют право запускать других агентов.
+- Все роли, кроме `01_orchestrator` и `100_target_doc_orchestrator`, не запускают агентов, не имитируют их ответы и не управляют pipeline. Они возвращают JSON, markdown-артефакт, blockers или requested follow-up для оркестратора.
 - Каждый ключевой артефакт имеет owner role. Чужой артефакт нельзя создавать "для ускорения".
 
 Target-doc ownership:
 
 | Артефакт | Owner |
 |----------|-------|
-| `context/artifacts/target_doc/original_user_request.md` | `18_target_doc_orchestrator` |
-| `context/artifacts/target_doc/intake.md` | `18_target_doc_orchestrator` |
-| `context/artifacts/target_doc/current_state/*.md` | `19_current_repo_researcher` |
-| `context/artifacts/target_doc/donor/*.md` | `14_donor_researcher` |
-| `context/artifacts/target_doc/synthesis.md` | `20_target_doc_synthesizer` |
-| `context/artifacts/target_doc/target_algorithm_draft.md` | `21_target_doc_author` |
-| `context/artifacts/target_doc/verification.md` | `22_target_doc_verifier` |
-| `context/artifacts/target_doc/human_review_packet.md` | `25_target_doc_reader_reviewer` |
-| `context/artifacts/target_doc/source_request_coverage.md` | `25_target_doc_reader_reviewer` |
-| `context/artifacts/target_doc/target_doc_quality_matrix.md` | `25_target_doc_reader_reviewer` |
-| `context/artifacts/target_doc/open_gaps_and_waivers.md` | `25_target_doc_reader_reviewer` |
-| `context/artifacts/target_doc/reader_review.md` | `25_target_doc_reader_reviewer` |
-| `plan/<NN>-<slug>.md` (план внедрения / `implementation_plan_path`) | `23_implementation_plan_author` |
-| `context/artifacts/target_doc/plan_review_latest.json` | `24_implementation_plan_reviewer` |
-| `context/artifacts/target_doc/approval.md` | `18_target_doc_orchestrator` |
+| `context/artifacts/target_doc/original_user_request.md` | `100_target_doc_orchestrator` |
+| `context/artifacts/target_doc/intake.md` | `100_target_doc_orchestrator` |
+| `context/artifacts/target_doc/current_state/*.md` | `102_current_repo_researcher` |
+| `context/artifacts/target_doc/donor/*.md` | `101_donor_researcher` |
+| `context/artifacts/target_doc/synthesis.md` | `103_target_doc_synthesizer` |
+| `context/artifacts/target_doc/target_algorithm_draft.md` | `104_target_doc_author` |
+| `context/artifacts/target_doc/verification.md` | `105_target_doc_verifier` |
+| `context/artifacts/target_doc/human_review_packet.md` | `108_target_doc_reader_reviewer` |
+| `context/artifacts/target_doc/source_request_coverage.md` | `108_target_doc_reader_reviewer` |
+| `context/artifacts/target_doc/target_doc_quality_matrix.md` | `108_target_doc_reader_reviewer` |
+| `context/artifacts/target_doc/open_gaps_and_waivers.md` | `108_target_doc_reader_reviewer` |
+| `context/artifacts/target_doc/reader_review.md` | `108_target_doc_reader_reviewer` |
+| `plan/<NN>-<slug>.md` (план внедрения / `implementation_plan_path`) | `106_implementation_plan_author` |
+| `context/artifacts/target_doc/plan_review_latest.json` | `107_implementation_plan_reviewer` |
+| `context/artifacts/target_doc/approval.md` | `100_target_doc_orchestrator` |
 
 Если роль собирается создать чужой артефакт, она обязана остановиться и вернуть blocker/next action для оркестратора.
 

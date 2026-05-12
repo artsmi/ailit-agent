@@ -7,7 +7,7 @@ alwaysApply: false
 
 ## Политика репозитория ailit-agent
 
-Роли `02+`, роли **A–B–C–M** (`02A`…`07M`) и target-doc роли `14`, `19`–`25` запускаются **только как Cursor Subagents** с моделью **строго по этой карте**. Модель чата, в котором сидит `01`/`18`, **не** задаёт модель Subagent и **не** разрешает подставлять slug из подсказок среды.
+Роли `02+`, роли **A–B–C–M** (`02A`…`07M`) и target-doc роли `100`–`108` запускаются **только как Cursor Subagents** с моделью **строго по этой карте**. Модель чата, в котором сидит `01`/`100`, **не** задаёт модель Subagent и **не** разрешает подставлять slug из подсказок среды.
 
 `Auto` в карте — это **фиксированное значение карты**: специальный режим Cursor Subagents (не «любая модель по усмотрению рантайма из списка дорогих»). Для строки с `Auto` оркестратор **не** передаёт параметр `model` в вызов Subagent; любой явный `model` при значении карты `Auto` — **ошибка политики** и сжигает квоту непредсказуемо.
 
@@ -38,24 +38,21 @@ alwaysApply: false
 - `11_test_runner`: `Auto`
 - `12_change_inventory`: `Auto`
 - `13_tech_writer`: `Auto`
-- `14_donor_researcher`: `Auto`
-- `15_research_synthesizer`: `Auto`
-- `16_plan_author`: `Auto`
-- `17_research_plan_reviewer`: `Auto`
-- `18_target_doc_orchestrator`: `Auto`
-- `19_current_repo_researcher`: `Auto`
-- `20_target_doc_synthesizer`: `Auto`
-- `21_target_doc_author`: `Auto`
-- `22_target_doc_verifier`: `Auto`
-- `23_implementation_plan_author`: `Auto`
-- `24_implementation_plan_reviewer`: `Auto`
-- `25_target_doc_reader_reviewer`: `Auto`
+- `100_target_doc_orchestrator`: `Auto`
+- `101_donor_researcher`: `Auto`
+- `102_current_repo_researcher`: `Auto`
+- `103_target_doc_synthesizer`: `Auto`
+- `104_target_doc_author`: `Auto`
+- `105_target_doc_verifier`: `Auto`
+- `106_implementation_plan_author`: `Auto`
+- `107_implementation_plan_reviewer`: `Auto`
+- `108_target_doc_reader_reviewer`: `Auto`
 
 Явный slug модели в карте допускается **только** после явного решения человека и правки этого файла; иначе по умолчанию везде `Auto`.
 
 ## Правила валидации
 
-- Не переименовывай ключи агентов и не добавляй новые вне **карты ниже** (включая роли `02A`…`07M` и `01`…`25`).
+- Не переименовывай ключи агентов и не добавляй новые вне **карты ниже** (включая роли `02A`…`07M`, `01`…`13` и target-doc `100`…`108`).
 - Значение модели — либо точно `Auto`, либо точная строка модели для Cursor Subagent, согласованная человеком в этой карте.
 - Не выполняй внешнюю проверку моделей. Если явно заданная модель недоступна Cursor Subagent runtime или не входит в разрешённый список текущей среды, оркестратор обязан остановить pipeline и вынести пользователю блокирующий вопрос.
 - Если файл не парсится по формату, содержит неизвестный ключ или модель недоступна / не проходит проверку, оркестратор обязан остановить pipeline и вынести пользователю блокирующий вопрос.

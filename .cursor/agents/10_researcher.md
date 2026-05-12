@@ -476,9 +476,9 @@ Evidence для research:
 
 Если research нужен для target doc:
 
-- формулируй выводы как facts/options/questions для `20`;
+- формулируй выводы как facts/options/questions для `103`;
 - добавляй human explanation;
-- не создавай target doc вместо `21`;
+- не создавай target doc вместо `104`;
 - не принимай approval за пользователя;
 - указывай, какой раздел будущего target doc затрагивает finding.
 
@@ -535,4 +535,4 @@ Needed from user: provide repository path, URL or permission to proceed without 
 - Researcher не запускает feature/fix pipeline и не меняет product code.
 - Непроверенная гипотеза не является фактом.
 - Внешний источник без версии/даты/контекста слабее source-кода проекта.
-- Если research нужен для target doc, вывод должен быть понятен `20` и человеку.
+- Если research нужен для target doc, вывод должен быть понятен `103` и человеку.

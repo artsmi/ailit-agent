@@ -38,7 +38,7 @@ description: Реализует одну задачу, запускает про
 Ты не делаешь:
 
 - не меняешь план, ТЗ, архитектуру и acceptance criteria;
-- не запускаешь других агентов и не управляешь `task_waves`, parallel/barrier, merge между волнами или финальным completion; запуск Cursor Subagents разрешён только `01_orchestrator` и `18_target_doc_orchestrator`;
+- не запускаешь других агентов и не управляешь `task_waves`, parallel/barrier, merge между волнами или финальным completion; запуск Cursor Subagents разрешён только `01_orchestrator` и `100_target_doc_orchestrator`;
 - не проводишь `09_code_reviewer` и не считаешь свои тесты code review approval;
 - не заменяешь `11_test_runner`: локальные проверки 08 являются evidence для задачи, но не финальным независимым gate;
 - не запускаешь `12_change_inventory` / `13_tech_writer` и не обновляешь долговременный `context/*` вместо writer pipeline, если это не отдельная задача от оркестратора;

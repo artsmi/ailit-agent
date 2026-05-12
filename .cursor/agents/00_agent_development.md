@@ -6,7 +6,7 @@ description: Обзорный канон мультиагентной разра
 
 # Мультиагентная система разработки ПО (00)
 
-Роль `00_agent_development` хранит верхнеуровневый канон мультиагентной разработки и связывает специализированные роли `01`-`17` в один pipeline. Она не исполняет пользовательские задачи напрямую, а задаёт общую модель: кто за что отвечает, как движется работа сверху вниз, когда процесс останавливается, как создаётся research-plan и как после реализации обновляется канонический `context/*`.
+Роль `00_agent_development` хранит верхнеуровневый канон мультиагентной разработки и связывает специализированные роли `01`–`13` (feature/fix и writer pipeline) с отдельным target-doc кластером `100`–`108` (`start-research`). Она не исполняет пользовательские задачи напрямую, а задаёт общую модель: кто за что отвечает, как движется работа сверху вниз, когда процесс останавливается, как фиксируется целевой алгоритм и как после реализации обновляется канонический `context/*`.
 
 ## Назначение
 
@@ -17,10 +17,10 @@ description: Обзорный канон мультиагентной разра
 - `00_agent_development` описывает систему ролей и не заменяет `01_orchestrator`.
 - `01_orchestrator` отвечает за routing, stage transitions, передачу контекста, review loops и остановку на блокерах.
 - `02`-`09` закрывают feature/fix pipeline: анализ, review ТЗ, архитектура, review архитектуры, планирование, review плана, разработка, review кода.
-- `10_researcher` остаётся общей исследовательской ролью для отдельных вопросов, но основной research-plan pipeline использует специализированные роли `14`-`17`.
+- `10_researcher` остаётся общей исследовательской ролью для отдельных вопросов по поручению оркестратора.
 - `11_test_runner` выполняет дорожечные и финальные проверки, но не чинит код.
 - `12_change_inventory` и `13_tech_writer` запускаются после успешного финального `11` как writer pipeline для канонического `context/*`.
-- `14_donor_researcher`, `15_research_synthesizer`, `16_plan_author`, `17_research_plan_reviewer` закрывают режим `research`: donor research, synthesis, human-readable plan и review пригодности к `start-feature`.
+- Target-doc (`start-research`): оркестратор `100_target_doc_orchestrator` и роли `101`–`108` (donor/current repo research, synthesis, author, verifier, план внедрения, ревью плана, human reader) — см. `.cursor/agents/100_target_doc_orchestrator.md` и `readme100.md`.
 - `.cursor/rules/project/**` являются проектными overrides и не редактируются в рамках нормализации system prompts.
 
 ## Pipeline Roles 00-13
@@ -39,10 +39,10 @@ description: Обзорный канон мультиагентной разра
 12. `11_test_runner` — независимая проверка дорожек и финальный verify gate.
 13. `12_change_inventory` — инвентаризация фактических изменений для writer pipeline.
 14. `13_tech_writer` — обновление канонического `context/*` по проверенной инвентаризации.
-15. `14_donor_researcher` — исследование одного donor repo/scope с фактами и ссылками на код.
-16. `15_research_synthesizer` — объединение donor facts и вариантов реализации.
-17. `16_plan_author` — написание human-readable development plan в `plan/*.md`.
-18. `17_research_plan_reviewer` — review research plan на исполнимость через `start-feature`.
+
+## Target-doc roles (100–108)
+
+См. `.cursor/rules/start-research.mdc` и `.cursor/agents/readme100.md`. Кратко: `100` оркестрирует; `101`/`102` — research по donor и текущему репо; `103` — synthesis и волны; `104`/`105` — draft target doc и verifier; `106`/`107`/`108` — план внедрения под `plan/`, ревью плана и human approval package.
 
 ## Top-Down Development
 
@@ -65,24 +65,17 @@ Pipeline строится сверху вниз: сначала фиксирую
 
 После успешного финального `11_test_runner` изменения проходят через `12_change_inventory -> 13_tech_writer`. `12` отделяет проверенные факты от гипотез и перечисляет, какие части `context/*` затронуты. `13` обновляет только релевантные канонические документы, не дублируя планы и не превращая context в отчёт о задаче.
 
-## Research Plan Pipeline
+## Target-doc и планы
 
-Режим `research` не меняет product code. Он создаёт план разработки:
-
-1. `14_donor_researcher` исследует donor repositories параллельными task waves.
-2. `15_research_synthesizer` объединяет факты, rejected patterns и варианты реализации.
-3. `16_plan_author` пишет план в `plan/*.md`.
-4. `17_research_plan_reviewer` проверяет план по project workflow и пригодности для `start-feature`.
-
-Если synthesis требует выбора пользователя, pipeline останавливается до написания плана. Research artifacts и plan коммитятся только после approved review.
+Отдельный legacy-пайплайн research-plan с ролями `15`–`17` **удалён** из репозитория. Donor/current repo research и план внедрения после канона выполняются только в контуре **`start-research`** ролями `101`–`108` под оркестрацией `100_target_doc_orchestrator` (см. `100_target_doc_orchestrator.md`).
 
 ## Checklist
 
-- Роли `00`-`17` перечислены в порядке pipeline.
+- Роли `00`–`13` и target-doc `100`–`108` согласованы с промптами в `.cursor/agents/`.
 - `01_orchestrator` не пишет продуктовый код и не подменяет специализированных агентов.
 - Analyst, architect и planner не пишут production code.
 - Review loops ограничены правилами соответствующих стадий и останавливаются на критичных замечаниях после разрешённого числа итераций.
 - Top-down подход сохраняет раннюю end-to-end сходимость и не допускает набора частных реализаций без интеграции.
 - Blockers возвращаются оркестратору, а не решаются догадками.
 - Context updates проходят через `12_change_inventory` и `13_tech_writer`.
-- Research plan проходит через `14`-`17` и не запускает product development сам по себе.
+- Target-doc (`100`–`108`) не запускает product development сам по себе; канон публикуется только после user approval по правилам `100_target_doc_orchestrator.md`.

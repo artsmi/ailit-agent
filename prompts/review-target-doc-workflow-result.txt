@@ -21,13 +21,13 @@
 - `context/artifacts/target_doc/`
 - `context/algorithms/`
 - `.cursor/rules/start-research.mdc`
-- `.cursor/agents/18_target_doc_orchestrator.md`
-- `.cursor/agents/20_target_doc_synthesizer.md`
-- `.cursor/agents/21_target_doc_author.md`
-- `.cursor/agents/22_target_doc_verifier.md`
-- `.cursor/agents/23_implementation_plan_author.md`
-- `.cursor/agents/24_implementation_plan_reviewer.md`
-- `.cursor/agents/25_target_doc_reader_reviewer.md`
+- `.cursor/agents/100_target_doc_orchestrator.md`
+- `.cursor/agents/103_target_doc_synthesizer.md`
+- `.cursor/agents/104_target_doc_author.md`
+- `.cursor/agents/105_target_doc_verifier.md`
+- `.cursor/agents/106_implementation_plan_author.md`
+- `.cursor/agents/107_implementation_plan_reviewer.md`
+- `.cursor/agents/108_target_doc_reader_reviewer.md`
 
 Не исправляй файлы. Только читай и делай review.
 
@@ -57,10 +57,10 @@
 - `context/artifacts/target_doc/original_user_request.md` существует.
 - Если это rework, есть отдельный файл follow-up request или понятная секция rework request.
 - `preflight.md` существует.
-- `preflight.md` содержит `Produced by: 18_target_doc_orchestrator`.
-- `preflight.md` перечисляет allowed reads и forbidden reads для `18`.
-- `preflight.md` указывает первый Subagent: `20_target_doc_synthesizer`.
-- `18` не читал product/runtime source для анализа.
+- `preflight.md` содержит `Produced by: 100_target_doc_orchestrator`.
+- `preflight.md` перечисляет allowed reads и forbidden reads для `100`.
+- `preflight.md` указывает первый Subagent: `103_target_doc_synthesizer`.
+- `100` не читал product/runtime source для анализа.
 
 Плохой признак:
 
@@ -79,9 +79,9 @@
 Проверь:
 
 - `subagent_ledger.md` существует.
-- Есть записи для `20`.
-- Если были research waves, есть записи для всех `19` / `14`.
-- Есть записи для `21`, `22`, `23`, `24`, `25`.
+- Есть записи для `103`.
+- Если были research waves, есть записи для всех `102` / `101`.
+- Есть записи для `104`, `105`, `106`, `107`, `108`.
 - Для каждой записи указаны role, subagent type, input, output, status.
 - Нет признаков inline-исполнения ролей.
 
@@ -91,14 +91,14 @@
 
 Проверь:
 
-- Если `20` вернул research, существуют:
+- Если `103` вернул research, существуют:
   - `research_waves.json`
   - `research_waves.md`
   - `wave_execution_report.md`
-- `research_waves.json` содержит `produced_by: 20_target_doc_synthesizer`.
-- `research_waves.md` содержит `Produced by: 20_target_doc_synthesizer`.
-- `wave_execution_report.md` содержит `Produced by: 18_target_doc_orchestrator`.
-- `18` исполнил waves из `research_waves.json`, а не из собственной логики.
+- `research_waves.json` содержит `produced_by: 103_target_doc_synthesizer`.
+- `research_waves.md` содержит `Produced by: 103_target_doc_synthesizer`.
+- `wave_execution_report.md` содержит `Produced by: 100_target_doc_orchestrator`.
+- `100` исполнил waves из `research_waves.json`, а не из собственной логики.
 - `parallel=true` waves запускались одной пачкой Subagent calls.
 - `parallel=false` waves запускались последовательно.
 - `wave_id`, `job_id`, `output_file` уникальны.
@@ -119,7 +119,7 @@
 
 Проверь каждый `context/artifacts/target_doc/current_state/*.md`:
 
-- содержит `Produced by: 19_current_repo_researcher`;
+- содержит `Produced by: 102_current_repo_researcher`;
 - имеет job id/scope/questions;
 - содержит findings с source/evidence;
 - отделяет current reality от target behavior;
@@ -132,21 +132,21 @@
 
 Если есть `context/artifacts/target_doc/donor/*.md`, проверь:
 
-- содержит `Produced by: 14_donor_researcher`;
+- содержит `Produced by: 101_donor_researcher`;
 - есть donor repo path;
 - есть research question;
 - есть source-backed findings;
 - есть no-copy/adaptation boundary;
 - rejected patterns зафиксированы;
-- donor pattern не принят как product decision без `20`.
+- donor pattern не принят как product decision без `103`.
 
-Если donor не использовался, это может быть `not_applicable`, если `20` явно сказал, что donor не нужен.
+Если donor не использовался, это может быть `not_applicable`, если `103` явно сказал, что donor не нужен.
 
 ## 6. Synthesis by 20
 
 Проверь `synthesis.md`:
 
-- содержит `Produced by: 20_target_doc_synthesizer`;
+- содержит `Produced by: 103_target_doc_synthesizer`;
 - содержит Source Request;
 - содержит Readiness;
 - содержит Current Repo Facts;
@@ -174,9 +174,9 @@
 
 Проверь `target_algorithm_draft.md` или canonical target doc:
 
-- содержит `Produced by: 21_target_doc_author`;
+- содержит `Produced by: 104_target_doc_author`;
 - содержит `Source synthesis`;
-- не содержит признаков чтения product source самим `21`;
+- не содержит признаков чтения product source самим `104`;
 - содержит Source User Goal;
 - содержит Scope / Out of Scope;
 - разделяет Current Reality и Target Behavior;
@@ -197,7 +197,7 @@
 
 Проверь `verification.md`:
 
-- содержит `Produced by: 22_target_doc_verifier`;
+- содержит `Produced by: 105_target_doc_verifier`;
 - проверяет draft producer marker;
 - проверяет synthesis producer marker;
 - проверяет current/donor reports producer markers;
@@ -209,7 +209,7 @@
 Плохой признак:
 
 ```text
-22 approved, но prompts.md thin или source_request_coverage.md missing.
+105 approved, но prompts.md thin или source_request_coverage.md missing.
 ```
 
 ## 9. Reader review by 25 (human package)
@@ -221,16 +221,16 @@
 - `target_doc_quality_matrix.md`
 - `open_gaps_and_waivers.md`
 - `reader_review.md`
-- файл по `implementation_plan_path` под `plan/` (см. JSON `20`; owner **`23_implementation_plan_author`**)
-- `context/artifacts/target_doc/plan_review_latest.json` (owner **`24_implementation_plan_reviewer`**, `stage_status=approved`)
+- файл по `implementation_plan_path` под `plan/` (см. JSON `103`; owner **`106_implementation_plan_author`**)
+- `context/artifacts/target_doc/plan_review_latest.json` (owner **`107_implementation_plan_reviewer`**, `stage_status=approved`)
 
 Каждый файл под `context/artifacts/target_doc/` из списка выше должен иметь:
 
 ```text
-Produced by: 25_target_doc_reader_reviewer
+Produced by: 108_target_doc_reader_reviewer
 ```
 
-Файл под `plan/` должен содержать строку `Produced by: 23_implementation_plan_author` в теле.
+Файл под `plan/` должен содержать строку `Produced by: 106_implementation_plan_author` в теле.
 
 Проверь `source_request_coverage.md`:
 
@@ -262,7 +262,7 @@ Produced by: 25_target_doc_reader_reviewer
 Проверь:
 
 - `artifact_validation.md` существует;
-- содержит `Produced by: 18_target_doc_orchestrator`;
+- содержит `Produced by: 100_target_doc_orchestrator`;
 - проверяет все required artifacts;
 - проверяет producer markers;
 - проверяет links/file existence;
@@ -283,11 +283,11 @@ Produced by: 25_target_doc_reader_reviewer
 
 Если старый `approval.md` маскирует новый rework, это `fail`.
 
-## 12. План внедрения (`plan/`) и ревью `24`
+## 12. План внедрения (`plan/`) и ревью `107`
 
 Проверь файл по **`implementation_plan_path`** (каталог `plan/`):
 
-- есть `Produced by: 23_implementation_plan_author`;
+- есть `Produced by: 106_implementation_plan_author`;
 - есть раздел трассировки «слайсы / этапы → канон» со ссылками на markdown в `context/algorithms/…`;
 - есть Forbidden Broad Scope;
 - есть входы для start-feature (ссылка на канон);
@@ -298,7 +298,7 @@ Produced by: 25_target_doc_reader_reviewer
 Проверь `context/artifacts/target_doc/plan_review_latest.json`:
 
 - валидный JSON;
-- `"role":"24_implementation_plan_reviewer"`;
+- `"role":"107_implementation_plan_reviewer"`;
 - `"stage_status":"approved"`;
 - `implementation_plan_file` совпадает с путём плана.
 
@@ -367,13 +367,13 @@ Required fix:
 
 Минимум проверь, нужны ли правки в:
 
-- `.cursor/agents/18_target_doc_orchestrator.md`
-- `.cursor/agents/20_target_doc_synthesizer.md`
-- `.cursor/agents/21_target_doc_author.md`
-- `.cursor/agents/22_target_doc_verifier.md`
-- `.cursor/agents/23_implementation_plan_author.md`
-- `.cursor/agents/24_implementation_plan_reviewer.md`
-- `.cursor/agents/25_target_doc_reader_reviewer.md`
+- `.cursor/agents/100_target_doc_orchestrator.md`
+- `.cursor/agents/103_target_doc_synthesizer.md`
+- `.cursor/agents/104_target_doc_author.md`
+- `.cursor/agents/105_target_doc_verifier.md`
+- `.cursor/agents/106_implementation_plan_author.md`
+- `.cursor/agents/107_implementation_plan_reviewer.md`
+- `.cursor/agents/108_target_doc_reader_reviewer.md`
 - `.cursor/rules/start-research.mdc`
 - `.cursor/rules/project/project-human-communication.mdc`
 
@@ -396,7 +396,7 @@ Required fix:
 ```markdown
 | Fix ID | Area | Problem in workflow | Required change in agents/rules | Priority |
 |--------|------|---------------------|---------------------------------|----------|
-| AF-1 | `18` artifact validation | `human_review_packet.md` ссылается на отсутствующий `source_request_coverage.md`, но `18` всё равно запросил approval | В `18_target_doc_orchestrator.md` запретить approval, если любой link из human packet отсутствует; добавить check в `artifact_validation.md` | high |
+| AF-1 | `100` artifact validation | `human_review_packet.md` ссылается на отсутствующий `source_request_coverage.md`, но `100` всё равно запросил approval | В `100_target_doc_orchestrator.md` запретить approval, если любой link из human packet отсутствует; добавить check в `artifact_validation.md` | high |
 ```
 ```
 
