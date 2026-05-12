@@ -112,6 +112,7 @@ alwaysApply: true
 | `/home/artem/reps/letta` | stateful agents, memory blocks, API/клиенты |
 | `/home/artem/reps/graphiti` | временные контекст-графы, hybrid retrieval, MCP-слой |
 | `/home/artem/reps/humanizer` | human-readable writing, anti-AI writing patterns, before/after examples, final anti-AI pass |
+| `/home/artem/reps/superpowers` | Superpowers is a complete software development methodology for your coding agents, built on top of a set of composable skills and some initial instructions that make sure your agent uses them. |
 
 ## Внешние документы и спецификации
 
