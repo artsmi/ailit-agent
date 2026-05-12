@@ -219,13 +219,15 @@
 - `target_doc_quality_matrix.md`
 - `open_gaps_and_waivers.md`
 - `reader_review.md`
-- `start_feature_handoff.md`
+- файл по `implementation_plan_path` под `plan/` (см. JSON `20` / `23`)
 
-Каждый файл должен иметь:
+Каждый файл под `context/artifacts/target_doc/` из списка выше должен иметь:
 
 ```text
 Produced by: 23_target_doc_reader_reviewer
 ```
+
+Файл под `plan/` должен содержать строку `Produced by: 23_target_doc_reader_reviewer` в теле.
 
 Проверь `source_request_coverage.md`:
 
@@ -278,22 +280,22 @@ Produced by: 23_target_doc_reader_reviewer
 
 Если старый `approval.md` маскирует новый rework, это `fail`.
 
-## 12. Start-feature handoff
+## 12. План внедрения (`plan/`)
 
-Проверь `start_feature_handoff.md`:
+Проверь файл по **`implementation_plan_path`** (каталог `plan/`):
 
 - есть `Produced by: 23_target_doc_reader_reviewer`;
-- есть Recommended First Slices;
+- есть раздел трассировки «слайсы / этапы → канон» со ссылками на markdown в `context/algorithms/…`;
 - есть Forbidden Broad Scope;
-- есть Required Inputs For start-feature;
-- есть Required Final Evidence;
-- есть Known Gaps To Consider;
-- есть small-scope recommendations.
+- есть входы для start-feature (ссылка на канон);
+- есть ожидаемые доказательства со ссылками на канон;
+- есть Known Gaps / таблица gaps;
+- есть small-scope recommendations или эквивалент в таблице слайсов.
 
 Плохой признак:
 
 ```text
-Запустить start-feature по всему AgentMemory.
+Запустить start-feature по всему AgentMemory без ссылок на канон.
 ```
 
 Хороший признак:

@@ -24,7 +24,7 @@
 | [`external-protocol.md`](external-protocol.md) | Инициаторы (оболочка агента, CLI, клиент брокера), формат запроса, события на границе, команда `ailit memory init`. |
 | [`desktop-realtime-graph-protocol.md`](desktop-realtime-graph-protocol.md) | Desktop (Electron): broker trace, PAG merge, 3D граф, подсветка из trace, целевой конфиг `~/.ailit/desktop`, multi-project и лимиты; **отдельная** матрица desktop OR-001…OR-017 ниже. |
 | [`failure-retry-observability.md`](failure-retry-observability.md) | Ошибки и повторы, лимиты и partial, журнал и компактные логи, критерии приёмки и имена тестов pytest. |
-| [`start_feature_handoff.md`](start_feature_handoff.md) | Как безопасно нарезать работу для `start-feature`. |
+| План внедрения | [`../../../plan/17-agent-memory-start-feature.md`](../../../plan/17-agent-memory-start-feature.md) — нарезка `start-feature`, слайсы S1–S5, gaps; **не** часть канона SoT. |
 
 ## Исходная постановка (полная матрица OR-001…OR-015)
 

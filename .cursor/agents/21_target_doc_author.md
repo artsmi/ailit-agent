@@ -279,7 +279,8 @@ draft | approved | deprecated
 
 - заголовок уровня `#` / `##` на русском + при необходимости `(English)`; под ним аннотация;
 - раздел **«Связь с исходной постановкой»** с релевантными OR и развёрнутым текстом;
-- в каноне — **нет** `context/artifacts/…`, **нет** ссылок на `original_user_request.md` / `synthesis.md` / `current_state` / `donor` как опоры для читателя.
+- в каноне — **нет** `context/artifacts/…`, **нет** ссылок на `original_user_request.md` / `synthesis.md` / `current_state` / `donor` как опоры для читателя;
+- **нет** отдельных файлов планов внедрения (`start_feature_handoff`, полные слайсы только в каноне): нарезка для `start-feature` живёт в **`plan/*.md`**; в `INDEX.md` пакета допустима **одна** строка таблицы «План внедрения» со ссылкой на `plan/<NN>-*.md`, без копирования содержимого плана в канон.
 
 ## Human Examples
 
@@ -371,7 +372,7 @@ If a round processes the same selected files and produces zero new usable candid
 ## How start-feature / start-fix Must Use This
 
 - `02_analyst` must read this document before writing technical_specification.md when the task touches `<topic>`.
-- `06_planner` must trace tasks to Target Flow steps and Acceptance Criteria.
+- `06_planner` must trace tasks to Target Flow steps and Acceptance Criteria; **implementation slices and sequencing** live in `plan/<NN>-*.md` (owner `23`), not inside this canon package.
 - `11_test_runner` must verify commands from `Commands` or mark them blocked with reason.
 - `13_tech_writer` must update this document only if implementation intentionally changes target behavior.
 ```

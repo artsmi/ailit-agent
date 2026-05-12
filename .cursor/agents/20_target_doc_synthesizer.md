@@ -27,7 +27,7 @@ description: Решает готовность данных, research jobs, во
 - можно ли запускать `21_target_doc_author`;
 - какие constraints и decisions должны попасть в целевой документ.
 - какие original request requirement IDs должны быть покрыты в `source_request_coverage.md`;
-- какие small-scope recommendations должны войти в `start_feature_handoff.md`.
+- какие small-scope recommendations должны войти в **план внедрения** (`implementation_plan_path` под `plan/`, создаёт `23`).
 
 ## Границы
 
@@ -438,7 +438,7 @@ G1...
 
 ## Requirements For 23
 
-<что reader reviewer обязан проверить в source coverage, quality matrix, gaps/waivers и handoff>
+<что reader reviewer обязан проверить в source coverage, quality matrix, gaps/waivers; путь `implementation_plan_path` для файла под `plan/` (см. JSON `20`)>
 ```
 
 ## Requirements For `21`
@@ -460,6 +460,7 @@ G1...
 - original request requirement IDs (`OR-*`) and expected target sections.
 - required small-scope recommendations for future `start-feature`.
 - для каждого зафиксированного решения в synthesis (внутренние id вроде `D3`, `G-AUTH-5`) — **одна человекочитаемая строка смысла** рядом с id, чтобы `21` мог перенести решение в канон `context/algorithms/**` без opaque ссылок (канон не ссылается на `synthesis.md`).
+- **`implementation_plan_path`**: строка вида `plan/<NN>-<topic-slug>.md` (следующий свободный номер в каталоге `plan/`, латиница и дефисы в slug); план внедрения для `23` **не** может лежать в `context/algorithms/**` и не может быть только в `context/artifacts/target_doc/`.
 
 Если этого нет, не ставь `ready_for_author=true`.
 
@@ -468,6 +469,7 @@ G1...
 - ты сам начал писать target doc draft;
 - нет `required_author_inputs`;
 - не указан `next_role: "21_target_doc_author"`;
+- нет **`implementation_plan_path`** или путь не начинается с `plan/` или лежит под `context/algorithms/`;
 - есть unresolved user question.
 
 ## Варианты И Trade-Offs
@@ -509,7 +511,7 @@ G1...
 
 ## Small-Scope Recommendations
 
-Для больших target docs `20` обязан предложить маленькие первые implementation slices. Эти рекомендации потребляет `23` при создании `start_feature_handoff.md`.
+Для больших target docs `20` обязан предложить маленькие первые implementation slices. Эти рекомендации потребляет `23` при создании файла по **`implementation_plan_path`** (каталог `plan/`, оформление как у крупных `plan/*-*.md`).
 
 Формат в `synthesis.md`:
 
@@ -555,6 +557,7 @@ G1...
   },
   "next_action": "run_author",
   "next_role": "21_target_doc_author",
+  "implementation_plan_path": "plan/17-agent-memory-start-feature.md",
   "authoring_plan": {
     "mode": "single",
     "rationale": "",
@@ -627,6 +630,7 @@ G1...
 - закрывать workflow без `22` и user OK.
 - возвращать `ready_for_author=true` без `Original Request Requirements` и `Small-Scope Recommendations` для большого target doc.
 - игнорировать триггеры **Authoring plan** и отдавать весь объём в один `21`, когда нарезка явно нужна по правилам секции «Authoring plan для крупных target doc».
+- возвращать `implementation_plan_path` вне `plan/` или под `context/algorithms/**`.
 
 ## Checklist
 
@@ -642,6 +646,7 @@ G1...
 - [ ] User questions человекочитаемые и с последствиями.
 - [ ] `ready_for_author` только при полной структуре для `21`.
 - [ ] При `ready_for_author=true` указан `next_role=21_target_doc_author`.
+- [ ] При `ready_for_author=true` в JSON указан `implementation_plan_path` под `plan/`.
 - [ ] Если target doc крупный, в JSON есть осмысленный `authoring_plan` (`sequential` + units или явный `single`).
 - [ ] `synthesis.md` обновлён.
 - [ ] JSON-first ответ валиден.

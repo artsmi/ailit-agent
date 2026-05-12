@@ -73,7 +73,7 @@ Mode: `target_doc`.
 8. После завершения всех проходов `21` для текущего цикла authoring запусти `22_target_doc_verifier` как отдельный Subagent **один раз** на полный draft/канон-кандидат.
 9. Если `22` требует rework: маршрутизация (research, обычный `21`, одноразовый `language_polish_only`) — **только** по правилам `18_target_doc_orchestrator.md` (Verification Gate) и JSON `22`; не дублируй решения здесь. Если `22` требует user answer, остановись через ntfy/open questions.
 10. После `22 approved` запусти Subagent `23_target_doc_reader_reviewer` и сформируй human approval package.
-11. После `23 approved_for_user_review` запроси явный пользовательский OK (whitelist из `project-human-communication.mdc` §Approval) на human review packet + target doc; ntfy по `project-orchestrator-overrides.mdc`.
+11. После `23 approved_for_user_review` запроси явный пользовательский OK (whitelist из `project-human-communication.mdc` §Approval) на human review packet + target doc + файл плана в `plan/` (`implementation_plan_path`); ntfy по `project-orchestrator-overrides.mdc`.
 12. Только после user OK обнови/зафиксируй canonical target doc, `context/algorithms/INDEX.md`, `context/INDEX.md` при необходимости, `status.md` (`completion_allowed=true`); проверь **canonical scrub** по **CR4–CR6** (разделы **CR-CANON** и «Канон в `context/algorithms/`» выше).
 13. После completion gate выполни auto commit; auto push не выполняется.
 
@@ -132,7 +132,8 @@ Completion разрешён только если:
 - все waves/jobs от `20` закрыты или `20` явно сказал, что research не нужен;
 - `target_algorithm_draft.md` существует;
 - `verification.md` существует и `22` approved;
-- `human_review_packet.md`, `source_request_coverage.md`, `target_doc_quality_matrix.md`, `open_gaps_and_waivers.md`, `reader_review.md`, `start_feature_handoff.md` существуют и созданы `23_target_doc_reader_reviewer`;
+- `human_review_packet.md`, `source_request_coverage.md`, `target_doc_quality_matrix.md`, `open_gaps_and_waivers.md`, `reader_review.md` существуют и созданы `23_target_doc_reader_reviewer`;
+- файл плана внедрения под `plan/` существует по пути из JSON `20` / `23` (`implementation_plan_path` / `implementation_plan_file`), содержит marker `Produced by: 23_target_doc_reader_reviewer`, **не** лежит в `context/algorithms/**`;
 - если `wave_execution_report.md` перечисляет `wave_id` и jobs, то `research_waves.json` содержит непустой `research_waves` с согласованными `wave_id` / `job_id` / `output_file` (`20` не затирает JSON после barrier); если research не проводился, оба артефакта явно пустые; `status.md` существует и содержит marker `18`;
 - если `22.required_author_rework[*].requires_new_research=true`, перед author rework выполнен маршрут `22 → 20 → research_waves → 20 → 21`;
 - `target_algorithm_draft.md` содержит marker `Produced by: 21_target_doc_author`;
@@ -154,8 +155,8 @@ Completion разрешён только если:
 7. После завершения цикла `21` для текущего authoring обязательно запусти Subagent `22` на полный draft; если draft создан не `21` или нет producer marker, считай это blocker и не запускай approval.
 8. Если `22` вернул rework с `requires_new_research=true`, не запускай `21`; сначала запусти `20`, затем follow-up `research_waves`, затем снова `20`, и только потом `21`. Иначе следуй `18_target_doc_orchestrator.md` (в т.ч. одноразовый `language_polish_only`, если JSON `22` разрешает).
 9. После `22 approved` запусти Subagent `23_target_doc_reader_reviewer` и сформируй human approval package.
-10. После `23 approved_for_user_review` запроси явный пользовательский OK на `human_review_packet.md` + target doc (whitelist §Approval в `project-human-communication.mdc`) через human-readable сообщение и ntfy.
-11. Заверши workflow только после canonical target doc, human approval package, `start_feature_handoff.md`, updated indexes, approval artifact и clean completion gate.
+10. После `23 approved_for_user_review` запроси явный пользовательский OK на `human_review_packet.md` + target doc + файл плана в `plan/` по `implementation_plan_path` (whitelist §Approval в `project-human-communication.mdc`) через human-readable сообщение и ntfy.
+11. Заверши workflow только после canonical target doc, human approval package, файла плана в `plan/` (`implementation_plan_path`), updated indexes, approval artifact и clean completion gate.
 
 ## ПОМНИ
 

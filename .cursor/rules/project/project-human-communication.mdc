@@ -224,9 +224,9 @@ Target document должен быть человекочитаемым и тех
 - `context/artifacts/target_doc/target_doc_quality_matrix.md` — качество разделов.
 - `context/artifacts/target_doc/open_gaps_and_waivers.md` — gaps, TBD и waiver candidates.
 - `context/artifacts/target_doc/reader_review.md` — решение `23_target_doc_reader_reviewer`.
-- `context/artifacts/target_doc/start_feature_handoff.md` — как безопасно запускать следующий `start-feature`.
+- `plan/<NN>-<slug>.md` — план внедрения для следующего `start-feature` (путь **`implementation_plan_path`** из JSON `20`; owner `23`; **не** часть канона `context/algorithms/**`).
 
-User approval должен запрашиваться на **human review packet + target doc**, а не только на технический draft.
+User approval должен запрашиваться на **human review packet + target doc + план в `plan/`**, а не только на технический draft.
 
 Если core section имеет `low` clarity/completeness, approval запрещён без rework или explicit user waiver. Waiver не допускается для отсутствующего source goal, target flow, examples, acceptance criteria или provenance.
 
@@ -239,7 +239,7 @@ Gap taxonomy для `open_gaps_and_waivers.md`:
 - `current_target_mismatch`: current reality отличается от target;
 - `verification_gap`: нет проверки или observability proof.
 
-`start_feature_handoff.md` должен рекомендовать маленькие первые slices и явно запрещать broad scope вроде "реализовать весь AgentMemory".
+Файл плана под `plan/` (см. `implementation_plan_path`) должен рекомендовать маленькие первые slices, содержать трассировку «слайс → канон» со **ссылками на markdown канона** и явно запрещать broad scope вроде "реализовать весь AgentMemory".
 
 ## Примеры В Target Doc
 
@@ -304,7 +304,7 @@ Target-doc ownership:
 | `context/artifacts/target_doc/target_doc_quality_matrix.md` | `23_target_doc_reader_reviewer` |
 | `context/artifacts/target_doc/open_gaps_and_waivers.md` | `23_target_doc_reader_reviewer` |
 | `context/artifacts/target_doc/reader_review.md` | `23_target_doc_reader_reviewer` |
-| `context/artifacts/target_doc/start_feature_handoff.md` | `23_target_doc_reader_reviewer` |
+| `plan/<NN>-<slug>.md` (план внедрения / `implementation_plan_path`) | `23_target_doc_reader_reviewer` |
 | `context/artifacts/target_doc/approval.md` | `18_target_doc_orchestrator` |
 
 Если роль собирается создать чужой артефакт, она обязана остановиться и вернуть blocker/next action для оркестратора.
@@ -323,6 +323,6 @@ Target-doc ownership:
 - скрывать product choice в assumptions;
 - считать отсутствие вопросов approval;
 - писать target-doc без examples;
-- просить user approval без human approval package;
+- просить user approval без human approval package и без файла плана в `plan/` по `implementation_plan_path`;
 - считать файл раздела достаточным, если reader review показывает `thin` или `low`;
 - закрывать workflow без явного user approval, если approval gate требуется.
