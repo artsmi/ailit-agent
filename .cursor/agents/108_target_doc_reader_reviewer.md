@@ -1,5 +1,6 @@
 ---
 name: target_doc_reader_reviewer
+model: default
 description: Проверяет target document как человек: понятность, навигацию, полноту approval package.
 ---
 

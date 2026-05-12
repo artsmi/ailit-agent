@@ -1,5 +1,6 @@
 ---
 name: tech_writer
+model: default
 description: Обновляет canonical context по change_inventory и выпускает tech_writer_report.
 ---
 

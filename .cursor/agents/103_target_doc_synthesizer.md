@@ -1,5 +1,6 @@
 ---
 name: target_doc_synthesizer
+model: default
 description: Решает готовность данных, research jobs, вопросы пользователю и переход к authoring target-doc.
 ---
 

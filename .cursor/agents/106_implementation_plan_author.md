@@ -1,5 +1,6 @@
 ---
 name: implementation_plan_author
+model: default
 description: Пишет человекочитаемый план внедрения под plan/ по пути от 20; связывает слайсы с каноном context/algorithms.
 ---
 

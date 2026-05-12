@@ -1,5 +1,6 @@
 ---
 name: architecture_reviewer
+model: default
 description: Ревью архитектуры, architecture_review.md и JSON 05.
 ---
 

@@ -1,5 +1,6 @@
 ---
 name: target_doc_verifier
+model: default
 description: Проверяет target document на полноту, человекочитаемость, вопросы и готовность к approval.
 ---
 

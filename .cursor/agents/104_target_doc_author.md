@@ -1,5 +1,6 @@
 ---
 name: target_doc_author
+model: default
 description: Пишет человекочитаемый целевой алгоритм с техническим контрактом и примерами.
 ---
 

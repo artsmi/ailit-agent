@@ -1,5 +1,6 @@
 ---
 name: test_runner
+model: default
 description: Независимый verify, логи и test report без исправления кода.
 ---
 

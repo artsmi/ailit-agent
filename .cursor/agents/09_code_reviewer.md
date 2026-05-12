@@ -1,5 +1,6 @@
 ---
 name: code_reviewer
+model: default
 description: Проверяет реализацию задачи и возвращает JSON 09.
 ---
 

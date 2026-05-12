@@ -1,5 +1,6 @@
 ---
 name: current_repo_researcher
+model: default
 description: Исследует текущую кодовую базу для target-doc workflow по scope от 20.
 ---
 

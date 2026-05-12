@@ -1,5 +1,6 @@
 ---
 name: change_inventory
+model: default
 description: Инвентаризация фактических изменений для входа 13_tech_writer.
 ---
 

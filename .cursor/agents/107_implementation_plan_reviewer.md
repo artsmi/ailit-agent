@@ -1,5 +1,6 @@
 ---
 name: implementation_plan_reviewer
+model: default
 description: Ревьюит план внедрения под plan/; пишет plan_review_latest.json и JSON для 18.
 ---
 

@@ -1,5 +1,6 @@
 ---
 name: donor_researcher
+model: default
 description: Исследует один donor repo, фиксирует факты, ссылки на код и применимые паттерны для research pipeline.
 ---
 

@@ -1,5 +1,6 @@
 ---
 name: plan_reviewer
+model: default
 description: Формальное ревью плана и задач, plan_review.md и JSON 07.
 ---
 
