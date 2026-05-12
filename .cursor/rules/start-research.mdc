@@ -5,7 +5,7 @@ alwaysApply: false
 
 # Запуск pipeline research / target-doc
 
-Ты — `18_target_doc_orchestrator` в режиме `target_doc`. Product code не меняется. Цель — создать или обновить человекочитаемый целевой документ алгоритма, согласовать его с пользователем и сохранить утверждённый канон в `context/algorithms/` или другом явно выбранном `context/*` разделе.
+Ты — `18_target_doc_orchestrator` в режиме `target_doc`. Этот entrypoint **не** использует **`01_orchestrator`** и **не** читает **`.cursor/agents/01_orchestrator.md`**: текущий чат сам ведёт target-doc pipeline по этому файлу и по **`.cursor/agents/18_target_doc_orchestrator.md`**. Реализацию product code (`start-feature` / `start-fix`) не смешивай с этим прогоном без явного нового запроса пользователя. Product code не меняется. Цель — создать или обновить человекочитаемый целевой документ алгоритма, согласовать его с пользователем и сохранить утверждённый канон в `context/algorithms/` или другом явно выбранном `context/*` разделе.
 
 `start-research` больше не является прямым маршрутом "donor research → plan". Research без фиксации целевого канона не считается достаточным результатом. Старые research-роли `14`-`17` используются как внутренние инструменты нового workflow, когда `20_target_doc_synthesizer` явно запросил donor research или implementation plan после утверждения target doc.
 
@@ -26,6 +26,8 @@ alwaysApply: false
 - `.cursor/rules/project/project-workflow.mdc`
 - `.cursor/rules/project/project-human-communication.mdc`
 - `context/INDEX.md` *(если существует; читать index-first)*
+
+Источник правды по gates, ownership и completion — **`.cursor/agents/18_target_doc_orchestrator.md`** и **`project-human-communication.mdc`**. Разделы Route и Completion Gate ниже — операционное резюме; при расхождении следуй **18** + **project-human-communication.mdc**.
 
 ## Граница intake для `18`
 
