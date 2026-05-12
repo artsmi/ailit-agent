@@ -84,6 +84,12 @@ alwaysApply: false
 - Любой `grep` / семантический поиск / чтение product/runtime исходников (`agent_core/**`, `tools/**`, `tests/**`, и т.д.) **в целях** описания current reality, выбора jobs или правки draft/канона-кандидата.
 - Создание или правка `synthesis.md`, `current_state/*.md`, `donor/*.md`, `target_algorithm_draft.md`, `verification.md`, артефактов `106`–`108`, файла плана под `plan/` — только соответствующими Subagents.
 
+## Ответ пользователя после запроса user approval (не whitelist)
+
+Если оркестратор уже запросил явный OK по human approval package (см. Route п. 11), а пользователь прислал **замечания, список правок или «нужна доработка»** без формы whitelist из `project-human-communication.mdc` §Approval — это **`user_rework_request`**, **не** `approval` (см. `.cursor/agents/100_target_doc_orchestrator.md`, подраздел **`user_rework_request`**).
+
+**`100` обязан:** не править owner-артефакты и канон-кандидат из основного чата; зафиксировать тип входа; **следующим содержательным шагом** вызвать Subagent (**по умолчанию `103`**, либо **`104`** если маршрут уже явно задан последним JSON **`105`/`108`** — только через Task). Повтор цикла верификации и reader/plan — только через Subagents по **`100_target_doc_orchestrator.md`**.
+
 ## Пользователь отказался от плана внедрения (`plan/`)
 
 Запрос «не создавай план внедрения» **не** отменяет обязанность вызывать `103`/`102`/`101`/`104`/`105` для согласованного target-doc цикла и **не** разрешает править канон из основного чата в обход Subagents. Урезание шагов `106`/`107` и полей Completion Gate допустимо **только** если это явно зафиксировано в артефактах/`103` и не противоречит `100_target_doc_orchestrator.md`; иначе зафиксируй blocker или доработай постановку с пользователем — **не** заменяй pipeline прямым редактированием markdown канона.
@@ -108,6 +114,7 @@ Mode: `target_doc`.
 9. Если `105` требует rework: маршрутизация (research, обычный `104`, одноразовый `language_polish_only`) — **только** по правилам `100_target_doc_orchestrator.md` (Verification Gate) и JSON `105`; не дублируй решения здесь. Если `105` требует user answer, остановись через ntfy/open questions.
 10. После `105 approved` последовательно запусти Subagents: `106_implementation_plan_author` (файл плана под `plan/`), `107_implementation_plan_reviewer` (JSON + `plan_review_latest.json`), `108_target_doc_reader_reviewer` (human approval package).
 11. После `108 approved_for_user_review` запроси явный пользовательский OK (whitelist из `project-human-communication.mdc` §Approval) на human review packet + target doc + файл плана в `plan/` (`implementation_plan_path`) + `plan_review_latest.json`; ntfy по `project-orchestrator-overrides.mdc`.
+11a. Если вместо whitelist пришёл **`user_rework_request`** (замечания, список правок) — **не** переходи к п. 12; вернись к циклу Subagents по подразделу **`user_rework_request`** в **`100_target_doc_orchestrator.md`** (минимум один вызов **`103`** или **`104`** через Task).
 12. Только после user OK обнови/зафиксируй canonical target doc, `context/algorithms/INDEX.md`, `context/INDEX.md` при необходимости, `status.md` (`completion_allowed=true`); проверь **canonical scrub** по **CR4–CR6** (разделы **CR-CANON** и «Канон в `context/algorithms/`» выше).
 13. После completion gate выполни auto commit; auto push не выполняется.
 
