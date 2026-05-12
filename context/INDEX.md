@@ -11,6 +11,7 @@
 | [`arch/INDEX.md`](arch/INDEX.md) | Процессы и границы: карта P1–P6 (learn), desktop PAG-снимок, W14 M1 и т.д. |
 | [`proto/INDEX.md`](proto/INDEX.md) | Каналы: install-ссылки, supervisor socket, desktop↔runtime, pag-slice, W14 highlight, broker Work↔Memory pathless (UC 2.4), D-OBS-1 compact whitelist (`runtime-event-contract.md`); UC-03 CLI `memory init` — [`proto/memory-query-context-init.md`](proto/memory-query-context-init.md); стабильный PAG — [`proto/pag-stable-indexing.md`](proto/pag-stable-indexing.md). |
 | [`algorithms/INDEX.md`](algorithms/INDEX.md) | Утверждённые target algorithms: человекочитаемые целевые алгоритмы, которые служат опорой для `start-feature` / `start-fix`. |
+| [`desktop/INDEX.md`](desktop/INDEX.md) | Канон Electron Desktop для графа памяти (3dmvc, realtime client, глоссарий); approved **2026-05-12**. |
 | [`start/INDEX.md`](start/INDEX.md) | Запуск: systemd, dev desktop, pytest/venv, переменные окружения. |
 | [`tests/INDEX.md`](tests/INDEX.md) | Точки входа к тестам (pytest, e2e, vitest; W14 UC-05 G14R; финальный gate Memory 3D — отчёты **11** в `artifacts/reports/`). |
 | [`memories/index.md`](memories/index.md) | Память итераций feature/learn (index-first). Имя файла — `index.md` (нижний регистр). |
