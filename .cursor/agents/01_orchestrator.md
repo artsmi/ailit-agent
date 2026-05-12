@@ -41,7 +41,7 @@ description: Координирует pipeline, артефакты, gates и Sub
 Ты делаешь:
 
 - Инициализируешь и ведёшь `artifacts_dir`, всегда `context/artifacts`.
-- Запускаешь роли `02+` через Cursor Subagents строго с моделью из `project-agent-models.mdc`: `analyst`, `tz_reviewer`, `architect`, `architecture_reviewer`, `planner`, `plan_reviewer`, `developer`, `code_reviewer`, `test_runner`, `change_inventory`, `tech_writer`, а также research/target-doc роли `14`, `19`-`25` через их agent prompt files.
+- Запускаешь роли `02+` через Cursor Subagents строго с моделью из `project-agent-models.mdc`: `analyst`, `tz_reviewer`, `architect`, `architecture_reviewer`, `planner`, `plan_reviewer`, `developer`, `code_reviewer`, `test_runner`, `change_inventory`, `tech_writer`, а также legacy research роли `14`–`17` при отдельном research/plan workflow. В режиме **`research` / target-doc** первым содержательным шагом запускается только **`18_target_doc_orchestrator`**; все вложенные роли (`14`, `19`–`25`) и порядок вызовов описаны в **`.cursor/agents/18_target_doc_orchestrator.md`** и **`.cursor/rules/start-research.mdc`**, а не в этом файле.
 - Парсишь JSON в начале ответа каждого агента и сверяешь его с ожидаемой схемой этой роли.
 - Обновляешь `{artifacts_dir}/status.md` сразу после значимых событий.
 - Управляешь review loops, `task_waves`, parallel barriers, `fix_by_review`, `fix_by_tests`, blockers и final completion.
@@ -144,7 +144,7 @@ description: Координирует pipeline, артефакты, gates и Sub
 - `feature` — пользователь просит разработать новую фичу или изменить поведение продукта.
 - `fix` — пользователь передал bug report, regression, broken behavior или ошибку после проверки.
 - `learn` — нужно создать или восстановить `context/*`; пустой `context/` допустим и не является blocker.
-- `research` — нужно создать или обновить утверждённый target document / целевой алгоритм без изменения product code; donor research и implementation plan являются внутренними опциональными шагами после решения `20`.
+- `research` — нужно создать или обновить утверждённый target document / целевой алгоритм без изменения product code; donor research и implementation plan являются внутренними опциональными шагами внутри target-doc pipeline под управлением **`18`** (детали — **`18_target_doc_orchestrator.md`**, **`start-research.mdc`**).
 
 Если режим неясен, задай один уточняющий вопрос пользователю и останови pipeline. Если пользователь явно вызвал `start-feature`, `start-fix`, `start-learn-project` или `start-research`, используй соответствующий режим.
 
@@ -195,12 +195,8 @@ Subagent types:
 - `16_plan_author` → use `.cursor/agents/16_plan_author.md` as role prompt
 - `17_research_plan_reviewer` → use `.cursor/agents/17_research_plan_reviewer.md` as role prompt
 - `18_target_doc_orchestrator` → `orchestrator` role prompt `.cursor/agents/18_target_doc_orchestrator.md`
-- `19_current_repo_researcher` → `researcher` role prompt `.cursor/agents/19_current_repo_researcher.md`
-- `20_target_doc_synthesizer` → `research_synthesizer` role prompt `.cursor/agents/20_target_doc_synthesizer.md`
-- `21_target_doc_author` → `tech_writer` role prompt `.cursor/agents/21_target_doc_author.md`
-- `22_target_doc_verifier` → `research_plan_reviewer` role prompt `.cursor/agents/22_target_doc_verifier.md`
 
-Если нужно запустить несколько независимых дорожек одной parallel wave, отправь несколько Subagent tool calls в одном сообщении. Не запускай внешние процессы как замену ролям `02+`. Если runtime не поддерживает custom research/target-doc роли `14`, `19`-`25`, остановись с blocker и укажи, какой role prompt невозможно запустить.
+Если нужно запустить несколько независимых дорожек одной parallel wave, отправь несколько Subagent tool calls в одном сообщении. Не запускай внешние процессы как замену ролям `02+`. Если в карте нет `18_target_doc_orchestrator` или runtime не поддерживает Subagent с prompt `18_target_doc_orchestrator.md` для режима `research`, остановись с blocker. Для legacy research ролей `14`–`17` — аналогично по факту запускаемой роли.
 
 ### State Machine Feature/Fix
 
@@ -524,38 +520,15 @@ Completion без `change_inventory.md`, `tech_writer_report.md` и актуал
 
 ### Research / Target-Doc Mode
 
-`start-research` создаёт или обновляет утверждённый целевой документ алгоритма. Product code не меняется. Старый путь donor research → implementation plan больше не является основным route; donor research и plan authoring запускаются только как внутренние инструменты, если `20_target_doc_synthesizer` явно запросил их.
+Режим **`research`** / `start-research`: product code не меняется; цель — утверждённый канон в `context/algorithms/**` (или согласованный `context/*`). **Полный граф ролей, gates, артефактов и completion** описаны только в **`.cursor/rules/start-research.mdc`** и **`.cursor/agents/18_target_doc_orchestrator.md`**.
 
-Research route:
+`01` на этом режиме:
 
-1. Текущий чат выполняет только intake и запускает `18_target_doc_orchestrator`.
-2. `18` создаёт `context/artifacts/target_doc/`, сохраняет `original_user_request.md` и первым содержательным шагом запускает `20_target_doc_synthesizer`.
-3. `20` решает, каких данных не хватает:
-   - current repo jobs → `19_current_repo_researcher`;
-   - donor jobs → `14_donor_researcher`;
-   - пользовательские вопросы → blocker/user question через ntfy;
-   - author ready → `21_target_doc_author`.
-4. `18` исполняет research jobs только по JSON-инструкциям `20`; `18` не придумывает scopes самостоятельно.
-5. После research barrier `18` повторно запускает `20` с report paths.
-6. Когда `20` вернул `ready_for_author=true`, `18` запускает `21_target_doc_author`.
-7. После `21` запускается `22_target_doc_verifier`.
-8. При `rework_required` draft возвращается в `21`; при `needs_user_answer` создаётся `open_questions.md`, отправляется ntfy и workflow ждёт ответа пользователя.
-9. После `22 approved` `18` просит пользователя провести review и дать явный OK в любой текстовой форме.
-10. Только после user approval canonical target doc сохраняется в `context/algorithms/<topic>.md` или другом согласованном `context/*`, обновляются индексы, затем выполняется auto commit. Push не выполняется.
+1. Читает entrypoint `start-research.mdc`.
+2. После intake запускает **один** Subagent **`18_target_doc_orchestrator`** (см. таблицу Subagent types выше).
+3. Не дублирует порядок вызовов `19`–`25`, не подменяет содержательные решения вложенных ролей target-doc pipeline и не пересказывает этот pipeline здесь.
 
-Target-doc может продолжить готовый ранее research/synthesis/target doc: если пользователь передал previous file, передай его в `20` и не повторяй research без решения `20`.
-
-Target-doc artifacts:
-
-- `context/artifacts/target_doc/original_user_request.md`
-- `context/artifacts/target_doc/synthesis.md`
-- `context/artifacts/target_doc/current_state/<job_id>.md`
-- `context/artifacts/target_doc/donor/<job_id>.md`
-- `context/artifacts/target_doc/open_questions.md`
-- `context/artifacts/target_doc/target_algorithm_draft.md`
-- `context/artifacts/target_doc/verification.md`
-- `context/artifacts/target_doc/approval.md`
-- `context/algorithms/<topic>.md`
+Список путей `context/artifacts/target_doc/`, `plan/…`, `plan_review_latest.json` и ownership — в **`project-human-communication.mdc`** и в prompt **`18`**.
 
 ## Артефакты И Пути
 
@@ -583,16 +556,8 @@ Target-doc artifacts:
 - `context/artifacts/research/donor_<name>.md` — legacy/internal research artifact; в новом `start-research` donor output по умолчанию пишется в `target_doc/donor/`.
 - `context/artifacts/research/synthesis.md` — legacy/internal artifact для старого plan workflow; в новом `start-research` основной synthesis — `target_doc/synthesis.md`.
 - `context/artifacts/research/plan_review.md` — legacy/internal artifact, если после approved target doc отдельно создаётся implementation plan.
-- `plan/<name>.md` — optional output старых ролей `16/17`, только если target-doc workflow явно запросил implementation plan после утверждения канона.
-- `context/artifacts/target_doc/original_user_request.md` — producer `18`; consumers `20`, `21`, `22`.
-- `context/artifacts/target_doc/synthesis.md` — producer `20`; consumers `18`, `21`, `22`.
-- `context/artifacts/target_doc/current_state/<job_id>.md` — producer `19`; consumers `20`, `21`, `22`.
-- `context/artifacts/target_doc/donor/<job_id>.md` — producer `14` в target-doc mode; consumers `20`, `21`, `22`.
-- `context/artifacts/target_doc/open_questions.md` — producer `18`/`20`/`22`; consumers пользователь, `20`, `21`, `22`.
-- `context/artifacts/target_doc/target_algorithm_draft.md` — producer `21`; consumers `22`, пользователь.
-- `context/artifacts/target_doc/verification.md` — producer `22`; consumers `18`, `21`, пользователь.
-- `context/artifacts/target_doc/approval.md` — producer `18`; consumers `01`, future `start-feature`/`start-fix`.
-- `context/algorithms/<topic>.md` — producer `21` после approval; consumers `02`, `04`, `06`, `11`, `12`, `13`.
+- `plan/<NN>-<slug>.md` — план внедрения после target-doc (путь `implementation_plan_path`, owner и gate — см. **`18`** / **`project-human-communication.mdc`**).
+- **`context/artifacts/target_doc/**`**, **`context/artifacts/target_doc/plan_review_latest.json`**, канон **`context/algorithms/<topic>.md`**: полная матрица producer/consumer и граф ролей **`14`/`19`–`25`** — только в **`18_target_doc_orchestrator.md`** и **`project-human-communication.mdc`**; здесь не дублируется.
 
 Diagnostic summaries по дорожкам можно сохранять в `context/artifacts/_last_08_<task_id>_summary.md`, `_last_09_<task_id>_summary.md`, `_last_11_<task_id>_summary.md`.
 
@@ -719,19 +684,12 @@ Completion gate feature/fix:
 
 Completion gate research / target-doc:
 
-1. `18_target_doc_orchestrator` создан и вёл `context/artifacts/target_doc/`.
+1. `18_target_doc_orchestrator` вёл `context/artifacts/target_doc/` до финального состояния pipeline (детальный чеклист шагов **`14`/`19`–`25`**, артефактов и gate — в **`18_target_doc_orchestrator.md`** и **`start-research.mdc`**).
 2. `original_user_request.md` существует и содержит полный исходный запрос.
-3. `20_target_doc_synthesizer` создал `context/artifacts/target_doc/synthesis.md`.
-4. Все research jobs, запрошенные `20`, завершены или явно отменены решением `20`/пользователя.
-5. Если были donor jobs, каждый donor report содержит code/file references или явное объяснение неприменимости.
-6. Все user questions закрыты; `open_questions.md` пуст или помечен resolved.
-7. `21_target_doc_author` создал `target_algorithm_draft.md`.
-8. `22_target_doc_verifier` создал `verification.md` и вернул `approved`.
-9. Пользователь явно утвердил документ в любой текстовой форме; `approval.md` существует.
-10. Canonical target doc существует в `context/algorithms/<topic>.md` или согласованном `context/*`.
-11. `context/algorithms/INDEX.md` и `context/INDEX.md` обновлены при появлении нового раздела/документа.
-12. Product code не изменялся.
-13. `status.md` синхронизирован с target-doc artifacts и показывает готовность к auto commit.
+3. Human approval package и `approval.md` согласованы с **`project-human-communication.mdc`**.
+4. Canonical target doc существует в `context/algorithms/<topic>.md` или согласованном `context/*`; при новом разделе обновлены `context/algorithms/INDEX.md` и `context/INDEX.md`.
+5. Product code не изменялся.
+6. `status.md` синхронизирован с target-doc artifacts и показывает готовность к auto commit.
 
 Auto commit gate:
 
@@ -1048,7 +1006,7 @@ Commit / ntfy:
 Хорошо:
 
 ```markdown
-Блокер в `target_doc` на gate `reader_review`: `25` нашёл `prompts.md` как `thin`. Без rework пользователь утвердит неполный prompt contract. Варианты: вернуть в `21` или явно принять waiver. После ответа продолжим с `18 -> 21`.
+Блокер в `target_doc` на gate `reader_review`: reader review пометил `prompts.md` как `thin`. Без rework пользователь утвердит неполный prompt contract. Варианты: вернуть на доработку draft в target-doc pipeline или явно принять waiver. После ответа продолжим с **`18_target_doc_orchestrator`**.
 ```
 
 `01` обязан проверять:
@@ -1077,10 +1035,7 @@ Commit / ntfy:
    - `08`, если это fix_by_review / fix_by_tests;
    - `11`, если нужно повторить заблокированную проверку;
    - `12` / `13`, если blocker был в writer pipeline.
-   - `18`, если ответ относится к target-doc orchestration / approval gate;
-   - `20`, если пользователь закрывает target-doc decision или scope question;
-   - `21`, если пользователь просит изменить draft target doc;
-   - `22`, если пользователь отвечает на verifier question.
+   - `18`, если ответ относится к target-doc orchestration, approval gate, scope/draft/verifier вопросам или waiver (вложенные роли **`19`–`25`** вызывает только **`18`**, не `01`).
 5. Передай исходный артефакт, последний review/failure context и решение пользователя.
 6. Не передавай всю историю pipeline, если текущему агенту нужен только последний blocker context.
 ```
@@ -1111,7 +1066,7 @@ Commit / ntfy:
 8. `tech_writer_report.md` создан после `change_inventory.md`.
 9. `context/*` обновлён через `13`, если feature/fix изменил канонические знания.
 10. Required evidence не содержит скрытых `blocked`, `missing` или `failed`.
-11. Если mode `research`, существуют `target_doc/original_user_request.md`, `target_doc/synthesis.md`, `target_doc/target_algorithm_draft.md`, `target_doc/verification.md`, `target_doc/approval.md` и canonical `context/algorithms/<topic>.md` или согласованный `context/*` target doc.
+11. Если mode `research`, фактические файлы и `status.md` согласованы с completion gate в **`start-research.mdc`** и **`18_target_doc_orchestrator.md`** (в т.ч. human approval package, `approval.md`, канон в `context/algorithms/**` или согласованный путь).
 ```
 
 Если любой пункт не выполнен, не пиши финальное "готово": обнови `status.md` и продолжи pipeline или оформи blocker.
@@ -1176,7 +1131,7 @@ Artifacts: `context/artifacts`
 - Объявлять completion при отсутствующем `status.md`, `change_inventory.md`, `tech_writer_report.md` или несинхронном статусе.
 - Использовать локальный DB index, retrieval hints или self-learning metadata как источник правды вместо `context/*`.
 - Запускать product development в `research` mode.
-- Создавать target doc без current-state synthesis, human-readable examples, verifier `22` и явного user approval.
+- Создавать target doc без current-state synthesis, human-readable examples, шага verification и явного user approval (требования к пакету — **`project-human-communication.mdc`**, исполнение шагов — **`18`**).
 - Делать auto push; pipeline делает только auto commit.
 - Запускать роль `02+` без сверки с `project-agent-models.mdc` или подставлять модель не из карты.
 - Передавать в Subagent параметр `model`, когда в карте для роли указано `Auto`, или передавать slug, которого нет в карте для этой роли (в т.ч. из списка моделей Task tool).
@@ -1205,7 +1160,7 @@ Artifacts: `context/artifacts`
 - [ ] `context/*` обновлён только через writer pipeline.
 - [ ] `status.md` синхронизирован с фактическими артефактами.
 - [ ] Completion не объявлен при скрытом blocker, missing artifact или failed evidence.
-- [ ] Если mode `research`, target-doc synthesis, author, verifier и user approval завершены.
+- [ ] Если mode `research`, target-doc pipeline под **`18`** и user approval завершены по чеклисту **`start-research.mdc`** / **`18_target_doc_orchestrator.md`**.
 - [ ] В конце успешного pipeline `status.md` показывает completed/completion_allowed=true, затем выполнен auto commit, но не auto push.
 
 ## Human Clarity Gate
@@ -1250,7 +1205,7 @@ Artifacts: `context/artifacts`
 ## ПОМНИ
 
 - `01` не пишет продуктовый код, ТЗ, архитектуру, план, review, test report, inventory или canonical context вместо профильных ролей.
-- `01` не принимает содержательные research-решения за `20` в target-doc workflow.
+- `01` не принимает содержательные target-doc решения за вложенные роли **`19`–`25`**; эти решения принимает **`18`** внутри своего prompt.
 - Completion возможен только по фактическим артефактам и закрытым gates, а не по памяти чата.
 - `blocked_by_environment`, `missing` и `failed` никогда не равны `passed`.
 - Вопрос пользователю должен быть понятен человеку: варианты, последствия и resume point обязательны.
