@@ -59,6 +59,9 @@ from ailit_runtime.models import (
 _DEFAULT_TAIL_BYTES: Final[int] = 8 * 1024 * 1024
 # Имя ожидается тестами; = ``memory_init_exit_code`` при SIGINT.
 _EXIT_INTERRUPT: Final[int] = 130
+# Ниже этого числа init часто не успевает записать ``complete`` в shadow
+# journal (partial без continuation на каждом RPC).
+_MEMORY_INIT_MIN_BROKER_ROUNDS: Final[int] = 32
 
 # UC-06: compact W14 tokens in ``abort_reason=`` (no raw LLM / full envelope).
 _W14_REASON_UNKNOWN_LEGACY: Final[str] = "unknown_legacy_w14_status"
@@ -432,8 +435,9 @@ class MemoryInitOrchestrator:
                 {"phase": "execute_worker"},
             )
             am_file_cfg = load_or_create_agent_memory_config()
-            max_continuation_rounds = (
-                am_file_cfg.memory.init.max_continuation_rounds
+            max_continuation_rounds = max(
+                int(am_file_cfg.memory.init.max_continuation_rounds),
+                _MEMORY_INIT_MIN_BROKER_ROUNDS,
             )
             identity = RuntimeIdentity(
                 runtime_id=f"rt-{init_session_id[:8]}",
@@ -477,6 +481,10 @@ class MemoryInitOrchestrator:
                         "memory_init_shadow_journal_path": str(
                             shadow.resolve(),
                         ),
+                        "memory_init_cli_compact_dir": str(
+                            cli_dir.resolve(),
+                        ),
+                        "memory_init_init_session_id": init_session_id,
                     },
                     now=RuntimeNow(),
                 )
@@ -627,7 +635,7 @@ class MemoryInitOrchestrator:
                     if (
                         st_am not in ("blocked", "complete")
                         and rns != FIX_MEMORY_LLM_JSON_STEP
-                        and round_idx + 1 < max_continuation_rounds
+                        and round_idx < max_continuation_rounds - 1
                     ):
                         cont = True
                 if not cont:

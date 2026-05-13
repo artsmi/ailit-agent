@@ -225,6 +225,8 @@ class MemoryQueryOrchestrator:
                                 "namespace": str(ns),
                             },
                         ],
+                        "memory_cli_compact_dir": str(cli_dir.resolve()),
+                        "memory_cli_session_id": session_id,
                     },
                     now=RuntimeNow(),
                 )

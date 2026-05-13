@@ -30,6 +30,7 @@ from agent_memory.agent_memory_ailit_config import (
 )
 from agent_memory.agent_memory_chat_log import (
     AgentMemoryChatDebugLog,
+    COMPACT_LOG_FILE_NAME,
     MEMORY_AUDIT_WHY,
     audit_jsonable,
 )
@@ -200,21 +201,55 @@ class AgentMemoryWorker:
         self._provider = build_chat_provider_for_agent_memory(
             self._ailit_merged,
         )
+        self._memory_init_cli_compact_sinks: dict[
+            str,
+            CompactObservabilitySink,
+        ] = {}
 
-    def _get_compact_sink(self) -> CompactObservabilitySink | None:
-        if self._cfg.session_log_mode != "cli_init":
-            return None
-        if self._compact_sink is not None:
+    def _get_compact_sink(
+        self,
+        req: RuntimeRequestEnvelope | None = None,
+    ) -> CompactObservabilitySink | None:
+        """cli_init — локальный compact; broker — compact в каталоге CLI."""
+        if self._cfg.session_log_mode == "cli_init":
+            if self._compact_sink is not None:
+                return self._compact_sink
+            cpath = self._chat_debug.compact_log_path_for_write()
+            if cpath is None:
+                return None
+            self._compact_sink = CompactObservabilitySink(
+                compact_file=cpath,
+                init_session_id=self._compact_init_session_id,
+                tee_stderr=True,
+            )
             return self._compact_sink
-        cpath = self._chat_debug.compact_log_path_for_write()
-        if cpath is None:
+        if not isinstance(req, RuntimeRequestEnvelope):
             return None
-        self._compact_sink = CompactObservabilitySink(
-            compact_file=cpath,
-            init_session_id=self._compact_init_session_id,
+        pl = req.payload if isinstance(req.payload, dict) else {}
+        if _payload_memory_init_flag(pl):
+            raw = str(pl.get("memory_init_cli_compact_dir") or "").strip()
+            iid_key = "memory_init_init_session_id"
+        else:
+            raw = str(pl.get("memory_cli_compact_dir") or "").strip()
+            iid_key = "memory_cli_session_id"
+        if not raw:
+            return None
+        root = Path(raw).expanduser().resolve()
+        cfile = root / COMPACT_LOG_FILE_NAME
+        key = str(cfile)
+        hit = self._memory_init_cli_compact_sinks.get(key)
+        if hit is not None:
+            return hit
+        iid = str(pl.get(iid_key) or "").strip()
+        if not iid:
+            iid = self._compact_init_session_id
+        sink = CompactObservabilitySink(
+            compact_file=cfile,
+            init_session_id=iid,
             tee_stderr=True,
         )
-        return self._compact_sink
+        self._memory_init_cli_compact_sinks[key] = sink
+        return sink
 
     def _issue_grant(
         self,
@@ -311,7 +346,7 @@ class AgentMemoryWorker:
                         "data": audit_jsonable(data),
                     },
                 )
-            sk = w._get_compact_sink()
+            sk = w._get_compact_sink(req)
             emit_out = w._cfg.broker_trace_stdout
             if op == "node":
                 emit_pag_graph_trace_row(
@@ -416,7 +451,7 @@ class AgentMemoryWorker:
             req=req,
             inner_payload=pl,
             request_id=str(request_id)[:200],
-            compact_sink=self._get_compact_sink(),
+            compact_sink=self._get_compact_sink(req),
             emit_stdout=self._cfg.broker_trace_stdout,
         )
 
@@ -525,7 +560,7 @@ class AgentMemoryWorker:
         lines: str | None = None,
     ) -> None:
         """Минимальная строка ``memory.llm.completed`` (см. compact sink)."""
-        sk: CompactObservabilitySink | None = self._get_compact_sink()
+        sk: CompactObservabilitySink | None = self._get_compact_sink(_req)
         if sk is None:
             return
         node_s = str(node or "").strip()
@@ -554,7 +589,7 @@ class AgentMemoryWorker:
         top_keys: str | None = None,
     ) -> None:
         """Compact: apply_summarize_c упал после w14_summarize_c_ok."""
-        sk: CompactObservabilitySink | None = self._get_compact_sink()
+        sk: CompactObservabilitySink | None = self._get_compact_sink(_req)
         if sk is None:
             return
         rsn = f"{type(exc).__name__}:{exc}"
@@ -592,7 +627,7 @@ class AgentMemoryWorker:
         change_batch_id: str | None = None,
     ) -> None:
         """Аудит: стабильный reason_id (whitelist) + опциональный чеклист."""
-        sk = self._get_compact_sink()
+        sk = self._get_compact_sink(req)
         if sk is not None:
             cfields: dict[str, str | int | bool] = {
                 "request_id": str(request_id)[:200],
@@ -693,7 +728,7 @@ class AgentMemoryWorker:
             request_id=request_id,
             payload=pld,
         )
-        sk_cmd: CompactObservabilitySink | None = self._get_compact_sink()
+        sk_cmd: CompactObservabilitySink | None = self._get_compact_sink(req)
         if sk_cmd is not None:
             sk_cmd.emit(
                 req=req,
@@ -882,7 +917,7 @@ class AgentMemoryWorker:
         )
         st_mark = str(status or "").strip()
         if st_mark in ("complete", "partial", "blocked"):
-            sk2 = self._get_compact_sink()
+            sk2 = self._get_compact_sink(req)
             if sk2 is not None:
                 sk2.emit_memory_result_returned_marker(
                     req=req,
@@ -910,7 +945,7 @@ class AgentMemoryWorker:
             request_id=request_id,
             payload=dict(envelope),
         )
-        sk = self._get_compact_sink()
+        sk = self._get_compact_sink(req)
         if sk is not None:
             qid = str(envelope.get("query_id") or "").strip()
             if et == "link_candidates":
