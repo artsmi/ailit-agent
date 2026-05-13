@@ -56,51 +56,58 @@
       letter-spacing: -0.02em;
     }
     .sub { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
-    .tabs {
-      display: flex;
-      gap: 8px;
-      padding: 10px 20px 0;
-      flex-wrap: wrap;
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-    }
-    .tab {
-      border: 2px solid var(--border);
-      background: var(--surface);
-      color: var(--accent2);
-      padding: 8px 18px;
-      border-radius: var(--radius-pill);
-      font-weight: 500;
-      cursor: pointer;
-      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-    }
-    .tab:hover { border-color: var(--accent); color: var(--accent); }
-    .tab.active {
-      background: linear-gradient(135deg, var(--accent), var(--accent2));
-      color: #fff;
-      border-color: transparent;
-      box-shadow: 0 0 0 3px rgba(224, 64, 160, 0.22);
-    }
-    .wrap {
+    .split {
       flex: 1 1 auto;
       min-height: 0;
       display: flex;
-      flex-direction: column;
+      flex-direction: row;
+      width: 100%;
     }
-    .panel { display: none; flex: 1 1 auto; min-height: 0; flex-direction: column; }
-    .panel.active { display: flex; }
+    .split-graph {
+      flex: 1 1 50%;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 2px solid var(--border);
+      background: var(--surface);
+    }
+    .split-node {
+      flex: 1 1 50%;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--bg);
+    }
     #canvas-host {
       flex: 1 1 auto;
-      min-height: 320px;
+      min-height: 200px;
       position: relative;
       background: radial-gradient(ellipse at center, #faf5ff 0%, #e8e0f4 100%);
+      touch-action: none;
     }
-    #viz-canvas { display: block; width: 100%; height: 100%; }
+    #viz-canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      outline: none;
+      cursor: grab;
+    }
+    #viz-canvas:active { cursor: grabbing; }
+    .graph-meta-bar {
+      flex: 0 0 auto;
+      margin: 0;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
     .legend {
       position: absolute;
       left: 12px;
       bottom: 12px;
-      max-width: min(420px, 92vw);
+      max-width: min(280px, 44vw);
       background: rgba(255, 255, 255, 0.94);
       border: 1px solid var(--border);
       border-radius: 14px;
@@ -112,12 +119,12 @@
     }
     .legend strong { color: var(--text); }
     .legend .sw { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin: 0 3px; }
-    main.scroll {
+    .split-node main.scroll {
       flex: 1 1 auto;
-      overflow: auto;
-      padding: 16px 20px 28px;
-      max-width: 960px;
-      margin: 0 auto;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 16px 18px 28px;
       width: 100%;
     }
     .card {
@@ -163,6 +170,34 @@
     .edge-row.in { border-left-color: var(--edge-to); }
     .edge-row .mono { font-size: 11px; color: var(--muted); word-break: break-all; }
     .edge-row .rel { font-weight: 600; color: var(--accent2); }
+    .edge-nav {
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .edge-nav button {
+      border: 2px solid var(--accent2);
+      background: linear-gradient(135deg, rgba(224, 64, 160, 0.12), rgba(124, 82, 170, 0.12));
+      color: var(--accent2);
+      font-weight: 700;
+      font-size: 14px;
+      padding: 6px 14px;
+      border-radius: var(--radius-pill);
+      cursor: pointer;
+      font-family: inherit;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+    }
+    .edge-nav button:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(224, 64, 160, 0.2);
+    }
+    .edge-nav button:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
     .err { color: #b00020; }
     .chip {
       display: inline-block;
@@ -180,48 +215,44 @@
 <body>
   <header>
     <h1>ailit memory — граф PAG</h1>
-    <p class="sub">Обновление по данным SQLite; узел по умолчанию — проект (уровень A). См. design/BRANDBOOK_CANDY.md</p>
+    <p class="sub">Слева — 3D (колёсико — масштаб, перетаскивание — вращение камеры); справа — текущий узел и переходы по связям. См. design/BRANDBOOK_CANDY.md</p>
   </header>
-  <div class="tabs" role="tablist">
-    <button type="button" class="tab active" data-tab="graph" role="tab" aria-selected="true">3D граф</button>
-    <button type="button" class="tab" data-tab="node" role="tab" aria-selected="false">Текущий узел</button>
-  </div>
-  <div class="wrap">
-    <section id="panel-graph" class="panel active" role="tabpanel">
+  <div class="split">
+    <div class="split-graph" aria-label="Трёхмерный граф PAG">
       <div id="canvas-host">
-        <canvas id="viz-canvas"></canvas>
+        <canvas id="viz-canvas" tabindex="0" title="Колёсико — масштаб; ЛКМ — вращение; ПКМ — панорама"></canvas>
         <div class="legend">
-          <strong>Направление связи.</strong> Отрезок идёт <em>от</em> узла-источника <em>к</em> узлу-назначения:
-          тёплый цвет у начала (источник), холодный — у конца (куда ведёт связь).
-          Клик по сфере — выбрать узел (вкладка «Текущий узел»).
+          <strong>Направление связи.</strong> Отрезок идёт <em>от</em> источника <em>к</em> цели:
+          тёплый цвет — начало (from), холодный — конец (to).
+          Клик по сфере — сделать узел текущим (подсветка на графе).
           <div style="margin-top:6px">
             <span class="sw" style="background:var(--edge-from)"></span> начало (from)
             <span class="sw" style="background:var(--edge-to);margin-left:10px"></span> конец (to)
           </div>
         </div>
       </div>
-      <p class="meta" id="graph-meta" style="padding:8px 20px;margin:0;font-size:12px"></p>
-    </section>
-    <section id="panel-node" class="panel" role="tabpanel">
+      <p class="graph-meta-bar" id="graph-meta"></p>
+    </div>
+    <div class="split-node" id="split-node-pane" aria-label="Текущий узел и связи">
       <main class="scroll">
         <div class="card">
-          <h2>Выбранный узел</h2>
+          <h2>Текущий узел</h2>
           <p class="meta" id="node-meta"></p>
           <div id="node-head"></div>
           <div class="summary" id="node-summary">—</div>
         </div>
         <div class="card">
           <h2>Исходящие связи</h2>
-          <p class="meta">От этого узла к другим: «этот узел → другой».</p>
+          <p class="meta">От этого узла к другим. Кнопка со стрелкой — перейти к соседу.</p>
           <div id="edges-out"></div>
         </div>
         <div class="card">
           <h2>Входящие связи</h2>
-          <p class="meta">От других узлов к этому: «другой → этот узел».</p>
+          <p class="meta">От соседа к этому узлу. Кнопка — открыть узел-источник.</p>
           <div id="edges-in"></div>
         </div>
       </main>
-    </section>
+    </div>
   </div>
   <script type="module">
     import * as THREE from "three";
@@ -305,6 +336,14 @@
       controls.enableDamping = true;
       controls.dampingFactor = 0.06;
       controls.target.set(0, 0, 0);
+      controls.enableZoom = true;
+      controls.zoomSpeed = 1.15;
+      controls.enableRotate = true;
+      controls.enablePan = true;
+      controls.minDistance = 1.2;
+      controls.maxDistance = 220;
+      controls.screenSpacePanning = true;
+      controls.rotateSpeed = 0.85;
 
       scene.add(new THREE.AmbientLight(0xffffff, 0.55));
       const d1 = new THREE.DirectionalLight(0xffffff, 0.65);
@@ -340,7 +379,6 @@
     }
 
     function onCanvasClick(ev) {
-      const host = document.getElementById("canvas-host");
       const canvas = document.getElementById("viz-canvas");
       if (!camera || !nodeRoot) return;
       const rect = canvas.getBoundingClientRect();
@@ -351,18 +389,48 @@
       if (!hits.length) return;
       const id = hits[0].object.userData.nodeId;
       if (id) {
-        selectedId = id;
-        updateSelectionHighlight();
-        renderNodePanel();
+        navigateToNode(id);
       }
+    }
+
+    function navigateToNode(id) {
+      if (!id) return;
+      selectedId = id;
+      updateSelectionHighlight();
+      focusCameraOnSelection();
+      renderNodePanel();
+    }
+
+    function focusCameraOnSelection() {
+      if (!controls || !camera) return;
+      const mesh = pickMeshes.find(function (m) {
+        return m.userData.nodeId === selectedId;
+      });
+      if (!mesh) return;
+      controls.target.copy(mesh.position);
+      controls.update();
     }
 
     function updateSelectionHighlight() {
       pickMeshes.forEach(function (m) {
         const on = m.userData.nodeId === selectedId;
-        if (m.material && m.material.emissive) {
-          m.material.emissive.setHex(on ? 0x442266 : 0x000000);
-          m.material.emissiveIntensity = on ? 0.35 : 0;
+        const bc = typeof m.userData.baseColor === "number" ? m.userData.baseColor : 0x888888;
+        if (m.material) {
+          if (on) {
+            m.scale.setScalar(2.4);
+            m.material.color.setHex(0xfffef0);
+            m.material.emissive.setHex(0xffaa00);
+            m.material.emissiveIntensity = 1.0;
+            m.material.metalness = 0.42;
+            m.material.roughness = 0.28;
+          } else {
+            m.scale.setScalar(1);
+            m.material.color.setHex(bc);
+            m.material.emissive.setHex(0x000000);
+            m.material.emissiveIntensity = 0;
+            m.material.metalness = 0.12;
+            m.material.roughness = 0.45;
+          }
         }
       });
     }
@@ -412,6 +480,7 @@
         const p = pos.get(n.node_id);
         mesh.position.copy(p);
         mesh.userData.nodeId = n.node_id;
+        mesh.userData.baseColor = col;
         nodeRoot.add(mesh);
         pickMeshes.push(mesh);
       });
@@ -507,6 +576,15 @@
               cls === "out"
                 ? escapeHtml(n.node_id) + " → " + escapeHtml(other)
                 : escapeHtml(other) + " → " + escapeHtml(n.node_id);
+            const enc = encodeURIComponent(other);
+            const btnLabel = cls === "out" ? "→ к соседнему узлу" : "← к узлу-источнику";
+            const nav =
+              '<div class="edge-nav">' +
+              '<button type="button" data-nav-target="' +
+              enc +
+              '" title="Сделать текущим узлом на графе">' +
+              btnLabel +
+              "</button></div>";
             return (
               '<div class="edge-row ' +
               cls +
@@ -524,6 +602,7 @@
               "<div class=\"mono\">«" +
               escapeHtml(nodeLabel(other)) +
               "»</div>" +
+              nav +
               "</div>"
             );
           })
@@ -577,32 +656,18 @@
         });
     }
 
-    document.querySelectorAll(".tab").forEach(function (btn) {
-      btn.addEventListener("click", function () {
-        const id = btn.getAttribute("data-tab");
-        document.querySelectorAll(".tab").forEach(function (b) {
-          b.classList.toggle("active", b === btn);
-          b.setAttribute("aria-selected", b === btn ? "true" : "false");
-        });
-        document.querySelectorAll(".panel").forEach(function (p) {
-          p.classList.toggle("active", p.id === "panel-" + id);
-        });
-        if (id === "graph" && renderer) {
-          requestAnimationFrame(function () {
-            const host = document.getElementById("canvas-host");
-            const canvas = document.getElementById("viz-canvas");
-            if (camera && host && canvas) {
-              const w = host.clientWidth;
-              const h = host.clientHeight;
-              if (w > 2 && h > 2) {
-                camera.aspect = w / h;
-                camera.updateProjectionMatrix();
-                renderer.setSize(w, h, false);
-              }
-            }
-          });
-        }
-      });
+    document.getElementById("split-node-pane").addEventListener("click", function (ev) {
+      const btn = ev.target.closest("button[data-nav-target]");
+      if (!btn) return;
+      const raw = btn.getAttribute("data-nav-target");
+      if (!raw) return;
+      let id;
+      try {
+        id = decodeURIComponent(raw);
+      } catch (e2) {
+        return;
+      }
+      navigateToNode(id);
     });
 
     pollPag();
