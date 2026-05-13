@@ -168,14 +168,16 @@ export type DesktopGraphPairLogEntryIpc = {
 
 export type AppendDesktopGraphPairLogResult =
   | { readonly ok: true; readonly fullPath: string; readonly compactPath: string }
+  | { readonly ok: true; readonly skipped: true }
   | { readonly ok: false; readonly error: string };
 
 export type AgentMemoryChatLogsRootResult =
-  | { readonly ok: true; readonly root: string }
+  | { readonly ok: true; readonly root: string; readonly chat_logs_enabled: boolean }
   | { readonly ok: false; readonly error: string };
 
 export type EnsureChatLogSessionDirResult =
   | { readonly ok: true; readonly chatLogsRoot: string; readonly sessionDir: string; readonly safeChatId: string }
+  | { readonly ok: true; readonly skipped: true }
   | { readonly ok: false; readonly error: string };
 
 export type AppendTraceRowResult =

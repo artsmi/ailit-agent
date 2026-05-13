@@ -21,7 +21,8 @@ const api: DesktopApi = {
       activeProjectIds: []
     }),
   saveTextFile: () => Promise.resolve({ ok: false, error: "no headless" }),
-  agentMemoryChatLogsRoot: () => Promise.resolve({ ok: true, root: "/tmp/ailit-test-chat-logs" }),
+  agentMemoryChatLogsRoot: () =>
+    Promise.resolve({ ok: true, root: "/tmp/ailit-test-chat-logs", chat_logs_enabled: true }),
   ensureChatLogSessionDir: () =>
     Promise.resolve({
       ok: true,

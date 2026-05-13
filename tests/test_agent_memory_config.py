@@ -10,6 +10,7 @@ import yaml
 from agent_core.runtime.agent_memory_config import (
     AgentMemoryConfigPaths,
     AgentMemoryFileConfig,
+    MemoryDebugSubConfig,
     MemoryPlannerResultV1,
     SourceBoundaryFilter,
     ArtifactsSubConfig,
@@ -89,3 +90,31 @@ def test_default_file_path_respects_env(
     p = tmp_path / "c.yaml"
     monkeypatch.setenv("AILIT_AGENT_MEMORY_CONFIG", str(p))
     assert AgentMemoryConfigPaths.default_file_path() == p.resolve()
+
+
+def test_chat_logs_enabled_from_yaml(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    cfg_path = tmp_path / "am_chat_logs.yaml"
+    cfg_path.write_text(
+        "memory:\n"
+        "  debug:\n"
+        "    chat_logs_enabled: false\n"
+        "    verbose: 1\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AILIT_AGENT_MEMORY_CONFIG", str(cfg_path))
+    loaded = AgentMemoryFileConfig.from_mapping(
+        yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {},
+    )
+    assert loaded.memory.debug.chat_logs_enabled is False
+    assert loaded.memory.debug.verbose == 1
+    nested = loaded.to_nested_dict()
+    assert nested["memory"]["debug"]["chat_logs_enabled"] is False
+
+
+def test_memory_debug_subconfig_defaults() -> None:
+    d = MemoryDebugSubConfig()
+    assert d.chat_logs_enabled is True
+    assert d.verbose == 0

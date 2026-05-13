@@ -256,6 +256,9 @@ class AgentMemoryChatDebugLog:
     """
     Пишет append-only при verbose=1: desktop — ``<safe>/<safe>.log`` под
     ``chat_logs``; cli_init — ``…/ailit-cli-*/legacy.log``.
+
+    При ``memory.debug.chat_logs_enabled=false`` записи в ``chat_logs`` для
+    режима **desktop** отключены (Electron pair-log синхронизируется отдельно).
     """
 
     def __init__(
@@ -278,6 +281,11 @@ class AgentMemoryChatDebugLog:
     def enabled(self) -> bool:
         v: int = int(self._file_cfg.memory.debug.verbose)
         return v == 1
+
+    def _desktop_chat_logs_files_allowed(self) -> bool:
+        if self._session_log_mode != "desktop":
+            return True
+        return bool(self._file_cfg.memory.debug.chat_logs_enabled)
 
     def _ensure_cli_session_root_locked(self) -> Path:
         if self._session_log_mode != "cli_init":
@@ -321,6 +329,8 @@ class AgentMemoryChatDebugLog:
         header_line: str,
         record: dict[str, Any],
     ) -> None:
+        if not self._desktop_chat_logs_files_allowed():
+            return
         if not self.enabled:
             return
         text: str = (

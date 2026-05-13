@@ -133,3 +133,59 @@ def test_create_unique_cli_session_dir_prefix_and_legacy_parent(
     assert a.name.startswith("ailit-cli-")
     assert a.parent.resolve() == base.resolve()
     assert b.parent.resolve() == base.resolve()
+
+
+def test_desktop_skips_chat_logs_when_disabled(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Desktop: при ``chat_logs_enabled=false`` каталог chat_logs пуст."""
+    log_dir: Path = tmp_path / "chat_logs_blocked"
+    log_dir.mkdir(parents=True)
+    monkeypatch.setenv("AILIT_AGENT_MEMORY_CHAT_LOG_DIR", str(log_dir))
+    chat_id: str = "chat-blocked-1"
+    base: AgentMemoryFileConfig = AgentMemoryFileConfig()
+    cfg: AgentMemoryFileConfig = replace(
+        base,
+        memory=replace(
+            base.memory,
+            debug=MemoryDebugSubConfig(verbose=1, chat_logs_enabled=False),
+        ),
+    )
+    dbg = AgentMemoryChatDebugLog(cfg, session_log_mode="desktop")
+    dbg.log_audit(
+        raw_chat_id=chat_id,
+        event="memory.test.blocked",
+        request_id="req-bl",
+        topic="tc",
+        body={"n": 1},
+    )
+    assert list(log_dir.iterdir()) == []
+
+
+def test_cli_init_writes_when_chat_logs_disabled_for_desktop_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CLI init не зависит от desktop-only флага ``chat_logs_enabled``."""
+    log_root: Path = tmp_path / "chat_logs_cli_despite"
+    log_root.mkdir(parents=True)
+    monkeypatch.setenv("AILIT_AGENT_MEMORY_CHAT_LOG_DIR", str(log_root))
+    base: AgentMemoryFileConfig = AgentMemoryFileConfig()
+    cfg: AgentMemoryFileConfig = replace(
+        base,
+        memory=replace(
+            base.memory,
+            debug=MemoryDebugSubConfig(verbose=1, chat_logs_enabled=False),
+        ),
+    )
+    dbg = AgentMemoryChatDebugLog(cfg, session_log_mode="cli_init")
+    dbg.log_audit(
+        raw_chat_id="cli-chat",
+        event="memory.test.cli_despite",
+        request_id="req-cli",
+        topic="tc",
+        body={},
+    )
+    legacy: Path = next(log_root.glob("ailit-cli-*")) / "legacy.log"
+    assert legacy.is_file()

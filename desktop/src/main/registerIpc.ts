@@ -6,6 +6,7 @@ import * as path from "node:path";
 import { brokerJsonRequest } from "./brokerSocket";
 import { getCachedDesktopConfigSnapshot, warmDesktopConfigCache } from "./desktopConfig";
 import { resolveAgentMemoryChatLogsRoot, resolveChatLogSessionPaths } from "./agentMemoryChatLogsRoot";
+import { readAgentMemoryChatLogsEnabled } from "./agentMemoryYamlFlags";
 import { defaultRuntimeDir, safeChatIdForTraceFile, supervisorSocketPath } from "./defaultRuntimeDir";
 import { listProjectRegistry } from "./projectRegistryBridge";
 import { runPagGraphSlice, type PagGraphSliceResult } from "./pagGraphBridge";
@@ -372,10 +373,18 @@ export function registerIpcHandlers(): void {
   );
 
   ipcMain.handle("ailit:agentMemoryChatLogsRoot", async () => {
-    return { ok: true, root: resolveAgentMemoryChatLogsRoot() } as const;
+    const enabled: boolean = readAgentMemoryChatLogsEnabled();
+    return {
+      ok: true,
+      root: resolveAgentMemoryChatLogsRoot(),
+      chat_logs_enabled: enabled
+    } as const;
   });
 
   ipcMain.handle("ailit:ensureChatLogSessionDir", async (_e: unknown, params: { readonly chatId: string }) => {
+    if (!readAgentMemoryChatLogsEnabled()) {
+      return { ok: true, skipped: true } as const;
+    }
     const resolved = resolveChatLogSessionPaths(params.chatId);
     if (!resolved.ok) {
       return { ok: false, error: resolved.error } as const;
@@ -398,6 +407,9 @@ export function registerIpcHandlers(): void {
         readonly entries: readonly { readonly fullRecord: string; readonly compactLine: string }[];
       }
     ) => {
+      if (!readAgentMemoryChatLogsEnabled()) {
+        return { ok: true, skipped: true } as const;
+      }
       if (params.entries.length === 0) {
         return { ok: false, error: "no entries" } as const;
       }

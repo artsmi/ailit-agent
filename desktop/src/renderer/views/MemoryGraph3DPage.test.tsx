@@ -88,6 +88,7 @@ function buildDesktopSession(overrides: Partial<DesktopSessionValue>): DesktopSe
     connection: "idle",
     homeDir: "/tmp",
     chatLogsRoot: "/tmp/ailit-test-chat-logs",
+    agentMemoryChatLogsFileTargetsEnabled: true,
     desktopConfig: {
       config_path: "/tmp/cfg",
       version: 1,

@@ -532,6 +532,7 @@ export function ChatPage(): React.JSX.Element {
           </>
         ) : aside ? (
           <ChatAnalyticsAside
+            agentMemoryChatLogsFileTargetsEnabled={s.agentMemoryChatLogsFileTargetsEnabled}
             chatId={s.chatId}
             chatLogsRoot={s.chatLogsRoot}
             connectionLabel={connectionLabel(s.connection)}

@@ -83,6 +83,9 @@ class MemoryDebugSubConfig:
     """Отладка: полные LLM-логи в ~/.ailit/agent-memory/chat_logs/."""
 
     verbose: int = 0
+    #: При ``False`` режим ``desktop`` не пишет файлы под ``chat_logs``;
+    #  ``cli_init`` (``ailit memory init``) не затрагивается.
+    chat_logs_enabled: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +198,7 @@ class AgentMemoryFileConfig:
                 },
                 "debug": {
                     "verbose": m.debug.verbose,
+                    "chat_logs_enabled": m.debug.chat_logs_enabled,
                 },
             }
         }
@@ -297,11 +301,16 @@ class AgentMemoryFileConfig:
         )
         dbg: Any = mem.get("debug", {})
         verbose_i = 0
+        chat_logs_enabled = True
         if isinstance(dbg, Mapping):
             try:
                 verbose_i = int(dbg.get("verbose", 0))
             except (TypeError, ValueError):
                 verbose_i = 0
+            chat_logs_enabled = _coerce_yaml_bool(
+                dbg.get("chat_logs_enabled", True),
+                default=True,
+            )
         verbose_i = 1 if verbose_i == 1 else 0
         return cls(
             memory=MemoryYamlRoot(
@@ -387,9 +396,28 @@ class AgentMemoryFileConfig:
                         a_d["allow_explicit_artifact_content"]
                     )
                 ),
-                debug=MemoryDebugSubConfig(verbose=verbose_i),
+                debug=MemoryDebugSubConfig(
+                    verbose=verbose_i,
+                    chat_logs_enabled=chat_logs_enabled,
+                ),
             )
         )
+
+
+def _coerce_yaml_bool(raw: Any, *, default: bool) -> bool:
+    """Разбор bool из YAML (в т.ч. строки ``false``/``0``)."""
+    if raw is None:
+        return default
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return int(raw) != 0
+    s = str(raw).strip().lower()
+    if s in ("0", "false", "no", "off", "n"):
+        return False
+    if s in ("1", "true", "yes", "on", "y"):
+        return True
+    return default
 
 
 class AgentMemoryConfigPaths:

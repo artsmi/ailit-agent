@@ -90,6 +90,11 @@ export type DesktopSessionValue = {
   readonly homeDir: string | null;
   /** Корень AgentMemory chat_logs (main: env или ~/.ailit/agent-memory/chat_logs). */
   readonly chatLogsRoot: string | null;
+  /**
+   * ``null`` — ещё не получили IPC; ``true`` — писать pair-log / session dir;
+   * ``false`` — ``memory.debug.chat_logs_enabled: false`` в agent-memory config.
+   */
+  readonly agentMemoryChatLogsFileTargetsEnabled: boolean | null;
   /** OR-009: снимок desktop config из main по IPC (один fetch при старте). */
   readonly desktopConfig: DesktopConfigSnapshot | null;
   readonly runtimeDir: string | null;
@@ -237,10 +242,13 @@ function buildPagGraphTraceMergeHooks(p: {
   readonly fullLoad?: PagGraphTraceMergeEmitHooks["fullLoad"];
   readonly traceOnlyPagModeSentKeys: Set<string>;
   readonly emitDesktopGraphDebug: (event: string, detail: Record<string, unknown>) => void;
+  /** ``memory.debug.chat_logs_enabled`` из main (синхронно с pair-log IPC). */
+  readonly pairLogWritesEnabled: boolean;
 }): PagGraphTraceMergeEmitHooks | undefined {
   const rd: string = p.runtimeDir;
   const canTrace: boolean = typeof window.ailitDesktop?.appendTraceRow === "function";
-  const canPairLog: boolean = typeof window.ailitDesktop?.appendDesktopGraphPairLog === "function";
+  const canPairLog: boolean =
+    p.pairLogWritesEnabled && typeof window.ailitDesktop?.appendDesktopGraphPairLog === "function";
   if (!canTrace && !canPairLog) {
     return undefined;
   }
@@ -288,6 +296,15 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const [connection, setConnection] = React.useState<ConnState>("idle");
   const [homeDir, setHomeDir] = React.useState<string | null>(null);
   const [chatLogsRoot, setChatLogsRoot] = React.useState<string | null>(null);
+  const [agentMemoryChatLogsFileTargetsEnabled, setAgentMemoryChatLogsFileTargetsEnabled] = React.useState<
+    boolean | null
+  >(null);
+  const agentMemoryChatLogsFileTargetsEnabledRef: React.MutableRefObject<boolean | null> = React.useRef<boolean | null>(
+    null
+  );
+  React.useEffect((): void => {
+    agentMemoryChatLogsFileTargetsEnabledRef.current = agentMemoryChatLogsFileTargetsEnabled;
+  }, [agentMemoryChatLogsFileTargetsEnabled]);
   const [desktopConfig, setDesktopConfig] = React.useState<DesktopConfigSnapshot | null>(null);
   const [runtimeDir, setRuntimeDir] = React.useState<string | null>(null);
   const [supervisorSummary, setSupervisorSummary] = React.useState<string | null>(null);
@@ -345,6 +362,9 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
 
   const logDesktopGraphDebug: (event: string, detail: Record<string, unknown>) => void = React.useCallback(
     (event: string, detail: Record<string, unknown>): void => {
+      if (agentMemoryChatLogsFileTargetsEnabledRef.current !== true) {
+        return;
+      }
       pairLogWriterRef.current?.logD(event, detail);
     },
     []
@@ -695,7 +715,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
 
   const mergeRows: (rows: readonly Record<string, unknown>[]) => void = React.useCallback((rows) => {
     const w: DesktopGraphPairLogWriter | null = pairLogWriterRef.current;
-    if (w) {
+    if (w && agentMemoryChatLogsFileTargetsEnabledRef.current === true) {
       for (const r of rows) {
         w.logAmRow(r as Record<string, unknown>);
       }
@@ -898,11 +918,14 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       try {
         const r = await window.ailitDesktop.agentMemoryChatLogsRoot();
         if (r.ok) {
-          setChatLogsRoot(r.root);
+          setAgentMemoryChatLogsFileTargetsEnabled(r.chat_logs_enabled);
+          setChatLogsRoot(r.chat_logs_enabled ? r.root : null);
         } else {
+          setAgentMemoryChatLogsFileTargetsEnabled(true);
           setChatLogsRoot(null);
         }
       } catch {
+        setAgentMemoryChatLogsFileTargetsEnabled(true);
         setChatLogsRoot(null);
       }
     })();
@@ -913,8 +936,11 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     if (!cid || typeof window.ailitDesktop?.ensureChatLogSessionDir !== "function") {
       return;
     }
+    if (agentMemoryChatLogsFileTargetsEnabled !== true) {
+      return;
+    }
     void window.ailitDesktop.ensureChatLogSessionDir({ chatId: cid });
-  }, [activeSession.chatId]);
+  }, [activeSession.chatId, agentMemoryChatLogsFileTargetsEnabled]);
 
   React.useEffect(() => {
     void (async () => {
@@ -1312,7 +1338,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
               reconciledEmitRevByNs: pagGraphLastEmittedReconcileRevRef.current,
               fullLoad: { kind: fullLoadKind, namespaces: [...pagNamespaces] },
               traceOnlyPagModeSentKeys: traceOnlyPagModeSentKeysRef.current,
-              emitDesktopGraphDebug: logDesktopGraphDebug
+              emitDesktopGraphDebug: logDesktopGraphDebug,
+              pairLogWritesEnabled: agentMemoryChatLogsFileTargetsEnabled === true
             })
           : undefined;
       const snap: PagGraphSessionSnapshot = await PagGraphSessionTraceMerge.afterFullLoad(
@@ -1343,6 +1370,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   }, [
     activeSession.chatId,
     activeSession.id,
+    agentMemoryChatLogsFileTargetsEnabled,
     logDesktopGraphDebug,
     pagDefaultNamespace,
     pagLoadTick,
@@ -1408,7 +1436,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
                 reconciledEmitRevByNs: pagGraphLastEmittedReconcileRevRef.current,
                 fullLoad: { kind: "poll_retry", namespaces: [...pagNamespaces] },
                 traceOnlyPagModeSentKeys: traceOnlyPagModeSentKeysRef.current,
-                emitDesktopGraphDebug: logDesktopGraphDebug
+                emitDesktopGraphDebug: logDesktopGraphDebug,
+                pairLogWritesEnabled: agentMemoryChatLogsFileTargetsEnabled === true
               })
             : undefined;
         const snap: PagGraphSessionSnapshot = await PagGraphSessionTraceMerge.afterFullLoad(
@@ -1436,6 +1465,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     awaitingPagSqlite,
     activeSession.chatId,
     activeSession.id,
+    agentMemoryChatLogsFileTargetsEnabled,
     desktopConfig?.pag_sqlite_poll_interval_ms,
     logDesktopGraphDebug,
     pagDefaultNamespace,
@@ -1464,7 +1494,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
               pagDefaultNamespace,
               reconciledEmitRevByNs: pagGraphLastEmittedReconcileRevRef.current,
               traceOnlyPagModeSentKeys: traceOnlyPagModeSentKeysRef.current,
-              emitDesktopGraphDebug: logDesktopGraphDebug
+              emitDesktopGraphDebug: logDesktopGraphDebug,
+              pairLogWritesEnabled: agentMemoryChatLogsFileTargetsEnabled === true
             })
           : undefined;
       const nxt: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.applyIncremental(
@@ -1483,6 +1514,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   }, [
     activeSession.chatId,
     activeSession.id,
+    agentMemoryChatLogsFileTargetsEnabled,
     logDesktopGraphDebug,
     pagDefaultNamespace,
     pagNamespaces,
@@ -1510,6 +1542,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     connection,
     homeDir,
     chatLogsRoot,
+    agentMemoryChatLogsFileTargetsEnabled,
     desktopConfig,
     runtimeDir,
     supervisorSummary,

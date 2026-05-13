@@ -20,6 +20,8 @@ type ChatAnalyticsAsideProps = {
   readonly runtimeDir: string | null;
   /** Корень AgentMemory chat_logs (main: AILIT_AGENT_MEMORY_CHAT_LOG_DIR или ~/.ailit/agent-memory/chat_logs). */
   readonly chatLogsRoot: string | null;
+  /** ``null`` пока нет ответа IPC; ``false`` — запись в chat_logs отключена в agent-memory config. */
+  readonly agentMemoryChatLogsFileTargetsEnabled: boolean | null;
   /** Идентификатор чата (файл trace-*.jsonl). */
   readonly chatId: string;
 };
@@ -125,6 +127,11 @@ export function ChatAnalyticsAside(p: ChatAnalyticsAsideProps): React.JSX.Elemen
                 <code className="candyChatAsidePathVal">{agentMemLog}</code>
               </li>
             </ul>
+          ) : p.agentMemoryChatLogsFileTargetsEnabled === false ? (
+            <p className="candyChatAsideDesc">
+              Запись в chat_logs отключена в ~/.ailit/agent-memory/config.yaml (memory.debug.chat_logs_enabled: false).
+              Перезапустите Desktop после изменения файла.
+            </p>
           ) : (
             <p className="candyChatAsideDesc">Корень chat_logs недоступен из main — перезапустите Desktop.</p>
           )}

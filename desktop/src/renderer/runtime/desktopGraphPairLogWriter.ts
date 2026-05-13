@@ -122,6 +122,9 @@ export class DesktopGraphPairLogWriter {
     });
     const ts: string = wallClockUtcIso();
     if (result.ok) {
+      if ("skipped" in result && result.skipped === true) {
+        return;
+      }
       const line: string = buildDesktopPairlogAppendCompactLine({
         isoTimestamp: ts,
         chatId: this.chatId,
