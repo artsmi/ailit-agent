@@ -51,8 +51,7 @@ Mode: `learn`.
 - `context/files/INDEX.md`;
 - `context/models/INDEX.md`;
 - `context/proto/INDEX.md`;
-- `context/tests/INDEX.md`;
-- `context/memories/index.md`.
+- `context/tests/INDEX.md`.
 
 Generated/vendor/cache/build outputs не каталогизируются пофайлово.
 

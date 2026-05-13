@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from agent_core.providers.factory import ProviderFactory, ProviderKind
+from ailit_base.providers.factory import ProviderFactory, ProviderKind
 
 
 def test_factory_mock() -> None:
@@ -16,7 +16,7 @@ def test_factory_mock() -> None:
 
 
 @patch(
-    "agent_core.providers.factory.deepseek_api_key_from_env_or_config",
+    "ailit_base.providers.factory.deepseek_api_key_from_env_or_config",
     return_value="",
 )
 def test_factory_deepseek_requires_key(_mock_key: object) -> None:
@@ -26,7 +26,7 @@ def test_factory_deepseek_requires_key(_mock_key: object) -> None:
 
 
 @patch(
-    "agent_core.providers.factory.deepseek_api_key_from_env_or_config",
+    "ailit_base.providers.factory.deepseek_api_key_from_env_or_config",
     return_value="k",
 )
 def test_factory_deepseek_normalizes_base_url_v1(_mock_key: object) -> None:

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ailit.cli import main
+from ailit_cli.cli import main
 
 
 def test_g9_9_runtime_status_no_supervisor_exit_2(

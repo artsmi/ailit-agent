@@ -4,7 +4,7 @@
 
 ## Payload init (`memory_init: true`)
 
-Источник правды по полям и отказам: `tools/agent_core/runtime/subprocess_agents/memory_agent.py` (ветка `memory.query_context`), оркестратор — `tools/agent_core/runtime/memory_init_orchestrator.py`, выбор файлов при init — `memory_init` в `tools/agent_core/runtime/agent_memory_query_pipeline.py` (`run` / `_select_b_paths_for_w14`).
+Источник правды по полям и отказам: `ailit/ailit_runtime/subprocess_agents/memory_agent.py` (ветка `memory.query_context`), оркестратор — `ailit/agent_memory/memory_init_orchestrator.py`, выбор файлов при init — `memory_init` в `ailit/agent_memory/agent_memory_query_pipeline.py` (`run` / `_select_b_paths_for_w14`).
 
 | Поле | Правило |
 |------|---------|
@@ -29,14 +29,14 @@
 
 Реализация (SoT по разбору и каноникализации, без пересказа `plan/14-…`):
 
-- текст планера и явный whitelist статусов: константа **`W14_PLAN_TRAVERSAL_SYSTEM`** в `tools/agent_core/runtime/agent_memory_query_pipeline.py`;
-- парсинг envelope, whitelist top-level **`status`**, проверка **`payload.actions`** / **`payload.is_final`**: `validate_or_canonicalize_w14_command_envelope_object`, `validate_w14_command_envelope_object`, `_validate_plan_traversal_payload`, набор **`_W14_CANON_STATUSES`** в `tools/agent_core/runtime/agent_memory_runtime_contract.py`.
+- текст планера и явный whitelist статусов: константа **`W14_PLAN_TRAVERSAL_SYSTEM`** в `ailit/agent_memory/agent_memory_query_pipeline.py`;
+- парсинг envelope, whitelist top-level **`status`**, проверка **`payload.actions`** / **`payload.is_final`**: `validate_or_canonicalize_w14_command_envelope_object`, `validate_w14_command_envelope_object`, `_validate_plan_traversal_payload`, набор **`_W14_CANON_STATUSES`** в `ailit/agent_memory/agent_memory_runtime_contract.py`.
 
 **Как читать ответ:** верхний **`status`** — итог команды по контракту; «ещё не финальный план» и следующие шаги — из **`payload`** (`is_final`, `actions`), а не из недопустимого top-level статуса.
 
 ## Коды выхода CLI (OR-011)
 
-Источник правды: `tools/agent_core/runtime/memory_init_cli_outcome.py` — `memory_init_exit_code(status, abort_class=...)`: **`complete` → 0**; **`partial` / `blocked`** (без interrupt/infra) → **1**; **`interrupt`** → **130**; **`infrastructure`** → **2**. Нормализация строкового статуса и ветки `ok: false` от worker — функции в том же модуле.
+Источник правды: `ailit/agent_memory/memory_init_cli_outcome.py` — `memory_init_exit_code(status, abort_class=...)`: **`complete` → 0**; **`partial` / `blocked`** (без interrupt/infra) → **1**; **`interrupt`** → **130**; **`infrastructure`** → **2**. Нормализация строкового статуса и ветки `ok: false` от worker — функции в том же модуле.
 
 ## VERIFY по journal
 

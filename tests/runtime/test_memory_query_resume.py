@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.runtime.memory_query_orchestrator import (
+from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.memory_query_orchestrator import (
     build_memory_query_resume_lines,
 )
 

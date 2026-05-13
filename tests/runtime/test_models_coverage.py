@@ -23,8 +23,8 @@ from typing import Any
 
 import pytest
 
-from agent_core.runtime.errors import RuntimeProtocolError
-from agent_core.runtime.models import (
+from ailit_runtime.errors import RuntimeProtocolError
+from ailit_runtime.models import (
     ActionCompleted,
     ActionFailed,
     ActionFeedback,

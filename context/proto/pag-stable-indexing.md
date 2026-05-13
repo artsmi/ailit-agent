@@ -23,6 +23,6 @@
 
 ## Ссылки на код
 
-- `tools/agent_core/memory/pag_indexer.py` — merge при reindex, merge для B file и A.
-- `tools/agent_core/runtime/agent_memory_query_pipeline.py` — нейтральный subgoal для записи C/B, отсечка B.
-- `tools/agent_core/runtime/agent_memory_summary_service.py` — `PAG_NEUTRAL_USER_SUBGOAL`, `child_basis_fingerprint`, `is_b_summary_stale`.
+- `ailit/agent_memory/pag_indexer.py` — merge при reindex, merge для B file и A.
+- `ailit/agent_memory/agent_memory_query_pipeline.py` — нейтральный subgoal для записи C/B, отсечка B.
+- `ailit/agent_memory/agent_memory_summary_service.py` — `PAG_NEUTRAL_USER_SUBGOAL`, `child_basis_fingerprint`, `is_b_summary_stale`.

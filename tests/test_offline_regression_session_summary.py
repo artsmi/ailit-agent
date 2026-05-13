@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ailit.token_economy_aggregates import (
+from ailit_cli.token_economy_aggregates import (
     build_session_summary,
     read_jsonl_session_log,
 )

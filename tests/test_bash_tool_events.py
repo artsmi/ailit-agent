@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agent_core.session.bash_tool_events import emit_bash_shell_telemetry
-from agent_core.tool_runtime.executor import ToolInvocation, ToolRunResult
+from agent_work.session.bash_tool_events import emit_bash_shell_telemetry
+from agent_work.tool_runtime.executor import ToolInvocation, ToolRunResult
 
 
 def test_emit_bash_telemetry_chunks_and_finished() -> None:

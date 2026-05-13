@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.tool_runtime.builtins import builtin_list_dir
+from agent_work.tool_runtime.builtins import builtin_list_dir
 
 
 @pytest.fixture

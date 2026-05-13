@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from agent_core.session.tool_exposure import tool_definitions_exposed
-from agent_core.tool_runtime.bash_tools import bash_tool_registry
-from agent_core.tool_runtime.registry import default_builtin_registry
+from agent_work.session.tool_exposure import tool_definitions_exposed
+from agent_work.tool_runtime.bash_tools import bash_tool_registry
+from agent_work.tool_runtime.registry import default_builtin_registry
 
 
 def test_read_only_drops_write_and_shell() -> None:

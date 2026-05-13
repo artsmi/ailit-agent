@@ -8,22 +8,22 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.memory.kb_tools import KbToolsConfig, build_kb_tool_registry
-from agent_core.models import (
+from agent_memory.kb_tools import KbToolsConfig, build_kb_tool_registry
+from ailit_base.models import (
     ChatMessage,
     FinishReason,
     MessageRole,
     NormalizedChatResponse,
     NormalizedUsage,
 )
-from agent_core.session.loop import SessionRunner, SessionSettings
-from agent_core.session.state import SessionState
-from agent_core.tool_runtime.approval import ApprovalSession
-from agent_core.tool_runtime.permission import (
+from agent_work.session.loop import SessionRunner, SessionSettings
+from agent_work.session.state import SessionState
+from agent_work.tool_runtime.approval import ApprovalSession
+from agent_work.tool_runtime.permission import (
     PermissionDecision,
     PermissionEngine,
 )
-from agent_core.tool_runtime.registry import default_builtin_registry
+from agent_work.tool_runtime.registry import default_builtin_registry
 
 
 class _ScriptedProvider:

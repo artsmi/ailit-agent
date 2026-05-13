@@ -8,18 +8,18 @@ from typing import Any
 
 import pytest
 
-from agent_core.runtime.errors import RuntimeProtocolError
-from agent_core.runtime.models import (
+from ailit_runtime.errors import RuntimeProtocolError
+from ailit_runtime.models import (
     AGENT_WORK_MEMORY_QUERY_V1,
     parse_agent_work_memory_query_v1,
 )
-from agent_core.runtime.agent_memory_ailit_config import (
+from agent_memory.agent_memory_ailit_config import (
     max_memory_queries_per_user_turn,
 )
-from agent_core.runtime.agent_memory_result_v1 import (
+from agent_memory.agent_memory_result_v1 import (
     build_agent_memory_result_v1,
 )
-from ailit.merged_config import load_merged_ailit_config
+from ailit_cli.merged_config import load_merged_ailit_config
 
 
 def _default_ok_memory_payload() -> dict[str, Any]:
@@ -68,7 +68,7 @@ class _StubBroker:
 
 
 def _identity(ns: str = "ns1") -> Any:
-    from agent_core.runtime.models import RuntimeIdentity
+    from ailit_runtime.models import RuntimeIdentity
 
     return RuntimeIdentity(
         runtime_id="r1",
@@ -81,7 +81,7 @@ def _identity(ns: str = "ns1") -> Any:
 
 
 def _workspace(tmp_path: Any) -> Any:
-    from agent_core.runtime.subprocess_agents import work_agent as _wa
+    from ailit_runtime.subprocess_agents import work_agent as _wa
 
     Ws = _wa._Workspace  # noqa: SLF001
     return Ws(
@@ -151,8 +151,8 @@ def test_agentwork_memory_query_loop_stops_at_config_cap(
     tmp_path: Any,
 ) -> None:
     """C14R.10: при cap=1 второй _request_memory_slice сразу бюджет."""
-    from agent_core.runtime.subprocess_agents import work_agent as wa
-    import agent_core.runtime.subprocess_agents.work_agent as wam
+    from ailit_runtime.subprocess_agents import work_agent as wa
+    import ailit_runtime.subprocess_agents.work_agent as wam
 
     _RTE = wam._RuntimeEventEmitter  # noqa: SLF001
     _WCS = wam._WorkChatSession  # noqa: SLF001
@@ -220,8 +220,8 @@ def test_memory_query_timeout_emits_compact_event_on_socket_timeout(
     tmp_path: Any,
 ) -> None:
     """UC-02: TimeoutError на сокете — memory.query.timeout, cap не растёт."""
-    from agent_core.runtime.subprocess_agents import work_agent as wa
-    import agent_core.runtime.subprocess_agents.work_agent as wam
+    from ailit_runtime.subprocess_agents import work_agent as wa
+    import ailit_runtime.subprocess_agents.work_agent as wam
 
     monkeypatch.setattr(
         wa,
@@ -290,8 +290,8 @@ def test_memory_query_timeout_emits_compact_on_rpc_runtime_timeout(
     tmp_path: Any,
 ) -> None:
     """UC-02: ok:false + runtime_timeout от broker — тот же compact topic."""
-    from agent_core.runtime.subprocess_agents import work_agent as wa
-    import agent_core.runtime.subprocess_agents.work_agent as wam
+    from ailit_runtime.subprocess_agents import work_agent as wa
+    import ailit_runtime.subprocess_agents.work_agent as wam
 
     monkeypatch.setattr(
         wa,

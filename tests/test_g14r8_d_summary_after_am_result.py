@@ -10,20 +10,20 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.runtime.agent_memory_query_pipeline import (
+from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.agent_memory_query_pipeline import (
     AgentMemoryQueryPipeline,
     AgentMemoryQueryPipelineResult,
 )
-from agent_core.runtime.d_creation_policy import (
+from agent_memory.d_creation_policy import (
     am_result_digest_goal_text,
     linked_abc_from_am_explicit_results,
 )
-from agent_core.runtime.models import (
+from ailit_runtime.models import (
     RuntimeIdentity,
     make_request_envelope,
 )
-from agent_core.runtime.subprocess_agents.memory_agent import (
+from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,
 )

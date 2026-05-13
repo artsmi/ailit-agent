@@ -7,13 +7,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ailit.merged_config import (
+from ailit_cli.merged_config import (
     AilitConfigMerger,
     GLOBAL_USER_CONFIG_FILENAME,
     load_merged_ailit_config,
 )
-from ailit.project_config_discovery import ProjectAilitConfigDiscovery
-from ailit.user_paths import GlobalDirResolver
+from ailit_cli.project_config_discovery import ProjectAilitConfigDiscovery
+from ailit_cli.user_paths import GlobalDirResolver
 
 
 def test_project_overrides_global_model(

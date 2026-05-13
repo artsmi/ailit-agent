@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ailit.cli import main
-from ailit.config_secrets import ConfigSecretRedactor
-from ailit.project_root_hint import ProjectRootDetector
+from ailit_cli.cli import main
+from ailit_cli.config_secrets import ConfigSecretRedactor
+from ailit_cli.project_root_hint import ProjectRootDetector
 
 
 def test_secret_redactor_masks_api_key() -> None:

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.runtime.memory_c_remap import SemanticCRemapService
-from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
+from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.memory_c_remap import SemanticCRemapService
+from agent_memory.pag_graph_write_service import PagGraphWriteService
 
 
 def test_remap_python_function_by_name_after_line_shift(tmp_path: Path) -> None:

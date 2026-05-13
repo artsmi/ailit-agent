@@ -8,14 +8,14 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.runtime.agent_memory_chat_log import (
+from agent_memory.agent_memory_chat_log import (
     AgentMemoryChatDebugLog,
     agent_memory_chat_log_file_name,
     create_unique_cli_session_dir,
     log_file_path_for_chat,
     safe_chat_id_for_log_file,
 )
-from agent_core.runtime.agent_memory_config import (
+from agent_memory.agent_memory_config import (
     AgentMemoryFileConfig,
     MemoryDebugSubConfig,
 )

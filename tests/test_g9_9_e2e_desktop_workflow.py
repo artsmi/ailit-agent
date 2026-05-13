@@ -10,13 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.runtime.models import CONTRACT_VERSION
-from agent_core.runtime.paths import RuntimePaths
-from agent_core.runtime.supervisor import (
+from ailit_runtime.models import CONTRACT_VERSION
+from ailit_runtime.paths import RuntimePaths
+from ailit_runtime.supervisor import (
     run_supervisor_server,
     supervisor_request,
 )
-from ailit.cli import main
+from ailit_cli.cli import main
 
 
 def _run_supervisor(runtime_dir: str) -> None:

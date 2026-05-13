@@ -7,21 +7,21 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.memory.pag_runtime import PagRuntimeConfig
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.models import (
+from agent_memory.pag_runtime import PagRuntimeConfig
+from agent_memory.sqlite_pag import SqlitePagStore
+from ailit_base.models import (
     ChatRequest,
     FinishReason,
     NormalizedChatResponse,
     NormalizedUsage,
 )
-from agent_core.runtime.agent_memory_query_pipeline import (
+from agent_memory.agent_memory_query_pipeline import (
     W14_PLAN_TRAVERSAL_SYSTEM,
     _w14_repair_error_targets_in_progress_legacy_status,
     _w14_repair_system_message,
     _w14_repair_user_instruction,
 )
-from agent_core.runtime.agent_memory_runtime_contract import (
+from agent_memory.agent_memory_runtime_contract import (
     AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
     AgentMemoryCommandRegistry,
     AgentMemoryRuntimeStepV1,
@@ -36,9 +36,9 @@ from agent_core.runtime.agent_memory_runtime_contract import (
     validate_or_canonicalize_w14_command_envelope_object,
     validate_w14_command_envelope_object,
 )
-from agent_core.runtime.models import RuntimeIdentity, make_request_envelope
-from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
-from agent_core.runtime.subprocess_agents.memory_agent import (
+from ailit_runtime.models import RuntimeIdentity, make_request_envelope
+from agent_memory.pag_graph_write_service import PagGraphWriteService
+from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,
 )

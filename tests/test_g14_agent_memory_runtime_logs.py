@@ -9,20 +9,21 @@ from typing import Any
 
 import pytest
 
-from agent_core.models import (
+from ailit_base.models import (
     ChatRequest,
     FinishReason,
     NormalizedChatResponse,
     NormalizedUsage,
 )
-from agent_core.providers.protocol import ChatProvider
-from agent_core.runtime.agent_memory_config import (
+from ailit_base.providers.protocol import ChatProvider
+from agent_memory.agent_memory_config import (
     AgentMemoryFileConfig,
     MemoryDebugSubConfig,
 )
-from agent_core.runtime.memory_journal import MemoryJournalStore
-from agent_core.runtime.models import RuntimeIdentity, make_request_envelope
-from agent_core.runtime.subprocess_agents.memory_agent import (
+from agent_memory.agent_memory_chat_log import log_file_path_for_chat
+from agent_memory.memory_journal import MemoryJournalStore
+from ailit_runtime.models import RuntimeIdentity, make_request_envelope
+from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,
 )
@@ -160,7 +161,7 @@ def test_agent_memory_chat_log_records_command_requested_without_raw_prompt(
     monkeypatch.setattr(w, "_am_file", vcfg, raising=False)
     w._chat_debug = (  # noqa: SLF001
         __import__(
-            "agent_core.runtime.agent_memory_chat_log",
+            "agent_memory.agent_memory_chat_log",
             fromlist=["AgentMemoryChatDebugLog"],
         ).AgentMemoryChatDebugLog(
             vcfg,
@@ -175,7 +176,7 @@ def test_agent_memory_chat_log_records_command_requested_without_raw_prompt(
             goal=huge,
         ),
     )
-    logf: Path = log_dir / "c-g14logs.log"
+    logf: Path = log_file_path_for_chat("c-g14logs")
     text: str = logf.read_text(encoding="utf-8")
     assert "memory.command.requested" in text
     cmd_req_block: str = _block_for_topic(
@@ -227,7 +228,7 @@ def test_agent_memory_chat_log_records_command_rejected_with_error_code(
     monkeypatch.setattr(w, "_am_file", vcfg2, raising=False)
     w._chat_debug = (  # noqa: SLF001
         __import__(
-            "agent_core.runtime.agent_memory_chat_log",
+            "agent_memory.agent_memory_chat_log",
             fromlist=["AgentMemoryChatDebugLog"],
         ).AgentMemoryChatDebugLog(
             vcfg2,
@@ -236,7 +237,7 @@ def test_agent_memory_chat_log_records_command_rejected_with_error_code(
     prov: ChatProvider = _SeqProvider([bad])
     monkeypatch.setattr(w, "_provider", prov, raising=False)
     w.handle(_env(project_root=tmp_path, path="g.py", goal="g"))
-    logf: Path = log_dir / "c-g14logs.log"
+    logf: Path = log_file_path_for_chat("c-g14logs")
     tlog: str = logf.read_text(encoding="utf-8")
     assert "memory.command.rejected" in tlog
     assert "w14_command_parse" in tlog
@@ -276,7 +277,7 @@ def test_memory_journal_and_chat_log_share_command_id(
     monkeypatch.setattr(w, "_am_file", vcfg3, raising=False)
     w._chat_debug = (  # noqa: SLF001
         __import__(
-            "agent_core.runtime.agent_memory_chat_log",
+            "agent_memory.agent_memory_chat_log",
             fromlist=["AgentMemoryChatDebugLog"],
         ).AgentMemoryChatDebugLog(
             vcfg3,
@@ -285,7 +286,7 @@ def test_memory_journal_and_chat_log_share_command_id(
     prov: ChatProvider = _SeqProvider([_minimal_w14()])
     monkeypatch.setattr(w, "_provider", prov, raising=False)
     w.handle(_env(project_root=tmp_path, path="h.py", goal="ok"))
-    chat_txt: str = (log_dir / "c-g14logs.log").read_text(encoding="utf-8")
+    chat_txt: str = log_file_path_for_chat("c-g14logs").read_text(encoding="utf-8")
     jrows3 = list(
         MemoryJournalStore(jpath).filter_rows(
             event_name="memory.command.parsed",
@@ -394,7 +395,7 @@ def test_memory_command_rejected_logs_error_code_without_prompt(
     monkeypatch.setattr(w, "_am_file", _am_verbose(), raising=False)
     w._chat_debug = (  # noqa: SLF001
         __import__(
-            "agent_core.runtime.agent_memory_chat_log",
+            "agent_memory.agent_memory_chat_log",
             fromlist=["AgentMemoryChatDebugLog"],
         ).AgentMemoryChatDebugLog(
             _am_verbose(),

@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from agent_core.runtime.agent_memory_ailit_config import (
+from agent_memory.agent_memory_ailit_config import (
     build_chat_provider_for_agent_memory,
     resolve_memory_llm_optimization,
 )
-from agent_core.runtime.memory_llm_optimization_policy import (
+from agent_memory.memory_llm_optimization_policy import (
     MemoryLlmOptimizationPolicy,
 )
 

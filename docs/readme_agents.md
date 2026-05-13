@@ -22,7 +22,6 @@
 | `context/proto/` | Контракты между процессами |
 | `context/start/` | Способы запуска, env, порядок старта, зависимости |
 | `context/tests/` | Тестовые группы, entrypoint'ы, покрытие, артефакты |
-| `context/memories/` | Воспоминания о работе между задачами |
 | `context/workflow.md` | План по вехам **только если** подключён `project-milestones.mdc` |
 | `context/artifacts/` | `status.md`, логи, черновики (**не коммитить**) |
 
@@ -63,11 +62,9 @@
 | Этап | Агент | Когда запускается | Что обновляет |
 |------|-------|-------------------|---------------|
 | learn: инвентаризация | `12_change_inventory` | Первый шаг `start-learn-project` | Не пишет `context/`; готовит `{artifacts_dir}/change_inventory.md` как фактическую сводку по репозиторию |
-| learn: запись контекста | `13_tech_writer` | После `12_change_inventory` в `start-learn-project` | `context/arch/`, `context/install/`, `context/start/`, `context/modules/`, `context/files/`, `context/models/`, `context/proto/`, `context/tests/`, `context/memories/` |
+| learn: запись контекста | `13_tech_writer` | После `12_change_inventory` в `start-learn-project` | `context/arch/`, `context/install/`, `context/start/`, `context/modules/`, `context/files/`, `context/models/`, `context/proto/`, `context/tests/`, `context/algorithms/` |
 | feature/fix: после финального verify | `12_change_inventory` | После успешного final `11_test_runner` | Не пишет `context/`; собирает факты по суммарному diff до commit |
 | feature/fix: запись контекста | `13_tech_writer` | После `12_change_inventory` | Обновляет только затронутые canonical sections |
-| feature: память итерации | `13_tech_writer` | На каждом завершённом проходе задачи после инвентаризации | Создаёт или обновляет файл `context/memories/feature_<task_description>_<time>.md` и `context/memories/index.md` |
-
 ## Роли
 
 | № | Роль |

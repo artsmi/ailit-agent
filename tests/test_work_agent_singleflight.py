@@ -11,8 +11,8 @@ from typing import Any, Mapping
 
 import pytest
 
-from agent_core.runtime.models import RuntimeIdentity, make_request_envelope
-from agent_core.runtime.subprocess_agents.work_agent import (
+from ailit_runtime.models import RuntimeIdentity, make_request_envelope
+from ailit_runtime.subprocess_agents.work_agent import (
     AgentWorkWorker,
     WorkAgentConfig,
     _WorkChatSession,

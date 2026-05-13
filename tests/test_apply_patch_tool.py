@@ -7,19 +7,19 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.session.mode_permission_policy import ModePermissionPolicy
-from agent_core.tool_runtime.bash_tools import bash_tool_registry
-from agent_core.tool_runtime.builtins import (
+from agent_work.session.mode_permission_policy import ModePermissionPolicy
+from agent_work.tool_runtime.bash_tools import bash_tool_registry
+from agent_work.tool_runtime.builtins import (
     builtin_apply_patch,
     builtin_tool_specs,
 )
-from agent_core.tool_runtime.executor import ToolInvocation
-from agent_core.tool_runtime.multi_root_paths import (
+from agent_work.tool_runtime.executor import ToolInvocation
+from agent_work.tool_runtime.multi_root_paths import (
     resolve_absolute_file_under_work_roots,
     work_roots,
 )
-from agent_core.tool_runtime.permission import PermissionDecision
-from agent_core.tool_runtime.registry import default_builtin_registry
+from agent_work.tool_runtime.permission import PermissionDecision
+from agent_work.tool_runtime.registry import default_builtin_registry
 
 
 def test_work_roots_json(

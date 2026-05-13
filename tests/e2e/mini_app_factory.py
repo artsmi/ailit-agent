@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ailit.demo_workspace import DemoAppBlueprint as MiniAppBlueprint
-from ailit.demo_workspace import DemoAppMaterializer as MiniAppMaterializer
+from ailit_cli.demo_workspace import DemoAppBlueprint as MiniAppBlueprint
+from ailit_cli.demo_workspace import DemoAppMaterializer as MiniAppMaterializer
 
 __all__ = ("MiniAppBlueprint", "MiniAppMaterializer")

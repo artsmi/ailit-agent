@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from agent_core.memory.sqlite_pag import PagGraphTraceFn, SqlitePagStore
+from agent_memory.sqlite_pag import PagGraphTraceFn, SqlitePagStore
 
 
 def test_pag_graph_rev_increments_on_upsert(tmp_path: Path) -> None:

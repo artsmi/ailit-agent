@@ -6,9 +6,9 @@ import socket
 import time
 from pathlib import Path
 
-from agent_core.runtime.models import CONTRACT_VERSION
-from agent_core.runtime.paths import RuntimePaths
-from agent_core.runtime.supervisor import (
+from ailit_runtime.models import CONTRACT_VERSION
+from ailit_runtime.paths import RuntimePaths
+from ailit_runtime.supervisor import (
     run_supervisor_server,
     supervisor_request,
 )
@@ -104,7 +104,7 @@ def test_e2e_one_chat_work_and_memory(tmp_path: Path) -> None:
             to_agent="AgentMemory:chat-a",
             payload={
                 "service": "memory.query_context",
-                "path": "tools/ailit/cli.py",
+                "path": "ailit/ailit_cli/cli.py",
             },
         )
         mem_resp = _send_once(broker_sock, mem_req)

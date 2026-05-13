@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from agent_core.models import ChatMessage, MessageRole
-from agent_core.session.compaction import compact_messages
-from agent_core.session.shortlist import apply_keyword_shortlist
+from ailit_base.models import ChatMessage, MessageRole
+from agent_work.session.compaction import compact_messages
+from agent_work.session.shortlist import apply_keyword_shortlist
 
 
 def test_compaction_truncates_long_tool_output() -> None:

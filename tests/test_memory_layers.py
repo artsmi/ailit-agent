@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent_core.memory.layers import MemoryLayer, parse_memory_layer
+from agent_memory.layers import MemoryLayer, parse_memory_layer
 
 
 def test_parse_memory_layer() -> None:

@@ -4,25 +4,25 @@ from __future__ import annotations
 
 import json
 
-from agent_core.memory.sqlite_pag import PagNode
-from agent_core.runtime.agent_memory_contracts import (
+from agent_memory.sqlite_pag import PagNode
+from agent_memory.agent_memory_contracts import (
     MemoryExtractorResultV1,
     MemoryLineHintV1,
     MemorySemanticLocatorV1,
 )
-from agent_core.legacy.memory_c_extractor_prompt import (
+from agent_memory.legacy.memory_c_extractor_prompt import (
     MemoryExtractorPromptBuilder,
 )
-from agent_core.runtime.memory_c_remap import (
+from agent_memory.memory_c_remap import (
     CRemapSpanResult,
     SemanticCRemapService,
     _line_hint_search_windows,
     _remap_node_span,
 )
-from agent_core.runtime.memory_llm_optimization_policy import (
+from agent_memory.memory_llm_optimization_policy import (
     MemoryLlmOptimizationPolicy,
 )
-from agent_core.legacy.semantic_c_extraction import (
+from agent_memory.legacy.semantic_c_extraction import (
     C_NODE_EXCERPT_MAX_CHARS,
     C_NODE_FULL_B_MAX_CHARS,
     SemanticCNodeCandidate,
@@ -283,8 +283,8 @@ def test_code_locator_normalization() -> None:
 
 
 def test_service_accepts_injected_policy(tmp_path) -> None:
-    from agent_core.memory.sqlite_pag import SqlitePagStore
-    from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
+    from agent_memory.sqlite_pag import SqlitePagStore
+    from agent_memory.pag_graph_write_service import PagGraphWriteService
 
     pol = MemoryLlmOptimizationPolicy.default()
     db = tmp_path / "z.sqlite3"

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent_core.memory.pag_slice_caps import (
+from agent_memory.pag_slice_caps import (
     PAG_SLICE_MAX_EDGES,
     PAG_SLICE_MAX_NODES,
 )

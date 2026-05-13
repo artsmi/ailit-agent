@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from ailit.cli import main
+from ailit_cli.cli import main
 
 
 def test_setup_non_interactive_writes_global_config(

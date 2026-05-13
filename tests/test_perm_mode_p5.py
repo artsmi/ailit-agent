@@ -6,20 +6,20 @@ import json
 
 import pytest
 
-from agent_core.session.mode_classifier import (
+from agent_work.session.mode_classifier import (
     ClassifierJsonParser,
     LlmPermModeClassifier,
 )
-from agent_core.session.mode_permission_policy import ModePermissionPolicy
-from agent_core.session.perm_tool_mode import (
+from agent_work.session.mode_permission_policy import ModePermissionPolicy
+from agent_work.session.perm_tool_mode import (
     explore_shell_command_allowed,
     read_plan_write_file_allowed,
     tool_definitions_for_perm_mode,
 )
-from agent_core.tool_runtime.executor import ToolInvocation
-from agent_core.tool_runtime.permission import PermissionDecision
-from agent_core.tool_runtime.bash_tools import bash_tool_registry
-from agent_core.tool_runtime.registry import default_builtin_registry
+from agent_work.tool_runtime.executor import ToolInvocation
+from agent_work.tool_runtime.permission import PermissionDecision
+from agent_work.tool_runtime.bash_tools import bash_tool_registry
+from agent_work.tool_runtime.registry import default_builtin_registry
 
 
 def test_classifier_json_parse_not_sure() -> None:
@@ -84,9 +84,9 @@ def test_read_exposes_no_write_tool_definitions() -> None:
 
 
 def test_mock_classifier_provider_entry_points() -> None:
-    from agent_core.models import ChatMessage, ChatRequest, MessageRole
-    from agent_core.providers.mock_provider import MockProvider
-    from agent_core.session.mode_classifier import CLASSIFIER_PROMPT_MARKER
+    from ailit_base.models import ChatMessage, ChatRequest, MessageRole
+    from ailit_base.providers.mock_provider import MockProvider
+    from agent_work.session.mode_classifier import CLASSIFIER_PROMPT_MARKER
 
     p = MockProvider()
     clf = LlmPermModeClassifier(p)

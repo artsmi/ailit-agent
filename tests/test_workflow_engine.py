@@ -6,10 +6,10 @@ import json
 from io import StringIO
 from pathlib import Path
 
-from agent_core.capabilities import Capability
-from agent_core.models import FinishReason, NormalizedChatResponse, NormalizedUsage
-from agent_core.tool_runtime.registry import default_builtin_registry
-from agent_core.models import ChatRequest, MessageRole
+from ailit_base.capabilities import Capability
+from ailit_base.models import FinishReason, NormalizedChatResponse, NormalizedUsage
+from agent_work.tool_runtime.registry import default_builtin_registry
+from ailit_base.models import ChatRequest, MessageRole
 
 from workflow_engine.engine import WorkflowEngine, WorkflowRunConfig
 from workflow_engine.loader import load_workflow_from_mapping, load_workflow_from_path
@@ -35,7 +35,7 @@ class OneShotProvider:
         )
 
     def stream(self, request: object):
-        from agent_core.models import StreamDone
+        from ailit_base.models import StreamDone
 
         yield StreamDone(response=self.complete(request))
 

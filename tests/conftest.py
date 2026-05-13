@@ -14,9 +14,9 @@ import pytest
 
 # Репозиторий в PYTHONPATH через pyproject; для IDE — подстраховка.
 _ROOT = Path(__file__).resolve().parents[1]
-_TOOLS = _ROOT / "tools"
-if _TOOLS.is_dir() and str(_TOOLS) not in sys.path:
-    sys.path.insert(0, str(_TOOLS))
+_AILIT = _ROOT / "ailit"
+if _AILIT.is_dir() and str(_AILIT) not in sys.path:
+    sys.path.insert(0, str(_AILIT))
 
 
 def _write_minimal_config(path: Path) -> None:
@@ -69,11 +69,11 @@ def isolate_ailit_test_artifacts(
     monkeypatch.delenv("AILIT_WORK_ROOTS", raising=False)
     monkeypatch.delenv("AILIT_KB_NAMESPACE", raising=False)
     monkeypatch.setenv("AILIT_WORK_ROOT", str(work))
-    # Чтобы `multiprocessing` (spawn) и `subprocess` видели пакеты из `tools/`.
-    tools_s = str(_TOOLS)
+    # Чтобы `multiprocessing` (spawn) и `subprocess` видели пакеты из `ailit/`.
+    ailit_s = str(_AILIT)
     prev = os.environ.get("PYTHONPATH", "")
     sep = os.pathsep
-    if tools_s and tools_s not in (prev.split(sep) if prev else []):
-        merged = f"{tools_s}{sep}{prev}" if prev else tools_s
+    if ailit_s and ailit_s not in (prev.split(sep) if prev else []):
+        merged = f"{ailit_s}{sep}{prev}" if prev else ailit_s
         monkeypatch.setenv("PYTHONPATH", merged)
     yield

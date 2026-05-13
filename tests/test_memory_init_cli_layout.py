@@ -14,18 +14,18 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.runtime.agent_memory_chat_log import (
+from agent_memory.agent_memory_chat_log import (
     COMPACT_LOG_FILE_NAME,
     AgentMemoryChatDebugLog,
 )
-from agent_core.runtime.agent_memory_config import (
+from agent_memory.agent_memory_config import (
     AgentMemoryFileConfig,
     MemoryDebugSubConfig,
 )
-from agent_core.runtime.compact_observability_sink import (
+from agent_memory.compact_observability_sink import (
     CompactObservabilitySink,
 )
-from agent_core.runtime.memory_init_orchestrator import (
+from agent_memory.memory_init_orchestrator import (
     count_compact_d4_summary_lines,
     verify_memory_init_journal_complete_marker,
 )
@@ -262,13 +262,13 @@ def test_memory_init_journal_verify_requires_complete_marker(
 def test_memory_init_subprocess_python_m_invalid_path_nonzero(
     tmp_path: Path,
 ) -> None:
-    """T-M05: ``python -m ailit.cli memory init`` на несуществующем path."""
+    """T-M05: ``python -m ailit_cli.cli memory init`` на несуществующем path."""
     runner = AilitCliRunner(_REPO_ROOT)
     missing = tmp_path / "not_a_real_project_dir"
     cmd: list[str] = [
         runner._python(),
         "-m",
-        "ailit.cli",
+        "ailit_cli.cli",
         "memory",
         "init",
         str(missing),

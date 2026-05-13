@@ -7,14 +7,14 @@ from typing import Any, Mapping
 
 import pytest
 
-from agent_core.runtime.agent_memory_result_v1 import (
+from agent_memory.agent_memory_result_v1 import (
     build_agent_memory_result_v1,
 )
-from agent_core.tool_runtime.registry import ToolRegistry
+from agent_work.tool_runtime.registry import ToolRegistry
 
 
 def _identity(ns: str = "ns1") -> Any:
-    from agent_core.runtime.models import RuntimeIdentity
+    from ailit_runtime.models import RuntimeIdentity
 
     return RuntimeIdentity(
         runtime_id="r1",
@@ -27,7 +27,7 @@ def _identity(ns: str = "ns1") -> Any:
 
 
 def _workspace(tmp_path: Any) -> Any:
-    from agent_core.runtime.subprocess_agents import work_agent as _wa
+    from ailit_runtime.subprocess_agents import work_agent as _wa
 
     Ws = _wa._Workspace  # noqa: SLF001
     return Ws(
@@ -53,8 +53,8 @@ def test_uc01_partial_continuation_two_memory_queries_before_tools(
     tmp_path: Any,
 ) -> None:
     """UC-01 (task_1_2): partial+continuation → два memory.query_context."""
-    from agent_core.runtime.subprocess_agents import work_agent as wa
-    import agent_core.runtime.subprocess_agents.work_agent as wam
+    from ailit_runtime.subprocess_agents import work_agent as wa
+    import ailit_runtime.subprocess_agents.work_agent as wam
 
     monkeypatch.setattr(
         wa,
@@ -189,8 +189,8 @@ def test_uc01_a2_partial_without_continuation_no_second_query_required(
     tmp_path: Any,
 ) -> None:
     """UC-01 A2: partial без continuation — один ``memory.query_context``."""
-    from agent_core.runtime.subprocess_agents import work_agent as wa
-    import agent_core.runtime.subprocess_agents.work_agent as wam
+    from ailit_runtime.subprocess_agents import work_agent as wa
+    import ailit_runtime.subprocess_agents.work_agent as wam
 
     monkeypatch.setattr(
         wa,
@@ -263,8 +263,8 @@ def test_uc01_two_memory_queries_before_orchestrator_run(
     tmp_path: Any,
 ) -> None:
     """Порядок: оба memory RPC до первого ``WorkTaskOrchestrator.run``."""
-    from agent_core.runtime.subprocess_agents import work_agent as wa
-    import agent_core.runtime.subprocess_agents.work_agent as wam
+    from ailit_runtime.subprocess_agents import work_agent as wa
+    import ailit_runtime.subprocess_agents.work_agent as wam
 
     monkeypatch.setenv("AILIT_WORK_MICRO_ORCHESTRATOR", "0")
     monkeypatch.setenv("AILIT_WORK_AGENT_PERM", "0")
@@ -406,8 +406,8 @@ def test_agentwork_uc02_legacy_envelope_after_canonicalization_no_spurious_conti
     tmp_path: Any,
 ) -> None:
     """UC-02: partial + агрессивный rns без mcr/роста refs — один RPC."""
-    from agent_core.runtime.subprocess_agents import work_agent as wa
-    import agent_core.runtime.subprocess_agents.work_agent as wam
+    from ailit_runtime.subprocess_agents import work_agent as wa
+    import ailit_runtime.subprocess_agents.work_agent as wam
 
     monkeypatch.setattr(
         wa,
@@ -482,9 +482,9 @@ def test_agentwork_uc03_fix_memory_llm_json_terminal_no_second_memory_query(
     tmp_path: Any,
 ) -> None:
     """UC-03: ``fix_memory_llm_json`` — терминально для memory-loop."""
-    from agent_core.runtime.subprocess_agents import work_agent as wa
-    import agent_core.runtime.subprocess_agents.work_agent as wam
-    from agent_core.runtime.agent_memory_result_v1 import (
+    from ailit_runtime.subprocess_agents import work_agent as wa
+    import ailit_runtime.subprocess_agents.work_agent as wam
+    from agent_memory.agent_memory_result_v1 import (
         FIX_MEMORY_LLM_JSON_STEP,
     )
 
@@ -559,8 +559,8 @@ def test_agentwork_uc03_w14_contract_failure_terminal_no_second_memory_query(
     tmp_path: Any,
 ) -> None:
     """UC-03: ``w14_contract_failure`` на слайсе — без второго RPC."""
-    from agent_core.runtime.subprocess_agents import work_agent as wa
-    import agent_core.runtime.subprocess_agents.work_agent as wam
+    from ailit_runtime.subprocess_agents import work_agent as wa
+    import ailit_runtime.subprocess_agents.work_agent as wam
 
     monkeypatch.setattr(
         wa,
@@ -641,8 +641,8 @@ def test_agentwork_uc04_second_memory_query_only_on_graph_progress_or_explicit_c
     tmp_path: Any,
 ) -> None:
     """UC-04: без новых refs/mcr третий RPC не делаем (финиш на 2-м ответе)."""
-    from agent_core.runtime.subprocess_agents import work_agent as wa
-    import agent_core.runtime.subprocess_agents.work_agent as wam
+    from ailit_runtime.subprocess_agents import work_agent as wa
+    import ailit_runtime.subprocess_agents.work_agent as wam
 
     monkeypatch.setattr(
         wa,
@@ -742,8 +742,8 @@ def test_agentwork_uc04_memory_continuation_required_allows_second_without_new_r
     tmp_path: Any,
 ) -> None:
     """UC-04: ``memory_continuation_required`` — второй RPC без новых refs."""
-    from agent_core.runtime.subprocess_agents import work_agent as wa
-    import agent_core.runtime.subprocess_agents.work_agent as wam
+    from ailit_runtime.subprocess_agents import work_agent as wa
+    import ailit_runtime.subprocess_agents.work_agent as wam
 
     monkeypatch.setattr(
         wa,

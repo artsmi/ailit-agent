@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 
-from agent_core.runtime.agent_memory_config import ArtifactsSubConfig, MemoryLlmSubConfig
-from agent_core.runtime.agent_memory_contracts import MemoryExtractorResultV1
-from agent_core.runtime.memory_c_segmentation import (
+from agent_memory.agent_memory_config import ArtifactsSubConfig, MemoryLlmSubConfig
+from agent_memory.agent_memory_contracts import MemoryExtractorResultV1
+from agent_memory.memory_c_segmentation import (
     FullBIngestionPolicy,
     MechanicalChunkCatalogBuilder,
     is_text_like_path,
@@ -54,7 +54,7 @@ def test_is_text_like_unknown_extension() -> None:
 
 
 def test_artifact_read_requires_explicit() -> None:
-    from agent_core.runtime.agent_memory_config import SourceBoundaryFilter
+    from agent_memory.agent_memory_config import SourceBoundaryFilter
 
     b = ArtifactsSubConfig(allow_explicit_artifact_content=True)
     sf = SourceBoundaryFilter(b)

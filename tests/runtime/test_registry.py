@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agent_core.runtime.registry import AgentRegistration, AgentRegistry
+from ailit_runtime.registry import AgentRegistration, AgentRegistry
 
 
 def test_registry_register_list_filter() -> None:

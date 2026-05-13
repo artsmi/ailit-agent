@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_core.runtime.paths import RuntimePaths, default_runtime_dir
+from ailit_runtime.paths import RuntimePaths, default_runtime_dir
 
 
 class TestDefaultRuntimeDir:

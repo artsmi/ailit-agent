@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.tool_runtime.approval import ApprovalSession
-from agent_core.tool_runtime.executor import ApprovalPending, ToolExecutor, ToolInvocation
-from agent_core.tool_runtime.permission import PermissionEngine
-from agent_core.tool_runtime.registry import ToolRegistry, default_builtin_registry
-from agent_core.tool_runtime.spec import SideEffectClass, ToolSpec
+from agent_work.tool_runtime.approval import ApprovalSession
+from agent_work.tool_runtime.executor import ApprovalPending, ToolExecutor, ToolInvocation
+from agent_work.tool_runtime.permission import PermissionEngine
+from agent_work.tool_runtime.registry import ToolRegistry, default_builtin_registry
+from agent_work.tool_runtime.spec import SideEffectClass, ToolSpec
 
 
 @pytest.fixture

@@ -51,17 +51,11 @@ ailit chat
 
 **mock** — без API; при включённых файловых tools запросы на создание файла (например «сделай тестовый файл») приводят к вызову **`write_file`** без ручного approval. Для **DeepSeek** по-прежнему нужен реальный вызов инструмента моделью; в чате добавлена system-подсказка, чтобы не ограничиваться текстом «создам файл».
 
-### Если в логе Streamlit: `inotify instance limit reached`
+### Streamlit UI
 
-`ailit chat` уже запускает Streamlit с **`--server.fileWatcherType none`**, чтобы не создавать лишние inotify-наблюдатели (типичная причина `OSError: [Errno 24]`).
+Интерактивный браузерный чат `ailit chat` и связанный Streamlit-код удалены из репозитория. Для проверки агента используйте `ailit agent run` или desktop.
 
-Если вы запускаете UI вручную без CLI, добавьте то же самое:
-
-```bash
-python3 -m streamlit run tools/ailit/chat_app.py --server.fileWatcherType none
-```
-
-Долгосрочно на Linux можно поднять лимиты (до перезагрузки — `sudo sysctl`, постоянно — в `/etc/sysctl.d/`):
+Долгосрочно на Linux при работе с другими Streamlit-приложениями можно поднять лимиты inotify (до перезагрузки — `sudo sysctl`, постоянно — в `/etc/sysctl.d/`):
 
 ```text
 fs.inotify.max_user_instances=1024

@@ -6,8 +6,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.runtime.pag_graph_write_service import (
+from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.pag_graph_write_service import (
     OFFLINE_PAG_WRITER_MODULES,
     RUNTIME_UNTRACED_WRITE_ALLOWLIST,
     PagGraphWriteService,
@@ -145,40 +145,40 @@ def test_runtime_direct_upsert_is_guarded() -> None:
     Whitelist offline-модулей задокументирован.
     """
     repo = Path(__file__).resolve().parents[1]
-    ac = repo / "tools" / "agent_core"
+    ac = repo / "ailit"
     rel = _files_with_regex(
         ac,
         repo,
         re.compile(r"_store\.upsert_(node|edge|edges_batch)\("),
     )
     assert rel == {
-        "tools/agent_core/runtime/pag_graph_write_service.py",
+        "ailit/agent_memory/pag_graph_write_service.py",
     }
-    assert "agent_core.memory.pag_indexer" in OFFLINE_PAG_WRITER_MODULES
-    assert "agent_core.session.d_level_compact" in OFFLINE_PAG_WRITER_MODULES
+    assert "agent_memory.pag_indexer" in OFFLINE_PAG_WRITER_MODULES
+    assert "agent_work.session.d_level_compact" in OFFLINE_PAG_WRITER_MODULES
     assert len(RUNTIME_UNTRACED_WRITE_ALLOWLIST) == 0
 
 
 def test_rg_upsert_call_sites_match_plan_whitelist() -> None:
     """Стат-лист файлов с ``upsert_node(``/``upsert_edge(`` (G13.1)."""
     repo = Path(__file__).resolve().parents[1]
-    ac = repo / "tools" / "agent_core"
+    ac = repo / "ailit"
     rel_files = _files_with_regex(
         ac,
         repo,
         re.compile(r"upsert_node\(|upsert_edge\("),
     )
     expected = {
-        "tools/agent_core/memory/sqlite_pag.py",
-        "tools/agent_core/runtime/pag_graph_write_service.py",
-        "tools/agent_core/memory/pag_indexer.py",
-        "tools/agent_core/runtime/d_creation_policy.py",
-        "tools/agent_core/runtime/link_claim_resolver.py",
-        "tools/agent_core/runtime/memory_c_remap.py",
-        "tools/agent_core/runtime/memory_growth.py",
-        "tools/agent_core/runtime/agent_memory_summary_service.py",
-        "tools/agent_core/runtime/agent_memory_query_pipeline.py",
-        "tools/agent_core/runtime/agent_memory_link_candidate_validator.py",
-        "tools/agent_core/session/d_level_compact.py",
+        "ailit/agent_memory/sqlite_pag.py",
+        "ailit/agent_memory/pag_graph_write_service.py",
+        "ailit/agent_memory/pag_indexer.py",
+        "ailit/agent_memory/d_creation_policy.py",
+        "ailit/agent_memory/link_claim_resolver.py",
+        "ailit/agent_memory/memory_c_remap.py",
+        "ailit/agent_memory/memory_growth.py",
+        "ailit/agent_memory/agent_memory_summary_service.py",
+        "ailit/agent_memory/agent_memory_query_pipeline.py",
+        "ailit/agent_memory/agent_memory_link_candidate_validator.py",
+        "ailit/agent_work/session/d_level_compact.py",
     }
     assert rel_files == expected

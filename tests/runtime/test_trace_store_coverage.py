@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.runtime.errors import RuntimeProtocolError
-from agent_core.runtime.trace_store import JsonlTraceStore, TraceRow
+from ailit_runtime.errors import RuntimeProtocolError
+from ailit_runtime.trace_store import JsonlTraceStore, TraceRow
 
 
 def _make_row(

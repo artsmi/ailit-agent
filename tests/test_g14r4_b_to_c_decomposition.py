@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from agent_core.runtime.agent_memory_config import (
+from agent_memory.agent_memory_config import (
     ArtifactsSubConfig,
     MemoryLlmSubConfig,
 )
-from agent_core.runtime.memory_c_segmentation import (
+from agent_memory.memory_c_segmentation import (
     BToCDecompositionService,
     FullBIngestionPolicy,
 )

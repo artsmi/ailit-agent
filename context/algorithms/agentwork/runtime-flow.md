@@ -1,6 +1,6 @@
 # Поток выполнения AgentWork
 
-Документ описывает **фактический путь кода** на момент синхронизации с репозиторием. Якорные модули: `tools/agent_core/runtime/subprocess_agents/work_agent.py`, `work_orchestrator.py`, `tools/agent_core/runtime/broker.py` (spawn).
+Документ описывает **фактический путь кода** на момент синхронизации с репозиторием. Якорные модули: `ailit/ailit_runtime/subprocess_agents/work_agent.py`, `work_orchestrator.py`, `ailit/ailit_runtime/broker.py` (spawn).
 
 ## Запуск процесса
 

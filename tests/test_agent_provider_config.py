@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ailit.agent_provider_config import (
+from ailit_cli.agent_provider_config import (
     AgentRunProviderConfigBuilder,
     DevRepoTestLocalSource,
 )

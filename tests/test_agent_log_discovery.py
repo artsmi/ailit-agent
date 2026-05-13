@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from ailit.agent_usage_cli import discover_latest_agent_log
+from ailit_cli.agent_usage_cli import discover_latest_agent_log
 
 
 def test_discover_prefers_newer_file_in_canonical_logs(
@@ -22,7 +22,7 @@ def test_discover_prefers_newer_file_in_canonical_logs(
     monkeypatch.delenv("AILIT_HOME", raising=False)
     monkeypatch.delenv("XDG_STATE_HOME", raising=False)
 
-    from ailit.user_paths import global_logs_dir
+    from ailit_cli.user_paths import global_logs_dir
 
     primary = global_logs_dir()
     primary.mkdir(parents=True)

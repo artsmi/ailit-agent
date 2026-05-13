@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from ailit.token_economy_aggregates import (
+from ailit_cli.token_economy_aggregates import (
     empty_cumulative,
     merge_events_into_cumulative,
 )
-from agent_core.tool_runtime.python_read_symbol import builtin_read_symbol
+from agent_work.tool_runtime.python_read_symbol import builtin_read_symbol
 
 
 def test_merge_fs_duplicate_stub_count() -> None:

@@ -19,21 +19,21 @@ class AilitCliResult:
 
 
 class AilitCliRunner:
-    """Subprocess с PYTHONPATH=tools и корнем репозитория."""
+    """Subprocess с PYTHONPATH=ailit и корнем репозитория."""
 
     def __init__(self, repo_root: Path) -> None:
         """Запомнить корень репозитория ailit-agent."""
         self._repo = repo_root.resolve()
-        self._tools = self._repo / "tools"
+        self._ailit = self._repo / "ailit"
 
     def _env(self, *, extra: dict[str, str] | None = None) -> dict[str, str]:
-        """Окружение: пакеты из tools (как editable для тестов)."""
+        """Окружение: пакеты из ailit/ (как editable для тестов)."""
         base = os.environ.copy()
         prev = base.get("PYTHONPATH", "")
         sep = os.pathsep
-        tools_s = str(self._tools)
+        ailit_s = str(self._ailit)
         base["PYTHONPATH"] = (
-            f"{tools_s}{sep}{prev}" if prev else tools_s
+            f"{ailit_s}{sep}{prev}" if prev else ailit_s
         )
         if extra:
             base.update(extra)
@@ -62,11 +62,11 @@ class AilitCliRunner:
         task_file: str | None = None,
         input_text: str | None = None,
     ) -> AilitCliResult:
-        """Выполнить `python -m ailit.cli agent run …`."""
+        """Выполнить `python -m ailit_cli.cli agent run …`."""
         cmd: list[str] = [
             self._python(),
             "-m",
-            "ailit.cli",
+            "ailit_cli.cli",
             "agent",
             "run",
             workflow_ref,
@@ -110,7 +110,7 @@ class AilitCliRunner:
         project_root: Path | None = None,
         extra_env: dict[str, str] | None = None,
     ) -> subprocess.Popen[str]:
-        """Запустить `python -m ailit.cli <args>` в фоне (Popen).
+        """Запустить `python -m ailit_cli.cli <args>` в фоне (Popen).
 
         Если ``project_root`` задан, в конец добавляется
         ``--project-root <path>`` (для команд вроде ``agent run``).
@@ -124,7 +124,7 @@ class AilitCliRunner:
         cmd: list[str] = [
             self._python(),
             "-m",
-            "ailit.cli",
+            "ailit_cli.cli",
             *args,
         ]
         if project_root is not None:
@@ -155,7 +155,7 @@ class AilitCliRunner:
         cmd: list[str] = [
             self._python(),
             "-m",
-            "ailit.cli",
+            "ailit_cli.cli",
             "runtime",
             "status",
             "--runtime-dir",

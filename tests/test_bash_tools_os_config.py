@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.tool_runtime.bash_tools import (
+from agent_work.tool_runtime.bash_tools import (
     BashToolOsConfig,
     builtin_run_shell,
 )

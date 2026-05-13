@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from agent_core.models import ChatMessage, ChatRequest, MessageRole, NormalizedChatResponse
-from agent_core.providers.deepseek import DeepSeekAdapter
-from agent_core.providers.kimi import KimiAdapter
-from agent_core.providers.mock_provider import MockProvider
-from agent_core.transport.httpx_transport import HttpxJsonTransport
+from ailit_base.models import ChatMessage, ChatRequest, MessageRole, NormalizedChatResponse
+from ailit_base.providers.deepseek import DeepSeekAdapter
+from ailit_base.providers.kimi import KimiAdapter
+from ailit_base.providers.mock_provider import MockProvider
+from ailit_base.transport.httpx_transport import HttpxJsonTransport
 
 
 class _FixedJsonTransport(HttpxJsonTransport):

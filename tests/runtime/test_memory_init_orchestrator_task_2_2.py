@@ -11,17 +11,17 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.runtime.agent_memory_chat_log import COMPACT_LOG_FILE_NAME
-from agent_core.runtime.memory_init_orchestrator import (
+from agent_memory.agent_memory_chat_log import COMPACT_LOG_FILE_NAME
+from agent_memory.memory_init_orchestrator import (
     MemoryInitOrchestrator,
     MemoryInitSigintGuard,
     count_compact_d4_summary_lines,
     normalize_memory_init_root,
 )
-from agent_core.runtime.memory_init_transaction import MemoryInitPaths as MIP
-from agent_core.runtime.memory_journal import MemoryJournalRow
-from agent_core.runtime.models import RuntimeRequestEnvelope
-from agent_core.runtime.subprocess_agents.memory_agent import AgentMemoryWorker
+from agent_memory.memory_init_transaction import MemoryInitPaths as MIP
+from agent_memory.memory_journal import MemoryJournalRow
+from ailit_runtime.models import RuntimeRequestEnvelope
+from ailit_runtime.subprocess_agents.memory_agent import AgentMemoryWorker
 
 
 def test_tc_2_2_summary_counts_d4(tmp_path: Path) -> None:
@@ -50,7 +50,7 @@ def test_normalize_memory_init_root_ok(tmp_path: Path) -> None:
 
 
 def test_normalize_memory_init_root_missing(tmp_path: Path) -> None:
-    from agent_core.runtime.errors import RuntimeProtocolError
+    from ailit_runtime.errors import RuntimeProtocolError
 
     with pytest.raises(RuntimeProtocolError):
         normalize_memory_init_root(tmp_path / "nope")
@@ -152,7 +152,7 @@ def test_memory_init_orchestrator_keyboard_interrupt_aborts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from agent_core.runtime.memory_init_orchestrator import _EXIT_INTERRUPT
+    from agent_memory.memory_init_orchestrator import _EXIT_INTERRUPT
 
     def _boom(
         self: AgentMemoryWorker,
@@ -247,7 +247,7 @@ def test_memory_init_orchestrator_os_sigint_guard_cancelled_aborts_130(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from agent_core.runtime.memory_init_orchestrator import _EXIT_INTERRUPT
+    from agent_memory.memory_init_orchestrator import _EXIT_INTERRUPT
 
     monkeypatch.setattr(
         AgentMemoryWorker,

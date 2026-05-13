@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_core.runtime.trace_store import JsonlTraceStore, TraceRow
+from ailit_runtime.trace_store import JsonlTraceStore, TraceRow
 
 
 def test_trace_store_append_and_filter(tmp_path: Path) -> None:

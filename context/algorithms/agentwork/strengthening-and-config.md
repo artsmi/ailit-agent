@@ -4,7 +4,7 @@
 
 ## Конфигурация `agent_work` (merge YAML)
 
-Секция задаётся в `tools/ailit/merged_config.py` по умолчанию и перекрывается проектным `ailit` config.
+Секция задаётся в `ailit/ailit_cli/merged_config.py` по умолчанию и перекрывается проектным `ailit` config.
 
 | Поле | Эффект |
 |------|--------|

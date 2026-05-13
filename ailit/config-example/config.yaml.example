@@ -1,0 +1,64 @@
+# Пример пользовательского конфига ailit (слой merge).
+# Файл можно положить в $AILIT_CONFIG_DIR/config.yaml или в цепочку слоёв,
+# которую собирает ProjectAilitConfigDiscovery / merged_config.
+
+# schema_version: версия схемы merge; должна совпадать с ожиданиями CLI.
+schema_version: "1"
+
+# default: провайдер и модель по умолчанию для команд, где не заданы явные флаги.
+default:
+  # provider: идентификатор backend (mock | deepseek | kimi).
+  provider: "mock"
+  # model: строка модели у провайдера; для mock часто пусто или фиктивное имя.
+  model: ""
+
+# live.run: разрешение на сетевые вызовы к LLM без явного dev-ключа/политики.
+# В тестах autouse выставляет false через изолированный конфиг.
+live:
+  run: false
+
+# deepseek: параметры HTTP-клиента DeepSeek (api_key чаще из DEEPSEEK_API_KEY).
+deepseek: {}
+
+# kimi: параметры Moonshot/Kimi (ключи из KIMI_API_KEY / MOONSHOT_API_KEY).
+kimi: {}
+
+# memory.enabled: использовать PAG/KB и инъекции памяти в AgentWork.
+# memory.backend: тип хранилища KB (sqlite).
+# memory.namespace: строковый namespace по умолчанию для PAG.
+# memory.auto_kb_caps: лимиты вызовов KB-инструментов за сессию/ход.
+# memory.runtime.max_memory_queries_per_user_turn: максимум обращений к AgentMemory на один user-turn.
+memory:
+  enabled: true
+  backend: "sqlite"
+  namespace: "default"
+  auto_kb_caps:
+    kb_search: 30
+    kb_fetch: 30
+    kb_write_fact: 10
+  runtime:
+    max_memory_queries_per_user_turn: 6
+
+# agent.tool_exposure: политика показа схем инструментов модели (full | …).
+agent:
+  tool_exposure: "full"
+
+# agent_work: профили микро-плана и verify для подпроцесса AgentWork.
+agent_work:
+  enabled: true
+  active_profile: "default"
+  profiles:
+    default:
+      title: "AgentWork"
+      micro_plan: "always_compact"
+      verify_policy: "python_default"
+      max_repair_attempts: 1
+      large_task_policy: "decompose_only"
+
+# agent_memory: отдельные provider/model для шагов памяти (если пусто — fallback на default).
+agent_memory:
+  provider: ""
+  model: ""
+
+# tests: произвольные ключи для dev/test окружения (не обязательны в prod).
+tests: {}

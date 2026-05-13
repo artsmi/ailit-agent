@@ -1,6 +1,6 @@
 # Пакет: AgentWork (рабочий агент десктоп-рантайма)
 
-Каноническое **описание поведения** подпроцесса AgentWork: исполнение пользовательского промпта, инъекция контекста AgentMemory, локальная KB, perm-5, микро-оркестрация плана и verify. Документы согласованы с кодом в `tools/agent_core/runtime/subprocess_agents/` и смежными модулями на дату подготовки пакета.
+Каноническое **описание поведения** подпроцесса AgentWork: исполнение пользовательского промпта, инъекция контекста AgentMemory, локальная KB, perm-5, микро-оркестрация плана и verify. Документы согласованы с кодом в `ailit/ailit_runtime/subprocess_agents/` и смежными модулями на дату подготовки пакета.
 
 **Аннотация:** начните с [`runtime-flow.md`](runtime-flow.md), затем [`kb-and-memory-layers.md`](kb-and-memory-layers.md) (разделение PAG/AgentMemory, SQLite KB и perm-KB), затем [`micro-orchestration.md`](micro-orchestration.md). Расшифровки терминов — в [`glossary.md`](glossary.md).
 

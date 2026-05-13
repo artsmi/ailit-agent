@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from ailit.debug_bundle import build_debug_bundle, default_rollout_phase
+from ailit_cli.debug_bundle import build_debug_bundle, default_rollout_phase
 
 
 def test_build_debug_bundle_contains_project(tmp_path: Path) -> None:

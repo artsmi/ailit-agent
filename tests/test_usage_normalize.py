@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from agent_core.normalization.usage_fields import (
+from ailit_base.normalization.usage_fields import (
     normalize_usage_payload,
     usage_to_diag_dict,
 )
-from agent_core.normalization.openai_normalize import normalize_chat_completion
+from ailit_base.normalization.openai_normalize import normalize_chat_completion
 
 
 def test_cache_read_write_anthropic_style() -> None:
@@ -70,7 +70,7 @@ def test_usage_to_diag_roundtrip_shape() -> None:
 
 def test_last_usage_pair_from_agent_log_text() -> None:
     """Парсинг хвоста JSONL для CLI ``usage last``."""
-    from ailit.agent_usage_cli import last_usage_pair_from_log_text
+    from ailit_cli.agent_usage_cli import last_usage_pair_from_log_text
 
     log = (
         '{"event_type":"process.start","role":"agent"}\n'

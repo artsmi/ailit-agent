@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent_core.capabilities import Capability, capability_set_for, provider_supports
+from ailit_base.capabilities import Capability, capability_set_for, provider_supports
 
 
 @pytest.mark.parametrize(

@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ailit.cli import main
-from ailit.config_store import (
+from ailit_cli.cli import main
+from ailit_cli.config_store import (
     ConfigSetKeyAllowlist,
     GlobalUserConfigFileStore,
     NestedMappingWriter,

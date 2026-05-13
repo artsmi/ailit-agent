@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.runtime.broker import AgentBroker, BrokerConfig
-from agent_core.runtime.broker_workspace_config import BrokerWorkspaceEntry
-from agent_core.runtime.models import (
+from ailit_runtime.broker import AgentBroker, BrokerConfig
+from ailit_runtime.broker_workspace_config import BrokerWorkspaceEntry
+from ailit_runtime.models import (
     RuntimeIdentity,
     make_request_envelope,
 )

@@ -1,23 +1,23 @@
 from __future__ import annotations
 
-from agent_core.models import (
+from ailit_base.models import (
     ChatMessage,
     FinishReason,
     MessageRole,
     NormalizedChatResponse,
     NormalizedUsage,
 )
-from agent_core.session.context_ledger import (
+from agent_work.session.context_ledger import (
     ContextProjectRef,
     ContextSnapshotBuilder,
     ModelContextLimits,
     ModelLimitResolver,
     memory_injected_v2_payload,
 )
-from agent_core.session.loop import SessionRunner, SessionSettings
-from agent_core.session.state import SessionState
-from agent_core.tool_runtime.approval import ApprovalSession
-from agent_core.tool_runtime.registry import default_builtin_registry
+from agent_work.session.loop import SessionRunner, SessionSettings
+from agent_work.session.state import SessionState
+from agent_work.tool_runtime.approval import ApprovalSession
+from agent_work.tool_runtime.registry import default_builtin_registry
 
 
 class _SingleResponseProvider:

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_memory.sqlite_pag import SqlitePagStore
 
 
 def test_pag_upsert_fetch_node_roundtrip(tmp_path: Path) -> None:

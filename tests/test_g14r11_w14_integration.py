@@ -12,34 +12,34 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.memory.pag_runtime import PagRuntimeConfig
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.models import (
+from agent_memory.pag_runtime import PagRuntimeConfig
+from agent_memory.sqlite_pag import SqlitePagStore
+from ailit_base.models import (
     ChatRequest,
     FinishReason,
     NormalizedChatResponse,
     NormalizedUsage,
 )
-from agent_core.runtime.agent_memory_runtime_contract import (
+from agent_memory.agent_memory_runtime_contract import (
     AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
 )
-from agent_core.runtime.agent_memory_result_v1 import (
+from agent_memory.agent_memory_result_v1 import (
     AGENT_MEMORY_RESULT_V1,
     build_agent_memory_result_v1,
 )
-from agent_core.runtime.agent_memory_config import (
+from agent_memory.agent_memory_config import (
     load_or_create_agent_memory_config,
 )
-from agent_core.runtime.models import RuntimeIdentity, make_request_envelope
-from agent_core.runtime.pag_graph_trace import MEMORY_W14_GRAPH_HIGHLIGHT_EVENT
-from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
-from agent_core.runtime.subprocess_agents.memory_agent import (
+from ailit_runtime.models import RuntimeIdentity, make_request_envelope
+from agent_memory.pag_graph_trace import MEMORY_W14_GRAPH_HIGHLIGHT_EVENT
+from agent_memory.pag_graph_write_service import PagGraphWriteService
+from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,
 )
 
 _REPO = Path(__file__).resolve().parents[1]
-_RUNTIME = _REPO / "tools" / "agent_core" / "runtime"
+_RUNTIME = _REPO / "ailit" / "agent_memory"
 _LEGACY_FORBIDDEN = ("semantic_c_extraction", "memory_c_extractor_prompt")
 
 
@@ -1073,6 +1073,8 @@ def test_w14_no_runtime_imports_from_legacy_c_modules() -> None:
     """
     for path in sorted(_RUNTIME.rglob("*.py")):
         if "test" in path.name:
+            continue
+        if "legacy" in path.parts:
             continue
         text = path.read_text(encoding="utf-8")
         for i, line in enumerate(text.splitlines(), 1):

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from ailit.demo_workspace import materialize_demo_app
-from ailit.paths import repo_root
+from ailit_cli.demo_workspace import materialize_demo_app
+from ailit_cli.paths import repo_root
 from cli_runner import AilitCliRunner
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from agent_core.runtime.models import MemoryGrant, MemoryGrantRange
-from agent_core.tool_runtime.memory_grants import MemoryGrantChecker
+from ailit_runtime.models import MemoryGrant, MemoryGrantRange
+from agent_work.tool_runtime.memory_grants import MemoryGrantChecker
 
 
 def test_grant_blocks_without_grant() -> None:

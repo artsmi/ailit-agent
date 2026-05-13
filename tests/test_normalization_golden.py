@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from agent_core.models import FinishReason
-from agent_core.normalization.openai_normalize import normalize_chat_completion
+from ailit_base.models import FinishReason
+from ailit_base.normalization.openai_normalize import normalize_chat_completion
 
 
 def test_normalize_text_and_usage() -> None:

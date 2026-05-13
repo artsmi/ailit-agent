@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.bash_runner import BashRunOutcome, run_bash_command
+from agent_work.bash_runner import BashRunOutcome, run_bash_command
 
 pytestmark = pytest.mark.skipif(
     not shutil.which("bash"),

@@ -7,11 +7,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_core.models import ChatMessage, ChatRequest, MessageRole, RetryPolicy, TimeoutPolicy
-from agent_core.providers.deepseek import DeepSeekAdapter
-from agent_core.transport.errors import MalformedProviderResponseError, TransportHttpError
-from agent_core.transport.httpx_transport import HttpxJsonTransport
-from agent_core.transport.retry_runner import run_with_retry
+from ailit_base.models import ChatMessage, ChatRequest, MessageRole, RetryPolicy, TimeoutPolicy
+from ailit_base.providers.deepseek import DeepSeekAdapter
+from ailit_base.transport.errors import MalformedProviderResponseError, TransportHttpError
+from ailit_base.transport.httpx_transport import HttpxJsonTransport
+from ailit_base.transport.retry_runner import run_with_retry
 
 
 def test_post_json_malformed_body_raises() -> None:

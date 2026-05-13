@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.capabilities import Capability
-from agent_core.models import (
+from ailit_base.capabilities import Capability
+from ailit_base.models import (
     ChatMessage,
     ChatRequest,
     FinishReason,
@@ -19,15 +19,15 @@ from agent_core.models import (
     StreamEvent,
     ToolCallNormalized,
 )
-from agent_core.providers.protocol import ChatProvider
-from agent_core.session.loop import SessionRunner, SessionSettings
-from agent_core.tool_runtime.approval import ApprovalSession
-from agent_core.tool_runtime.permission import (
+from ailit_base.providers.protocol import ChatProvider
+from agent_work.session.loop import SessionRunner, SessionSettings
+from agent_work.tool_runtime.approval import ApprovalSession
+from agent_work.tool_runtime.permission import (
     PermissionDecision,
     PermissionEngine,
 )
-from agent_core.tool_runtime.bash_tools import bash_tool_registry
-from agent_core.tool_runtime.registry import default_builtin_registry
+from agent_work.tool_runtime.bash_tools import bash_tool_registry
+from agent_work.tool_runtime.registry import default_builtin_registry
 from workflow_engine.loader import load_workflow_from_mapping
 
 

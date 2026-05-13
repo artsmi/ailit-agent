@@ -72,7 +72,7 @@ description: Пишет человекочитаемый целевой алго
 
 Запрещено читать для authoring/rework:
 
-- `tools/**`;
+- `ailit/**`;
 - `tests/**`;
 - `plan/**`;
 - `context/proto/**`;

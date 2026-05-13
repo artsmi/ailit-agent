@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from ailit.cli import main
+from ailit_cli.cli import main
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _E2E_DIR = _REPO_ROOT / "tests" / "e2e"
@@ -24,7 +24,7 @@ def test_tc_3_1_help_memory_init() -> None:
     cmd: list[str] = [
         runner._python(),
         "-m",
-        "ailit.cli",
+        "ailit_cli.cli",
         "memory",
         "init",
         "--help",

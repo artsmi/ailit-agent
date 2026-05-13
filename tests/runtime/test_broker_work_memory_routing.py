@@ -6,12 +6,12 @@ import socket
 import time
 from pathlib import Path
 
-import agent_core.runtime.broker as broker_mod
-from agent_core.runtime.agent_memory_result_v1 import AGENT_MEMORY_RESULT_V1
-from agent_core.runtime.broker import BrokerConfig, run_broker_server
-from agent_core.runtime.broker_workspace_config import BrokerWorkspaceEntry
-from agent_core.runtime.models import CONTRACT_VERSION
-from agent_core.runtime.paths import RuntimePaths
+import ailit_runtime.broker as broker_mod
+from agent_memory.agent_memory_result_v1 import AGENT_MEMORY_RESULT_V1
+from ailit_runtime.broker import BrokerConfig, run_broker_server
+from ailit_runtime.broker_workspace_config import BrokerWorkspaceEntry
+from ailit_runtime.models import CONTRACT_VERSION
+from ailit_runtime.paths import RuntimePaths
 
 _MEMORY_CONTINUATION_EVENT: str = "memory.query_context.continuation"
 _MEMORY_INJECTED_EVENT: str = "context.memory_injected"
@@ -292,7 +292,7 @@ def test_broker_routes_memory_service_and_work_action(tmp_path: Path) -> None:
             to_agent="AgentMemory:global",
             payload={
                 "service": "memory.query_context",
-                "path": "tools/ailit/cli.py",
+                "path": "ailit/ailit_cli/cli.py",
                 "project_root": str(tmp_path),
                 "goal": "find cli",
             },
@@ -310,7 +310,7 @@ def test_broker_routes_memory_service_and_work_action(tmp_path: Path) -> None:
         assert isinstance(mem_slice, dict)
         assert mem_slice["kind"] == "memory_slice"
         assert mem_slice["level"] == "B"
-        assert "B:tools/ailit/cli.py" in mem_slice["node_ids"]
+        assert "B:ailit/ailit_cli/cli.py" in mem_slice["node_ids"]
         assert mem_slice["estimated_tokens"] > 0
 
         work_req = _mk_env(

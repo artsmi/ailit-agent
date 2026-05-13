@@ -23,7 +23,7 @@
 | CLI `ailit memory init` / `memory query` | **In-process:** `MemoryInitOrchestrator` / `MemoryQueryOrchestrator` вызывают `worker.handle` без subprocess pipe | Нет разделения stdout trace/RPC у CLI; stderr-сводка и exit — через `memory_init_cli_outcome` / аналог. |
 | Другой клиент брокера | Как AgentWork | Как AgentWork. |
 
-**Корреляция RPC:** в запросе и ответе используется **`message_id`**; брокер сопоставляет ответ ожидающему вызову по нему (см. `make_response_envelope` в `tools/agent_core/runtime/models.py`).
+**Корреляция RPC:** в запросе и ответе используется **`message_id`**; брокер сопоставляет ответ ожидающему вызову по нему (см. `make_response_envelope` в `ailit/ailit_runtime/models.py`).
 
 ### Построчный протокол stdin → child
 
@@ -57,7 +57,7 @@
 
 ### AgentWork при `ok: false` от memory RPC
 
-- В `tools/agent_core/runtime/subprocess_agents/work_agent.py`, функция **`_request_memory_slice`**: при ответе брокера с **`ok` не истинно** (в типичной ветке сбоя memory RPC) публикуется событие **`memory.actor_unavailable`** с **`reason: memory_query_failed`** и компактным **`error`** в payload.
+- В `ailit/ailit_runtime/subprocess_agents/work_agent.py`, функция **`_request_memory_slice`**: при ответе брокера с **`ok` не истинно** (в типичной ветке сбоя memory RPC) публикуется событие **`memory.actor_unavailable`** с **`reason: memory_query_failed`** и компактным **`error`** в payload.
 - Это **внешний сигнал** для сессии агента: он **не** заменяет полный `agent_memory_result.v1` в пользовательском чате как будто запрос памяти успешно вернул срез.
 
 ### Поля payload `memory.query_context` (жёсткие правила worker)
@@ -74,7 +74,7 @@
 
 ### CLI: коды выхода `ailit memory init`
 
-- Модуль **`tools/agent_core/runtime/memory_init_cli_outcome.py`**: терминальный статус сессии **`complete` \| `partial` \| `blocked`**; приоритет класса прерывания: **SIGINT → exit 130**; **инфраструктурный сбой → 2**; **`complete` → 0**; **`partial` / `blocked` без аварии инфраструктуры → 1** (и иные не-complete без interrupt — по политике оркестратора).
+- Модуль **`ailit/agent_memory/memory_init_cli_outcome.py`**: терминальный статус сессии **`complete` \| `partial` \| `blocked`**; приоритет класса прерывания: **SIGINT → exit 130**; **инфраструктурный сбой → 2**; **`complete` → 0**; **`partial` / `blocked` без аварии инфраструктуры → 1** (и иные не-complete без interrupt — по политике оркестратора).
 - **Пустой path** в CLI даёт **exit 2** до оркестратора (ошибка использования).
 - Сводка на stderr строится с **`exit_kind`** из того же трёхзначного набора (`memory_init_summary.py`).
 
@@ -86,7 +86,7 @@
 ### Корреляция и логи
 
 - В журнале строки связываются с запросом брокера через **`request_id`**; внутри payload шагов W14 фигурирует **`query_id`**.
-- Имена compact-событий и golden map stdout→compact — SoT в `tools/agent_core/runtime/agent_memory_external_events.py`; детали маркеров и OR-013 — в [`failure-retry-observability.md`](failure-retry-observability.md).
+- Имена compact-событий и golden map stdout→compact — SoT в `ailit/agent_memory/agent_memory_external_events.py`; детали маркеров и OR-013 — в [`failure-retry-observability.md`](failure-retry-observability.md).
 
 ### Внешние события OR-010: каталог vs production journal
 
@@ -97,7 +97,7 @@
 - **Required emitters (production path `memory.query_context` + propose_links):** `link_candidates`, `links_updated` (когда ветка выполняется).
 - **Default для прочих типов из enum:** не ожидать строку `memory.external_event` в journal как доказательство жизни сессии без отдельного call site.
 
-Форма envelope (поля `schema_version`, `event_type`, `query_id`, `timestamp`, `payload`, …) остаётся общей для типов; для result-type событий в политике запрещены сырой промпт и CoT — см. журнал и redaction в `tools/agent_core/runtime/memory_journal.py`.
+Форма envelope (поля `schema_version`, `event_type`, `query_id`, `timestamp`, `payload`, …) остаётся общей для типов; для result-type событий в политике запрещены сырой промпт и CoT — см. журнал и redaction в `ailit/agent_memory/memory_journal.py`.
 
 ## Целевое поведение
 

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.runtime.models import RuntimeIdentity, make_request_envelope
-from agent_core.runtime.subprocess_agents.memory_agent import (
+from agent_memory.sqlite_pag import SqlitePagStore
+from ailit_runtime.models import RuntimeIdentity, make_request_envelope
+from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,
 )

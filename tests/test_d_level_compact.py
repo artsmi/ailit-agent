@@ -3,25 +3,25 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.models import (
+from agent_memory.sqlite_pag import SqlitePagStore
+from ailit_base.models import (
     ChatMessage,
     FinishReason,
     MessageRole,
     NormalizedChatResponse,
     NormalizedUsage,
 )
-from agent_core.session.d_level_compact import DLevelCompactService
-from agent_core.session.loop import SessionRunner, SessionSettings
-from agent_core.session.repo_context import (
+from agent_work.session.d_level_compact import DLevelCompactService
+from agent_work.session.loop import SessionRunner, SessionSettings
+from agent_work.session.repo_context import (
     detect_repo_context,
     namespace_for_repo,
 )
-from agent_core.session.state import SessionState
-from agent_core.tool_runtime.approval import ApprovalSession
-from agent_core.tool_runtime.registry import default_builtin_registry
-from agent_core.runtime.subprocess_agents.work_agent import _WorkChatSession
-from agent_core.runtime.subprocess_agents.work_agent import _Workspace
+from agent_work.session.state import SessionState
+from agent_work.tool_runtime.approval import ApprovalSession
+from agent_work.tool_runtime.registry import default_builtin_registry
+from ailit_runtime.subprocess_agents.work_agent import _WorkChatSession
+from ailit_runtime.subprocess_agents.work_agent import _Workspace
 
 
 class _CapturingProvider:

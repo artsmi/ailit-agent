@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agent_core.shell_output_preview import (
+from ailit_base.shell_output_preview import (
     DetachedViewHeuristic,
     LineSplitter,
     LineTailSelector,

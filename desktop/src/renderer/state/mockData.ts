@@ -132,7 +132,7 @@ export const mockWorkspace: MockWorkspace = {
       id: "d2",
       fromAgent: "AgentMemory:chat-a",
       toAgent: "AgentWork:chat-a",
-      humanText: "Нашёл `tools/ailit/cli.py` и `tools/agent_core/runtime/broker.py` как релевантные точки входа. Нужны grants на чтение.",
+      humanText: "Нашёл `ailit/ailit_cli/cli.py` и `ailit/ailit_runtime/broker.py` как релевантные точки входа. Нужны grants на чтение.",
       technicalSummary: "memory.query_context result=top_files(2) grants=required",
       severity: "warning",
       atIso: "2026-04-25T12:00:08Z"
@@ -141,14 +141,14 @@ export const mockWorkspace: MockWorkspace = {
   pag: {
     nodes: [
       { id: "A:root", label: "root", level: "A" },
-      { id: "B:tools/ailit/cli.py", label: "tools/ailit/cli.py", level: "B" },
-      { id: "B:tools/agent_core/runtime/broker.py", label: "tools/agent_core/runtime/broker.py", level: "B" },
+      { id: "B:ailit/ailit_cli/cli.py", label: "ailit/ailit_cli/cli.py", level: "B" },
+      { id: "B:ailit/ailit_runtime/broker.py", label: "ailit/ailit_runtime/broker.py", level: "B" },
       { id: "C:docs/INDEX.md", label: "docs/INDEX.md", level: "C" }
     ],
     edges: [
-      { id: "e1", from: "A:root", to: "B:tools/ailit/cli.py" },
-      { id: "e2", from: "A:root", to: "B:tools/agent_core/runtime/broker.py" },
-      { id: "e3", from: "B:tools/ailit/cli.py", to: "C:docs/INDEX.md" }
+      { id: "e1", from: "A:root", to: "B:ailit/ailit_cli/cli.py" },
+      { id: "e2", from: "A:root", to: "B:ailit/ailit_runtime/broker.py" },
+      { id: "e3", from: "B:ailit/ailit_cli/cli.py", to: "C:docs/INDEX.md" }
     ]
   },
   usage: {

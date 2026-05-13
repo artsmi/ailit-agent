@@ -5,7 +5,7 @@
 ## Ссылки
 
 - Пошаговое описание сценариев (venv, shim, systemd, desktop): [`../start/repository-launch.md`](../start/repository-launch.md).
-- Артефакты desktop после install: префикс `AILIT_INSTALL_PREFIX` (дефолт `~/.local/share/ailit`), AppImage в подкаталоге `desktop/` — см. `tools/ailit/desktop_cli.py` (`DesktopBinaryLocator`).
+- Артефакты desktop после install: префикс `AILIT_INSTALL_PREFIX` (дефолт `~/.local/share/ailit`), AppImage в подкаталоге `desktop/` — см. `ailit/ailit_cli/desktop_cli.py` (`DesktopBinaryLocator`).
 
 ## Не путать
 

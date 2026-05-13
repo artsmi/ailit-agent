@@ -4,7 +4,7 @@ Covers:
 - RuntimeProtocolError.__str__
 """
 
-from agent_core.runtime.errors import RuntimeProtocolError
+from ailit_runtime.errors import RuntimeProtocolError
 
 
 class TestRuntimeProtocolError:

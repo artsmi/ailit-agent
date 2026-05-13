@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import pytest
 
-from agent_core.runtime.agent_memory_query_pipeline import (
+from agent_memory.agent_memory_query_pipeline import (
     AgentMemoryQueryPipeline,
     AgentMemoryQueryPipelineResult,
 )
-from agent_core.runtime.models import (
+from ailit_runtime.models import (
     RuntimeIdentity,
     make_request_envelope,
 )
-from agent_core.runtime import w14_clean_replacement as w14
-from agent_core.runtime.subprocess_agents.memory_agent import (
+import agent_memory.w14_clean_replacement as w14
+from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,
 )

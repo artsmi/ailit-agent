@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_core.runtime.memory_journal import MemoryJournalStore
-from agent_core.runtime.models import RuntimeIdentity, make_request_envelope
-from agent_core.runtime.subprocess_agents.memory_agent import (
+from agent_memory.memory_journal import MemoryJournalStore
+from ailit_runtime.models import RuntimeIdentity, make_request_envelope
+from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,
 )

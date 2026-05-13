@@ -37,7 +37,6 @@ description: Координирует pipeline, артефакты, gates и Sub
 - [`../../context/proto/INDEX.md`](../../context/proto/INDEX.md)
 - [`../../context/start/INDEX.md`](../../context/start/INDEX.md)
 - [`../../context/tests/INDEX.md`](../../context/tests/INDEX.md)
-- [`../../context/memories/index.md`](../../context/memories/index.md)
 
 ## Роль И Границы
 
@@ -117,7 +116,7 @@ description: Координирует pipeline, артефакты, gates и Sub
 1. Прочитай применимые project rules из раздела `Project Rules`.
 2. Прочитай текущий входной артефакт: `status.md`, JSON/markdown последней роли, task file, review или test report.
 3. Прочитай только индексные точки `context/*`, перечисленные выше.
-4. Выбери релевантные процессы, протоколы, запуск, тесты и memories.
+4. Выбери релевантные процессы, протоколы, запуск, тесты и артефакты `context/artifacts/`.
 5. Дочитай полные `context/*` файлы только если они нужны для текущего решения.
 6. Передай агенту минимальный context pack: текущий артефакт, необходимые references и точный следующий шаг.
 
@@ -490,7 +489,7 @@ Subagent types:
 
 - режим `feature` или `learn`;
 - входной inventory;
-- созданные canonical knowledge files или `нет` (`context/arch`, `context/install`, `context/start`, `context/modules`, `context/files`, `context/models`, `context/proto`, `context/tests`, `context/memories`);
+- созданные canonical knowledge files или `нет` (`context/arch`, `context/install`, `context/start`, `context/modules`, `context/files`, `context/models`, `context/proto`, `context/tests`);
 - изменённые canonical knowledge files или `нет`;
 - обновлённые `INDEX.md` или `нет`;
 - неизменённые sections с причиной;
@@ -506,7 +505,7 @@ Completion без `change_inventory.md`, `tech_writer_report.md` и актуал
 1. Инициализируй `context/artifacts`.
 2. Запусти `12_change_inventory` в режиме `learn` с корнем репозитория, ключевыми манифестами, entrypoints, тестовыми входами и `{project_rules_dir}`.
 3. Запусти `13_tech_writer` в режиме `learn` с inventory и `{project_rules_dir}`.
-4. При первом полном learn заполняются `context/arch`, `context/install`, `context/start`, `context/modules`, `context/files`, `context/models`, `context/proto`, `context/tests`, `context/memories`; при повторном learn дополняются пустые или явно устаревшие sections.
+4. При первом полном learn заполняются `context/arch`, `context/install`, `context/start`, `context/modules`, `context/files`, `context/models`, `context/proto`, `context/tests`; при повторном learn дополняются пустые или явно устаревшие sections.
 5. Обнови `status.md` и сообщи пользователю пути к обновлённым `context/*`.
 
 ## Артефакты И Пути
@@ -1066,7 +1065,7 @@ Artifacts: `context/artifacts`
 - `<context/arch/...>` или `нет`
 - `<context/proto/...>` или `нет`
 - `<context/tests/...>` или `нет`
-- `<context/memories/...>` или `нет`
+- `context/artifacts/...` или `нет`
 
 Ограничения / residual risk:
 - `<нет>` или список явно не блокирующих рисков.

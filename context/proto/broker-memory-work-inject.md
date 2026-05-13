@@ -11,11 +11,11 @@
 
 ### AgentMemory: поле `memory_continuation_required` в SoT
 
-Вычисление и встраивание в объект **`agent_memory_result.v1`** — `resolve_memory_continuation_required` и `build_agent_memory_result_v1` в `tools/agent_core/runtime/agent_memory_result_v1.py`; итоговый объект отдаётся в broker-поток из `tools/agent_core/runtime/subprocess_agents/memory_agent.py`. Правила UC-03/UC-04 для поля — в docstring `resolve_memory_continuation_required` (источник правды рядом с кодом).
+Вычисление и встраивание в объект **`agent_memory_result.v1`** — `resolve_memory_continuation_required` и `build_agent_memory_result_v1` в `ailit/agent_memory/agent_memory_result_v1.py`; итоговый объект отдаётся в broker-поток из `ailit/ailit_runtime/subprocess_agents/memory_agent.py`. Правила UC-03/UC-04 для поля — в docstring `resolve_memory_continuation_required` (источник правды рядом с кодом).
 
 ### Cooperative cancel (UC-05)
 
-Транспорт — тот же broker Unix socket, что и для `work.handle_user_prompt`: логическое имя операции **`runtime.cancel_active_turn`** (константа `RUNTIME_CANCEL_ACTIVE_TURN` в `tools/agent_core/runtime/broker.py` и `tools/agent_core/runtime/subprocess_agents/work_agent.py`). В JSON допускается дублирование имени в `payload.service` и `payload.action`; для корреляции с turn — **`chat_id`**, **`user_turn_id`** (согласовано с Desktop envelope в [`desktop-electron-runtime-bridge.md`](desktop-electron-runtime-bridge.md)). Broker маршрутизирует запрос в AgentWork; терминальные compact-события и порядок относительно memory-path — [`runtime-event-contract.md`](runtime-event-contract.md). **Supervisor** JSON socket (`supervisor.sock`) для UC-05 **не** используется — см. [`supervisor-json-socket.md`](supervisor-json-socket.md).
+Транспорт — тот же broker Unix socket, что и для `work.handle_user_prompt`: логическое имя операции **`runtime.cancel_active_turn`** (константа `RUNTIME_CANCEL_ACTIVE_TURN` в `ailit/ailit_runtime/broker.py` и `ailit/ailit_runtime/subprocess_agents/work_agent.py`). В JSON допускается дублирование имени в `payload.service` и `payload.action`; для корреляции с turn — **`chat_id`**, **`user_turn_id`** (согласовано с Desktop envelope в [`desktop-electron-runtime-bridge.md`](desktop-electron-runtime-bridge.md)). Broker маршрутизирует запрос в AgentWork; терминальные compact-события и порядок относительно memory-path — [`runtime-event-contract.md`](runtime-event-contract.md). **Supervisor** JSON socket (`supervisor.sock`) для UC-05 **не** используется — см. [`supervisor-json-socket.md`](supervisor-json-socket.md).
 
 Компактные события: нормативный whitelist имён и полей — [`runtime-event-contract.md`](runtime-event-contract.md) (**D-OBS-1**), в дословном соответствии с `context/artifacts/architecture.md` §5 и литералами в `work_agent.py`. Кратко: continuation — `memory.query_context.continuation` (`previous_query_id`, `next_query_id`, `user_turn_id`, `reason`); timeout RPC — `memory.query.timeout` (`query_id`, `user_turn_id`, `code`, `timeout_s`); без сырого prompt.
 
@@ -104,12 +104,12 @@ Work публикует `context.memory_injected` **только** если от
 
 ## Связанный код (источник правды)
 
-- `tools/agent_core/runtime/subprocess_agents/work_agent.py` — `_request_memory_slice` (payload pathless v1), `_memory_slice_message`, `_memory_injected_payload` (строки порядка ~290–517).
-- `tools/agent_core/session/context_ledger.py` — `memory_injected_v2_payload` (`usage_state: "estimated"` в возвращаемом dict, ~267–297).
-- `tools/agent_core/runtime/subprocess_agents/memory_agent.py` — `_fallback_slice` (~1284–1316), `handle` / ветка `memory.query_context` и пост-pipeline (~1496–1564); cancel path и публикация SoT.
-- `tools/agent_core/runtime/agent_memory_result_v1.py` — `resolve_memory_continuation_required`, `build_agent_memory_result_v1`.
-- `tools/agent_core/runtime/broker.py` — ветка `runtime.cancel_active_turn` на `service.request`.
-- `tools/agent_core/runtime/agent_memory_query_pipeline.py` — W14 pipeline, `propose_links`, выставление `reason: w14_command_output_invalid` (согласование с п.2 выше).
-- `tools/agent_core/runtime/agent_memory_link_candidate_validator.py`, `tools/agent_core/runtime/pag_graph_write_service.py` — валидация кандидатов связей и запись PAG.
-- `tools/agent_core/runtime/agent_memory_external_events.py`, `tools/agent_core/runtime/agent_memory_terminal_outcomes.py` — внешние события и OR-013.
-- `tools/agent_core/runtime/memory_journal.py` — JSONL store, `durability`, merge init-журналов.
+- `ailit/ailit_runtime/subprocess_agents/work_agent.py` — `_request_memory_slice` (payload pathless v1), `_memory_slice_message`, `_memory_injected_payload` (строки порядка ~290–517).
+- `ailit/agent_work/session/context_ledger.py` — `memory_injected_v2_payload` (`usage_state: "estimated"` в возвращаемом dict, ~267–297).
+- `ailit/ailit_runtime/subprocess_agents/memory_agent.py` — `_fallback_slice` (~1284–1316), `handle` / ветка `memory.query_context` и пост-pipeline (~1496–1564); cancel path и публикация SoT.
+- `ailit/agent_memory/agent_memory_result_v1.py` — `resolve_memory_continuation_required`, `build_agent_memory_result_v1`.
+- `ailit/ailit_runtime/broker.py` — ветка `runtime.cancel_active_turn` на `service.request`.
+- `ailit/agent_memory/agent_memory_query_pipeline.py` — W14 pipeline, `propose_links`, выставление `reason: w14_command_output_invalid` (согласование с п.2 выше).
+- `ailit/agent_memory/agent_memory_link_candidate_validator.py`, `ailit/agent_memory/pag_graph_write_service.py` — валидация кандидатов связей и запись PAG.
+- `ailit/agent_memory/agent_memory_external_events.py`, `ailit/agent_memory/agent_memory_terminal_outcomes.py` — внешние события и OR-013.
+- `ailit/agent_memory/memory_journal.py` — JSONL store, `durability`, merge init-журналов.

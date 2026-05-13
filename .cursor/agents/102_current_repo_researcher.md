@@ -227,7 +227,7 @@ Evidence слабое:
 
 **Fact:** `MemoryInitOrchestrator.run` повторяет worker rounds, пока journal не содержит `memory.result.returned` с `status=complete` или `agent_memory_result.memory_continuation_required` перестаёт быть `true`.
 
-**Evidence:** `tools/agent_core/runtime/memory_init_orchestrator.py` / `MemoryInitOrchestrator.run`.
+**Evidence:** `ailit/agent_memory/memory_init_orchestrator.py` / `MemoryInitOrchestrator.run`.
 
 **Target-doc relevance:** Целевой документ должен определить progress rules и запретить бесконечный повтор одного batch без новых candidates.
 
@@ -357,8 +357,8 @@ JSON должен идти первым:
 7. Orchestrator verifies latest journal marker with `status=complete`.
 
 Evidence:
-- `tools/agent_core/runtime/memory_init_orchestrator.py` / `MemoryInitOrchestrator.run`
-- `tools/agent_core/runtime/subprocess_agents/memory_agent.py` / `handle`
+- `ailit/agent_memory/memory_init_orchestrator.py` / `MemoryInitOrchestrator.run`
+- `ailit/ailit_runtime/subprocess_agents/memory_agent.py` / `handle`
 ```
 
 ## Плохой Current Flow

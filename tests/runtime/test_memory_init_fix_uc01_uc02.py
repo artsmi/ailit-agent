@@ -11,29 +11,29 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent_core.runtime.agent_memory_chat_log import (
+from agent_memory.agent_memory_chat_log import (
     COMPACT_LOG_FILE_NAME,
     AgentMemoryChatDebugLog,
 )
-from agent_core.runtime.agent_memory_config import (
+from agent_memory.agent_memory_config import (
     AgentMemoryFileConfig,
     MemoryDebugSubConfig,
 )
-from agent_core.runtime.agent_memory_query_pipeline import (
+from agent_memory.agent_memory_query_pipeline import (
     AgentMemoryQueryPipeline,
     W14RuntimeLimits,
 )
-from agent_core.runtime.memory_init_orchestrator import (
+from agent_memory.memory_init_orchestrator import (
     MEMORY_INIT_CANONICAL_GOAL,
     MemoryInitOrchestrator,
 )
-from agent_core.runtime.memory_init_summary import (
+from agent_memory.memory_init_summary import (
     emit_memory_init_user_summary,
 )
-from agent_core.runtime.memory_init_transaction import MemoryInitPaths as MIP
-from agent_core.runtime.memory_journal import MemoryJournalRow
-from agent_core.runtime.models import RuntimeRequestEnvelope
-from agent_core.runtime.subprocess_agents.memory_agent import AgentMemoryWorker
+from agent_memory.memory_init_transaction import MemoryInitPaths as MIP
+from agent_memory.memory_journal import MemoryJournalRow
+from ailit_runtime.models import RuntimeRequestEnvelope
+from ailit_runtime.subprocess_agents.memory_agent import AgentMemoryWorker
 
 
 def _verbose_cfg() -> AgentMemoryFileConfig:

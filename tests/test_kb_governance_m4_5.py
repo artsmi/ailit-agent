@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_core.memory.sqlite_kb import SqliteKb
+from agent_memory.sqlite_kb import SqliteKb
 
 
 def test_kb_search_uses_fts_by_default_when_available(
@@ -12,7 +12,7 @@ def test_kb_search_uses_fts_by_default_when_available(
     monkeypatch,
 ) -> None:
     """Сначала FTS; пустой индекс — поиск LIKE в kb_records."""
-    from agent_core.memory.kb_tools import (
+    from agent_memory.kb_tools import (
         KbToolsConfig,
         build_kb_tool_registry,
     )

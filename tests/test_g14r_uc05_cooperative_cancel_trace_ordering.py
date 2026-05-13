@@ -14,10 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.runtime.broker import BrokerConfig, run_broker_server
-from agent_core.runtime.broker_workspace_config import BrokerWorkspaceEntry
-from agent_core.runtime.models import CONTRACT_VERSION
-from agent_core.runtime.paths import RuntimePaths
+from ailit_runtime.broker import BrokerConfig, run_broker_server
+from ailit_runtime.broker_workspace_config import BrokerWorkspaceEntry
+from ailit_runtime.models import CONTRACT_VERSION
+from ailit_runtime.paths import RuntimePaths
 
 
 def _run_broker_server_cfg(cfg: BrokerConfig) -> None:

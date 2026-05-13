@@ -7,8 +7,8 @@ from pathlib import Path
 
 import httpx
 
-from agent_core.capabilities import Capability
-from agent_core.models import (
+from ailit_base.capabilities import Capability
+from ailit_base.models import (
     ChatMessage,
     FinishReason,
     MessageRole,
@@ -18,20 +18,20 @@ from agent_core.models import (
     StreamEvent,
     ToolCallNormalized,
 )
-from agent_core.session.budget import BudgetGovernance
-from agent_core.session.loop import SessionRunner, SessionSettings
-from agent_core.session.state import SessionState
-from agent_core.session.stream_reducer import StreamReducer
-from agent_core.tool_runtime.approval import ApprovalSession
-from agent_core.tool_runtime.permission import (
+from agent_work.session.budget import BudgetGovernance
+from agent_work.session.loop import SessionRunner, SessionSettings
+from agent_work.session.state import SessionState
+from agent_work.session.stream_reducer import StreamReducer
+from agent_work.tool_runtime.approval import ApprovalSession
+from agent_work.tool_runtime.permission import (
     PermissionDecision,
     PermissionEngine,
 )
-from agent_core.tool_runtime.bash_tools import bash_tool_registry
-from agent_core.tool_runtime.registry import default_builtin_registry
-from agent_core.memory.kb_tools import KbToolsConfig, build_kb_tool_registry
-from agent_core.memory.pag_indexer import index_project_to_default_store
-from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_work.tool_runtime.bash_tools import bash_tool_registry
+from agent_work.tool_runtime.registry import default_builtin_registry
+from agent_memory.kb_tools import KbToolsConfig, build_kb_tool_registry
+from agent_memory.pag_indexer import index_project_to_default_store
+from agent_memory.sqlite_pag import SqlitePagStore
 
 
 class ScriptedProvider:
@@ -1067,7 +1067,7 @@ def test_stream_reducer_with_scripted_stream() -> None:
         provider_metadata={},
     )
     prov = ScriptedProvider([r], stream=True)
-    from agent_core.models import ChatRequest
+    from ailit_base.models import ChatRequest
 
     req = ChatRequest(messages=[], model="m")
     out = StreamReducer.consume(iter(prov.stream(req)))

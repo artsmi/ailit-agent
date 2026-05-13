@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from agent_core.models import ChatMessage, MessageRole, ToolCallNormalized
-from agent_core.normalization.openai_request import (
+from ailit_base.models import ChatMessage, MessageRole, ToolCallNormalized
+from ailit_base.normalization.openai_request import (
     build_openai_chat_completion_body,
 )
-from agent_core.models import ChatRequest
+from ailit_base.models import ChatRequest
 
 
 def test_assistant_tool_calls_serialized() -> None:

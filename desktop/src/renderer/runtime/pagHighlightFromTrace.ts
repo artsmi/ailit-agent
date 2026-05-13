@@ -25,7 +25,7 @@ export type PagSearchHighlightV1 = {
 
 const TTL_MS: number = 3000;
 
-/** D16.1 — must match `tools/agent_core/runtime/pag_graph_trace.py` */
+/** D16.1 — must match `ailit/agent_memory/pag_graph_trace.py` */
 export const MEMORY_W14_GRAPH_HIGHLIGHT_EVENT: string = "memory.w14.graph_highlight";
 const MEMORY_W14_GRAPH_HIGHLIGHT_SCHEMA: string = "ailit_memory_w14_graph_highlight_v1";
 

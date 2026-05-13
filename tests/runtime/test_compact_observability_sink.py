@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.runtime.compact_observability_sink import (
+from agent_memory.compact_observability_sink import (
     CompactObservabilitySink,
     build_compact_line,
     build_memory_pag_graph_compact_line,
     build_memory_summarize_c_apply_failed_compact_line,
     normalize_compact_event_name,
 )
-from agent_core.runtime.models import (
+from ailit_runtime.models import (
     RuntimeIdentity,
     RuntimeNow,
     make_request_envelope,

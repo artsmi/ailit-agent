@@ -14,7 +14,7 @@
 
 ## Текущая реализация
 
-Источник проверки при расхождении с нормативом: модули под `tools/agent_core/runtime/` — `subprocess_agents/memory_agent.py`, `agent_memory_query_pipeline.py`, `memory_init_orchestrator.py`, `agent_memory_result_v1.py`, `agent_memory_result_assembly.py`, `agent_memory_terminal_outcomes.py`.
+Источник проверки при расхождении с нормативом: модули под `ailit/agent_memory/` — `subprocess_agents/memory_agent.py`, `agent_memory_query_pipeline.py`, `memory_init_orchestrator.py`, `agent_memory_result_v1.py`, `agent_memory_result_assembly.py`, `agent_memory_terminal_outcomes.py`.
 
 ### Entrypoints и один `run()` на RPC (F-P1, F-P2)
 

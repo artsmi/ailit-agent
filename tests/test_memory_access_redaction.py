@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from agent_core.models import (
+from ailit_base.models import (
     FinishReason,
     NormalizedChatResponse,
     NormalizedUsage,
     ToolCallNormalized,
 )
-from agent_core.session.loop import SessionRunner, SessionSettings
-from agent_core.tool_runtime.approval import ApprovalSession
-from agent_core.tool_runtime.registry import ToolRegistry
-from agent_core.tool_runtime.spec import SideEffectClass, ToolSpec
+from agent_work.session.loop import SessionRunner, SessionSettings
+from agent_work.tool_runtime.approval import ApprovalSession
+from agent_work.tool_runtime.registry import ToolRegistry
+from agent_work.tool_runtime.spec import SideEffectClass, ToolSpec
 from test_session_loop import ScriptedProvider
 
 

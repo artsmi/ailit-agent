@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from ailit.teams_tools import builtin_send_teammate_message
+from ailit_cli.teams_tools import builtin_send_teammate_message
 
 
 def test_send_teammate_message_writes_inbox(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

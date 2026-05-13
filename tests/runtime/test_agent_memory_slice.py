@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from agent_core.runtime.models import CONTRACT_VERSION, RuntimeIdentity
-from agent_core.runtime.models import make_request_envelope
-from agent_core.runtime.subprocess_agents.memory_agent import (
+from ailit_runtime.models import CONTRACT_VERSION, RuntimeIdentity
+from ailit_runtime.models import make_request_envelope
+from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,
 )
@@ -41,7 +41,7 @@ def test_memory_query_context_returns_slice_and_legacy_grant() -> None:
         _request(
             {
                 "service": "memory.query_context",
-                "path": "tools/ailit/cli.py",
+                "path": "ailit/ailit_cli/cli.py",
                 "goal": "найди cli entrypoint",
                 "level": "B",
             },
@@ -56,7 +56,7 @@ def test_memory_query_context_returns_slice_and_legacy_grant() -> None:
     assert isinstance(memory_slice, dict)
     assert memory_slice["kind"] == "memory_slice"
     assert memory_slice["level"] == "B"
-    assert "B:tools/ailit/cli.py" in memory_slice["node_ids"]
+    assert "B:ailit/ailit_cli/cli.py" in memory_slice["node_ids"]
     assert memory_slice["estimated_tokens"] > 0
     assert payload["grants"]
 

@@ -3,8 +3,8 @@
 ## Python и пакеты
 
 - **Версия:** `requires-python >= 3.10` (`pyproject.toml`).
-- **Пакеты:** `setuptools` ищет пакеты в `tools/`: `agent_core`, `workflow_engine`, `ailit`, `project_layer`.
-- **Точка CLI:** `[project.scripts]` → `ailit = "ailit.cli:main"`; реализация: `tools/ailit/cli.py`.
+- **Пакеты:** `setuptools` ищет пакеты в `ailit/`: `ailit_base`, `agent_work`, `agent_memory`, `ailit_runtime`, `ailit_cli`, `workflow_engine`, `project_layer`.
+- **Точка CLI:** `[project.scripts]` → `ailit = "ailit_cli.cli:main"`; реализация: `ailit/ailit_cli/cli.py`.
 
 Рекомендуемый интерпретатор для разработки и тестов — venv в корне клона (например `.venv`), чтобы субпроцессы pytest видели те же зависимости, что и хост.
 
@@ -43,7 +43,7 @@
 
 ## Desktop (Linux, Electron)
 
-- **Prod:** `ailit desktop` — запуск собранного AppImage из префикса установки (`DesktopBinaryLocator` в `tools/ailit/desktop_cli.py`).
+- **Prod:** `ailit desktop` — запуск собранного AppImage из префикса установки (`DesktopBinaryLocator` в `ailit/ailit_cli/desktop_cli.py`).
 - **Dev из клона:** `ailit desktop --dev` — `npm run dev` в `desktop/` (Vite + Electron).
 
 Переменная **`AILIT_CLI`**: в dev main-процесс Electron может вызывать CLI через `execFile` (например `ailit memory pag-slice`); при необходимости укажите полный путь к бинарю.
@@ -51,7 +51,7 @@
 ## Тесты
 
 - **pytest:** из venv репозитория, например `./.venv/bin/python -m pytest`.
-- **Конфиг:** `pyproject.toml` — `pythonpath`: `tools`, `tests/e2e`; по умолчанию `addopts` исключает маркеры `integration` и `manual_model_e2e`.
+- **Конфиг:** `pyproject.toml` — `pythonpath`: `ailit`, `tests/e2e`; по умолчанию `addopts` исключает маркеры `integration` и `manual_model_e2e`.
 - **Изоляция:** autouse в `tests/conftest.py` — подмена `HOME`, `AILIT_RUNTIME_DIR`, `AILIT_PAG_DB_PATH`, `AILIT_KB_DB_PATH`, `AILIT_MEMORY_JOURNAL_PATH`, `AILIT_CONFIG_DIR`, `AILIT_STATE_DIR`, `AILIT_WORK_ROOT` (см. проектный workflow).
 
 Подробнее по группам и файлам — [`../tests/INDEX.md`](../tests/INDEX.md). Для desktop Memory 3D / PAG финальный gate Vitest (**12 файлов, 80 тестов**, §5.0 ТЗ) и команда — в [`../tests/INDEX.md`](../tests/INDEX.md). Сводный отчёт финального gate **`11` v2** (Agent Memory CLI / memory init, flake8 SoT 17 путей): [`../artifacts/reports/test_runner_final_11.md`](../artifacts/reports/test_runner_final_11.md).
@@ -63,4 +63,4 @@
 
 ## Bootstrap при отсутствии зависимостей
 
-В `tools/ailit/cli.py` при старте может создаваться `.venv` и выполняться `pip install -e '.[dev]'` (переменные `AILIT_REPO_BOOTSTRAP_*` — см. код). Допущение: в CI/контейнерах без сети этот путь может быть нежелателен; предпочтительна явная установка через `scripts/install` или ручной venv.
+В `ailit/ailit_cli/cli.py` при старте может создаваться `.venv` и выполняться `pip install -e '.[dev]'` (переменные `AILIT_REPO_BOOTSTRAP_*` — см. код). Допущение: в CI/контейнерах без сети этот путь может быть нежелателен; предпочтительна явная установка через `scripts/install` или ручной venv.

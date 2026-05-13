@@ -7,18 +7,18 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.memory.sqlite_kb import SqliteKb
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.runtime.memory_init_transaction import (
+from agent_memory.sqlite_kb import SqliteKb
+from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.memory_init_transaction import (
     MemoryInitPaths,
     MemoryInitTransaction,
     namespace_has_durable_graph_materialization,
 )
-from agent_core.runtime.memory_journal import (
+from agent_memory.memory_journal import (
     MemoryJournalRow,
     MemoryJournalStore,
 )
-from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
+from agent_memory.pag_graph_write_service import PagGraphWriteService
 
 
 def _seed_pag_ns(db: Path, namespace: str, n_nodes: int) -> None:

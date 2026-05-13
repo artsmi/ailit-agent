@@ -2,7 +2,7 @@
 
 Документ может дополняться секциями из планов W13/W14R (journal, прочие DTO). Ниже — канон **D-OBS-1** для compact-топиков AgentWork в зоне memory-path.
 
-Нормативный whitelist строковых имён **compact**-событий (stdout JSONL / trace) для зоны **AgentWork ↔ AgentMemory** (W14): continuation второго и последующих `memory.query_context` в одном `user_turn_id`, таймаут RPC, cap, соседние диагностические события. Источники: **ТЗ** `context/artifacts/technical_specification.md` §3.2 (UC-01–UC-03, компактная наблюдаемость), **`context/artifacts/architecture.md` §5**, реализация **`tools/agent_core/runtime/subprocess_agents/work_agent.py`**.
+Нормативный whitelist строковых имён **compact**-событий (stdout JSONL / trace) для зоны **AgentWork ↔ AgentMemory** (W14): continuation второго и последующих `memory.query_context` в одном `user_turn_id`, таймаут RPC, cap, соседние диагностические события. Источники: **ТЗ** `context/artifacts/technical_specification.md` §3.2 (UC-01–UC-03, компактная наблюдаемость), **`context/artifacts/architecture.md` §5**, реализация **`ailit/ailit_runtime/subprocess_agents/work_agent.py`**.
 
 **Правило D-OBS-1:** любое новое compact-событие в этой зоне добавляется только через обновление §5 **и** этого файла; литералы в коде **должны** совпадать с таблицей ниже **дословно** (без альтернативных синонимов в продюсере AW).
 
@@ -24,7 +24,7 @@
 
 ### Поле `reason` у `memory.query_context.continuation`
 
-Допустимое значение **ровно одно**: строка `continuation` (латиница, нижний регистр). В коде AgentWork литерал синхронизирован с таблицей через константу **`_MEMORY_QUERY_CONTINUATION_REASON`** в `tools/agent_core/runtime/subprocess_agents/work_agent.py` (значение совпадает с этим абзацем дословно).
+Допустимое значение **ровно одно**: строка `continuation` (латиница, нижний регистр). В коде AgentWork литерал синхронизирован с таблицей через константу **`_MEMORY_QUERY_CONTINUATION_REASON`** в `ailit/ailit_runtime/subprocess_agents/work_agent.py` (значение совпадает с этим абзацем дословно).
 
 **UC-05 (cooperative cancel):** запрос **`runtime.cancel_active_turn`** идёт по **broker** Unix socket (как `work.handle_user_prompt`), не по supervisor JSON; после доставки в AgentWork ожидаются терминальные compact-события **`session.cancelled`** / **`action.cancelled`** в согласованном порядке с memory-path (инвариант CI: `tests/test_g14r_uc05_cooperative_cancel_trace_ordering.py`; удержание memory pipeline в сценарии — env **`AILIT_TEST_MEMORY_PIPELINE_HOLD_S`**). См. [`desktop-electron-runtime-bridge.md`](desktop-electron-runtime-bridge.md) §Cooperative Stop.
 
@@ -40,7 +40,7 @@
 После смены имён в коде или §5:
 
 ```bash
-rg -n 'memory\.query\.timeout|memory\.query_context\.continuation|memory\.query\.budget_exceeded|session\.cancelled|action\.cancelled|RUNTIME_CANCEL_ACTIVE_TURN' tools/agent_core/runtime/subprocess_agents/work_agent.py tools/agent_core/runtime/broker.py context/artifacts/architecture.md context/proto/runtime-event-contract.md
+rg -n 'memory\.query\.timeout|memory\.query_context\.continuation|memory\.query\.budget_exceeded|session\.cancelled|action\.cancelled|RUNTIME_CANCEL_ACTIVE_TURN' ailit/ailit_runtime/subprocess_agents/work_agent.py ailit/ailit_runtime/broker.py context/artifacts/architecture.md context/proto/runtime-event-contract.md
 ```
 
 Черновые или альтернативные имена (пример антипаттерна: `memory.query.continuation`, `memory.rpc.timeout`) в продюсере AW **не** допускаются без согласованного изменения §5 и этого whitelist.
@@ -50,4 +50,4 @@ rg -n 'memory\.query\.timeout|memory\.query_context\.continuation|memory\.query\
 - [`broker-memory-work-inject.md`](broker-memory-work-inject.md) — UC 2.4, тройка trace, условия `context.memory_injected` / slice skipped; W14 `propose_links`, журнал `memory.external_event`, durability JSONL.
 - [`context/artifacts/architecture.md`](../artifacts/architecture.md) §5 — интерфейсы и обязательные поля событий.
 - [`context/artifacts/technical_specification.md`](../artifacts/technical_specification.md) §3.2 — требования к компактным событиям.
-- Каталог **`agent_memory.external_event.v1`** (не входит в таблицу D-OBS-1 выше): `tools/agent_core/runtime/agent_memory_external_events.py` — дискриминанты `event_type`, durable/ephemeral, **golden map** stdout/wire → поле `event=` в `compact.log` (регрессия `tests/test_g14_agent_memory_external_event_mapping.py`).
+- Каталог **`agent_memory.external_event.v1`** (не входит в таблицу D-OBS-1 выше): `ailit/agent_memory/agent_memory_external_events.py` — дискриминанты `event_type`, durable/ephemeral, **golden map** stdout/wire → поле `event=` в `compact.log` (регрессия `tests/test_g14_agent_memory_external_event_mapping.py`).

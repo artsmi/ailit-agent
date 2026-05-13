@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent_core.models import (
+from ailit_base.models import (
     ChatMessage,
     FinishReason,
     MessageRole,
@@ -10,15 +10,15 @@ from agent_core.models import (
     NormalizedUsage,
     ToolCallNormalized,
 )
-from agent_core.session.loop import SessionRunner, SessionSettings
-from agent_core.session.state import SessionState
-from agent_core.tool_runtime.approval import ApprovalSession
-from agent_core.tool_runtime.bash_tools import run_shell_tool_spec
-from agent_core.tool_runtime.permission import (
+from agent_work.session.loop import SessionRunner, SessionSettings
+from agent_work.session.state import SessionState
+from agent_work.tool_runtime.approval import ApprovalSession
+from agent_work.tool_runtime.bash_tools import run_shell_tool_spec
+from agent_work.tool_runtime.permission import (
     PermissionDecision,
     PermissionEngine,
 )
-from agent_core.tool_runtime.registry import ToolRegistry
+from agent_work.tool_runtime.registry import ToolRegistry
 
 from test_session_loop import ScriptedProvider
 

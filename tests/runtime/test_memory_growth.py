@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.runtime.memory_growth import (
+from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.memory_growth import (
     MemoryExplorationPlanner,
     QueryDrivenPagGrowth,
 )
-from agent_core.session.repo_context import (
+from agent_work.session.repo_context import (
     detect_repo_context,
     project_namespace_for_repo,
 )

@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.tool_runtime.builtins import builtin_read_file
-from agent_core.tool_runtime.read_file_envelope import (
+from agent_work.tool_runtime.builtins import builtin_read_file
+from agent_work.tool_runtime.read_file_envelope import (
     format_read_file_with_meta,
     split_read_file_tool_output,
 )
-from agent_core.tool_runtime.workdir_paths import MAX_READ_BYTES, read_file_slice
-from ailit.user_mention_read_hint import parse_user_at_file_line_refs
+from agent_work.tool_runtime.workdir_paths import MAX_READ_BYTES, read_file_slice
+from ailit_cli.user_mention_read_hint import parse_user_at_file_line_refs
 
 
 def test_split_read_meta_roundtrip() -> None:

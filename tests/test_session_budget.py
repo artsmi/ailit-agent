@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agent_core.models import ChatMessage, MessageRole, NormalizedUsage
-from agent_core.session.budget import BudgetGovernance
+from ailit_base.models import ChatMessage, MessageRole, NormalizedUsage
+from agent_work.session.budget import BudgetGovernance
 
 
 def test_context_units_exceeded() -> None:

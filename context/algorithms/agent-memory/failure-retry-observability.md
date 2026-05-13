@@ -17,7 +17,7 @@
 
 - Repair планера: **один** дополнительный вызов LLM при части ошибок; политика `_should_repair_w14_error` отклоняет repair для некоторых текстов ошибки (например явное «должен быть только json» / «invalid json»).
 - Отмена: `memory.cancel_query_context` → `MemoryQueryCancelledError` внутри pipeline → ответ с `memory_query_cancelled` (без полноценного `agent_memory_result` в успешном теле того же round — см. обработчик в `memory_agent.py`).
-- **Верхний `status` и `partial_reasons` — разные поля:** `tools/agent_core/runtime/agent_memory_terminal_outcomes.py` поставляет строки для `AgentMemoryQueryPipelineResult.runtime_partial_reasons`, которые попадают в `agent_memory_result.v1` как `runtime_trace.partial_reasons`. Итоговое поле `status` в конверте собирает `build_agent_memory_result_v1` с приоритетом `explicit_status` (`am_v1_status` из pipeline) и whitelist-нормализацией; причины из terminal outcomes **не** подменяют верхний `status` напрямую.
+- **Верхний `status` и `partial_reasons` — разные поля:** `ailit/agent_memory/agent_memory_terminal_outcomes.py` поставляет строки для `AgentMemoryQueryPipelineResult.runtime_partial_reasons`, которые попадают в `agent_memory_result.v1` как `runtime_trace.partial_reasons`. Итоговое поле `status` в конверте собирает `build_agent_memory_result_v1` с приоритетом `explicit_status` (`am_v1_status` из pipeline) и whitelist-нормализацией; причины из terminal outcomes **не** подменяют верхний `status` напрямую.
 - **Семантика `blocked` в коде шире целевой формулировки OR-002:** помимо сценариев «LLM недоступен / нет валидного ответа после repair», `blocked` выставляется в ветках finish-decision и assembly при пустых `selected_results`, отсутствии валидных `results` и полном отказе assembly по путям (см. `agent_memory_query_pipeline.py`). Неперехваченное исключение из `pl.run` при `memory init` может дать пользовательский `blocked` с `reason_short=runtime_error` и non-zero exit **вне** успешного envelope с полным `agent_memory_result` в том же round.
 - **Внешние события в JSONL как `memory.external_event`:** в production с envelope `agent_memory.external_event.v1` пишутся только **`link_candidates`** и **`links_updated`** (ветка `propose_links` в `AgentMemoryQueryPipeline`). Остальные значения `ExternalEventType` заданы типом и модульным docstringом в `agent_memory_external_events.py`; production-вызовов `build_external_event_v1` для них нет, кроме unit-теста формы envelope (например `heartbeat`).
 - **`build_external_event_v1`** не валидирует `payload` по `event_type`; запрет raw/CoT для result-type событий в docstring — политика; для durable JSONL действует `redact_journal_value` / `_SENSITIVE_KEY_PARTS` в `memory_journal.py` и отсутствие raw prompt в `log_memory_w14_command_requested`.
@@ -42,7 +42,7 @@
 
 ### Матрица OR-013: условие → верхний статус (типично) → наблюдаемая причина → retry
 
-Колонка **«Причина (`runtime_trace.partial_reasons`)»** перечисляет строки, которые попадают в компактный trace; **полный** перечень строк матрицы в коде не дублируется в `agent_memory_terminal_outcomes.py` (см. docstring модуля: часть кодов подключается в других ветках). **SoT для подключённых кодов и маппинга assembly:** `tools/agent_core/runtime/agent_memory_terminal_outcomes.py` (`REASON_*`, `w14_intermediate_runtime_partial_reasons`, `or013_reasons_from_assembly_reject_codes` — сейчас маппятся только `c_node_not_found` → `unknown_node_id`, `read_lines_file_not_found` → `file_missing`).
+Колонка **«Причина (`runtime_trace.partial_reasons`)»** перечисляет строки, которые попадают в компактный trace; **полный** перечень строк матрицы в коде не дублируется в `agent_memory_terminal_outcomes.py` (см. docstring модуля: часть кодов подключается в других ветках). **SoT для подключённых кодов и маппинга assembly:** `ailit/agent_memory/agent_memory_terminal_outcomes.py` (`REASON_*`, `w14_intermediate_runtime_partial_reasons`, `or013_reasons_from_assembly_reject_codes` — сейчас маппятся только `c_node_not_found` → `unknown_node_id`, `read_lines_file_not_found` → `file_missing`).
 
 | Условие | Типичный верхний `status` | `runtime_trace.partial_reasons` (OR-013 строки, если применимо) | Retry/repair |
 |---------|---------------------------|---------------------------------------------------------------------|----------------|
@@ -62,7 +62,7 @@
 
 ### FR-no-progress (целевое правило)
 
-Если раунд выбрал тот же набор файлов или узлов и не добавил пригодных кандидатов, следующий раунд **запрещён** без смены входа, прогресса, лимитов или исправления ответа провайдера; иначе `partial` с причиной наблюдаемости **`no_progress`**. Подключение в рантайме: `w14_intermediate_runtime_partial_reasons` в `tools/agent_core/runtime/agent_memory_terminal_outcomes.py`.
+Если раунд выбрал тот же набор файлов или узлов и не добавил пригодных кандидатов, следующий раунд **запрещён** без смены входа, прогресса, лимитов или исправления ответа провайдера; иначе `partial` с причиной наблюдаемости **`no_progress`**. Подключение в рантайме: `w14_intermediate_runtime_partial_reasons` в `ailit/agent_memory/agent_memory_terminal_outcomes.py`.
 
 ### `agent_memory_result.v1` (OR-012) — каркас схемы
 
@@ -93,7 +93,7 @@
 
 ### Маппинг stdout → compact (внутренние имена, не wire `event_type` внешнего события)
 
-SoT: `STDOUT_INTERNAL_TO_COMPACT_EVENT` в `tools/agent_core/runtime/agent_memory_external_events.py`; регрессия имени и формы `build_external_event_v1` — `tests/test_g14_agent_memory_external_event_mapping.py` (`test_stdout_to_compact_golden_mapping_table`, `test_build_external_event_v1_shape`).
+SoT: `STDOUT_INTERNAL_TO_COMPACT_EVENT` в `ailit/agent_memory/agent_memory_external_events.py`; регрессия имени и формы `build_external_event_v1` — `tests/test_g14_agent_memory_external_event_mapping.py` (`test_stdout_to_compact_golden_mapping_table`, `test_build_external_event_v1_shape`).
 
 | stdout `event_name` | compact `event` |
 |---------------------|-----------------|

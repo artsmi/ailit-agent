@@ -8,7 +8,7 @@ from pathlib import Path
 
 import yaml
 
-from ailit.compat_adapter import read_status, run_compat_workflow
+from ailit_cli.compat_adapter import read_status, run_compat_workflow
 
 
 def _write_minimal_workflow(tmp: Path) -> None:

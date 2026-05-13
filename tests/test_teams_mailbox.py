@@ -6,7 +6,7 @@ import json
 import threading
 from pathlib import Path
 
-from ailit.teams.mailbox import TeamRootSelector, TeamSession
+from ailit_cli.teams.mailbox import TeamRootSelector, TeamSession
 
 
 def test_two_agents_exchange_in_project_scope(tmp_path: Path) -> None:

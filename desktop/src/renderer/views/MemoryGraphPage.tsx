@@ -105,7 +105,7 @@ export function MemoryGraphPage(): React.JSX.Element {
       event: {
         kind: "pag.search.highlight",
         namespace: "mock",
-        nodeIds: ["B:tools/ailit/cli.py", "B:tools/agent_core/runtime/broker.py"],
+        nodeIds: ["B:ailit/ailit_cli/cli.py", "B:ailit/ailit_runtime/broker.py"],
         edgeIds: [],
         reason: "mock",
         ttlMs: 3000,

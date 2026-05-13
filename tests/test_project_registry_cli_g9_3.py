@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ailit.cli import main
-from ailit.global_ailit_layout import (
+from ailit_cli.cli import main
+from ailit_cli.global_ailit_layout import (
     user_global_config_path,
     user_projects_root,
 )

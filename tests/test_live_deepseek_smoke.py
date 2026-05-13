@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.config_loader import deepseek_api_key_from_env_or_config, live_run_allowed, load_test_local_yaml
-from agent_core.models import ChatMessage, ChatRequest, MessageRole, TimeoutPolicy
-from agent_core.providers.deepseek import DeepSeekAdapter
+from ailit_base.config_loader import deepseek_api_key_from_env_or_config, live_run_allowed, load_test_local_yaml
+from ailit_base.models import ChatMessage, ChatRequest, MessageRole, TimeoutPolicy
+from ailit_base.providers.deepseek import DeepSeekAdapter
 
 
 def _repo_config() -> dict:

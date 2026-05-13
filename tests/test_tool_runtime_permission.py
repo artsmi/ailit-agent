@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from agent_core.tool_runtime.permission import PermissionDecision, PermissionEngine
-from agent_core.tool_runtime.spec import SideEffectClass, ToolSpec
+from agent_work.tool_runtime.permission import PermissionDecision, PermissionEngine
+from agent_work.tool_runtime.spec import SideEffectClass, ToolSpec
 
 
 def test_read_only_allowed() -> None:

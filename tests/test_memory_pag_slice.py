@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_memory.sqlite_pag import SqlitePagStore
 
 
 def test_memory_pag_slice_outputs_json_with_nodes(tmp_path: Path) -> None:
@@ -28,8 +28,8 @@ def test_memory_pag_slice_outputs_json_with_nodes(tmp_path: Path) -> None:
     )
     code: str = f"""
 import os, sys, json
-os.environ["PYTHONPATH"] = {str(root / "tools")!r}
-from ailit.memory_cli import cmd_memory_pag_slice
+os.environ["PYTHONPATH"] = {str(root / "ailit")!r}
+from ailit_cli.memory_cli import cmd_memory_pag_slice
 
 class Args:
     namespace = "ns-test"
@@ -67,8 +67,8 @@ def test_memory_pag_slice_missing_db_code(tmp_path: Path) -> None:
     missing: Path = tmp_path / "nope.sqlite3"
     code: str = f"""
 import os, sys, json
-os.environ["PYTHONPATH"] = {str(root / "tools")!r}
-from ailit.memory_cli import cmd_memory_pag_slice
+os.environ["PYTHONPATH"] = {str(root / "ailit")!r}
+from ailit_cli.memory_cli import cmd_memory_pag_slice
 
 class Args:
     namespace = "x"
@@ -119,8 +119,8 @@ def test_memory_pag_slice_paginates_nodes_has_more(tmp_path: Path) -> None:
     ) -> dict[str, object]:
         code: str = f"""
 import os, sys, json
-os.environ["PYTHONPATH"] = {str(root / "tools")!r}
-from ailit.memory_cli import cmd_memory_pag_slice
+os.environ["PYTHONPATH"] = {str(root / "ailit")!r}
+from ailit_cli.memory_cli import cmd_memory_pag_slice
 
 class Args:
     namespace = "ns-pag"

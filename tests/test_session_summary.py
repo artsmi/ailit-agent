@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ailit.token_economy_aggregates import (
+from ailit_cli.token_economy_aggregates import (
     SESSION_SUMMARY_CONTRACT,
     build_session_summary,
 )

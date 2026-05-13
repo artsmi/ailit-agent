@@ -63,7 +63,7 @@ describe("pagHighlightFromTrace", () => {
     const row: Record<string, unknown> = {
       ...topic("context.memory_injected", {
         schema: "context.memory_injected.v1",
-        node_ids: ["B:tools/ailit/cli.py", "C:tools/ailit/cli.py:1-20"],
+        node_ids: ["B:ailit/ailit_cli/cli.py", "C:ailit/ailit_cli/cli.py:1-20"],
         edge_ids: ["edge-1"],
         reason: "matched current user goal"
       })
@@ -73,7 +73,7 @@ describe("pagHighlightFromTrace", () => {
     if (!h) {
       return;
     }
-    expect(h.nodeIds).toContain("B:tools/ailit/cli.py");
+    expect(h.nodeIds).toContain("B:ailit/ailit_cli/cli.py");
     expect(h.edgeIds).toContain("edge-1");
     expect(h.ttlMs).toBe(3000);
   });
@@ -135,7 +135,7 @@ describe("pagHighlightFromTrace", () => {
         type: "service.request",
         to_agent: "AgentMemory:chat-a",
         namespace: "ns",
-        payload: { service: "memory.query_context", path: "tools/ailit/cli.py" }
+        payload: { service: "memory.query_context", path: "ailit/ailit_cli/cli.py" }
       },
       "ns"
     );

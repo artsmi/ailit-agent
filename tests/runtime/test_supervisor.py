@@ -4,8 +4,8 @@ import multiprocessing
 import time
 from pathlib import Path
 
-from agent_core.runtime.paths import RuntimePaths
-from agent_core.runtime.supervisor import (
+from ailit_runtime.paths import RuntimePaths
+from ailit_runtime.supervisor import (
     run_supervisor_server,
     supervisor_request,
 )

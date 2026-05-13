@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from agent_core.runtime.errors import RuntimeProtocolError
-from agent_core.runtime.models import (
+from ailit_runtime.errors import RuntimeProtocolError
+from ailit_runtime.models import (
     CONTRACT_VERSION,
     MemoryGrant,
     RuntimeIdentity,
@@ -67,7 +67,7 @@ def test_memory_grant_from_dict() -> None:
         "issued_by": "AgentMemory:c1",
         "issued_to": "AgentWork:c1",
         "namespace": "ns",
-        "path": "tools/ailit/cli.py",
+        "path": "ailit/ailit_cli/cli.py",
         "ranges": [{"start_line": 1, "end_line": 10}],
         "whole_file": False,
         "reason": "entrypoint shortlist",

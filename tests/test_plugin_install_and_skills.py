@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from ailit.plugin_install import PluginInstaller
+from ailit_cli.plugin_install import PluginInstaller
 from project_layer.bootstrap import compute_chat_tuning
 from project_layer.loader import load_project
 

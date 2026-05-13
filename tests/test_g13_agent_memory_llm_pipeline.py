@@ -9,18 +9,18 @@ from typing import Any
 
 import pytest
 
-from agent_core.memory.pag_runtime import PagRuntimeConfig
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
-from agent_core.models import (
+from agent_memory.pag_runtime import PagRuntimeConfig
+from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.pag_graph_write_service import PagGraphWriteService
+from ailit_base.models import (
     ChatRequest,
     FinishReason,
     NormalizedChatResponse,
     NormalizedUsage,
 )
-from agent_core.providers.protocol import ChatProvider
-from agent_core.runtime.models import RuntimeIdentity, make_request_envelope
-from agent_core.runtime.subprocess_agents.memory_agent import (
+from ailit_base.providers.protocol import ChatProvider
+from ailit_runtime.models import RuntimeIdentity, make_request_envelope
+from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,
 )

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent_core.runtime.agent_memory_external_events import (
+from agent_memory.agent_memory_external_events import (
     AGENT_MEMORY_EXTERNAL_EVENT_V1,
     STDOUT_INTERNAL_TO_COMPACT_EVENT,
     build_external_event_v1,

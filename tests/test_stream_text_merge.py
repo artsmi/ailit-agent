@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import unicodedata
 
-from agent_core.normalization.stream_text_merge import merge_stream_text
-from agent_core.normalization.stream_to_incremental import (
+from ailit_base.normalization.stream_text_merge import merge_stream_text
+from ailit_base.normalization.stream_to_incremental import (
     MergingToIncremental,
     TEXT_MODE_INCREMENTAL,
 )

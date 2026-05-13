@@ -2,22 +2,22 @@
 
 from __future__ import annotations
 
-from agent_core.capabilities import Capability
-from agent_core.models import (
+from ailit_base.capabilities import Capability
+from ailit_base.models import (
     ChatMessage,
     ChatRequest,
     FinishReason,
     MessageRole,
     ToolDefinition,
 )
-from agent_core.session.state import SessionState
-from agent_core.providers.mock_provider import MockProvider
-from agent_core.providers.protocol import ChatProvider
-from agent_core.session.loop import SessionRunner, SessionSettings
-from agent_core.session.tool_bridge import tool_definitions_from_registry
-from agent_core.tool_runtime.approval import ApprovalSession
-from agent_core.tool_runtime.permission import PermissionDecision, PermissionEngine
-from agent_core.tool_runtime.registry import default_builtin_registry
+from agent_work.session.state import SessionState
+from ailit_base.providers.mock_provider import MockProvider
+from ailit_base.providers.protocol import ChatProvider
+from agent_work.session.loop import SessionRunner, SessionSettings
+from agent_work.session.tool_bridge import tool_definitions_from_registry
+from agent_work.tool_runtime.approval import ApprovalSession
+from agent_work.tool_runtime.permission import PermissionDecision, PermissionEngine
+from agent_work.tool_runtime.registry import default_builtin_registry
 
 
 def _typing_protocol_holds(provider: ChatProvider) -> None:

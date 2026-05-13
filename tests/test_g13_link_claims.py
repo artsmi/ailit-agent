@@ -7,12 +7,12 @@ from typing import Any
 
 import pytest
 
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.runtime.link_claim_resolver import (
+from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.link_claim_resolver import (
     LinkClaimResolver,
     normalize_semantic_link_relation_type,
 )
-from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
+from agent_memory.pag_graph_write_service import PagGraphWriteService
 
 
 def _store(tmp_path: Path) -> SqlitePagStore:

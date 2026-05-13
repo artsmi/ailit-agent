@@ -8,19 +8,19 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.providers.mock_provider import MockProvider
-from agent_core.runtime.models import (
+from agent_memory.sqlite_pag import SqlitePagStore
+from ailit_base.providers.mock_provider import MockProvider
+from ailit_runtime.models import (
     CONTRACT_VERSION,
     RuntimeRequestEnvelope,
 )
-from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
-from agent_core.runtime.subprocess_agents.memory_agent import (
+from agent_memory.pag_graph_write_service import PagGraphWriteService
+from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,
 )
-from agent_core.session.loop import SessionRunner, SessionSettings
-from agent_core.tool_runtime.executor import ToolInvocation, ToolRunResult
+from agent_work.session.loop import SessionRunner, SessionSettings
+from agent_work.tool_runtime.executor import ToolInvocation, ToolRunResult
 
 
 def _make_req(

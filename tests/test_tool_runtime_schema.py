@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from jsonschema import ValidationError
 
-from agent_core.tool_runtime.schema_validate import parse_and_validate_arguments_json, validate_tool_arguments
-from agent_core.tool_runtime.spec import SideEffectClass, ToolSpec
+from agent_work.tool_runtime.schema_validate import parse_and_validate_arguments_json, validate_tool_arguments
+from agent_work.tool_runtime.spec import SideEffectClass, ToolSpec
 
 
 def test_validate_rejects_wrong_type() -> None:

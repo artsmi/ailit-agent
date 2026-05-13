@@ -6,16 +6,16 @@ from threading import Event
 
 import pytest
 
-from agent_core.tool_runtime.approval import ApprovalSession
-from agent_core.tool_runtime.executor import (
+from agent_work.tool_runtime.approval import ApprovalSession
+from agent_work.tool_runtime.executor import (
     ApprovalPending,
     ToolExecutor,
     ToolInvocation,
     ToolRejected,
 )
-from agent_core.tool_runtime.permission import PermissionEngine
-from agent_core.tool_runtime.registry import ToolRegistry
-from agent_core.tool_runtime.spec import SideEffectClass, ToolSpec
+from agent_work.tool_runtime.permission import PermissionEngine
+from agent_work.tool_runtime.registry import ToolRegistry
+from agent_work.tool_runtime.spec import SideEffectClass, ToolSpec
 
 
 def _echo_registry() -> ToolRegistry:

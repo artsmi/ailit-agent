@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from agent_core.models import (
+from ailit_base.models import (
     ChatMessage,
     ChatRequest,
     MessageRole,
     StreamDone,
 )
-from agent_core.normalization.stream_assembler import iter_stream_events_from_sse_lines
-from agent_core.providers.deepseek import DeepSeekAdapter
-from agent_core.transport.httpx_transport import HttpxJsonTransport
+from ailit_base.normalization.stream_assembler import iter_stream_events_from_sse_lines
+from ailit_base.providers.deepseek import DeepSeekAdapter
+from ailit_base.transport.httpx_transport import HttpxJsonTransport
 
 
 class _SseOnlyTransport(HttpxJsonTransport):

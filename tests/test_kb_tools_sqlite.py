@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agent_core.memory.kb_tools import KbToolsConfig, build_kb_tool_registry
+from agent_memory.kb_tools import KbToolsConfig, build_kb_tool_registry
 
 
 def test_kb_write_search_fetch_roundtrip(tmp_path: Path) -> None:

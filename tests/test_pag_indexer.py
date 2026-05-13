@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent_core.memory.pag_indexer import (
+from agent_memory.pag_indexer import (
     ChangedRange,
     PagIndexConfig,
     PagIndexer,
 )
-from agent_core.memory.sqlite_pag import SqlitePagStore
+from agent_memory.sqlite_pag import SqlitePagStore
 
 
 def test_pag_indexer_respects_gitignore_and_policy(tmp_path: Path) -> None:

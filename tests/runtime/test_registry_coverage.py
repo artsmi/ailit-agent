@@ -11,7 +11,7 @@ Covers:
 
 from __future__ import annotations
 
-from agent_core.runtime.registry import AgentRegistration, AgentRegistry
+from ailit_runtime.registry import AgentRegistration, AgentRegistry
 
 
 class TestAgentRegistry:

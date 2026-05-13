@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from agent_core.runtime.agent_memory_config import (
+from agent_memory.agent_memory_config import (
     AgentMemoryConfigPaths,
     AgentMemoryFileConfig,
     MemoryDebugSubConfig,

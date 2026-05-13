@@ -4,7 +4,7 @@
 
 Перед эмитом события `memory.w14.graph_highlight` (схема `ailit_memory_w14_graph_highlight_v1` **без изменения полей**) **детерминированно** строятся `node_ids` / `edge_ids` по графу PAG. Единая логика — в **`W14GraphHighlightPathBuilder`**; `AgentMemoryQueryPipeline` вызывает builder (`union_to_ends`) в конце `finish_decision` и `plan_traversal` runtime, кладёт результат в **`W14DeferredGraphHighlight`** на `AgentMemoryQueryPipelineResult`; фактический **`emit_w14_graph_highlight`** выполняет **`AgentMemoryWorker`** после записей PAG этого запроса (включая D-digest), чтобы в trace сначала шли `pag.*`, затем одна строка highlight.
 
-**Главный модуль:** `tools/agent_core/runtime/w14_graph_highlight_path.py` (подробный приоритет шагов M1 — в docstring модуля, здесь кратко).
+**Главный модуль:** `ailit/agent_memory/w14_graph_highlight_path.py` (подробный приоритет шагов M1 — в docstring модуля, здесь кратко).
 
 ## M1 (сводка)
 
@@ -39,4 +39,4 @@
 - **Схема `ailit_memory_w14_graph_highlight_v1`:** поля **v1 не меняются**; доказательство highlight в trace по-прежнему через событие `memory.w14.graph_highlight` и этот payload (см. задачу **1_2**, D-OBS-HI-1 в proto).
 - **M1 builder:** `W14GraphHighlightPathBuilder` и приоритет шагов M1 **не переписываются** под observability; pipeline остаётся тонким вызовом builder, как в разделе «Влияние правок».
 - **Дополнительные compact-события** итерации Memory 3D (rev, Refresh, фазы recall UI) — **отдельные** имена вне v1, по [`context/proto/desktop-memory-3d-observability.md`](../proto/desktop-memory-3d-observability.md) после **1_2** (`pag_graph_rev_reconciled`, `pag_snapshot_refreshed`, `memory_recall_ui_phase` или финальное имя из proto); они **не** расширяют и не заменяют поля W14 v1.
-- **D-PROD-1 (Python):** в `subprocess_agents/memory_agent.py` и `tools/agent_core/runtime/pag_graph_trace.py` **не** допускается литерал строки `pag_graph_rev_reconciled` (единственный emit — renderer); регрессия — `test_python_forbids_pag_graph_rev_reconciled_literal` в [`../../tests/runtime/test_pag_graph_trace_w14_highlight.py`](../../tests/runtime/test_pag_graph_trace_w14_highlight.py).
+- **D-PROD-1 (Python):** в `subprocess_agents/memory_agent.py` и `ailit/agent_memory/pag_graph_trace.py` **не** допускается литерал строки `pag_graph_rev_reconciled` (единственный emit — renderer); регрессия — `test_python_forbids_pag_graph_rev_reconciled_literal` в [`../../tests/runtime/test_pag_graph_trace_w14_highlight.py`](../../tests/runtime/test_pag_graph_trace_w14_highlight.py).

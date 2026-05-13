@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from ailit.task_spec import RunTaskArtifactWriter, TaskSource, TaskSpecResolver
+from ailit_cli.task_spec import RunTaskArtifactWriter, TaskSource, TaskSpecResolver
 from workflow_engine.user_task_merge import merge_cli_task_into_first_user_message
 
 

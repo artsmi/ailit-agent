@@ -2,7 +2,7 @@
 
 ## Участники
 
-- **Сервер:** процесс P2 (`ailit runtime supervisor`, `tools/agent_core/runtime/supervisor.py`).
+- **Сервер:** процесс P2 (`ailit runtime supervisor`, `ailit/ailit_runtime/supervisor.py`).
 - **Клиенты:** CLI (`ailit runtime status|brokers|…`), Electron main (`desktop/src/main/supervisorSocket.ts`, `registerIpc.ts`).
 
 ## Транспорт

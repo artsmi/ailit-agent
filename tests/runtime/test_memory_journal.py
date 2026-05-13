@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_core.runtime.errors import RuntimeProtocolError
-from agent_core.runtime.memory_journal import (
+from ailit_runtime.errors import RuntimeProtocolError
+from agent_memory.memory_journal import (
     JOURNAL_SCHEMA,
     MemoryJournalRow,
     MemoryJournalStore,

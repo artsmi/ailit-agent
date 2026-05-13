@@ -109,7 +109,7 @@ cd desktop && npx vitest run \
   src/renderer/views/MemoryGraph3DPage.test.tsx
 ```
 
-**Связь с Python:** `tests/test_pag_slice_caps_alignment.py` — выравнивание чисел с `tools/agent_core/memory/pag_slice_caps.py` и `desktop/.../pagGraphLimits.ts`. W14 / broker UC 2.4 — строки выше в разделе pytest.
+**Связь с Python:** `tests/test_pag_slice_caps_alignment.py` — выравнивание чисел с `ailit/agent_memory/pag_slice_caps.py` и `desktop/.../pagGraphLimits.ts`. W14 / broker UC 2.4 — строки выше в разделе pytest.
 
 ### План 19 / OR-D6 (Vitest, вне обязательного gate §5.0)
 

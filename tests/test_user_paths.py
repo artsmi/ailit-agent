@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from ailit.user_paths import (
+from ailit_cli.user_paths import (
     GlobalDirResolver,
     global_config_dir,
     global_logs_dir,

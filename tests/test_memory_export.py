@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from ailit.memory_export import build_dot_for_slice, build_pag_export
+from agent_memory.sqlite_pag import SqlitePagStore
+from ailit_cli.memory_export import build_dot_for_slice, build_pag_export
 
 
 def test_build_pag_export_contains_nodes_and_edges(tmp_path: Path) -> None:

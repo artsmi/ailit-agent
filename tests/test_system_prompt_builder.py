@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from agent_core.models import MessageRole
-from agent_core.system_prompt_builder import (
+from ailit_base.models import MessageRole
+from ailit_base.system_prompt_builder import (
     SystemPromptLayers,
     build_effective_system_messages,
     dedupe_system_texts,

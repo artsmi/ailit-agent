@@ -12,22 +12,22 @@ from unittest.mock import patch
 
 import pytest
 
-from agent_core.memory.pag_runtime import PagRuntimeConfig
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.models import (
+from agent_memory.pag_runtime import PagRuntimeConfig
+from agent_memory.sqlite_pag import SqlitePagStore
+from ailit_base.models import (
     ChatRequest,
     FinishReason,
     NormalizedChatResponse,
     NormalizedUsage,
 )
-from agent_core.providers.protocol import ChatProvider
-from agent_core.runtime.link_claim_resolver import LinkClaimResolver
-from agent_core.runtime.models import (
+from ailit_base.providers.protocol import ChatProvider
+from agent_memory.link_claim_resolver import LinkClaimResolver
+from ailit_runtime.models import (
     RuntimeIdentity,
     make_request_envelope,
 )
-from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
-from agent_core.runtime.subprocess_agents.memory_agent import (
+from agent_memory.pag_graph_write_service import PagGraphWriteService
+from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,
 )
@@ -293,12 +293,12 @@ def test_g13_offline_pag_write_then_pag_slice_graph_rev(
     assert r0 >= 1
     code: str = f"""
 import os, sys, json
-os.environ["PYTHONPATH"] = {str(root / "tools")!r}
+os.environ["PYTHONPATH"] = {str(root / "ailit")!r}
 import importlib
 importlib.invalidate_caches()
 # новый путь в env, как в subprocess
 os.environ["AILIT_PAG_DB_PATH"] = {str(db)!r}
-from ailit.memory_cli import cmd_memory_pag_slice
+from ailit_cli.memory_cli import cmd_memory_pag_slice
 class Args:
     namespace = "g13-off"
     db_path = {str(db)!r}

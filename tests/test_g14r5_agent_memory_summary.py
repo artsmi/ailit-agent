@@ -7,21 +7,21 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agent_core.memory.sqlite_pag import SqlitePagStore
-from agent_core.runtime.agent_memory_runtime_contract import (
+from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.agent_memory_runtime_contract import (
     AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
     AgentMemoryCommandName,
     normalize_malformed_internal_summarize_envelope,
     parse_w14_internal_command_output_llm_text_result,
 )
-from agent_core.runtime.agent_memory_summary_service import (
+from agent_memory.agent_memory_summary_service import (
     AgentMemorySummaryFingerprinting,
     AgentMemorySummaryService,
     SummarizeCNodeInputV1,
     SummarizeCLocator,
     W14CommandLimits,
 )
-from agent_core.runtime.pag_graph_write_service import PagGraphWriteService
+from agent_memory.pag_graph_write_service import PagGraphWriteService
 
 
 def _w14_out(

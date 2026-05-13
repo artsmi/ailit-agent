@@ -3,16 +3,16 @@ from __future__ import annotations
 from collections.abc import Iterator
 from pathlib import Path
 
-from agent_core.capabilities import Capability
-from agent_core.models import (
+from ailit_base.capabilities import Capability
+from ailit_base.models import (
     FinishReason,
     NormalizedChatResponse,
     NormalizedUsage,
     StreamDone,
     StreamEvent,
 )
-from agent_core.runtime.memory_journal import MemoryJournalStore
-from agent_core.runtime.memory_llm import (
+from agent_memory.memory_journal import MemoryJournalStore
+from agent_memory.memory_llm import (
     AgentMemoryLLMLoop,
     MemoryLLMConfig,
     parse_memory_llm_decision,

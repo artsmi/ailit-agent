@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-from agent_core.bash_runner import BashRunOutcome
-from agent_core.shell_invocation_record import (
+from agent_work.bash_runner import BashRunOutcome
+from ailit_base.shell_invocation_record import (
     ShellInvocationRecord,
     build_shell_invocation_record,
 )

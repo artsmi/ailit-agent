@@ -24,7 +24,7 @@ describe("agentDialogueProjection (G9.7.2)", () => {
       to_agent: "AgentMemory:chat-a",
       created_at: "2026-04-25T12:00:00Z",
       type: "service.request",
-      payload: { service: "memory.query_context", path: "tools/ailit/cli.py", top_k: "12", level: "B" }
+      payload: { service: "memory.query_context", path: "ailit/ailit_cli/cli.py", top_k: "12", level: "B" }
     };
     const m: ReturnType<typeof rowToDialogueMessage> = rowToDialogueMessage(row, DEFAULT_AGENT_MANIFEST_V1, [
       "p1"
@@ -34,7 +34,7 @@ describe("agentDialogueProjection (G9.7.2)", () => {
       return;
     }
     expect(m.humanText).toContain("PAG");
-    expect(m.humanText).toContain("tools/ailit/cli.py");
+    expect(m.humanText).toContain("ailit/ailit_cli/cli.py");
     expect(m.technicalSummary).toContain("memory.query_context");
     expect(m.toDisplay).toBe("Memory");
   });
@@ -60,7 +60,7 @@ describe("agentDialogueProjection (G9.7.2)", () => {
         grants: [
           {
             grant_id: "g-1",
-            path: "tools/ailit/cli.py",
+            path: "ailit/ailit_cli/cli.py",
             namespace: "ns1",
             issued_by: "AgentMemory:chat-a",
             issued_to: "AgentWork:chat-a"
@@ -74,7 +74,7 @@ describe("agentDialogueProjection (G9.7.2)", () => {
       return;
     }
     expect(m.humanText).toMatch(/grant/iu);
-    expect(m.humanText).toContain("tools/ailit/cli.py");
+    expect(m.humanText).toContain("ailit/ailit_cli/cli.py");
   });
 
   it("work.handle_user_prompt action.start from client is visible as handoff line", () => {
