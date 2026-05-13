@@ -8,6 +8,7 @@ import os
 import threading
 import time
 import uuid
+from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -1556,11 +1557,34 @@ class AgentMemoryQueryPipeline:
             use_walk = memory_init or _looks_like_full_repo_goal(goal)
             if use_walk:
                 max_b = limits.max_selected_b
-                selected.extend(
-                    self._walk_project_files(root, limit=max_b),
-                )
+                if memory_init:
+                    selected.extend(
+                        self._walk_project_files_bfs(root, limit=max_b),
+                    )
+                else:
+                    selected.extend(
+                        self._walk_project_files(root, limit=max_b),
+                    )
             else:
                 selected.extend(self._first_level_files(root))
+        if memory_init:
+            max_b = limits.max_selected_b
+            bfs_paths = self._walk_project_files_bfs(root, limit=max_b)
+            seen_m: set[str] = set()
+            merged: list[str] = []
+            for rel in bfs_paths:
+                if rel and rel not in seen_m:
+                    merged.append(rel)
+                    seen_m.add(rel)
+                if len(merged) >= max_b:
+                    break
+            for rel in selected:
+                if rel and rel not in seen_m:
+                    merged.append(rel)
+                    seen_m.add(rel)
+                if len(merged) >= max_b:
+                    break
+            selected = merged
         out: list[str] = []
         for rel in selected:
             if rel and rel not in out:
@@ -1597,6 +1621,66 @@ class AgentMemoryQueryPipeline:
                 out.append(rel)
                 if len(out) >= limit:
                     return out
+        return out
+
+    @staticmethod
+    def _walk_project_files_bfs(root: Path, *, limit: int) -> list[str]:
+        """BFS по файлам: раньше покрываются все верхнеуровневые деревья.
+
+        DFS при лимите ``max_selected_b`` может исчерпать квоту на одном
+        поддереве (например ``include/``) и не дойти до ``src/``; тогда
+        ``memory init`` зацикливается на одном подграфе PAG.
+        """
+        ignore = {
+            ".git",
+            ".hg",
+            ".svn",
+            ".venv",
+            "venv",
+            "__pycache__",
+            "node_modules",
+            "dist",
+            "build",
+            ".pytest_cache",
+            ".mypy_cache",
+        }
+        out: list[str] = []
+        root = root.resolve()
+        q: deque[Path] = deque()
+        try:
+            for p in sorted(root.iterdir(), key=lambda x: x.name):
+                if p.name in ignore:
+                    continue
+                if p.name.startswith(".") and p.name != ".gitignore":
+                    continue
+                if p.is_dir():
+                    q.append(p)
+                elif p.is_file():
+                    out.append(p.relative_to(root).as_posix())
+                    if len(out) >= limit:
+                        return out
+        except OSError:
+            return out
+        while q and len(out) < limit:
+            dirpath = q.popleft()
+            try:
+                entries = sorted(dirpath.iterdir(), key=lambda x: x.name)
+            except OSError:
+                continue
+            subdirs: list[Path] = []
+            for p in entries:
+                if p.name in ignore:
+                    continue
+                if p.name.startswith(".") and p.name != ".gitignore":
+                    continue
+                if p.is_file():
+                    rel = p.resolve().relative_to(root).as_posix()
+                    out.append(rel)
+                    if len(out) >= limit:
+                        return out
+                elif p.is_dir():
+                    subdirs.append(p)
+            q.extend(subdirs)
         return out
 
     @staticmethod
