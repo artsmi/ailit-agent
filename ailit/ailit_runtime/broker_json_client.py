@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import socket
 import threading
@@ -158,6 +159,147 @@ def resolve_broker_socket_for_cli(
             f"({sup_sock})"
         ),
     )
+
+
+def stable_memory_cli_broker_chat_id(
+    *,
+    project_root: Path,
+    namespace: str,
+) -> str:
+    """Стабильный короткий ``chat_id`` для CLI (D8, G20, sun_path лимит)."""
+    pr = project_root.expanduser().resolve()
+    key = f"{pr}:{namespace}".encode("utf-8")
+    digest = hashlib.sha256(key).hexdigest()[:12]
+    return f"c{digest}"
+
+
+def create_or_get_broker_via_supervisor(
+    *,
+    runtime_dir: Path,
+    chat_id: str,
+    primary_namespace: str,
+    primary_project_root: Path,
+    supervisor_create_timeout_s: float = 60.0,
+    broker_socket_ready_s: float = 15.0,
+) -> Path:
+    """Вызвать supervisor ``create_or_get_broker`` и дождаться Unix-сокета."""
+    paths = RuntimePaths(runtime_dir=runtime_dir.expanduser().resolve())
+    sup_sock = paths.supervisor_socket
+    if not sup_sock.exists():
+        raise RuntimeProtocolError(
+            code="supervisor_unavailable",
+            message=(
+                f"supervisor socket not found: {sup_sock}. "
+                "Start `ailit runtime supervisor` or set --broker-socket."
+            ),
+        )
+    pn = str(primary_namespace or "").strip()
+    pp = primary_project_root.expanduser().resolve()
+    if not pn:
+        raise RuntimeProtocolError(
+            code="invalid_args",
+            message="primary_namespace required for create_or_get_broker",
+        )
+    raw = supervisor_request(
+        socket_path=sup_sock,
+        request={
+            "cmd": "create_or_get_broker",
+            "chat_id": str(chat_id or "").strip(),
+            "primary_namespace": pn,
+            "primary_project_root": str(pp),
+        },
+        timeout_s=supervisor_create_timeout_s,
+    )
+    if raw.get("ok") is not True:
+        err = raw.get("error")
+        if isinstance(err, dict):
+            msg = str(err.get("message") or err.get("code") or err)
+        else:
+            msg = err if isinstance(err, str) else str(err)
+        raise RuntimeProtocolError(
+            code="supervisor_create_broker_failed",
+            message=msg or "create_or_get_broker failed",
+        )
+    result = raw.get("result")
+    if not isinstance(result, dict):
+        raise RuntimeProtocolError(
+            code="supervisor_create_broker_shape",
+            message="create_or_get_broker result must be dict",
+        )
+    ep = str(result.get("endpoint", "") or "").strip()
+    sock_path = unix_path_from_broker_endpoint(ep).resolve()
+    wait_for_path(sock_path, exists_timeout_s=broker_socket_ready_s)
+    return sock_path
+
+
+def resolve_or_ensure_broker_socket_for_cli(
+    *,
+    explicit_socket: Path | None,
+    runtime_dir: Path,
+    broker_chat_id: str | None,
+    primary_namespace: str,
+    primary_project_root: Path,
+    allow_auto_chat_id: bool = True,
+    supervisor_brokers_timeout_s: float = 5.0,
+    supervisor_create_timeout_s: float = 60.0,
+    broker_socket_ready_s: float = 15.0,
+) -> tuple[Path, str]:
+    """Разрешить сокет broker.
+
+    Если записи в registry нет, вызывается ``create_or_get_broker``.
+    """
+    pr = primary_project_root.expanduser().resolve()
+    pn = str(primary_namespace or "").strip()
+    if not pn:
+        raise RuntimeProtocolError(
+            code="memory_cli_namespace_required",
+            message="PAG namespace is empty; cannot resolve broker",
+        )
+    cid_in = str(broker_chat_id or "").strip()
+    if explicit_socket is not None:
+        p = explicit_socket.expanduser().resolve()
+        if not cid_in:
+            raise RuntimeProtocolError(
+                code="missing_broker_chat_id",
+                message=(
+                    "--broker-chat-id required when --broker-socket is set"
+                ),
+            )
+        return p, cid_in
+    cid = cid_in
+    if not cid:
+        if not allow_auto_chat_id:
+            raise RuntimeProtocolError(
+                code="missing_broker_chat_id",
+                message=(
+                    "--broker-chat-id required when auto broker is disabled"
+                ),
+            )
+        cid = stable_memory_cli_broker_chat_id(
+            project_root=pr,
+            namespace=pn,
+        )
+    rd = runtime_dir.expanduser().resolve()
+    try:
+        path = resolve_broker_socket_for_cli(
+            explicit_socket=None,
+            runtime_dir=rd,
+            broker_chat_id=cid,
+            supervisor_timeout_s=supervisor_brokers_timeout_s,
+        )
+        return path, cid
+    except RuntimeProtocolError as exc:
+        if exc.code != "broker_not_found":
+            raise
+    sock_path = create_or_get_broker_via_supervisor(
+        runtime_dir=rd,
+        chat_id=cid,
+        primary_namespace=pn,
+        primary_project_root=pr,
+        supervisor_create_timeout_s=supervisor_create_timeout_s,
+        broker_socket_ready_s=broker_socket_ready_s,
+    )
+    return sock_path, cid
 
 
 @dataclass(slots=True)

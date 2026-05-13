@@ -26,7 +26,7 @@ from ailit_runtime.broker_json_client import (
     BrokerJsonRpcClient,
     BrokerResponseError,
     BrokerTransportError,
-    resolve_broker_socket_for_cli,
+    resolve_or_ensure_broker_socket_for_cli,
 )
 from ailit_runtime.models import (
     RuntimeIdentity,
@@ -79,10 +79,17 @@ def _edge_json(e: PagEdge) -> dict[str, Any]:
 
 def memory_cli_resolve_broker_socket(
     args: object,
+    *,
+    pag_namespace: str,
+    project_root: Path,
 ) -> tuple[Path, str] | None:
-    """Путь к сокету broker и chat_id; None без ``--broker-chat-id``."""
+    """Путь к сокету broker и ``chat_id``.
+
+    ``None`` при ``--no-ensure-broker`` без ``--broker-chat-id``.
+    """
+    no_ensure = bool(getattr(args, "no_ensure_broker", False))
     bcid = str(getattr(args, "broker_chat_id", "") or "").strip()
-    if not bcid:
+    if not bcid and no_ensure:
         return None
     bs_raw = getattr(args, "broker_socket", None)
     rt_raw = getattr(args, "memory_runtime_dir", None)
@@ -96,12 +103,17 @@ def memory_cli_resolve_broker_socket(
         if rt_raw and str(rt_raw).strip()
         else default_runtime_dir()
     )
-    sock = resolve_broker_socket_for_cli(
-        explicit_socket=explicit,
-        runtime_dir=rd,
-        broker_chat_id=bcid,
-    )
-    return sock, bcid
+    try:
+        return resolve_or_ensure_broker_socket_for_cli(
+            explicit_socket=explicit,
+            runtime_dir=rd,
+            broker_chat_id=bcid if bcid else None,
+            primary_namespace=str(pag_namespace).strip(),
+            primary_project_root=project_root,
+            allow_auto_chat_id=not no_ensure,
+        )
+    except RuntimeProtocolError:
+        raise
 
 
 def cmd_memory_index(args: object) -> int:
@@ -116,16 +128,32 @@ def cmd_memory_index(args: object) -> int:
     )
     full = bool(getattr(args, "full", False))
 
+    ctx = detect_repo_context(root)
+    ns = namespace_for_repo(
+        repo_uri=ctx.repo_uri,
+        repo_path=ctx.repo_path,
+        branch=ctx.branch,
+    )
+    ns_str = str(ns).strip()
+    if not ns_str:
+        sys.stderr.write(
+            "memory index: could not derive PAG namespace for project root\n",
+        )
+        return 2
     try:
-        pair = memory_cli_resolve_broker_socket(args)
+        pair = memory_cli_resolve_broker_socket(
+            args,
+            pag_namespace=ns_str,
+            project_root=root,
+        )
     except RuntimeProtocolError as exc:
         sys.stderr.write(f"{exc}\n")
         return 2
     if pair is None:
         sys.stderr.write(
-            "memory index: --broker-chat-id required "
-            "(G20: index via runtime broker; "
-            "see plan/20-memory-cli-broker-viz.md).\n",
+            "memory index: pass --broker-chat-id, or omit --no-ensure-broker "
+            "to auto-register a broker via supervisor "
+            "(see plan/20-memory-cli-broker-viz.md).\n",
         )
         return 2
     sock_path, bcid = pair
@@ -135,16 +163,10 @@ def cmd_memory_index(args: object) -> int:
         merged = {}
     timeout_s = max(float(agent_memory_rpc_timeout_s(merged)), 3600.0)
     client = BrokerJsonRpcClient(sock_path)
-    ctx = detect_repo_context(root)
-    ns = namespace_for_repo(
-        repo_uri=ctx.repo_uri,
-        repo_path=ctx.repo_path,
-        branch=ctx.branch,
-    )
     viz = maybe_start_memory_viz(
         args,
         socket_path=sock_path,
-        pag_namespace=str(ns) if str(ns).strip() else "",
+        pag_namespace=ns_str,
         db_path=db_path_opt,
     )
     sid = uuid.uuid4().hex[:12]
@@ -154,7 +176,7 @@ def cmd_memory_index(args: object) -> int:
         broker_id=f"broker-{bcid}",
         trace_id=f"tr-idx-{sid}",
         goal_id="memory_index",
-        namespace=str(ns) if str(ns).strip() else "",
+        namespace=ns_str,
     )
     pl: dict[str, Any] = {
         "service": "memory.index_project",
@@ -220,25 +242,35 @@ def cmd_memory_init(args: object) -> int:
     except RuntimeProtocolError as exc:
         sys.stderr.write(f"{exc}\n")
         return 2
-    try:
-        pair = memory_cli_resolve_broker_socket(args)
-    except RuntimeProtocolError as exc:
-        sys.stderr.write(f"{exc}\n")
-        return 2
-    if pair is None:
-        sys.stderr.write(
-            "memory init: --broker-chat-id required "
-            "(G20: AgentMemory via broker only; "
-            "see plan/20-memory-cli-broker-viz.md).\n",
-        )
-        return 2
-    sock_path, bcid = pair
     ctx = detect_repo_context(root)
     ns = namespace_for_repo(
         repo_uri=ctx.repo_uri,
         repo_path=ctx.repo_path,
         branch=ctx.branch,
     )
+    ns_str = str(ns).strip()
+    if not ns_str:
+        sys.stderr.write(
+            "memory init: could not derive PAG namespace for project root\n",
+        )
+        return 2
+    try:
+        pair = memory_cli_resolve_broker_socket(
+            args,
+            pag_namespace=ns_str,
+            project_root=root,
+        )
+    except RuntimeProtocolError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
+    if pair is None:
+        sys.stderr.write(
+            "memory init: pass --broker-chat-id, or omit --no-ensure-broker "
+            "to auto-register a broker via supervisor "
+            "(see plan/20-memory-cli-broker-viz.md).\n",
+        )
+        return 2
+    sock_path, bcid = pair
     try:
         merged = load_merged_ailit_config_for_memory()
     except Exception:
@@ -248,7 +280,7 @@ def cmd_memory_init(args: object) -> int:
     viz = maybe_start_memory_viz(
         args,
         socket_path=sock_path,
-        pag_namespace=str(ns) if str(ns).strip() else "",
+        pag_namespace=ns_str,
         db_path=None,
     )
 
@@ -278,41 +310,51 @@ def cmd_memory_query(args: object) -> int:
     if not text:
         sys.stderr.write("memory query: non-empty text required\n")
         return 2
-    try:
-        pair = memory_cli_resolve_broker_socket(args)
-    except RuntimeProtocolError as exc:
-        sys.stderr.write(f"{exc}\n")
-        return 2
-    if pair is None:
-        sys.stderr.write(
-            "memory query: --broker-chat-id required "
-            "(G20: AgentMemory via broker only; "
-            "see plan/20-memory-cli-broker-viz.md).\n",
-        )
-        return 2
-    sock_path, bcid = pair
     proj = getattr(args, "project", None)
     root = (
         Path(str(proj)).expanduser().resolve()
         if proj and str(proj).strip()
         else Path.cwd().resolve()
     )
-    try:
-        merged = load_merged_ailit_config_for_memory()
-    except Exception:
-        merged = {}
-    timeout_s = float(agent_memory_rpc_timeout_s(merged))
-    client = BrokerJsonRpcClient(sock_path)
     ctx = detect_repo_context(root)
     ns = namespace_for_repo(
         repo_uri=ctx.repo_uri,
         repo_path=ctx.repo_path,
         branch=ctx.branch,
     )
+    ns_str = str(ns).strip()
+    if not ns_str:
+        sys.stderr.write(
+            "memory query: could not derive PAG namespace for project root\n",
+        )
+        return 2
+    try:
+        pair = memory_cli_resolve_broker_socket(
+            args,
+            pag_namespace=ns_str,
+            project_root=root,
+        )
+    except RuntimeProtocolError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
+    if pair is None:
+        sys.stderr.write(
+            "memory query: pass --broker-chat-id, or omit --no-ensure-broker "
+            "to auto-register a broker via supervisor "
+            "(see plan/20-memory-cli-broker-viz.md).\n",
+        )
+        return 2
+    sock_path, bcid = pair
+    try:
+        merged = load_merged_ailit_config_for_memory()
+    except Exception:
+        merged = {}
+    timeout_s = float(agent_memory_rpc_timeout_s(merged))
+    client = BrokerJsonRpcClient(sock_path)
     viz = maybe_start_memory_viz(
         args,
         socket_path=sock_path,
-        pag_namespace=str(ns) if str(ns).strip() else "",
+        pag_namespace=ns_str,
         db_path=None,
     )
 

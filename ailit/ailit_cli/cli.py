@@ -720,7 +720,17 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default=None,
         help=(
-            "chat_id запущенного AgentBroker (обязательно; G20 broker path)"
+            "chat_id AgentBroker; если не задан — стабильный id по проекту и "
+            "create_or_get_broker через supervisor (G20)"
+        ),
+    )
+    p_idx.add_argument(
+        "--no-ensure-broker",
+        action="store_true",
+        dest="no_ensure_broker",
+        help=(
+            "Не создавать broker автоматически: тогда нужен --broker-chat-id "
+            "и запись в registry supervisor"
         ),
     )
     p_idx.add_argument(
@@ -776,8 +786,17 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default=None,
         help=(
-            "chat_id запущенного AgentBroker (обязательно; envelope chat_id / "
-            "маршрутизация broker; G20)"
+            "chat_id AgentBroker; если не задан — стабильный id по проекту и "
+            "create_or_get_broker через supervisor (envelope chat_id; G20)"
+        ),
+    )
+    p_init.add_argument(
+        "--no-ensure-broker",
+        action="store_true",
+        dest="no_ensure_broker",
+        help=(
+            "Не создавать broker автоматически: тогда нужен --broker-chat-id "
+            "и запись в registry supervisor"
         ),
     )
     p_init.add_argument(
@@ -829,8 +848,17 @@ def main(argv: list[str] | None = None) -> int:
         type=str,
         default=None,
         help=(
-            "chat_id запущенного AgentBroker (обязательно; envelope chat_id / "
-            "маршрутизация broker)"
+            "chat_id AgentBroker; если не задан — стабильный id по проекту и "
+            "create_or_get_broker через supervisor"
+        ),
+    )
+    p_mq.add_argument(
+        "--no-ensure-broker",
+        action="store_true",
+        dest="no_ensure_broker",
+        help=(
+            "Не создавать broker автоматически: тогда нужен --broker-chat-id "
+            "и запись в registry supervisor"
         ),
     )
     p_mq.add_argument(
