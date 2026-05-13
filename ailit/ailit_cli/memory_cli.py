@@ -43,7 +43,10 @@ from agent_memory.pag_slice_caps import (
     PAG_SLICE_MAX_NODES,
 )
 from agent_memory.sqlite_pag import PagEdge, PagNode, SqlitePagStore
-from ailit_cli.memory_viz_runtime import maybe_start_memory_viz
+from ailit_cli.memory_viz_runtime import (
+    maybe_start_memory_viz,
+    memory_viz_finalize,
+)
 
 
 def _node_json(n: PagNode) -> dict[str, Any]:
@@ -205,8 +208,7 @@ def cmd_memory_index(args: object) -> int:
         sys.stderr.write(f"memory index: broker RPC failed: {exc}\n")
         return 2
     finally:
-        if viz is not None:
-            viz.stop()
+        memory_viz_finalize(viz)
     if not isinstance(out, dict) or out.get("ok") is not True:
         err = out.get("error") if isinstance(out, dict) else None
         if isinstance(err, dict):
@@ -300,8 +302,7 @@ def cmd_memory_init(args: object) -> int:
         sys.stderr.write(f"{exc}\n")
         return 2
     finally:
-        if viz is not None:
-            viz.stop()
+        memory_viz_finalize(viz)
 
 
 def cmd_memory_query(args: object) -> int:
@@ -374,8 +375,7 @@ def cmd_memory_query(args: object) -> int:
         sys.stderr.write(f"{exc}\n")
         return 2
     finally:
-        if viz is not None:
-            viz.stop()
+        memory_viz_finalize(viz)
 
 
 def _pag_slice_payload(

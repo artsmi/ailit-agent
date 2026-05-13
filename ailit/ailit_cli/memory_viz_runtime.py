@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import signal
 import sys
 import threading
 import time
@@ -23,6 +24,8 @@ _STATIC_DIR: Final[Path] = (
 )
 _MAX_TRACE_SERVE: Final[int] = 500
 _MAX_RAW_SCAN: Final[int] = 4000
+_VIZ_PAG_SLICE_NODE_CAP: Final[int] = 8000
+_VIZ_PAG_SLICE_EDGE_CAP: Final[int] = 16000
 
 
 class _ReuseThreadingHTTPServer(ThreadingHTTPServer):
@@ -178,6 +181,60 @@ def maybe_start_memory_viz(
     return rt
 
 
+def memory_viz_finalize(viz: MemoryVizRuntime | None) -> None:
+    """
+    Оставить HTTP-сервер доступным до явной остановки (Enter или SIGINT).
+
+    При неинтерактивном stdin процесс ждёт сигнал завершения; для CI/скриптов
+    используйте ``--no-memory-viz``.
+    """
+    if viz is None:
+        return
+    port = getattr(viz, "_port", 0)
+    sys.stderr.write(
+        "memory viz: HTTP-сервер продолжает работу (вкладки 3D и узел). "
+        f"Порт {port}. Остановка освободит порт.\n",
+    )
+    try:
+        if sys.stdin.isatty():
+            sys.stderr.write(
+                "memory viz: нажмите Enter в этом терминале, чтобы остановить "
+                "сервер и завершить процесс ailit.\n",
+            )
+            try:
+                sys.stdin.readline()
+            except (EOFError, OSError):
+                _memory_viz_wait_for_signal()
+        else:
+            sys.stderr.write(
+                "memory viz: stdin не TTY — ожидание SIGINT/SIGTERM "
+                "(например Ctrl+C), затем остановка сервера.\n",
+            )
+            _memory_viz_wait_for_signal()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        viz.stop()
+
+
+def _memory_viz_wait_for_signal() -> None:
+    ev = threading.Event()
+
+    def _wake(*_args: object) -> None:
+        ev.set()
+
+    prev_int = signal.signal(signal.SIGINT, _wake)
+    prev_term = None
+    if hasattr(signal, "SIGTERM"):
+        prev_term = signal.signal(signal.SIGTERM, _wake)
+    try:
+        ev.wait()
+    finally:
+        signal.signal(signal.SIGINT, prev_int)
+        if prev_term is not None:
+            signal.signal(signal.SIGTERM, prev_term)
+
+
 def _send_json(
     handler: BaseHTTPRequestHandler,
     payload: Mapping[str, Any],
@@ -222,12 +279,40 @@ def _make_handler(
                     noff = max(0, int(str(off_raw)))
                 except ValueError:
                     noff = 0
+                eoff_raw = (qs.get("edge_offset") or ["0"])[0]
+                try:
+                    eoff = max(0, int(str(eoff_raw)))
+                except ValueError:
+                    eoff = 0
                 try:
                     from ailit_cli.memory_cli import _pag_slice_payload
                     from agent_memory.pag_indexer import PagIndexer
                     from agent_memory.pag_slice_caps import (
                         PAG_SLICE_MAX_EDGES,
                         PAG_SLICE_MAX_NODES,
+                    )
+
+                    def _lim(
+                        key: str,
+                        default: int,
+                        hard_cap: int,
+                    ) -> int:
+                        raw = (qs.get(key) or [str(default)])[0]
+                        try:
+                            v = int(str(raw))
+                        except ValueError:
+                            v = default
+                        return max(1, min(hard_cap, v))
+
+                    nlim = _lim(
+                        "node_limit",
+                        min(_VIZ_PAG_SLICE_NODE_CAP, PAG_SLICE_MAX_NODES),
+                        PAG_SLICE_MAX_NODES,
+                    )
+                    elim = _lim(
+                        "edge_limit",
+                        min(_VIZ_PAG_SLICE_EDGE_CAP, PAG_SLICE_MAX_EDGES),
+                        PAG_SLICE_MAX_EDGES,
                     )
 
                     db = (
@@ -248,10 +333,10 @@ def _make_handler(
                             namespace=ns,
                             db_path=db,
                             level=None,
-                            node_limit=min(80, PAG_SLICE_MAX_NODES),
+                            node_limit=nlim,
                             node_offset=noff,
-                            edge_limit=min(120, PAG_SLICE_MAX_EDGES),
-                            edge_offset=0,
+                            edge_limit=elim,
+                            edge_offset=eoff,
                         )
                 except Exception as exc:
                     pl = {

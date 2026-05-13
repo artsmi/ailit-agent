@@ -3,14 +3,23 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>ailit memory viz</title>
+  <title>ailit memory — визуализация PAG</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
   <style>
     :root {
       --accent: #e040a0;
       --accent2: #7c52aa;
+      --level-c: #2d8a5e;
       --bg: #fff8fb;
       --surface: #ffffff;
       --text: #1a1a1a;
@@ -19,38 +28,41 @@
       --radius-card: 18px;
       --radius-pill: 999px;
       --shadow: 0 8px 28px rgba(124, 82, 170, 0.12);
+      --edge-from: #ff8c42;
+      --edge-to: #4c9dff;
     }
     * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
     body {
-      margin: 0;
       font-family: "DM Sans", system-ui, sans-serif;
       background: var(--bg);
       color: var(--text);
       font-size: 15px;
       line-height: 1.45;
+      display: flex;
+      flex-direction: column;
     }
     header {
-      padding: 16px 20px;
+      flex: 0 0 auto;
+      padding: 14px 20px;
       background: var(--surface);
       border-bottom: 1px solid var(--border);
       box-shadow: var(--shadow);
     }
     h1 {
       margin: 0;
-      font-size: 22px;
+      font-size: 21px;
       font-weight: 700;
       letter-spacing: -0.02em;
     }
-    .sub {
-      margin: 6px 0 0;
-      color: var(--muted);
-      font-size: 13px;
-    }
+    .sub { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
     .tabs {
       display: flex;
       gap: 8px;
-      padding: 12px 20px 0;
+      padding: 10px 20px 0;
       flex-wrap: wrap;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
     }
     .tab {
       border: 2px solid var(--border);
@@ -67,11 +79,47 @@
       background: linear-gradient(135deg, var(--accent), var(--accent2));
       color: #fff;
       border-color: transparent;
-      box-shadow: 0 0 0 3px rgba(224, 64, 160, 0.25);
+      box-shadow: 0 0 0 3px rgba(224, 64, 160, 0.22);
     }
-    main { padding: 16px 20px 32px; max-width: 1100px; margin: 0 auto; }
-    .panel { display: none; }
-    .panel.active { display: block; }
+    .wrap {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel { display: none; flex: 1 1 auto; min-height: 0; flex-direction: column; }
+    .panel.active { display: flex; }
+    #canvas-host {
+      flex: 1 1 auto;
+      min-height: 320px;
+      position: relative;
+      background: radial-gradient(ellipse at center, #faf5ff 0%, #e8e0f4 100%);
+    }
+    #viz-canvas { display: block; width: 100%; height: 100%; }
+    .legend {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      max-width: min(420px, 92vw);
+      background: rgba(255, 255, 255, 0.94);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 10px 14px;
+      font-size: 12px;
+      color: var(--muted);
+      box-shadow: var(--shadow);
+      line-height: 1.4;
+    }
+    .legend strong { color: var(--text); }
+    .legend .sw { display: inline-block; width: 14px; height: 14px; border-radius: 4px; vertical-align: -2px; margin: 0 3px; }
+    main.scroll {
+      flex: 1 1 auto;
+      overflow: auto;
+      padding: 16px 20px 28px;
+      max-width: 960px;
+      margin: 0 auto;
+      width: 100%;
+    }
     .card {
       background: var(--surface);
       border-radius: var(--radius-card);
@@ -86,148 +134,479 @@
       font-weight: 700;
       color: var(--accent2);
     }
-    pre.trace {
-      margin: 0;
+    .meta { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+    .summary {
       white-space: pre-wrap;
       word-break: break-word;
-      font-size: 12px;
-      line-height: 1.35;
-      max-height: 62vh;
-      overflow: auto;
+      font-size: 14px;
       background: #faf7fc;
       border-radius: 12px;
       padding: 12px;
       border: 1px solid var(--border);
     }
-    .node {
-      border-left: 4px solid var(--accent);
+    .edge-block { margin-top: 14px; }
+    .edge-block h3 {
+      margin: 0 0 8px;
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .edge-row {
+      font-size: 13px;
       padding: 8px 10px;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
       background: #fff;
       border-radius: 10px;
+      border-left: 4px solid var(--accent2);
     }
-    .node .id { font-size: 12px; color: var(--muted); }
-    .node .path { font-weight: 600; color: var(--text); }
-    .err { color: #b00020; font-size: 14px; }
-    .meta { font-size: 12px; color: var(--muted); margin-top: 8px; }
+    .edge-row.out { border-left-color: var(--edge-from); }
+    .edge-row.in { border-left-color: var(--edge-to); }
+    .edge-row .mono { font-size: 11px; color: var(--muted); word-break: break-all; }
+    .edge-row .rel { font-weight: 600; color: var(--accent2); }
+    .err { color: #b00020; }
+    .chip {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: var(--radius-pill);
+      font-size: 11px;
+      font-weight: 600;
+      margin-right: 6px;
+    }
+    .chip-A { background: rgba(224, 64, 160, 0.18); color: #a8186f; }
+    .chip-B { background: rgba(124, 82, 170, 0.18); color: #4a2d6e; }
+    .chip-C { background: rgba(45, 138, 94, 0.15); color: #1d5c3e; }
   </style>
 </head>
 <body>
   <header>
-    <h1>ailit memory viz</h1>
-    <p class="sub">G20.6 — broker trace + гибрид PAG (read-only slice). См. design/BRANDBOOK_CANDY.md</p>
+    <h1>ailit memory — граф PAG</h1>
+    <p class="sub">Обновление по данным SQLite; узел по умолчанию — проект (уровень A). См. design/BRANDBOOK_CANDY.md</p>
   </header>
   <div class="tabs" role="tablist">
-    <button type="button" class="tab active" data-tab="trace" role="tab" aria-selected="true">Trace</button>
-    <button type="button" class="tab" data-tab="pag" role="tab" aria-selected="false">PAG</button>
+    <button type="button" class="tab active" data-tab="graph" role="tab" aria-selected="true">3D граф</button>
+    <button type="button" class="tab" data-tab="node" role="tab" aria-selected="false">Текущий узел</button>
   </div>
-  <main>
-    <section id="panel-trace" class="panel active" role="tabpanel">
-      <div class="card">
-        <h2>Live trace (whitelist)</h2>
-        <pre class="trace" id="trace-out">loading…</pre>
-        <p class="meta" id="trace-meta"></p>
+  <div class="wrap">
+    <section id="panel-graph" class="panel active" role="tabpanel">
+      <div id="canvas-host">
+        <canvas id="viz-canvas"></canvas>
+        <div class="legend">
+          <strong>Направление связи.</strong> Отрезок идёт <em>от</em> узла-источника <em>к</em> узлу-назначения:
+          тёплый цвет у начала (источник), холодный — у конца (куда ведёт связь).
+          Клик по сфере — выбрать узел (вкладка «Текущий узел»).
+          <div style="margin-top:6px">
+            <span class="sw" style="background:var(--edge-from)"></span> начало (from)
+            <span class="sw" style="background:var(--edge-to);margin-left:10px"></span> конец (to)
+          </div>
+        </div>
       </div>
+      <p class="meta" id="graph-meta" style="padding:8px 20px;margin:0;font-size:12px"></p>
     </section>
-    <section id="panel-pag" class="panel" role="tabpanel">
-      <div class="card">
-        <h2>PAG slice (poll)</h2>
-        <p class="meta" id="pag-meta"></p>
-        <div id="pag-nodes"></div>
-      </div>
+    <section id="panel-node" class="panel" role="tabpanel">
+      <main class="scroll">
+        <div class="card">
+          <h2>Выбранный узел</h2>
+          <p class="meta" id="node-meta"></p>
+          <div id="node-head"></div>
+          <div class="summary" id="node-summary">—</div>
+        </div>
+        <div class="card">
+          <h2>Исходящие связи</h2>
+          <p class="meta">От этого узла к другим: «этот узел → другой».</p>
+          <div id="edges-out"></div>
+        </div>
+        <div class="card">
+          <h2>Входящие связи</h2>
+          <p class="meta">От других узлов к этому: «другой → этот узел».</p>
+          <div id="edges-in"></div>
+        </div>
+      </main>
     </section>
-  </main>
-  <script>
-    (function () {
-      const params = new URLSearchParams(window.location.search);
-      const namespace = (params.get("namespace") || "").trim();
+  </div>
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-      document.querySelectorAll(".tab").forEach(function (btn) {
-        btn.addEventListener("click", function () {
-          const id = btn.getAttribute("data-tab");
-          document.querySelectorAll(".tab").forEach(function (b) {
-            b.classList.toggle("active", b === btn);
-            b.setAttribute("aria-selected", b === btn ? "true" : "false");
-          });
-          document.querySelectorAll(".panel").forEach(function (p) {
-            p.classList.toggle("active", p.id === "panel-" + id);
-          });
-        });
+    const params = new URLSearchParams(window.location.search);
+    const namespace = (params.get("namespace") || "").trim();
+
+    const MAX_EDGE_SEGMENTS = 4500;
+    const POLL_MS = 850;
+    const LEVEL_COLOR = { A: 0xe040a0, B: 0x7c52aa, C: 0x2d8a5e };
+
+    /** @type {THREE.PerspectiveCamera | null} */
+    let camera = null;
+    /** @type {THREE.WebGLRenderer | null} */
+    let renderer = null;
+    /** @type {OrbitControls | null} */
+    let controls = null;
+    /** @type {THREE.Scene | null} */
+    let scene = null;
+    /** @type {THREE.Group | null} */
+    let nodeRoot = null;
+    /** @type {THREE.LineSegments | null} */
+    let edgeLines = null;
+    /** @type {THREE.Raycaster} */
+    const raycaster = new THREE.Raycaster();
+    /** @type {THREE.Vector2} */
+    const pointer = new THREE.Vector2();
+    /** @type {THREE.Mesh[]} */
+    const pickMeshes = [];
+
+    let latestPayload = null;
+    let selectedId = null;
+    let lastSnapshotSig = null;
+    let raf = 0;
+
+    function hash32(s) {
+      let h = 0;
+      for (let i = 0; i < s.length; i++) {
+        h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+      }
+      return h;
+    }
+
+    function stablePosition(nodeId, level) {
+      const h = hash32(nodeId + "|" + level);
+      const rings = { A: 0.8, B: 7.5, C: 14.5 };
+      const R = rings[level] ?? 11;
+      const u = ((Math.abs(h) % 10001) / 10000) * 2 - 1;
+      const v = ((Math.abs(h >>> 8) % 10001) / 10000) * 2 - 1;
+      const w = ((Math.abs(h >>> 16) % 10001) / 10000) * 2 - 1;
+      const len = Math.sqrt(u * u + v * v + w * w) || 1;
+      return new THREE.Vector3((u / len) * R, (v / len) * R, (w / len) * R);
+    }
+
+    function pickDefaultNode(nodes) {
+      if (!nodes || !nodes.length) return null;
+      const proj = nodes.find(function (n) {
+        return n.level === "A" && (n.kind === "project" || n.path === ".");
+      });
+      if (proj) return proj.node_id;
+      const a = nodes.find(function (n) { return n.level === "A"; });
+      if (a) return a.node_id;
+      return nodes[0].node_id;
+    }
+
+    function ensureThree(host) {
+      if (renderer) return;
+      const canvas = document.getElementById("viz-canvas");
+      scene = new THREE.Scene();
+      nodeRoot = new THREE.Group();
+      scene.add(nodeRoot);
+
+      camera = new THREE.PerspectiveCamera(55, 1, 0.1, 500);
+      camera.position.set(0, 14, 32);
+
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.06;
+      controls.target.set(0, 0, 0);
+
+      scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+      const d1 = new THREE.DirectionalLight(0xffffff, 0.65);
+      d1.position.set(8, 20, 12);
+      scene.add(d1);
+      const d2 = new THREE.DirectionalLight(0xffe0f5, 0.35);
+      d2.position.set(-10, -6, -8);
+      scene.add(d2);
+
+      function resize() {
+        const w = host.clientWidth;
+        const h = host.clientHeight;
+        if (w < 2 || h < 2) return;
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h, false);
+      }
+      resize();
+      window.addEventListener("resize", resize);
+      if (window.ResizeObserver) {
+        const ro = new ResizeObserver(resize);
+        ro.observe(host);
+      }
+
+      canvas.addEventListener("click", onCanvasClick);
+      loop();
+    }
+
+    function loop() {
+      raf = requestAnimationFrame(loop);
+      if (controls) controls.update();
+      if (renderer && scene && camera) renderer.render(scene, camera);
+    }
+
+    function onCanvasClick(ev) {
+      const host = document.getElementById("canvas-host");
+      const canvas = document.getElementById("viz-canvas");
+      if (!camera || !nodeRoot) return;
+      const rect = canvas.getBoundingClientRect();
+      pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+      raycaster.setFromCamera(pointer, camera);
+      const hits = raycaster.intersectObjects(pickMeshes, false);
+      if (!hits.length) return;
+      const id = hits[0].object.userData.nodeId;
+      if (id) {
+        selectedId = id;
+        updateSelectionHighlight();
+        renderNodePanel();
+      }
+    }
+
+    function updateSelectionHighlight() {
+      pickMeshes.forEach(function (m) {
+        const on = m.userData.nodeId === selectedId;
+        if (m.material && m.material.emissive) {
+          m.material.emissive.setHex(on ? 0x442266 : 0x000000);
+          m.material.emissiveIntensity = on ? 0.35 : 0;
+        }
+      });
+    }
+
+    function disposeNodeMeshes() {
+      pickMeshes.length = 0;
+      if (!nodeRoot) return;
+      while (nodeRoot.children.length) {
+        const ch = nodeRoot.children[0];
+        nodeRoot.remove(ch);
+        if (ch.geometry) ch.geometry.dispose();
+        if (ch.material) ch.material.dispose();
+      }
+    }
+
+    function disposeEdges() {
+      if (!scene || !edgeLines) return;
+      scene.remove(edgeLines);
+      edgeLines.geometry.dispose();
+      edgeLines.material.dispose();
+      edgeLines = null;
+    }
+
+    function rebuildScene(data) {
+      const host = document.getElementById("canvas-host");
+      ensureThree(host);
+      const nodes = data.nodes || [];
+      const edges = data.edges || [];
+      const pos = new Map();
+      nodes.forEach(function (n) {
+        pos.set(n.node_id, stablePosition(String(n.node_id), String(n.level || "C")));
       });
 
-      function renderTrace(rows) {
-        const el = document.getElementById("trace-out");
-        const meta = document.getElementById("trace-meta");
-        if (!rows || !rows.length) {
-          el.textContent = "(пока нет строк после фильтра whitelist)";
-          meta.textContent = "";
+      disposeEdges();
+      disposeNodeMeshes();
+
+      nodes.forEach(function (n) {
+        const col = LEVEL_COLOR[n.level] ?? 0x888888;
+        const mat = new THREE.MeshStandardMaterial({
+          color: col,
+          roughness: 0.45,
+          metalness: 0.12,
+          emissive: 0x000000,
+          emissiveIntensity: 0,
+        });
+        const mesh = new THREE.Mesh(new THREE.SphereGeometry(0.38, 18, 14), mat);
+        const p = pos.get(n.node_id);
+        mesh.position.copy(p);
+        mesh.userData.nodeId = n.node_id;
+        nodeRoot.add(mesh);
+        pickMeshes.push(mesh);
+      });
+      updateSelectionHighlight();
+
+      const fromCol = new THREE.Color(0xff8c42);
+      const toCol = new THREE.Color(0x4c9dff);
+      const positions = [];
+      const colors = [];
+      let drawn = 0;
+      for (let i = 0; i < edges.length && drawn < MAX_EDGE_SEGMENTS; i++) {
+        const e = edges[i];
+        const a = pos.get(e.from_node_id);
+        const b = pos.get(e.to_node_id);
+        if (!a || !b) continue;
+        positions.push(a.x, a.y, a.z, b.x, b.y, b.z);
+        colors.push(fromCol.r, fromCol.g, fromCol.b, toCol.r, toCol.g, toCol.b);
+        drawn++;
+      }
+      if (positions.length) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+        g.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+        const mat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85 });
+        edgeLines = new THREE.LineSegments(g, mat);
+        scene.add(edgeLines);
+      }
+
+      const meta = document.getElementById("graph-meta");
+      const warn =
+        edges.length > MAX_EDGE_SEGMENTS
+          ? `; на 3D показаны первые ${MAX_EDGE_SEGMENTS} рёбер из ${edges.length}`
+          : "";
+      const hm = (data.has_more && data.has_more.edges) ? "; рёбра обрезаны лимитом API" : "";
+      const hn = (data.has_more && data.has_more.nodes) ? "; узлы обрезаны лимитом API" : "";
+      meta.textContent =
+        `узлов: ${nodes.length}, рёбер: ${edges.length}, graph_rev=${String(data.graph_rev ?? "")}${warn}${hm}${hn}`;
+    }
+
+    function renderNodePanel() {
+      const data = latestPayload;
+      const meta = document.getElementById("node-meta");
+      const head = document.getElementById("node-head");
+      const sum = document.getElementById("node-summary");
+      const outEl = document.getElementById("edges-out");
+      const inEl = document.getElementById("edges-in");
+      if (!data || data.ok === false || !data.nodes) {
+        meta.textContent = "";
+        head.innerHTML = "";
+        sum.textContent = "Нет данных";
+        outEl.innerHTML = "";
+        inEl.innerHTML = "";
+        return;
+      }
+      const nodes = data.nodes;
+      if (!selectedId || !nodes.some(function (n) { return n.node_id === selectedId; })) {
+        selectedId = pickDefaultNode(nodes);
+      }
+      const n = nodes.find(function (x) { return x.node_id === selectedId; });
+      if (!n) {
+        sum.textContent = "Узел не найден в текущем срезе";
+        return;
+      }
+      meta.textContent =
+        "namespace=" + (data.namespace || "") + " graph_rev=" + String(data.graph_rev || "");
+      const lv = String(n.level || "?");
+      head.innerHTML =
+        '<span class="chip chip-' + lv + '">' + lv + "</span>" +
+        '<span class="mono">' + escapeHtml(n.node_id) + "</span><br/>" +
+        "<strong>" + escapeHtml(n.title || n.path || "") + "</strong>" +
+        (n.path ? '<div class="mono" style="margin-top:4px">' + escapeHtml(n.path) + "</div>" : "");
+      sum.textContent = n.summary || "(нет summary)";
+
+      const edges = data.edges || [];
+      const outs = edges.filter(function (e) { return e.from_node_id === selectedId; });
+      const ins = edges.filter(function (e) { return e.to_node_id === selectedId; });
+
+      function nodeLabel(nid) {
+        const x = nodes.find(function (z) { return z.node_id === nid; });
+        if (!x) return nid;
+        return (x.title || x.path || nid) + " · " + nid;
+      }
+
+      function renderList(arr, el, cls) {
+        if (!arr.length) {
+          el.innerHTML = '<p class="meta">(нет)</p>';
           return;
         }
-        const lines = rows.map(function (r) {
-          try {
-            return JSON.stringify(r, null, 0);
-          } catch (e) {
-            return String(r);
+        el.innerHTML = arr
+          .map(function (e) {
+            const other = cls === "out" ? e.to_node_id : e.from_node_id;
+            const dir =
+              cls === "out"
+                ? escapeHtml(n.node_id) + " → " + escapeHtml(other)
+                : escapeHtml(other) + " → " + escapeHtml(n.node_id);
+            return (
+              '<div class="edge-row ' +
+              cls +
+              '">' +
+              '<div class="rel">' +
+              dir +
+              "</div>" +
+              '<div class="mono">' +
+              escapeHtml(String(e.edge_class || "")) +
+              " / " +
+              escapeHtml(String(e.edge_type || "")) +
+              " · confidence " +
+              escapeHtml(String(e.confidence ?? "")) +
+              "</div>" +
+              "<div class=\"mono\">«" +
+              escapeHtml(nodeLabel(other)) +
+              "»</div>" +
+              "</div>"
+            );
+          })
+          .join("");
+      }
+      renderList(outs, outEl, "out");
+      renderList(ins, inEl, "in");
+
+      if (data.has_more && data.has_more.edges) {
+        outEl.innerHTML +=
+          '<p class="meta err" style="margin-top:8px">Часть рёбер не попала в срез (has_more.edges). Увеличьте edge_limit в /api/pag-slice.</p>';
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function pollPag() {
+      var q = "/api/pag-slice?node_offset=0&edge_offset=0&node_limit=8000&edge_limit=16000";
+      if (namespace) q += "&namespace=" + encodeURIComponent(namespace);
+      fetch(q)
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j || j.ok === false) {
+            document.getElementById("graph-meta").textContent = j && j.error ? j.error : "slice failed";
+            return;
           }
+          const nodes = j.nodes || [];
+          const edges = j.edges || [];
+          const sig = [String(j.graph_rev ?? ""), nodes.length, edges.length].join(":");
+          const changed = sig !== lastSnapshotSig;
+          lastSnapshotSig = sig;
+          latestPayload = j;
+          if (changed) {
+            if (!selectedId || !nodes.some(function (n) { return n.node_id === selectedId; })) {
+              selectedId = pickDefaultNode(nodes);
+            }
+            rebuildScene(j);
+            renderNodePanel();
+          } else {
+            renderNodePanel();
+          }
+        })
+        .catch(function (e) {
+          document.getElementById("graph-meta").textContent = "fetch: " + e;
         });
-        el.textContent = lines.join("\n");
-        meta.textContent = "строк: " + rows.length;
-      }
+    }
 
-      function renderPag(data) {
-        const root = document.getElementById("pag-nodes");
-        const meta = document.getElementById("pag-meta");
-        root.innerHTML = "";
-        if (!data || data.ok === false) {
-          root.innerHTML = "<p class=\"err\">" + (data && data.error ? data.error : "slice failed") + "</p>";
-          meta.textContent = namespace ? ("namespace=" + namespace) : "";
-          return;
-        }
-        meta.textContent = "namespace=" + (data.namespace || "") + " graph_rev=" + String(data.graph_rev || "");
-        const nodes = data.nodes || [];
-        if (!nodes.length) {
-          root.innerHTML = "<p class=\"meta\">(нет узлов в этом срезе)</p>";
-          return;
-        }
-        nodes.forEach(function (n) {
-          const d = document.createElement("div");
-          d.className = "node";
-          d.innerHTML =
-            "<div class=\"id\">" + (n.node_id || "") + " · " + (n.level || "") + "</div>" +
-            "<div class=\"path\">" + (n.path || "") + "</div>" +
-            "<div class=\"id\">" + (n.title || "") + "</div>";
-          root.appendChild(d);
+    document.querySelectorAll(".tab").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const id = btn.getAttribute("data-tab");
+        document.querySelectorAll(".tab").forEach(function (b) {
+          b.classList.toggle("active", b === btn);
+          b.setAttribute("aria-selected", b === btn ? "true" : "false");
         });
-      }
-
-      function pollTrace() {
-        fetch("/api/trace")
-          .then(function (r) { return r.json(); })
-          .then(function (j) { renderTrace(j.rows || []); })
-          .catch(function (e) {
-            document.getElementById("trace-out").textContent = "fetch error: " + e;
+        document.querySelectorAll(".panel").forEach(function (p) {
+          p.classList.toggle("active", p.id === "panel-" + id);
+        });
+        if (id === "graph" && renderer) {
+          requestAnimationFrame(function () {
+            const host = document.getElementById("canvas-host");
+            const canvas = document.getElementById("viz-canvas");
+            if (camera && host && canvas) {
+              const w = host.clientWidth;
+              const h = host.clientHeight;
+              if (w > 2 && h > 2) {
+                camera.aspect = w / h;
+                camera.updateProjectionMatrix();
+                renderer.setSize(w, h, false);
+              }
+            }
           });
-      }
-
-      function pollPag() {
-        var q = "/api/pag-slice?node_offset=0";
-        if (namespace) {
-          q += "&namespace=" + encodeURIComponent(namespace);
         }
-        fetch(q)
-          .then(function (r) { return r.json(); })
-          .then(renderPag)
-          .catch(function (e) {
-            document.getElementById("pag-nodes").innerHTML =
-              "<p class=\"err\">fetch error: " + e + "</p>";
-          });
-      }
+      });
+    });
 
-      pollTrace();
-      pollPag();
-      setInterval(pollTrace, 900);
-      setInterval(pollPag, 3200);
-    })();
+    pollPag();
+    setInterval(pollPag, POLL_MS);
   </script>
 </body>
 </html>
