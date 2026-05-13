@@ -116,6 +116,16 @@ def _payload_memory_init_flag(payload: Mapping[str, Any]) -> bool:
     return bool(payload.get("memory_init") is True)
 
 
+def _payload_memory_init_round(payload: Mapping[str, Any]) -> int:
+    """Номер continuation-раунда ``memory init`` (0 — первый ``handle``)."""
+    raw = payload.get("memory_init_round", 0)
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(n, 100_000))
+
+
 def _memory_cancel_slot_register(
     query_id: str,
 ) -> tuple[threading.Event, Callable[[], None]]:
@@ -1783,6 +1793,9 @@ class AgentMemoryWorker:
                     query_kind=query_kind,
                     level=level,
                     memory_init=memory_init,
+                    memory_init_round=_payload_memory_init_round(
+                        req.payload,
+                    ),
                 )
             except MemoryQueryCancelledError:
                 return make_response_envelope(

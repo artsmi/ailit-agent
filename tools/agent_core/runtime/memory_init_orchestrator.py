@@ -471,6 +471,7 @@ class MemoryInitOrchestrator:
                             {"project_id": "memory_init", "namespace": ns},
                         ],
                         "memory_init": True,
+                        "memory_init_round": int(round_idx),
                     },
                     now=RuntimeNow(),
                 )

@@ -331,6 +331,7 @@ class AgentMemoryQueryPipeline:
         query_kind: str,
         level: str,
         memory_init: bool = False,
+        memory_init_round: int = 0,
     ) -> AgentMemoryQueryPipelineResult:
         nspace = str(req.namespace or self._w._cfg.namespace)  # noqa: SLF001
         hold_raw = os.environ.get(
@@ -678,6 +679,7 @@ class AgentMemoryQueryPipeline:
                 nspace=nspace,
                 explicit_paths=explicit_paths,
                 memory_init=memory_init,
+                memory_init_round=memory_init_round,
             )
         return self._partial_json_fallback(
             req=req,
@@ -1276,6 +1278,7 @@ class AgentMemoryQueryPipeline:
         nspace: str,
         explicit_paths: list[str],
         memory_init: bool,
+        memory_init_round: int = 0,
     ) -> AgentMemoryQueryPipelineResult:
         """
         W14 action runtime: execute plan_traversal actions deterministically.
@@ -1303,6 +1306,7 @@ class AgentMemoryQueryPipeline:
             nspace=nspace,
             explicit_paths=explicit_paths,
             memory_init=memory_init,
+            memory_init_round=memory_init_round,
         )
 
     def _runtime_limits(self) -> W14RuntimeLimits:
@@ -1337,6 +1341,7 @@ class AgentMemoryQueryPipeline:
         nspace: str,
         explicit_paths: list[str],
         memory_init: bool,
+        memory_init_round: int = 0,
     ) -> AgentMemoryQueryPipelineResult:
         limits = self._runtime_limits()
         root = Path(str(project_root or "")).expanduser().resolve()
@@ -1348,7 +1353,53 @@ class AgentMemoryQueryPipeline:
             explicit_paths=explicit_paths,
             limits=limits,
             memory_init=memory_init,
+            memory_init_round=memory_init_round,
         )
+        lim_b = limits.max_selected_b
+        bfs_tail = max(0, memory_init_round) * lim_b
+        if (
+            memory_init
+            and memory_init_round > 0
+            and not self._bfs_path_slice(root, skip=bfs_tail, limit=1)
+        ):
+            ms0 = self._w._slice_from_pag(  # noqa: SLF001
+                project_root=project_root,
+                namespace=nspace,
+                goal=goal,
+                query_kind=query_kind,
+                level=level,
+            )
+            ms_quick: dict[str, Any] = dict(
+                ms0
+                or {
+                    "kind": "memory_slice",
+                    "schema": "memory.slice.v1",
+                    "level": level,
+                    "node_ids": [],
+                    "edge_ids": [],
+                    "injected_text": (goal[:400] + "\n") if goal else "\n",
+                    "estimated_tokens": 0,
+                    "staleness": "memory_init_exhausted",
+                    "reason": "memory_init_bfs_tail_empty",
+                },
+            )
+            ms_quick["partial"] = False
+            return AgentMemoryQueryPipelineResult(
+                memory_slice=ms_quick,
+                partial=False,
+                decision_summary=(
+                    "memory_init: all files in BFS traversal processed"
+                ),
+                recommended_next_step="",
+                created_node_ids=[],
+                created_edge_ids=[],
+                used_llm=True,
+                llm_disabled_fallback=False,
+                am_v1_explicit_results=[],
+                am_v1_status="complete",
+                w14_graph_highlight_deferred=None,
+                runtime_partial_reasons=(),
+            )
         with store.graph_trace(
             self._w._graph_trace_hook(  # noqa: SLF001
                 req,
@@ -1536,7 +1587,10 @@ class AgentMemoryQueryPipeline:
         explicit_paths: Sequence[str],
         limits: W14RuntimeLimits,
         memory_init: bool,
+        memory_init_round: int = 0,
     ) -> list[str]:
+        max_b = limits.max_selected_b
+        bfs_skip = (max(0, memory_init_round) * max_b) if memory_init else 0
         selected: list[str] = []
         for raw in explicit_paths:
             rel = _norm_rel_path(str(raw))
@@ -1556,10 +1610,13 @@ class AgentMemoryQueryPipeline:
         if not selected:
             use_walk = memory_init or _looks_like_full_repo_goal(goal)
             if use_walk:
-                max_b = limits.max_selected_b
                 if memory_init:
                     selected.extend(
-                        self._walk_project_files_bfs(root, limit=max_b),
+                        self._bfs_path_slice(
+                            root,
+                            skip=bfs_skip,
+                            limit=max_b,
+                        ),
                     )
                 else:
                     selected.extend(
@@ -1568,8 +1625,11 @@ class AgentMemoryQueryPipeline:
             else:
                 selected.extend(self._first_level_files(root))
         if memory_init:
-            max_b = limits.max_selected_b
-            bfs_paths = self._walk_project_files_bfs(root, limit=max_b)
+            bfs_paths = self._bfs_path_slice(
+                root,
+                skip=bfs_skip,
+                limit=max_b,
+            )
             seen_m: set[str] = set()
             merged: list[str] = []
             for rel in bfs_paths:
@@ -1624,13 +1684,11 @@ class AgentMemoryQueryPipeline:
         return out
 
     @staticmethod
-    def _walk_project_files_bfs(root: Path, *, limit: int) -> list[str]:
-        """BFS по файлам: раньше покрываются все верхнеуровневые деревья.
-
-        DFS при лимите ``max_selected_b`` может исчерпать квоту на одном
-        поддереве (например ``include/``) и не дойти до ``src/``; тогда
-        ``memory init`` зацикливается на одном подграфе PAG.
-        """
+    def _bfs_path_slice(root: Path, *, skip: int, limit: int) -> list[str]:
+        """BFS-упорядочивание файлов: сдвиг ``skip``, затем до ``limit``."""
+        if limit <= 0:
+            return []
+        sk = max(0, skip)
         ignore = {
             ".git",
             ".hg",
@@ -1645,6 +1703,18 @@ class AgentMemoryQueryPipeline:
             ".mypy_cache",
         }
         out: list[str] = []
+        gidx = -1
+
+        def _offer(rel: str) -> bool:
+            nonlocal gidx
+            gidx += 1
+            if gidx < sk:
+                return True
+            if len(out) >= limit:
+                return False
+            out.append(rel)
+            return len(out) < limit
+
         root = root.resolve()
         q: deque[Path] = deque()
         try:
@@ -1656,12 +1726,11 @@ class AgentMemoryQueryPipeline:
                 if p.is_dir():
                     q.append(p)
                 elif p.is_file():
-                    out.append(p.relative_to(root).as_posix())
-                    if len(out) >= limit:
+                    if not _offer(p.relative_to(root).as_posix()):
                         return out
         except OSError:
             return out
-        while q and len(out) < limit:
+        while q:
             dirpath = q.popleft()
             try:
                 entries = sorted(dirpath.iterdir(), key=lambda x: x.name)
@@ -1675,13 +1744,26 @@ class AgentMemoryQueryPipeline:
                     continue
                 if p.is_file():
                     rel = p.resolve().relative_to(root).as_posix()
-                    out.append(rel)
-                    if len(out) >= limit:
+                    if not _offer(rel):
                         return out
                 elif p.is_dir():
                     subdirs.append(p)
             q.extend(subdirs)
         return out
+
+    @staticmethod
+    def _walk_project_files_bfs(root: Path, *, limit: int) -> list[str]:
+        """BFS по файлам: раньше покрываются все верхнеуровневые деревья.
+
+        DFS при лимите ``max_selected_b`` может исчерпать квоту на одном
+        поддереве (например ``include/``) и не дойти до ``src/``; тогда
+        ``memory init`` зацикливается на одном подграфе PAG.
+        """
+        return AgentMemoryQueryPipeline._bfs_path_slice(
+            root,
+            skip=0,
+            limit=limit,
+        )
 
     @staticmethod
     def _first_level_files(root: Path) -> list[str]:
