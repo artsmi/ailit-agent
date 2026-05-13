@@ -53,7 +53,7 @@
 - Ветка `chat_logs_enabled: false`: что отключается на диске, что остаётся активным; известный IPC roundtrip `broker_connect` без записи файла.
 - PAG: rev mismatch warning (дословный шаблон), «тяжёлый merged» warning, `loadState` остаётся не `error` для rev mismatch.
 - Main IPC hotspots: `pag-slice`, полное чтение durable trace, полное чтение memory journal, частый `JSON.parse` на live trace, `brokerJsonRequest`.
-- Диагностический контракт OR-D6: обязательные измерения и корреляции **как требования к будущей реализации**, без утверждения, что код уже содержит все таймеры.
+- Диагностический контракт OR-D6: таблица метрик в § Observability; **основные строки compact-логов реализованы в продукте** (слайс G19.1, см. «Где в коде» в том же разделе). Постмортем по-прежнему не закрывает единственный root cause без корреляции измерений.
 
 ### Out of scope
 
@@ -120,7 +120,7 @@ PAG: в merged <N> нод (><лимит>). Срез тяжёлый; исполь
 
 ### Example 2: Partial / «Freeze» Without Single Root Cause
 
-Пользователь с `memory.debug.chat_logs_enabled: false` отправляет запрос в большой сессии. Окно **не отвечает** на ввод несколько секунд (пользователь описывает как «полный freeze»). Файлы `ailit-desktop-*.log` **не** растут (ветка `skipped` на main). При этом в trace идёт высокочастотный поток строк; в профиле (после внедрения OR-D6) видно либо длинные кадры renderer после каждого `mergeRows`, либо очередь тяжёлых IPC на main (`pag-slice`, чтение большого JSONL), либо `brokerRequest` близко к таймауту.
+Пользователь с `memory.debug.chat_logs_enabled: false` отправляет запрос в большой сессии. Окно **не отвечает** на ввод несколько секунд (пользователь описывает как «полный freeze»). Файлы `ailit-desktop-*.log` **не** растут (ветка `skipped` на main). При этом в trace идёт высокочастотный поток строк; в консоли или профиле по строкам OR-D6 видно либо длинные кадры renderer после каждого `mergeRows`, либо очередь тяжёлых IPC на main (`pag-slice`, чтение большого JSONL), либо `brokerRequest` близко к таймауту.
 
 **Проверка:** диагностический отчёт содержит **корреляцию** хотя бы двух метрик (например, trace rows/s и p95 длительности кадра renderer, или длительность `pagGraphSlice` и overlap с временем freeze). Документ или постмортем **не** заключает «причина — выключенные логи» без показа активных путей trace/PAG/broker.
 
@@ -171,34 +171,44 @@ PAG: в merged <N> нод (><лимит>). Срез тяжёлый; исполь
 3. Наблюдать: рост файлов в chat_logs **отсутствует**; при этом trace/PAG/broker остаются активными (симптом freeze **не** доказывается отсутствием файлов).
 4. При появлении жёлтой полосы PAG — убедиться, что текст соответствует канону rev mismatch; выполнить Refresh и зафиксировать, исчезло ли предупреждение согласно правилам reconcile.
 
-**Expected:** воспроизводимость сценария с измерениями OR-D6 (после их внедрения в продукте) или зафиксированный blocker окружения (`blocked_by_environment`), если профилирование невозможно.
+**Expected:** воспроизводимость сценария с корреляцией по строкам OR-D6 из консоли (измерения G19.1 в `desktop/`) или зафиксированный blocker окружения (`blocked_by_environment`), если профилирование невозможно.
 
 ### Automated / dev (reference)
 
 - Существующие unit-тесты в дереве `desktop/`: `chatTraceProjector.test.ts`, `pagGraphSessionStore.test.ts`, `pagGraphTraceDeltas.test.ts`, `loadPagGraphMerged.test.ts`.
+- OR-D6 (G19.1): `desktopSessionDiagnosticLog.test.ts`, `desktopSessionTraceThroughputWindow.test.ts` (форматтеры broker/trace и окно throughput).
 - **Отсутствует** по фактам исследования: интеграционный тест «sendUserPrompt + длинный trace + freeze метрика» — не требовать как уже существующий в каноне.
 
 ## Observability и диагностический контракт (OR-D6)
 
 ### Технический контракт
 
-**Обязательные корреляции для локализации freeze (требования к будущей реализации; минимум один релиз slice из плана):**
+**Обязательные корреляции для локализации freeze (контракт OR-D6):** ниже — нормативные поля; **в коде Desktop** строки `event=…` для первых трёх строк и бюджета кадра эмитятся в G19.1 (см. «Где в коде»). Счётчик `pairlog_ipc_calls_total` из таблицы **ещё не** задан как отдельное compact-событие.
 
 | Метрика / событие | Где измерять | Required fields / правило |
 |-------------------|--------------|---------------------------|
 | Длительность `brokerRequest` (IPC roundtrip) | Renderer → main | `duration_ms` (number), `chat_id` или session key (string), `outcome` enum: `ok\|timeout\|error` |
 | Счётчик live trace rows | Renderer | `trace_rows_per_sec` скользящее окно; `rawTraceRows_length` (integer) на событие или раз в секунду |
-| Длительность / размер `pagGraphSlice` | Main (и при необходимости renderer await) | Уже существующие compact-события `desktop.pag_slice.requested\|completed\|error` — сохранить; добавить `duration_ms`, `payload_bytes` или `stdout_chars` **bounded** (без полного JSON в лог) |
+| Длительность / размер `pagGraphSlice` | Main (и при необходимости renderer await) | Compact `desktop.pag_slice.requested\|completed\|error`: `duration_ms`, `payload_bytes` **bounded** (без полного JSON в лог); скаляр размера stdout — тип `stdoutByteLength` в `pagGraphBridge`, не тело stdout |
 | Pair-log IPC | Renderer/main | При `chat_logs_enabled: false`: логировать факт `skipped: true` **не** обязательно для каждого вызова; для диагностики `broker_connect` — один счётчик `pairlog_ipc_calls_total` с breakdown `skipped_true` |
 | Renderer frame budget | Renderer | `longtask_duration_ms` (если доступно через PerformanceObserver) **или** `raf_gap_ms` p95 за окно во время активного trace |
 
 **Forbidden в compact логах:** полный stdout `pag-slice`; полное содержимое `rawTraceRows`; raw prompts; секреты.
 
-**Default:** пока метрики не внедрены, постмортем **обязан** помечать gap `verification_gap` и не закрывать тикет как «доказанный root cause» только по гипотезе.
+**Default для постмортема:** даже при наличии строк OR-D6 в консоли документ **обязан** фиксировать корреляцию хотя бы двух сигналов (см. примеры §Examples) и помечать `verification_gap`, если нет живого smoke (ручной сценарий Commands) или полного repo-gate без отдельного прогона.
 
-### Уже существующие якоря (по коду `desktop/`)
+**Граница с D-OBS-1:** whitelist в [`../../proto/runtime-event-contract.md`](../../proto/runtime-event-contract.md) описывает compact-топики журнала **AgentWork ↔ AgentMemory**; строки `desktop.session.*` / `desktop.pag_slice.*` идут в **console** main/renderer (FC-3 в `desktopSessionDiagnosticLog.ts`), это отдельный канал.
 
-- Main: `desktop.pag_slice.requested`, `completed`, `error`.
+### Где в коде (слайс G19.1)
+
+- Renderer: `desktop/src/renderer/runtime/desktopSessionDiagnosticLog.ts` — `formatDesktopSessionBrokerRequestLine`, `formatDesktopSessionTraceMergeLine`, `emitDesktopSessionCompactInfo`; константы `DESKTOP_SESSION_BROKER_REQUEST_EVENT`, `DESKTOP_SESSION_TRACE_MERGE_EVENT`; скользящее окно `desktopSessionTraceThroughputWindow.ts`; бюджет кадра `desktopSessionRendererBudgetTelemetry.ts`; обёртка и throttle в `DesktopSessionContext.tsx` (`invokeBrokerRequestObserved`, merge trace).
+- Main: `desktop/src/main/registerIpc.ts` — `logDesktopPagSliceRequested`, `logDesktopPagSliceCompleted`, `logDesktopPagSliceError` (`event=desktop.pag_slice.*`).
+- CLI bridge: `desktop/src/main/pagGraphBridge.ts` — `runPagGraphSliceWithStdoutMetrics`, поле `stdoutByteLength`.
+
+### Уже существующие якоря (по коду `desktop/`, обновлено)
+
+- Main: `desktop.pag_slice.requested`, `completed`, `error` (поля см. `registerIpc.ts`).
+- Renderer: `desktop.session.broker_request`, `desktop.session.trace_merge` (поля см. `desktopSessionDiagnosticLog.ts`).
 - Pair-log: `desktop.pairlog.append`, `desktop.pairlog.append_failed` (при успешной записи; при `skipped` — тихий путь).
 - PAG merge debug (renderer): события вида `merge_after_incremental`, `merge_pag_delta`, replay start/end — **активны только когда включён путь graph debug / pair writes**; при `chat_logs_enabled: false` часть каналов отключена, trace через `appendTraceRow` остаётся.
 

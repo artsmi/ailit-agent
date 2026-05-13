@@ -9,7 +9,7 @@ import { resolveAgentMemoryChatLogsRoot, resolveChatLogSessionPaths } from "./ag
 import { readAgentMemoryChatLogsEnabled } from "./agentMemoryYamlFlags";
 import { defaultRuntimeDir, safeChatIdForTraceFile, supervisorSocketPath } from "./defaultRuntimeDir";
 import { listProjectRegistry } from "./projectRegistryBridge";
-import { runPagGraphSlice, type PagGraphSliceResult } from "./pagGraphBridge";
+import { runPagGraphSliceWithStdoutMetrics, type PagGraphSliceResult } from "./pagGraphBridge";
 import { readDurableTraceRows } from "./readTraceJsonl";
 import { supervisorJsonRequest } from "./supervisorSocket";
 import { traceSubscribe, traceUnsubscribe } from "./traceSocketPool";
@@ -45,6 +45,7 @@ function logDesktopPagSliceRequested(p: {
 }): void {
   const ns: string = p.namespace.replace(/\s+/g, " ").trim();
   const lvl: string = p.level === null || p.level === "" ? "null" : p.level.replace(/\s+/g, " ").trim();
+  // C3: bounded chat/session в requested только при наличии id в IPC args — в G19.1 недоступно без расширения IPC.
   console.info(
     `timestamp=${p.isoTimestamp}\tevent=desktop.pag_slice.requested\t` +
       `namespace=${ns}\tdb_path_set=${p.dbPathSet ? "true" : "false"}\tlevel=${lvl}\t` +
@@ -56,6 +57,7 @@ function logDesktopPagSliceRequested(p: {
 function logDesktopPagSliceCompleted(p: {
   readonly isoTimestamp: string;
   readonly durationMs: number;
+  readonly payloadBytes: number;
   readonly nodeCount: number;
   readonly edgeCount: number;
   readonly hasMoreNodes: boolean;
@@ -63,7 +65,8 @@ function logDesktopPagSliceCompleted(p: {
 }): void {
   console.info(
     `timestamp=${p.isoTimestamp}\tevent=desktop.pag_slice.completed\t` +
-      `duration_ms=${String(p.durationMs)}\tnode_count=${String(p.nodeCount)}\t` +
+      `duration_ms=${String(p.durationMs)}\tpayload_bytes=${String(p.payloadBytes)}\t` +
+      `node_count=${String(p.nodeCount)}\t` +
       `edge_count=${String(p.edgeCount)}\t` +
       `has_more_nodes=${p.hasMoreNodes ? "true" : "false"}\t` +
       `has_more_edges=${p.hasMoreEdges ? "true" : "false"}`
@@ -73,12 +76,14 @@ function logDesktopPagSliceCompleted(p: {
 function logDesktopPagSliceError(p: {
   readonly isoTimestamp: string;
   readonly durationMs: number;
+  readonly payloadBytes: number;
   readonly errorCode: string;
   readonly errorMessage: string;
 }): void {
+  const pb: string = p.payloadBytes > 0 ? `\tpayload_bytes=${String(p.payloadBytes)}` : "";
   console.warn(
     `timestamp=${p.isoTimestamp}\tevent=desktop.pag_slice.error\t` +
-      `duration_ms=${String(p.durationMs)}\terror_code=${p.errorCode}\t` +
+      `duration_ms=${String(p.durationMs)}${pb}\terror_code=${p.errorCode}\t` +
       `error=${compactMainIpcObsErrorMessage(p.errorMessage)}`
   );
 }
@@ -296,7 +301,7 @@ export function registerIpcHandlers(): void {
         edgeLimit: params.edgeLimit,
         edgeOffset: params.edgeOffset
       });
-      const result: PagGraphSliceResult = await runPagGraphSlice({
+      const { result, stdoutByteLength } = await runPagGraphSliceWithStdoutMetrics({
         namespace: params.namespace,
         dbPath: params.dbPath,
         level: params.level,
@@ -311,6 +316,7 @@ export function registerIpcHandlers(): void {
         logDesktopPagSliceCompleted({
           isoTimestamp: endedAt,
           durationMs,
+          payloadBytes: stdoutByteLength,
           nodeCount: result.nodes.length,
           edgeCount: result.edges.length,
           hasMoreNodes: result.has_more.nodes,
@@ -320,6 +326,7 @@ export function registerIpcHandlers(): void {
         logDesktopPagSliceError({
           isoTimestamp: endedAt,
           durationMs,
+          payloadBytes: stdoutByteLength,
           errorCode: result.code ?? "unknown",
           errorMessage: result.error
         });

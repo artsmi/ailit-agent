@@ -109,6 +109,15 @@ cd desktop && npx vitest run \
 
 **Связь с Python:** `tests/test_pag_slice_caps_alignment.py` — выравнивание чисел с `tools/agent_core/memory/pag_slice_caps.py` и `desktop/.../pagGraphLimits.ts`. W14 / broker UC 2.4 — строки выше в разделе pytest.
 
+### План 19 / OR-D6 (Vitest, вне обязательного gate §5.0)
+
+| Путь | Содержание |
+|------|------------|
+| `desktop/src/renderer/runtime/desktopSessionDiagnosticLog.test.ts` | Формат compact `desktop.session.broker_request` (и смежные утилиты карты outcome). |
+| `desktop/src/renderer/runtime/desktopSessionTraceThroughputWindow.test.ts` | Скользящее окно `trace_rows_per_sec` для throttled `desktop.session.trace_merge`. |
+
+Прогон: `cd desktop && npm run test` (или целевой `npx vitest run` по этим файлам). Финальный gate слайса G19.1 по артефакту **11**: `npm run test`, `npm run typecheck`, `npm run lint` в `desktop/` — см. `context/artifacts/test_report.md`.
+
 Другие Vitest-файлы в пакете `desktop` (ledger, shell, state и т.д.) **не входят** в этот gate; при изменении контрактов §5.0 gate расширяют осознанно и обновляют эту таблицу и команду.
 
 **Связанные разделы:** [`../INDEX.md`](../INDEX.md), [`../start/INDEX.md`](../start/INDEX.md), [`../proto/INDEX.md`](../proto/INDEX.md), [`../arch/INDEX.md`](../arch/INDEX.md), [`../modules/INDEX.md`](../modules/INDEX.md).

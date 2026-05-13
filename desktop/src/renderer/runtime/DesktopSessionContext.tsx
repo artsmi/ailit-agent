@@ -4,7 +4,13 @@ import {
   resolveRegistryProjectChain,
   supervisorCreateOrGetBrokerParamsFromChain
 } from "@shared/brokerHandshakePayload";
-import type { DesktopConfigSnapshot, ProjectRegistryEntry, RuntimeResponseEnvelope } from "@shared/ipc";
+import type {
+  BrokerRequestResult,
+  DesktopConfigSnapshot,
+  ProjectRegistryEntry,
+  RuntimeRequestEnvelope,
+  RuntimeResponseEnvelope
+} from "@shared/ipc";
 
 import { DEFAULT_AGENT_MANIFEST_V1 } from "../state/agentManifest";
 import {
@@ -60,6 +66,14 @@ import {
   type PagGraphTraceMergeEmitHooks
 } from "./pagGraphSessionStore";
 import { DesktopGraphPairLogWriter } from "./desktopGraphPairLogWriter";
+import {
+  emitDesktopSessionCompactInfo,
+  formatDesktopSessionBrokerRequestLine,
+  formatDesktopSessionTraceMergeLine,
+  mapBrokerRequestOutcome
+} from "./desktopSessionDiagnosticLog";
+import { RendererBudgetTelemetry } from "./desktopSessionRendererBudgetTelemetry";
+import { TraceRowsPerSecondSlidingWindow } from "./desktopSessionTraceThroughputWindow";
 import { dedupKeyForRow, type NormalizedTraceProjection } from "./traceNormalize";
 import { newMessageId } from "./uuid";
 import { BrokerTraceUserTurnResolver } from "./userTurnIdFromTrace";
@@ -313,6 +327,18 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const [registry, setRegistry] = React.useState<readonly ProjectRegistryEntry[]>([]);
   const [rawTraceRows, setRawTraceRows] = React.useState<Record<string, unknown>[]>([]);
   const rawTraceRowsRef: React.MutableRefObject<Record<string, unknown>[]> = React.useRef<Record<string, unknown>[]>([]);
+  const traceRowsLengthObsRef: React.MutableRefObject<number> = React.useRef<number>(0);
+  const traceRateWindowRef: React.MutableRefObject<TraceRowsPerSecondSlidingWindow> = React.useRef(
+    new TraceRowsPerSecondSlidingWindow()
+  );
+  const rendererBudgetTelemetryRef: React.MutableRefObject<RendererBudgetTelemetry> = React.useRef(
+    new RendererBudgetTelemetry(3000)
+  );
+  const brokerInFlightRef: React.MutableRefObject<boolean> = React.useRef<boolean>(false);
+  const activeSessionRef: React.MutableRefObject<ChatSessionRecordV1> = React.useRef<ChatSessionRecordV1>(
+    null as unknown as ChatSessionRecordV1
+  );
+  const lastTraceMergeLogMsRef: React.MutableRefObject<number> = React.useRef<number>(0);
   const [pagGraphBySession, setPagGraphBySession] = React.useState<Record<string, PagGraphSessionSnapshot>>({});
   const pagGraphBySessionRef: React.MutableRefObject<Record<string, PagGraphSessionSnapshot>> =
     React.useRef<Record<string, PagGraphSessionSnapshot>>({});
@@ -352,6 +378,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     return ui.sessions.find((s) => s.id === ui.activeSessionId) ?? ui.sessions[0]!;
   }, [ui.sessions, ui.activeSessionId]);
 
+  activeSessionRef.current = activeSession;
+
   activeChatIdRef.current = activeSession.chatId;
 
   const pairLogWriterRef: React.MutableRefObject<DesktopGraphPairLogWriter | null> =
@@ -379,6 +407,18 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   React.useEffect((): void => {
     rawTraceRowsRef.current = rawTraceRows;
   }, [rawTraceRows]);
+
+  React.useEffect((): void => {
+    traceRowsLengthObsRef.current = rawTraceRows.length;
+  }, [rawTraceRows.length]);
+
+  React.useEffect((): (() => void) => {
+    const telemetry: RendererBudgetTelemetry = rendererBudgetTelemetryRef.current;
+    telemetry.mount();
+    return (): void => {
+      telemetry.unmount();
+    };
+  }, []);
 
   const pagNamespaces: readonly string[] = React.useMemo(
     (): readonly string[] => PagGraphWorkspaceNamespaces.list(registry, activeSession.projectIds),
@@ -422,6 +462,33 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     });
   }, [optimisticChatLines, traceProjection.chatLines]);
   const agentTurnInProgress: boolean = traceProjection.agentTurnInProgress || optimisticChatLines.length > 0;
+  const agentTurnInProgressRef: React.MutableRefObject<boolean> = React.useRef<boolean>(false);
+  React.useEffect((): void => {
+    agentTurnInProgressRef.current = agentTurnInProgress;
+  }, [agentTurnInProgress]);
+
+  React.useEffect((): (() => void) => {
+    if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+      return (): void => {};
+    }
+    let cancelled: boolean = false;
+    let id: number = 0;
+    const loop = (t: number): void => {
+      if (cancelled) {
+        return;
+      }
+      const traceActive: boolean = brokerInFlightRef.current || agentTurnInProgressRef.current;
+      rendererBudgetTelemetryRef.current.onAnimationFrame(t, traceActive);
+      if (!cancelled) {
+        id = window.requestAnimationFrame(loop);
+      }
+    };
+    id = window.requestAnimationFrame(loop);
+    return (): void => {
+      cancelled = true;
+      window.cancelAnimationFrame(id);
+    };
+  }, []);
   const brokerMemoryRecallActive: boolean = React.useMemo(
     (): boolean => projectBrokerMemoryRecallActive(rawTraceRows, activeSession.chatId),
     [rawTraceRows, activeSession.chatId]
@@ -726,6 +793,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       next.forEach((r, i) => {
         byKey.set(dedupKeyForRow(r), i);
       });
+      let appended: number = 0;
       for (const r of rows) {
         const k: string = dedupKeyForRow(r);
         if (seenRowKeys.current.has(k)) {
@@ -737,8 +805,26 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           seenRowKeys.current.add(k);
           next.push(r);
           byKey.set(k, next.length - 1);
+          appended += 1;
         }
       }
+      traceRowsLengthObsRef.current = next.length;
+      const snapLen: number = next.length;
+      const snapAppended: number = appended;
+      queueMicrotask((): void => {
+        const nowMs: number = performance.now();
+        const rate: number = traceRateWindowRef.current.recordMerge(snapAppended, nowMs);
+        if (nowMs - lastTraceMergeLogMsRef.current >= 1000) {
+          lastTraceMergeLogMsRef.current = nowMs;
+          emitDesktopSessionCompactInfo(
+            formatDesktopSessionTraceMergeLine({
+              isoTimestamp: new Date().toISOString(),
+              rawTraceRowsLength: snapLen,
+              traceRowsPerSec: rate
+            })
+          );
+        }
+      });
       return next;
     });
   }, []);
@@ -777,6 +863,42 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       roots: chain.map((r) => r.projectRoot)
     };
   }, [desktopConfig?.highlight_namespace_policy, registry, selectedProjectIds]);
+
+  const invokeBrokerRequestObserved: (
+    brokerOp: string,
+    ep: string,
+    request: RuntimeRequestEnvelope
+  ) => Promise<BrokerRequestResult> = React.useCallback(
+    async (brokerOp, ep, request): Promise<BrokerRequestResult> => {
+      brokerInFlightRef.current = true;
+      const t0: number = performance.now();
+      try {
+        const r: BrokerRequestResult = await window.ailitDesktop.brokerRequest({ endpoint: ep, request });
+        const t1: number = performance.now();
+        const sess: ChatSessionRecordV1 = activeSessionRef.current;
+        const budget = rendererBudgetTelemetryRef.current.consumeForDiagnostic(t1);
+        emitDesktopSessionCompactInfo(
+          formatDesktopSessionBrokerRequestLine({
+            isoTimestamp: new Date().toISOString(),
+            durationMs: t1 - t0,
+            outcome: mapBrokerRequestOutcome(r),
+            chatId: sess.chatId,
+            sessionUi: sess.id,
+            brokerOp,
+            rawTraceRowsLength: traceRowsLengthObsRef.current,
+            traceRowsPerSec: traceRateWindowRef.current.recordMerge(0, t1),
+            rendererBudgetSource: budget.renderer_budget_source,
+            longtaskDurationMs: budget.longtask_duration_ms,
+            rafGapMsP95: budget.raf_gap_ms_p95
+          })
+        );
+        return r;
+      } finally {
+        brokerInFlightRef.current = false;
+      }
+    },
+    []
+  );
 
   const refreshStatus: () => Promise<void> = React.useCallback(async () => {
     const st: unknown = await window.ailitDesktop.supervisorStatus();
@@ -1022,7 +1144,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         }
       ]);
       const r: { readonly ok: true; readonly response: RuntimeResponseEnvelope } | { readonly ok: false; readonly error: string } =
-        await window.ailitDesktop.brokerRequest({ endpoint: ep, request: built.envelope });
+        await invokeBrokerRequestObserved("user_prompt", ep, built.envelope);
       if (!r.ok) {
         setOptimisticChatLines((cur) => cur.filter((line) => line.id !== userId));
         setLastError(r.error);
@@ -1053,7 +1175,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         ]);
       }
     },
-    [activeSession.chatId, brokerEndpoint, optimisticChatLines.length, pickWorkspace, rawTraceRows.length]
+    [activeSession.chatId, brokerEndpoint, invokeBrokerRequestObserved, optimisticChatLines.length, pickWorkspace, rawTraceRows.length]
   );
 
   const submitToolApproval: (approved: boolean) => Promise<void> = React.useCallback(
@@ -1092,7 +1214,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         approved
       });
       const r: { readonly ok: true; readonly response: RuntimeResponseEnvelope } | { readonly ok: false; readonly error: string } =
-        await window.ailitDesktop.brokerRequest({ endpoint: ep, request: built.envelope });
+        await invokeBrokerRequestObserved("tool_approval", ep, built.envelope);
       if (!r.ok) {
         finishUi(r.error);
         return;
@@ -1104,7 +1226,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       }
       finishUi(null);
     },
-    [activeSession.chatId, brokerEndpoint, pickWorkspace]
+    [activeSession.chatId, brokerEndpoint, invokeBrokerRequestObserved, pickWorkspace]
   );
 
   const submitPermModeChoice: (mode: string, rememberProject: boolean) => Promise<void> = React.useCallback(
@@ -1131,7 +1253,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         rememberProject
       });
       const r: { readonly ok: true; readonly response: RuntimeResponseEnvelope } | { readonly ok: false; readonly error: string } =
-        await window.ailitDesktop.brokerRequest({ endpoint: ep, request: built.envelope });
+        await invokeBrokerRequestObserved("perm_mode_choice", ep, built.envelope);
       if (!r.ok) {
         setLastError(r.error);
         return;
@@ -1140,7 +1262,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         setLastError(r.response.error?.message ?? "perm mode choice failed");
       }
     },
-    [activeSession.chatId, brokerEndpoint, permModeGateId, pickWorkspace]
+    [activeSession.chatId, brokerEndpoint, invokeBrokerRequestObserved, permModeGateId, pickWorkspace]
   );
 
   const requestStopAgent: () => Promise<void> = React.useCallback(async () => {
@@ -1165,7 +1287,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
           userTurnId
         });
         const cr: { readonly ok: true; readonly response: RuntimeResponseEnvelope } | { readonly ok: false; readonly error: string } =
-          await window.ailitDesktop.brokerRequest({ endpoint: ep, request: builtCancel.envelope });
+          await invokeBrokerRequestObserved("cancel_active_turn", ep, builtCancel.envelope);
         if (!cr.ok) {
           setLastError(cr.error);
         } else if (!cr.response.ok) {
@@ -1205,7 +1327,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     } finally {
       stopAgentInFlightRef.current = false;
     }
-  }, [activeSession.chatId, brokerEndpoint, connectToBroker, mergeRows, pickWorkspace, rawTraceRows, runtimeDir]);
+  }, [activeSession.chatId, brokerEndpoint, connectToBroker, invokeBrokerRequestObserved, mergeRows, pickWorkspace, rawTraceRows, runtimeDir]);
 
   React.useEffect(() => {
     const offRow: (() => void) | void = window.ailitDesktop.onTraceRow((evt) => {

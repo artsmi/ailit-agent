@@ -7,6 +7,9 @@
 # Local runtime store (default contract: project-local)
 .ailit/
 
+# Локальные бинарники агента (например ripgrep для прогона 11 без системного PATH)
+.local/
+
 # Локальная тестовая конфигурация (секреты); в git — только *.example
 config/test.local.yaml
 
