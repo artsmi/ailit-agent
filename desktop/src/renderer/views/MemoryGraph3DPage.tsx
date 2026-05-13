@@ -46,6 +46,10 @@ import {
   resolveMem3dLinkEdgeColors,
   type Mem3dLinkEdgeResolved
 } from "../runtime/memoryGraph3DResolvedColors";
+import {
+  Mem3dGraphRefreshGate,
+  type DesktopGraphRefreshReason
+} from "../runtime/pagGraphObservabilityCompact";
 
 type HighlightState = PagSearchHighlightV1 & {
   readonly startedAtMs: number;
@@ -151,6 +155,10 @@ type Mem3dFgPanelProps = {
   readonly usePerNodeNamespaceHighlight: boolean;
   readonly highlightsByNsRef: React.MutableRefObject<Record<string, HighlightState | null>>;
   readonly registerFg: (panelId: string, fg: ForceGraphMethods | undefined) => void;
+  readonly tryGraphRefresh: (
+    reason: DesktopGraphRefreshReason,
+    panels: readonly ForceGraphMethods[]
+  ) => boolean;
   readonly panelId: string;
   readonly noInitialAutoZoom: boolean;
   readonly edgeColorsFallback: Mem3dLinkEdgeResolved;
@@ -254,7 +262,14 @@ function Mem3dForceGraphPanel(p: Readonly<Mem3dFgPanelProps>): React.JSX.Element
       node.fz = z;
     }
     fg.pauseAnimation();
-    fg.refresh();
+    if (!p.tryGraphRefresh("scene", [fg])) {
+      window.requestAnimationFrame((): void => {
+        const g2: ForceGraphMethods | undefined = innerRef.current;
+        if (g2 !== undefined) {
+          p.tryGraphRefresh("scene", [g2]);
+        }
+      });
+    }
   }
 
   return (
@@ -459,8 +474,10 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
   const layoutHostRef = useRef<HTMLDivElement | null>(null);
   const highlightsByNsRef = useRef<Record<string, HighlightState | null>>({});
   const highlightFrameRef = useRef<number | null>(null);
-  const lastHighlightRefreshMsRef = useRef<number>(0);
-  const throttleNodeCountRef = useRef<number>(0);
+  const mem3dRefreshGateRef = useRef<Mem3dGraphRefreshGate | null>(null);
+  if (mem3dRefreshGateRef.current === null) {
+    mem3dRefreshGateRef.current = new Mem3dGraphRefreshGate();
+  }
   const fgRegistryRef = useRef<Map<string, ForceGraphMethods>>(new Map());
   const crossEdgesRef = useRef<readonly MemoryGraphLink[]>([]);
   const fDiagnosticSentRef = useRef<boolean>(false);
@@ -600,11 +617,6 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     return out;
   }, [mergedFromSnap, namespaces, graphDataKey, layoutKind, resolution, unifiedPrimaryNs]);
 
-  throttleNodeCountRef.current = layoutPanels.reduce(
-    (m, lp) => Math.max(m, lp.graphData.nodes.length),
-    0
-  );
-
   const cpMode = deriveCrossProjectDisplayMode({
     resolution,
     needsUserModal,
@@ -666,6 +678,17 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       fgRegistryRef.current.set(panelId, fg);
     }
   }, []);
+
+  const tryGraphRefresh = useCallback(
+    (reason: DesktopGraphRefreshReason, panels: readonly ForceGraphMethods[]): boolean => {
+      const gate: Mem3dGraphRefreshGate | null = mem3dRefreshGateRef.current;
+      if (gate === null) {
+        return false;
+      }
+      return gate.tryRefreshPanels(reason, panels);
+    },
+    []
+  );
 
   useEffect((): void => {
     setResolution("none");
@@ -797,9 +820,11 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
           const h2: number = Math.max(GRAPH_VIEWPORT_MIN_H, Math.floor(el2.clientHeight) || 560);
           if (w2 > 2 && h2 > 2) {
             window.requestAnimationFrame((): void => {
-              for (const fg of fgRegistryRef.current.values()) {
-                fg.refresh();
+              const gate: Mem3dGraphRefreshGate | null = mem3dRefreshGateRef.current;
+              if (gate === null) {
+                return;
               }
+              gate.tryRefreshPanels("resize", [...fgRegistryRef.current.values()]);
             });
           }
         }
@@ -831,9 +856,11 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       return;
     }
     window.requestAnimationFrame((): void => {
-      for (const fg of fgRegistryRef.current.values()) {
-        fg.refresh();
+      const gate: Mem3dGraphRefreshGate | null = mem3dRefreshGateRef.current;
+      if (gate === null) {
+        return;
       }
+      gate.tryRefreshPanels("layout", [...fgRegistryRef.current.values()]);
     });
   }, [s.memoryPanelOpen, layoutPanels, viewSize.w, viewSize.h, graphDataKey]);
 
@@ -870,38 +897,18 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
       window.cancelAnimationFrame(highlightFrameRef.current);
     }
     const tick = (): void => {
-      const n: number = throttleNodeCountRef.current;
-      const throttle: boolean = n > PAG_3D_HEAVY_GRAPH_NODE_THRESHOLD;
-      const minMs: number = n > PAG_3D_EXTREME_GRAPH_NODE_THRESHOLD ? 96 : 48;
+      const gate: Mem3dGraphRefreshGate | null = mem3dRefreshGateRef.current;
       const fgs: ForceGraphMethods[] = [...fgRegistryRef.current.values()];
-      const t: number = nowMs();
-      if (fgs.length > 0) {
-        if (throttle) {
-          if (t - lastHighlightRefreshMsRef.current < minMs) {
-            if (anyHighlightAlive(t)) {
-              highlightFrameRef.current = window.requestAnimationFrame(tick);
-              return;
-            }
-          } else {
-            lastHighlightRefreshMsRef.current = t;
-            for (const fg of fgs) {
-              fg.refresh();
-            }
-          }
-        } else {
-          lastHighlightRefreshMsRef.current = t;
-          for (const fg of fgs) {
-            fg.refresh();
-          }
-        }
+      if (fgs.length > 0 && gate !== null) {
+        gate.tryRefreshPanels("highlight", fgs);
       }
       if (anyHighlightAlive(nowMs())) {
         highlightFrameRef.current = window.requestAnimationFrame(tick);
         return;
       }
       pruneDeadHighlights();
-      for (const fg of fgs) {
-        fg.refresh();
+      if (fgs.length > 0 && gate !== null) {
+        gate.tryRefreshPanels("highlight", fgs);
       }
       highlightFrameRef.current = null;
     };
@@ -927,9 +934,21 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
     if (any) {
       runHighlightRefreshLoop();
     } else {
-      for (const fg of fgRegistryRef.current.values()) {
-        fg.refresh();
+      const gate: Mem3dGraphRefreshGate | null = mem3dRefreshGateRef.current;
+      if (gate === null) {
+        return;
       }
+      const flush = (): void => {
+        const fgs: ForceGraphMethods[] = [...fgRegistryRef.current.values()];
+        if (fgs.length === 0) {
+          return;
+        }
+        if (gate.tryRefreshPanels("highlight", fgs)) {
+          return;
+        }
+        window.requestAnimationFrame(flush);
+      };
+      flush();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- runHighlightRefreshLoop только refs
   }, [snap, namespaces, graphDataKey]);
@@ -1061,6 +1080,7 @@ export function MemoryGraph3DPage(p: Readonly<Mem3dProps> = {}): React.JSX.Eleme
                 usePerNodeNamespaceHighlight={layoutKind === "multi_unified"}
                 highlightsByNsRef={highlightsByNsRef}
                 registerFg={registerFg}
+                tryGraphRefresh={tryGraphRefresh}
                 panelId={lp.panelId}
                 noInitialAutoZoom={noInitialAutoZoom}
                 edgeColorsFallback={edgeColorsFallback}

@@ -17,6 +17,7 @@ import {
 } from "../runtime/memoryRecallUiPhaseProjection";
 import type { MemoryGraphData } from "../runtime/memoryGraphState";
 import type { PagGraphSessionSnapshot } from "../runtime/pagGraphSessionStore";
+import { Mem3dGraphRefreshGate } from "../runtime/pagGraphObservabilityCompact";
 import { MemoryGraph3DPage } from "./MemoryGraph3DPage";
 
 class ResizeObserverStub {
@@ -355,6 +356,63 @@ describe("MemoryGraph3DPage", () => {
       expect(id.startsWith("ailit:trace-conn-root:")).toBe(false);
     }
     expect(fg.getAttribute("data-mock-fg-link-count")).toBe("1");
+  });
+
+  it("TC-G4-REFRESH-ThrottleAggregatesSkips", () => {
+    let tBudget: number = 0;
+    const budgetEmits: Array<{
+      readonly skipped_calls: number | null;
+      readonly window_ms: number | null;
+      readonly refresh_calls: number;
+    }> = [];
+    const gateBudget: Mem3dGraphRefreshGate = new Mem3dGraphRefreshGate({
+      now: (): number => tBudget,
+      emit: (q: {
+        readonly refresh_calls: number;
+        readonly skipped_calls: number | null;
+        readonly window_ms: number | null;
+      }): void => {
+        budgetEmits.push({
+          skipped_calls: q.skipped_calls,
+          window_ms: q.window_ms,
+          refresh_calls: q.refresh_calls
+        });
+      }
+    });
+    const mkPanel: () => { refresh: ReturnType<typeof vi.fn> } = () => ({ refresh: vi.fn() });
+    const pile21: { refresh: ReturnType<typeof vi.fn> }[] = Array.from({ length: 21 }, mkPanel);
+    expect(gateBudget.tryRefreshPanels("resize", pile21)).toBe(false);
+    expect(budgetEmits).toHaveLength(0);
+    tBudget = 1001;
+    expect(gateBudget.tryRefreshPanels("highlight", [mkPanel()])).toBe(true);
+    expect(budgetEmits).toHaveLength(1);
+    expect(budgetEmits[0]?.skipped_calls).toBe(21);
+    expect(budgetEmits[0]?.window_ms).toBe(1001);
+    expect(budgetEmits[0]?.refresh_calls).toBe(1);
+
+    let tMs: number = 0;
+    const emissions: Array<{ readonly skipped_calls: number | null; readonly window_ms: number | null }> = [];
+    const gateHl: Mem3dGraphRefreshGate = new Mem3dGraphRefreshGate({
+      now: (): number => tMs,
+      emit: (q: {
+        readonly skipped_calls: number | null;
+        readonly window_ms: number | null;
+      }): void => {
+        emissions.push({ skipped_calls: q.skipped_calls, window_ms: q.window_ms });
+      }
+    });
+    const fg: { refresh: ReturnType<typeof vi.fn> } = { refresh: vi.fn() };
+    tMs = 0;
+    expect(gateHl.tryRefreshPanels("highlight", [fg])).toBe(true);
+    expect(emissions[0]).toEqual({ skipped_calls: null, window_ms: null });
+    tMs = 10;
+    expect(gateHl.tryRefreshPanels("highlight", [fg])).toBe(false);
+    tMs = 25;
+    expect(gateHl.tryRefreshPanels("highlight", [fg])).toBe(false);
+    tMs = 60;
+    expect(gateHl.tryRefreshPanels("highlight", [fg])).toBe(true);
+    expect(emissions[1]?.skipped_calls).toBe(2);
+    expect(emissions[1]?.window_ms).toBe(50);
   });
 
   it("TC-3D-UC04-03: appearance ребра A→B не делает remount панели (panelReactKey стабилен)", () => {

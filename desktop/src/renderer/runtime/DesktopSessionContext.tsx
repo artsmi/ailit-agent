@@ -1315,7 +1315,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
               emitDesktopGraphDebug: logDesktopGraphDebug
             })
           : undefined;
-      const snap: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.afterFullLoad(
+      const snap: PagGraphSessionSnapshot = await PagGraphSessionTraceMerge.afterFullLoad(
         r.merged,
         r.graphRevByNamespace,
         rows,
@@ -1411,7 +1411,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
                 emitDesktopGraphDebug: logDesktopGraphDebug
               })
             : undefined;
-        const snap: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.afterFullLoad(
+        const snap: PagGraphSessionSnapshot = await PagGraphSessionTraceMerge.afterFullLoad(
           r.merged,
           r.graphRevByNamespace,
           rows,

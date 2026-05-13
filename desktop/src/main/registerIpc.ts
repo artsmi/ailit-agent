@@ -21,6 +21,79 @@ function asRecord(v: unknown): Record<string, unknown> | null {
   return null;
 }
 
+/** Согласовано с renderer `desktopGraphPairLogWriter` (bounded stderr / FS message). */
+const MAIN_COMPACT_OBS_ERROR_MAX_CHARS: number = 400;
+
+function compactMainIpcObsErrorMessage(raw: string): string {
+  const collapsed: string = raw.replace(/\s+/g, " ").trim();
+  if (collapsed.length <= MAIN_COMPACT_OBS_ERROR_MAX_CHARS) {
+    return collapsed;
+  }
+  return `${collapsed.slice(0, MAIN_COMPACT_OBS_ERROR_MAX_CHARS)}…`;
+}
+
+function logDesktopPagSliceRequested(p: {
+  readonly isoTimestamp: string;
+  readonly namespace: string;
+  readonly dbPathSet: boolean;
+  readonly level: string | null;
+  readonly nodeLimit: number;
+  readonly nodeOffset: number;
+  readonly edgeLimit: number;
+  readonly edgeOffset: number;
+}): void {
+  const ns: string = p.namespace.replace(/\s+/g, " ").trim();
+  const lvl: string = p.level === null || p.level === "" ? "null" : p.level.replace(/\s+/g, " ").trim();
+  console.info(
+    `timestamp=${p.isoTimestamp}\tevent=desktop.pag_slice.requested\t` +
+      `namespace=${ns}\tdb_path_set=${p.dbPathSet ? "true" : "false"}\tlevel=${lvl}\t` +
+      `node_limit=${String(p.nodeLimit)}\tnode_offset=${String(p.nodeOffset)}\t` +
+      `edge_limit=${String(p.edgeLimit)}\tedge_offset=${String(p.edgeOffset)}`
+  );
+}
+
+function logDesktopPagSliceCompleted(p: {
+  readonly isoTimestamp: string;
+  readonly durationMs: number;
+  readonly nodeCount: number;
+  readonly edgeCount: number;
+  readonly hasMoreNodes: boolean;
+  readonly hasMoreEdges: boolean;
+}): void {
+  console.info(
+    `timestamp=${p.isoTimestamp}\tevent=desktop.pag_slice.completed\t` +
+      `duration_ms=${String(p.durationMs)}\tnode_count=${String(p.nodeCount)}\t` +
+      `edge_count=${String(p.edgeCount)}\t` +
+      `has_more_nodes=${p.hasMoreNodes ? "true" : "false"}\t` +
+      `has_more_edges=${p.hasMoreEdges ? "true" : "false"}`
+  );
+}
+
+function logDesktopPagSliceError(p: {
+  readonly isoTimestamp: string;
+  readonly durationMs: number;
+  readonly errorCode: string;
+  readonly errorMessage: string;
+}): void {
+  console.warn(
+    `timestamp=${p.isoTimestamp}\tevent=desktop.pag_slice.error\t` +
+      `duration_ms=${String(p.durationMs)}\terror_code=${p.errorCode}\t` +
+      `error=${compactMainIpcObsErrorMessage(p.errorMessage)}`
+  );
+}
+
+function logDesktopPairlogAppendMainFailed(p: {
+  readonly isoTimestamp: string;
+  readonly chatId: string;
+  readonly errorMessage: string;
+}): void {
+  const chat: string = p.chatId.replace(/\s+/g, " ").trim();
+  console.warn(
+    `timestamp=${p.isoTimestamp}\tevent=desktop.pairlog.append_failed\t` +
+      `source=main_ipc\tchat_id=${chat}\terror=${compactMainIpcObsErrorMessage(p.errorMessage)}`
+  );
+}
+
 function broadcastTraceRow(chatId: string, row: Record<string, unknown>): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send("ailit:traceRow", { chatId, row });
@@ -210,7 +283,19 @@ export function registerIpcHandlers(): void {
         readonly edgeOffset: number;
       }
     ): Promise<PagGraphSliceResult> => {
-      return runPagGraphSlice({
+      const startedAtMs: number = Date.now();
+      const requestedAt: string = new Date().toISOString();
+      logDesktopPagSliceRequested({
+        isoTimestamp: requestedAt,
+        namespace: params.namespace,
+        dbPathSet: Boolean(params.dbPath && params.dbPath.trim().length > 0),
+        level: params.level,
+        nodeLimit: params.nodeLimit,
+        nodeOffset: params.nodeOffset,
+        edgeLimit: params.edgeLimit,
+        edgeOffset: params.edgeOffset
+      });
+      const result: PagGraphSliceResult = await runPagGraphSlice({
         namespace: params.namespace,
         dbPath: params.dbPath,
         level: params.level,
@@ -219,6 +304,26 @@ export function registerIpcHandlers(): void {
         edgeLimit: params.edgeLimit,
         edgeOffset: params.edgeOffset
       });
+      const durationMs: number = Math.max(0, Date.now() - startedAtMs);
+      const endedAt: string = new Date().toISOString();
+      if (result.ok) {
+        logDesktopPagSliceCompleted({
+          isoTimestamp: endedAt,
+          durationMs,
+          nodeCount: result.nodes.length,
+          edgeCount: result.edges.length,
+          hasMoreNodes: result.has_more.nodes,
+          hasMoreEdges: result.has_more.edges
+        });
+      } else {
+        logDesktopPagSliceError({
+          isoTimestamp: endedAt,
+          durationMs,
+          errorCode: result.code ?? "unknown",
+          errorMessage: result.error
+        });
+      }
+      return result;
     }
   );
 
@@ -298,6 +403,11 @@ export function registerIpcHandlers(): void {
       }
       const resolved = resolveChatLogSessionPaths(params.chatId);
       if (!resolved.ok) {
+        logDesktopPairlogAppendMainFailed({
+          isoTimestamp: new Date().toISOString(),
+          chatId: params.chatId,
+          errorMessage: resolved.error
+        });
         return { ok: false, error: resolved.error } as const;
       }
       const { sessionDir } = resolved.paths;
@@ -313,7 +423,13 @@ export function registerIpcHandlers(): void {
         }
         return { ok: true, fullPath, compactPath } as const;
       } catch (e) {
-        return { ok: false, error: e instanceof Error ? e.message : String(e) } as const;
+        const errMsg: string = e instanceof Error ? e.message : String(e);
+        logDesktopPairlogAppendMainFailed({
+          isoTimestamp: new Date().toISOString(),
+          chatId: params.chatId,
+          errorMessage: errMsg
+        });
+        return { ok: false, error: errMsg } as const;
       }
     }
   );

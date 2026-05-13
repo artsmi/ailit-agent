@@ -41,6 +41,8 @@
 
 **Ownership:** merged и фазы — **renderer store**; View читает DTO после фазы не ниже `scene_build` для 3D; main — slice и trace, не единственный SoT merged одним blob.
 
+**Async chunked replay (`afterFullLoad`):** реализация фазы `trace_replay` делит проход trace на чанки с `await` между ними (`PAG_GRAPH_REPLAY_CHUNK_MAX_ROWS` / `_MS`); вызывающий код (например `DesktopSessionContext`) **обязан** `await` `PagGraphSessionTraceMerge.afterFullLoad`. Итоговый `PagGraphSessionSnapshot` совпадает с одним проходом `applyDeltasInRange(..., 0, lastRow, ...)` (регрессия — vitest `pagGraphSessionStore.test.ts`, в т.ч. `TC-G4-REPLAY-ChunkedSnapshotMatchesSinglePass`). Compact start/end остаются одним событием на проход, без chunk-level emission.
+
 ## Examples
 
 **Happy:** сессия открыта, slice успешен, merge и короткий replay, **D-ORPHAN-B** применён, ключ графа без rev, обновления подсветки через throttled refresh.
@@ -62,8 +64,8 @@
 | `desktop.pag_slice.error` | ошибка | `error_code`, `duration_ms` | полный stderr без bound |
 | `desktop.trace.replay.start/end` | replay | `row_count`, `duration_ms`, `rows_processed` | массив строк trace |
 | `desktop.graph.scene_built` | DTO передан | `phase`, компактный fingerprint схемы ключа | полный DTO |
-| `desktop.graph.refresh` | throttled refresh | `reason` enum | частота выше политики без агрегата |
-| `desktop.pairlog.append` | append pair log | `bytes` или `batch_size` | повтор полного графа |
+| `desktop.graph.refresh` | агрегированный throttled refresh (`Mem3dGraphRefreshGate`) | `reason` ∈ `highlight` \| `resize` \| `layout` \| `scene`; `refresh_calls` (положительный int); `skipped_calls` (nullable); `window_ms` (nullable). **C2:** `skipped_calls != null` ⇒ `window_ms != null` (тот же emission). | частота выше политики без агрегата; повтор `fg.refresh` без gate |
+| `desktop.pairlog.append` | успех IPC `appendDesktopGraphPairLog` (после batch) | `chat_id`, `batch_size` (положительный int), `bytes` (nullable) | сырые `entries` / `fullRecord`; повтор полного графа |
 
 **Default:** недоступные числа — `null`, не выдуманные значения.
 

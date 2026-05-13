@@ -7,6 +7,8 @@ import { nodeFromPag, type MemoryGraphData } from "./memoryGraphState";
 import {
   buildPagGraphRevReconciledTraceRow,
   buildPagSnapshotRefreshedTraceRow,
+  DESKTOP_TRACE_REPLAY_END_EVENT,
+  DESKTOP_TRACE_REPLAY_START_EVENT,
   extractCompactPagEventPayload
 } from "./pagGraphObservabilityCompact";
 import {
@@ -17,11 +19,14 @@ import {
   tryParsePagGraphRevMismatchDedupeKey
 } from "./pagGraphRevWarningFormat";
 import {
+  applyDeltasInRange,
+  buildSnapshotFromReconcile,
   createEmptyPagGraphSessionSnapshot,
   PagGraphBySessionMap,
   PagGraphSessionFullLoad,
   PagGraphSessionTraceMerge,
-  type PagGraphTraceMergeEmitHooks
+  type PagGraphTraceMergeEmitHooks,
+  type PagGraphSessionSnapshot
 } from "./pagGraphSessionStore";
 
 function rowPagNodeUpsert(
@@ -275,7 +280,7 @@ describe("pagGraphSessionStore", () => {
     expect(dedupePagGraphSnapshotWarnings([a, b])).toEqual([a]);
   });
 
-  it("afterFullLoadWithAlignedSliceClearsRevMismatchFromMisalignedIncremental", () => {
+  it("afterFullLoadWithAlignedSliceClearsRevMismatchFromMisalignedIncremental", async () => {
     const ns: string = "ns-refresh-align";
     const badRow: Record<string, unknown> = rowPagNodeUpsert(ns, 5, {
       node_id: "B:only.py",
@@ -306,8 +311,8 @@ describe("pagGraphSessionStore", () => {
       ],
       links: []
     };
-    const healed: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
-      PagGraphSessionTraceMerge.afterFullLoad(merged, { [ns]: 4 }, [badRow], [ns], ns, true);
+    const healed: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+      await PagGraphSessionTraceMerge.afterFullLoad(merged, { [ns]: 4 }, [badRow], [ns], ns, true);
     const revWarns: number = healed.warnings.filter(
       (s: string) => s.includes("graph rev") || s.includes("несоответств")
     ).length;
@@ -383,7 +388,7 @@ describe("pagGraphSessionStore", () => {
     expect(nxt.graphRevByNamespace[n2]).toBe(50);
   });
 
-  it("afterFullLoadUsesInitialTraceCatchupWhenFirstDeltaRev1AndSliceGraphRev", () => {
+  it("afterFullLoadUsesInitialTraceCatchupWhenFirstDeltaRev1AndSliceGraphRev", async () => {
     const ns: string = "ns-afl";
     const rows: Record<string, unknown>[] = [];
     for (let r: number = 1; r <= 3; r += 1) {
@@ -401,13 +406,8 @@ describe("pagGraphSessionStore", () => {
       nodes: [nodeFromPag({ node_id: "A:1", level: "A", path: ".", title: "p", namespace: ns })!],
       links: []
     };
-    const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> = PagGraphSessionTraceMerge.afterFullLoad(
-      merged,
-      { [ns]: 3 },
-      rows,
-      [ns],
-      ns
-    );
+    const snap: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+      await PagGraphSessionTraceMerge.afterFullLoad(merged, { [ns]: 3 }, rows, [ns], ns);
     const hasRevWarn: boolean = snap.warnings.some(
       (s: string) => s.includes("graph rev") || s.includes("несоответств")
     );
@@ -420,15 +420,9 @@ describe("pagGraphSessionStore", () => {
     expect(e.pagDatabasePresent).toBe(true);
   });
 
-  it("afterFullLoadAllMissingYieldsReadyAndPagDatabasePresentFalse", () => {
-    const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> = PagGraphSessionTraceMerge.afterFullLoad(
-      { nodes: [], links: [] },
-      {},
-      [],
-      ["ns1"],
-      "ns1",
-      false
-    );
+  it("afterFullLoadAllMissingYieldsReadyAndPagDatabasePresentFalse", async () => {
+    const snap: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+      await PagGraphSessionTraceMerge.afterFullLoad({ nodes: [], links: [] }, {}, [], ["ns1"], "ns1", false);
     expect(snap.loadState).toBe("ready");
     expect(snap.loadError).toBeNull();
     expect(snap.pagDatabasePresent).toBe(false);
@@ -459,7 +453,7 @@ describe("pagGraphSessionStore", () => {
     expect(nxt.pagDatabasePresent).toBe(false);
   });
 
-  it("afterFullLoadTogglesPagDatabasePresentWhenDatabaseAppears", () => {
+  it("afterFullLoadTogglesPagDatabasePresentWhenDatabaseAppears", async () => {
     const ns: string = "ns-flip";
     const n0: ReturnType<typeof nodeFromPag> = nodeFromPag({
       node_id: "A:1",
@@ -468,23 +462,18 @@ describe("pagGraphSessionStore", () => {
       title: "p",
       namespace: ns
     })!;
-    const snap0: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> = PagGraphSessionTraceMerge.afterFullLoad(
-      { nodes: [], links: [] },
-      {},
-      [],
-      [ns],
-      ns,
-      false
-    );
+    const snap0: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+      await PagGraphSessionTraceMerge.afterFullLoad({ nodes: [], links: [] }, {}, [], [ns], ns, false);
     expect(snap0.pagDatabasePresent).toBe(false);
-    const snap1: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> = PagGraphSessionTraceMerge.afterFullLoad(
-      { nodes: [n0], links: [] },
-      { [ns]: 1 },
-      [],
-      [ns],
-      ns,
-      true
-    );
+    const snap1: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+      await PagGraphSessionTraceMerge.afterFullLoad(
+        { nodes: [n0], links: [] },
+        { [ns]: 1 },
+        [],
+        [ns],
+        ns,
+        true
+      );
     expect(snap1.pagDatabasePresent).toBe(true);
     expect(snap1.loadState).toBe("ready");
   });
@@ -531,14 +520,15 @@ describe("pagGraphSessionStore", () => {
       return;
     }
     expect(r.pagSqliteMissing).toBeFalsy();
-    const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> = PagGraphSessionTraceMerge.afterFullLoad(
-      r.merged,
-      r.graphRevByNamespace,
-      [],
-      ["ns-a", "ns-b"],
-      "ns-b",
-      true
-    );
+    const snap: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+      await PagGraphSessionTraceMerge.afterFullLoad(
+        r.merged,
+        r.graphRevByNamespace,
+        [],
+        ["ns-a", "ns-b"],
+        "ns-b",
+        true
+      );
     expect(snap.pagDatabasePresent).toBe(true);
     expect(snap.merged.nodes.length).toBeGreaterThan(0);
   });
@@ -587,18 +577,18 @@ describe("pagGraphSessionStore", () => {
   });
 
   describe("TC-VITEST-STORE-HL-01", () => {
-    it("applies W14 in snapshot after memory.query_context when gating on", () => {
+    it("applies W14 in snapshot after memory.query_context when gating on", async () => {
       const chatId: string = "chat-hl-01";
       const ns: string = "ns-hl-01";
       const rows: Record<string, unknown>[] = [rowMemoryQueryStart(chatId), rowW14GraphHighlight(ns, ["B:gated.py"])];
       const hooks: PagGraphTraceMergeEmitHooks = mergeHooksForHighlightGating(chatId, ns);
-      const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
-        PagGraphSessionTraceMerge.afterFullLoad({ nodes: [], links: [] }, { [ns]: 1 }, rows, [ns], ns, true, hooks);
+      const snap: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+        await PagGraphSessionTraceMerge.afterFullLoad({ nodes: [], links: [] }, { [ns]: 1 }, rows, [ns], ns, true, hooks);
       expect(snap.merged.nodes.map((n) => n.id)).toContain("B:gated.py");
       expect(snap.searchHighlightsByNamespace[ns]?.nodeIds).toContain("B:gated.py");
     });
 
-    it("skips W14 before trigger A/B when gating on", () => {
+    it("skips W14 before trigger A/B when gating on", async () => {
       const chatId: string = "chat-hl-02";
       const ns: string = "ns-hl-02";
       const rows: Record<string, unknown>[] = [
@@ -606,13 +596,13 @@ describe("pagGraphSessionStore", () => {
         rowMemoryQueryStart(chatId)
       ];
       const hooks: PagGraphTraceMergeEmitHooks = mergeHooksForHighlightGating(chatId, ns);
-      const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
-        PagGraphSessionTraceMerge.afterFullLoad({ nodes: [], links: [] }, { [ns]: 1 }, rows, [ns], ns, true, hooks);
+      const snap: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+        await PagGraphSessionTraceMerge.afterFullLoad({ nodes: [], links: [] }, { [ns]: 1 }, rows, [ns], ns, true, hooks);
       expect(snap.merged.nodes.map((n) => n.id)).not.toContain("B:before-trigger.py");
       expect(snap.searchHighlightsByNamespace[ns]).toBeNull();
     });
 
-    it("allows highlight after trigger B (user_prompt then memory.query_context then W14)", () => {
+    it("allows highlight after trigger B (user_prompt then memory.query_context then W14)", async () => {
       const chatId: string = "chat-hl-b";
       const ns: string = "ns-hl-b";
       const rows: Record<string, unknown>[] = [
@@ -621,32 +611,33 @@ describe("pagGraphSessionStore", () => {
         rowW14GraphHighlight(ns, ["B:trigger-b.py"])
       ];
       const hooks: PagGraphTraceMergeEmitHooks = mergeHooksForHighlightGating(chatId, ns);
-      const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
-        PagGraphSessionTraceMerge.afterFullLoad({ nodes: [], links: [] }, { [ns]: 1 }, rows, [ns], ns, true, hooks);
+      const snap: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+        await PagGraphSessionTraceMerge.afterFullLoad({ nodes: [], links: [] }, { [ns]: 1 }, rows, [ns], ns, true, hooks);
       expect(snap.searchHighlightsByNamespace[ns]?.nodeIds).toContain("B:trigger-b.py");
       expect(snap.merged.nodes.map((n) => n.id)).toContain("B:trigger-b.py");
     });
 
-    it("uses highlightGatingChatId when compact observability hooks are absent", () => {
+    it("uses highlightGatingChatId when compact observability hooks are absent", async () => {
       const chatId: string = "chat-hl-no-hooks";
       const ns: string = "ns-hl-no-hooks";
       const rows: Record<string, unknown>[] = [rowMemoryQueryStart(chatId), rowW14GraphHighlight(ns, ["B:no-emit.py"])];
-      const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> = PagGraphSessionTraceMerge.afterFullLoad(
-        { nodes: [], links: [] },
-        { [ns]: 1 },
-        rows,
-        [ns],
-        ns,
-        true,
-        undefined,
-        chatId
-      );
+      const snap: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+        await PagGraphSessionTraceMerge.afterFullLoad(
+          { nodes: [], links: [] },
+          { [ns]: 1 },
+          rows,
+          [ns],
+          ns,
+          true,
+          undefined,
+          chatId
+        );
       expect(snap.searchHighlightsByNamespace[ns]?.nodeIds).toContain("B:no-emit.py");
     });
   });
 
   describe("TC-VITEST-NS-01", () => {
-    it("stores W14 for second namespace only in searchHighlightsByNamespace after full load", () => {
+    it("stores W14 for second namespace only in searchHighlightsByNamespace after full load", async () => {
       const chatId: string = "chat-ns-01";
       const n1: string = "ns-a-hl";
       const n2: string = "ns-b-hl";
@@ -655,8 +646,8 @@ describe("pagGraphSessionStore", () => {
         rowW14GraphHighlight(n2, ["B:second-only.py"])
       ];
       const hooks: PagGraphTraceMergeEmitHooks = mergeHooksForHighlightGating(chatId, n1);
-      const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
-        PagGraphSessionTraceMerge.afterFullLoad(
+      const snap: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+        await PagGraphSessionTraceMerge.afterFullLoad(
           { nodes: [], links: [] },
           { [n1]: 1, [n2]: 1 },
           rows,
@@ -670,12 +661,12 @@ describe("pagGraphSessionStore", () => {
       expect(snap.merged.nodes.map((n) => n.id)).toContain("B:second-only.py");
     });
 
-    it("G3: single context.memory_injected v2 fills searchHighlightsByNamespace for both workspace namespaces", () => {
+    it("G3: single context.memory_injected v2 fills searchHighlightsByNamespace for both workspace namespaces", async () => {
       const n1: string = "ns-g3-a";
       const n2: string = "ns-g3-b";
       const rows: Record<string, unknown>[] = [rowContextMemoryInjectedV2DualNamespace()];
-      const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
-        PagGraphSessionTraceMerge.afterFullLoad(
+      const snap: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+        await PagGraphSessionTraceMerge.afterFullLoad(
           { nodes: [], links: [] },
           { [n1]: 1, [n2]: 1 },
           rows,
@@ -691,14 +682,14 @@ describe("pagGraphSessionStore", () => {
       );
     });
 
-    it("splits per-namespace W14 on incremental merge", () => {
+    it("splits per-namespace W14 on incremental merge", async () => {
       const chatId: string = "chat-ns-inc";
       const n1: string = "ns-inc-a";
       const n2: string = "ns-inc-b";
       const baseRows: Record<string, unknown>[] = [rowMemoryQueryStart(chatId)];
       const hooks: PagGraphTraceMergeEmitHooks = mergeHooksForHighlightGating(chatId, n1);
-      const snap0: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
-        PagGraphSessionTraceMerge.afterFullLoad(
+      const snap0: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+        await PagGraphSessionTraceMerge.afterFullLoad(
           { nodes: [], links: [] },
           { [n1]: 1, [n2]: 1 },
           baseRows,
@@ -722,7 +713,7 @@ describe("pagGraphSessionStore", () => {
     });
   });
 
-  it("afterFullLoadUsesLastApplicableHighlightWhenTailIsPagDeltaOnly", () => {
+  it("afterFullLoadUsesLastApplicableHighlightWhenTailIsPagDeltaOnly", async () => {
     const ns: string = "ns-htail";
     const rows: Record<string, unknown>[] = [
       rowW14GraphHighlight(ns, ["B:hl.py"]),
@@ -735,14 +726,14 @@ describe("pagGraphSessionStore", () => {
       })
     ];
     const merged0: MemoryGraphData = { nodes: [], links: [] };
-    const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
-      PagGraphSessionTraceMerge.afterFullLoad(merged0, { [ns]: 1 }, rows, [ns], ns);
+    const snap: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+      await PagGraphSessionTraceMerge.afterFullLoad(merged0, { [ns]: 1 }, rows, [ns], ns);
     const ids: string[] = snap.merged.nodes.map((n) => n.id);
     expect(ids).toContain("B:hl.py");
     expect(ids).toContain("B:other.py");
   });
 
-  it("incrementalWithoutNewTraceRowsPreservesMergedHighlightNodes", () => {
+  it("incrementalWithoutNewTraceRowsPreservesMergedHighlightNodes", async () => {
     const ns: string = "ns-hi-preserve";
     const rows: Record<string, unknown>[] = [
       rowW14GraphHighlight(ns, ["B:hl.py"]),
@@ -755,8 +746,8 @@ describe("pagGraphSessionStore", () => {
       })
     ];
     const merged0: MemoryGraphData = { nodes: [], links: [] };
-    const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
-      PagGraphSessionTraceMerge.afterFullLoad(merged0, { [ns]: 1 }, rows, [ns], ns);
+    const snap: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+      await PagGraphSessionTraceMerge.afterFullLoad(merged0, { [ns]: 1 }, rows, [ns], ns);
     expect(snap.merged.nodes.map((n) => n.id)).toContain("B:hl.py");
     expect(snap.lastAppliedTraceIndex).toBe(1);
     const nxt: ReturnType<typeof PagGraphSessionTraceMerge.applyIncremental> =
@@ -801,7 +792,7 @@ describe("pagGraphSessionStore", () => {
     expect(nxt).toBe(base);
   });
 
-  it("uc03RefreshClearsStickyRevMismatchInSnapshotModel", () => {
+  it("uc03RefreshClearsStickyRevMismatchInSnapshotModel", async () => {
     const ns: string = "ns-uc03-sticky";
     const badRow: Record<string, unknown> = rowPagNodeUpsert(ns, 9, {
       node_id: "B:x.py",
@@ -834,14 +825,14 @@ describe("pagGraphSessionStore", () => {
       ],
       links: []
     };
-    const refreshed: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
-      PagGraphSessionTraceMerge.afterFullLoad(mergedDb, { [ns]: 8 }, [badRow], [ns], ns, true);
+    const refreshed: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+      await PagGraphSessionTraceMerge.afterFullLoad(mergedDb, { [ns]: 8 }, [badRow], [ns], ns, true);
     expect(
       refreshed.warnings.some((s: string) => s.includes("graph rev") || s.includes("несоответств"))
     ).toBe(false);
   });
 
-  it("h1RepeatedReplayAfterFullLoadDoesNotAccumulateRevMismatchWarnings", () => {
+  it("h1RepeatedReplayAfterFullLoadDoesNotAccumulateRevMismatchWarnings", async () => {
     const ns: string = "ns-h1-replay";
     const rows: Record<string, unknown>[] = [
       rowPagNodeUpsert(ns, 1, {
@@ -864,8 +855,8 @@ describe("pagGraphSessionStore", () => {
       links: []
     };
     for (let cycle: number = 0; cycle < 4; cycle += 1) {
-      const snap: ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad> =
-        PagGraphSessionTraceMerge.afterFullLoad(merged, { [ns]: 2 }, rows, [ns], ns, true);
+      const snap: Awaited<ReturnType<typeof PagGraphSessionTraceMerge.afterFullLoad>> =
+        await PagGraphSessionTraceMerge.afterFullLoad(merged, { [ns]: 2 }, rows, [ns], ns, true);
       const nRev: number = snap.warnings.filter(
         (s: string) => tryParsePagGraphRevMismatchDedupeKey(s) !== null
       ).length;
@@ -965,6 +956,154 @@ describe("pagGraphSessionStore", () => {
     const sSnap: string = JSON.stringify(rSnap);
     expect(sRec.includes("pag_graph_rev_reconciled")).toBe(true);
     expect(sSnap.includes("pag_snapshot_refreshed")).toBe(true);
+  });
+
+  describe("TC-G4-replay observability and bounded path", () => {
+    function mergeHooksWithDebug(
+      emitDesktopGraphDebug: (event: string, detail: Record<string, unknown>) => void
+    ): PagGraphTraceMergeEmitHooks {
+      return {
+        chatId: "chat-g4",
+        sessionId: "sess-g4",
+        graphRevBeforeByNamespace: {},
+        defaultNamespace: "ns-g4",
+        emitDesktopGraphDebug
+      };
+    }
+
+    it("TC-G4-A1-lastRowNegative-emits-no-desktop-trace-replay", async () => {
+      const dbg = vi.fn();
+      const hooks: PagGraphTraceMergeEmitHooks = mergeHooksWithDebug(dbg);
+      await PagGraphSessionTraceMerge.afterFullLoad(
+        { nodes: [], links: [] },
+        {},
+        [],
+        ["ns-g4"],
+        "ns-g4",
+        true,
+        hooks
+      );
+      const replayEv: unknown[] = dbg.mock.calls
+        .map((c: unknown[]) => c[0])
+        .filter(
+          (ev: unknown) => ev === DESKTOP_TRACE_REPLAY_START_EVENT || ev === DESKTOP_TRACE_REPLAY_END_EVENT
+        );
+      expect(replayEv).toHaveLength(0);
+    });
+
+    it("TC-G4-non-empty-replay-single-start-end-when-debug-enabled", async () => {
+      const dbg = vi.fn();
+      const hooks: PagGraphTraceMergeEmitHooks = mergeHooksWithDebug(dbg);
+      const ns: string = "ns-g4-one";
+      const rows: Record<string, unknown>[] = [
+        rowPagNodeUpsert(ns, 1, {
+          node_id: "B:g4.py",
+          level: "B",
+          path: "g4.py",
+          title: "t",
+          kind: "file"
+        })
+      ];
+      await PagGraphSessionTraceMerge.afterFullLoad(
+        {
+          nodes: [nodeFromPag({ node_id: "A:1", level: "A", path: ".", title: "p", namespace: ns })!],
+          links: []
+        },
+        { [ns]: 1 },
+        rows,
+        [ns],
+        ns,
+        true,
+        hooks
+      );
+      const events: string[] = dbg.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(events.filter((e: string) => e === DESKTOP_TRACE_REPLAY_START_EVENT)).toHaveLength(1);
+      expect(events.filter((e: string) => e === DESKTOP_TRACE_REPLAY_END_EVENT)).toHaveLength(1);
+      const startCall: unknown[] | undefined = dbg.mock.calls.find(
+        (c: unknown[]) => c[0] === DESKTOP_TRACE_REPLAY_START_EVENT
+      );
+      expect(startCall).toBeDefined();
+      const startArg: Record<string, unknown> = startCall![1] as Record<string, unknown>;
+      expect(startArg).toHaveProperty("row_count");
+      expect(startArg).toHaveProperty("duration_ms");
+      expect(startArg).toHaveProperty("rows_processed");
+      expect(startArg["duration_ms"]).toBeNull();
+      expect(startArg["rows_processed"]).toBeNull();
+      expect(startArg["row_count"]).toBe(1);
+      for (const c of dbg.mock.calls) {
+        if (c[0] !== DESKTOP_TRACE_REPLAY_START_EVENT && c[0] !== DESKTOP_TRACE_REPLAY_END_EVENT) {
+          continue;
+        }
+        const detail: Record<string, unknown> = c[1] as Record<string, unknown>;
+        expect(Object.keys(detail).sort()).toEqual(["duration_ms", "row_count", "rows_processed"]);
+        expect(JSON.stringify(detail)).not.toContain("topic.publish");
+      }
+    });
+
+    it("TC-G4-REPLAY-ChunkedSnapshotMatchesSinglePass", async () => {
+      const ns: string = "ns-g4-chunk";
+      const merged0: MemoryGraphData = {
+        nodes: [nodeFromPag({ node_id: "A:1", level: "A", path: ".", title: "p", namespace: ns })!],
+        links: []
+      };
+      const revs0: Record<string, number> = { [ns]: 0 };
+      const rows: Record<string, unknown>[] = [];
+      for (let r: number = 1; r <= 1200; r += 1) {
+        rows.push(
+          rowPagNodeUpsert(ns, r, {
+            node_id: `B:n${String(r)}.py`,
+            level: "B",
+            path: `n${String(r)}.py`,
+            title: "f",
+            kind: "file"
+          })
+        );
+      }
+      const lastRow: number = rows.length - 1;
+      const nsSet: Set<string> = new Set([ns]);
+      const refAp: ReturnType<typeof applyDeltasInRange> = applyDeltasInRange(
+        merged0,
+        revs0,
+        rows,
+        0,
+        lastRow,
+        nsSet,
+        [],
+        true,
+        undefined
+      );
+      const refHi: ReturnType<typeof PagGraphSessionTraceMerge.applyHighlightFromTraceRows> =
+        PagGraphSessionTraceMerge.applyHighlightFromTraceRows(
+          refAp.merged,
+          rows,
+          [ns],
+          ns,
+          -1,
+          undefined
+        );
+      const refSnap: PagGraphSessionSnapshot = buildSnapshotFromReconcile(
+        refHi.merged,
+        refAp.revs,
+        lastRow,
+        refAp.warnings,
+        "ready",
+        null,
+        true,
+        refHi.highlights
+      );
+      const chunked: PagGraphSessionSnapshot = await PagGraphSessionTraceMerge.afterFullLoad(
+        merged0,
+        revs0,
+        rows,
+        [ns],
+        ns,
+        true,
+        undefined,
+        undefined,
+        undefined
+      );
+      expect(chunked).toEqual(refSnap);
+    });
   });
 
   it("loadPagGraphMergedPropagatesSliceErrorCode", async () => {
