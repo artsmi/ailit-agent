@@ -43,6 +43,7 @@ from agent_memory.pag_slice_caps import (
     PAG_SLICE_MAX_NODES,
 )
 from agent_memory.sqlite_pag import PagEdge, PagNode, SqlitePagStore
+from ailit_cli.memory_viz_runtime import maybe_start_memory_viz
 
 
 def _node_json(n: PagNode) -> dict[str, Any]:
@@ -134,12 +135,17 @@ def cmd_memory_index(args: object) -> int:
         merged = {}
     timeout_s = max(float(agent_memory_rpc_timeout_s(merged)), 3600.0)
     client = BrokerJsonRpcClient(sock_path)
-
     ctx = detect_repo_context(root)
     ns = namespace_for_repo(
         repo_uri=ctx.repo_uri,
         repo_path=ctx.repo_path,
         branch=ctx.branch,
+    )
+    viz = maybe_start_memory_viz(
+        args,
+        socket_path=sock_path,
+        pag_namespace=str(ns) if str(ns).strip() else "",
+        db_path=db_path_opt,
     )
     sid = uuid.uuid4().hex[:12]
     identity = RuntimeIdentity(
@@ -176,6 +182,9 @@ def cmd_memory_index(args: object) -> int:
     except (BrokerTransportError, BrokerResponseError) as exc:
         sys.stderr.write(f"memory index: broker RPC failed: {exc}\n")
         return 2
+    finally:
+        if viz is not None:
+            viz.stop()
     if not isinstance(out, dict) or out.get("ok") is not True:
         err = out.get("error") if isinstance(out, dict) else None
         if isinstance(err, dict):
@@ -236,6 +245,12 @@ def cmd_memory_init(args: object) -> int:
         merged = {}
     timeout_s = max(float(agent_memory_rpc_timeout_s(merged)), 3600.0)
     client = BrokerJsonRpcClient(sock_path)
+    viz = maybe_start_memory_viz(
+        args,
+        socket_path=sock_path,
+        pag_namespace=str(ns) if str(ns).strip() else "",
+        db_path=None,
+    )
 
     def invoke(env: Mapping[str, Any]) -> dict[str, Any]:
         return client.call(env, timeout_s=timeout_s)
@@ -252,6 +267,9 @@ def cmd_memory_init(args: object) -> int:
     except RuntimeProtocolError as exc:
         sys.stderr.write(f"{exc}\n")
         return 2
+    finally:
+        if viz is not None:
+            viz.stop()
 
 
 def cmd_memory_query(args: object) -> int:
@@ -285,6 +303,18 @@ def cmd_memory_query(args: object) -> int:
         merged = {}
     timeout_s = float(agent_memory_rpc_timeout_s(merged))
     client = BrokerJsonRpcClient(sock_path)
+    ctx = detect_repo_context(root)
+    ns = namespace_for_repo(
+        repo_uri=ctx.repo_uri,
+        repo_path=ctx.repo_path,
+        branch=ctx.branch,
+    )
+    viz = maybe_start_memory_viz(
+        args,
+        socket_path=sock_path,
+        pag_namespace=str(ns) if str(ns).strip() else "",
+        db_path=None,
+    )
 
     def invoke(env: Mapping[str, Any]) -> dict[str, Any]:
         return client.call(env, timeout_s=timeout_s)
@@ -301,6 +331,9 @@ def cmd_memory_query(args: object) -> int:
     except RuntimeProtocolError as exc:
         sys.stderr.write(f"{exc}\n")
         return 2
+    finally:
+        if viz is not None:
+            viz.stop()
 
 
 def _pag_slice_payload(

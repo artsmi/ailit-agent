@@ -34,6 +34,9 @@ include = [
     "project_layer*",
 ]
 
+[tool.setuptools.package-data]
+ailit_cli = ["static/**/*.html"]
+
 [tool.pytest.ini_options]
 pythonpath = ["ailit", "tests/e2e"]
 testpaths = ["tests"]

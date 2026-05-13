@@ -742,6 +742,16 @@ def main(argv: list[str] | None = None) -> int:
             "AILIT_RUNTIME_DIR или XDG/ ~/.ailit/runtime"
         ),
     )
+    p_idx.add_argument(
+        "--no-memory-viz",
+        "--without-memory-viz",
+        action="store_true",
+        dest="no_memory_viz",
+        help=(
+            "Не поднимать локальный HTTP viz и не открывать браузер "
+            "(G20.6; см. plan/20-memory-cli-broker-viz.md)"
+        ),
+    )
     p_idx.set_defaults(func=cmd_memory_index)
 
     p_init = mem_sub.add_parser(
@@ -789,6 +799,16 @@ def main(argv: list[str] | None = None) -> int:
             "AILIT_RUNTIME_DIR или XDG/ ~/.ailit/runtime"
         ),
     )
+    p_init.add_argument(
+        "--no-memory-viz",
+        "--without-memory-viz",
+        action="store_true",
+        dest="no_memory_viz",
+        help=(
+            "Не поднимать локальный HTTP viz и не открывать браузер "
+            "(G20.6; см. plan/20-memory-cli-broker-viz.md)"
+        ),
+    )
     p_init.set_defaults(func=cmd_memory_init)
 
     p_mq = mem_sub.add_parser(
@@ -830,6 +850,16 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "Каталог runtime (supervisor.sock); по умолчанию "
             "AILIT_RUNTIME_DIR или XDG/ ~/.ailit/runtime"
+        ),
+    )
+    p_mq.add_argument(
+        "--no-memory-viz",
+        "--without-memory-viz",
+        action="store_true",
+        dest="no_memory_viz",
+        help=(
+            "Не поднимать локальный HTTP viz и не открывать браузер "
+            "(G20.6; см. plan/20-memory-cli-broker-viz.md)"
         ),
     )
     p_mq.add_argument(

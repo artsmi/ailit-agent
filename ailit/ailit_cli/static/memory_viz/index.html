@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ailit memory viz</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --accent: #e040a0;
+      --accent2: #7c52aa;
+      --bg: #fff8fb;
+      --surface: #ffffff;
+      --text: #1a1a1a;
+      --muted: #5c5c5c;
+      --border: #f0e6ee;
+      --radius-card: 18px;
+      --radius-pill: 999px;
+      --shadow: 0 8px 28px rgba(124, 82, 170, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "DM Sans", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 15px;
+      line-height: 1.45;
+    }
+    header {
+      padding: 16px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    .sub {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 12px 20px 0;
+      flex-wrap: wrap;
+    }
+    .tab {
+      border: 2px solid var(--border);
+      background: var(--surface);
+      color: var(--accent2);
+      padding: 8px 18px;
+      border-radius: var(--radius-pill);
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    .tab:hover { border-color: var(--accent); color: var(--accent); }
+    .tab.active {
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 0 0 3px rgba(224, 64, 160, 0.25);
+    }
+    main { padding: 16px 20px 32px; max-width: 1100px; margin: 0 auto; }
+    .panel { display: none; }
+    .panel.active { display: block; }
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius-card);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--accent2);
+    }
+    pre.trace {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.35;
+      max-height: 62vh;
+      overflow: auto;
+      background: #faf7fc;
+      border-radius: 12px;
+      padding: 12px;
+      border: 1px solid var(--border);
+    }
+    .node {
+      border-left: 4px solid var(--accent);
+      padding: 8px 10px;
+      margin-bottom: 8px;
+      background: #fff;
+      border-radius: 10px;
+    }
+    .node .id { font-size: 12px; color: var(--muted); }
+    .node .path { font-weight: 600; color: var(--text); }
+    .err { color: #b00020; font-size: 14px; }
+    .meta { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>ailit memory viz</h1>
+    <p class="sub">G20.6 — broker trace + гибрид PAG (read-only slice). См. design/BRANDBOOK_CANDY.md</p>
+  </header>
+  <div class="tabs" role="tablist">
+    <button type="button" class="tab active" data-tab="trace" role="tab" aria-selected="true">Trace</button>
+    <button type="button" class="tab" data-tab="pag" role="tab" aria-selected="false">PAG</button>
+  </div>
+  <main>
+    <section id="panel-trace" class="panel active" role="tabpanel">
+      <div class="card">
+        <h2>Live trace (whitelist)</h2>
+        <pre class="trace" id="trace-out">loading…</pre>
+        <p class="meta" id="trace-meta"></p>
+      </div>
+    </section>
+    <section id="panel-pag" class="panel" role="tabpanel">
+      <div class="card">
+        <h2>PAG slice (poll)</h2>
+        <p class="meta" id="pag-meta"></p>
+        <div id="pag-nodes"></div>
+      </div>
+    </section>
+  </main>
+  <script>
+    (function () {
+      const params = new URLSearchParams(window.location.search);
+      const namespace = (params.get("namespace") || "").trim();
+
+      document.querySelectorAll(".tab").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          const id = btn.getAttribute("data-tab");
+          document.querySelectorAll(".tab").forEach(function (b) {
+            b.classList.toggle("active", b === btn);
+            b.setAttribute("aria-selected", b === btn ? "true" : "false");
+          });
+          document.querySelectorAll(".panel").forEach(function (p) {
+            p.classList.toggle("active", p.id === "panel-" + id);
+          });
+        });
+      });
+
+      function renderTrace(rows) {
+        const el = document.getElementById("trace-out");
+        const meta = document.getElementById("trace-meta");
+        if (!rows || !rows.length) {
+          el.textContent = "(пока нет строк после фильтра whitelist)";
+          meta.textContent = "";
+          return;
+        }
+        const lines = rows.map(function (r) {
+          try {
+            return JSON.stringify(r, null, 0);
+          } catch (e) {
+            return String(r);
+          }
+        });
+        el.textContent = lines.join("\n");
+        meta.textContent = "строк: " + rows.length;
+      }
+
+      function renderPag(data) {
+        const root = document.getElementById("pag-nodes");
+        const meta = document.getElementById("pag-meta");
+        root.innerHTML = "";
+        if (!data || data.ok === false) {
+          root.innerHTML = "<p class=\"err\">" + (data && data.error ? data.error : "slice failed") + "</p>";
+          meta.textContent = namespace ? ("namespace=" + namespace) : "";
+          return;
+        }
+        meta.textContent = "namespace=" + (data.namespace || "") + " graph_rev=" + String(data.graph_rev || "");
+        const nodes = data.nodes || [];
+        if (!nodes.length) {
+          root.innerHTML = "<p class=\"meta\">(нет узлов в этом срезе)</p>";
+          return;
+        }
+        nodes.forEach(function (n) {
+          const d = document.createElement("div");
+          d.className = "node";
+          d.innerHTML =
+            "<div class=\"id\">" + (n.node_id || "") + " · " + (n.level || "") + "</div>" +
+            "<div class=\"path\">" + (n.path || "") + "</div>" +
+            "<div class=\"id\">" + (n.title || "") + "</div>";
+          root.appendChild(d);
+        });
+      }
+
+      function pollTrace() {
+        fetch("/api/trace")
+          .then(function (r) { return r.json(); })
+          .then(function (j) { renderTrace(j.rows || []); })
+          .catch(function (e) {
+            document.getElementById("trace-out").textContent = "fetch error: " + e;
+          });
+      }
+
+      function pollPag() {
+        var q = "/api/pag-slice?node_offset=0";
+        if (namespace) {
+          q += "&namespace=" + encodeURIComponent(namespace);
+        }
+        fetch(q)
+          .then(function (r) { return r.json(); })
+          .then(renderPag)
+          .catch(function (e) {
+            document.getElementById("pag-nodes").innerHTML =
+              "<p class=\"err\">fetch error: " + e + "</p>";
+          });
+      }
+
+      pollTrace();
+      pollPag();
+      setInterval(pollTrace, 900);
+      setInterval(pollPag, 3200);
+    })();
+  </script>
+</body>
+</html>
