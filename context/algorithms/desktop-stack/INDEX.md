@@ -50,7 +50,7 @@
 
 - Путь отправки сообщения: синхронный optimistic update, затем `await brokerRequest` (IPC, таймаут до 30 s на main).
 - Live trace: построчные события → `mergeRows` → рост `rawTraceRows` → полная проекция чата O(N) на изменение и инкрементальный PAG merge без chunk budget (контраст с `afterFullLoad` replay).
-- Ветка `chat_logs_enabled: false`: что отключается на диске, что остаётся активным; известный IPC roundtrip `broker_connect` без записи файла.
+- Ветка `chat_logs_enabled: false`: что отключается на диске, что остаётся активным; pair-log `broker_connect` из renderer на connect к broker **не** эмитится (нет `logD` с этого call site), если зеркало файловых логов в renderer не `true` (слайс G19.2, см. § Current Reality).
 - PAG: rev mismatch warning (дословный шаблон), «тяжёлый merged» warning, `loadState` остаётся не `error` для rev mismatch.
 - Main IPC hotspots: `pag-slice`, полное чтение durable trace, полное чтение memory journal, частый `JSON.parse` на live trace, `brokerJsonRequest`.
 - Диагностический контракт OR-D6: таблица метрик в § Observability; **основные строки compact-логов реализованы в продукте** (слайс G19.1, см. «Где в коде» в том же разделе). Постмортем по-прежнему не закрывает единственный root cause без корреляции измерений.
@@ -72,7 +72,7 @@
 
 **Live trace и renderer.** Main рассылает **по одной** строке trace на окно. Renderer: `mergeRows` синхронно дедуплицирует и копирует массив; на каждое изменение `rawTraceRows` в render-фазе `useMemo` заново прогоняет `projectChatTraceRows` по **всему N** (O(N) на каждое добавление). При готовом PAG snapshot `useEffect` на `rawTraceRows` вызывает **`PagGraphSessionTraceMerge.applyIncremental`** синхронно, **без** chunk/microtask budget, в отличие от `afterFullLoad` replay (`applyAfterFullLoadReplayDeltasBounded` + `yieldReplayChunkBound`). Общий фактор нагрузки — **общий main thread renderer** и общий state trace/PAG для смонтированных виджетов; отдельного флага «freeze чата» из 3D `freezeGraphAtCenteredCoordinates` для submit нет.
 
-**`chat_logs_enabled`.** SoT: файл конфигурации agent-memory на машине пользователя (`memory.debug.chat_logs_enabled`), чтение и coerce default **только в main** с кэшем по `mtimeMs`; fail-open при ошибке чтения — `true`. Renderer получает значение **один раз** при старте через IPC `ailit:agentMemoryChatLogsRoot`; UI просит перезапуск Desktop при смене yaml (live-refresh в renderer **не** задокументирован как контракт). При `false`: main handlers `ensureChatLogSessionDir` и `appendDesktopGraphPairLog` возвращают `{ ok: true, skipped: true }` **до** FS; trace subscribe, `appendTraceRow`, `brokerRequest`, `ailit:pagGraphSlice` и др. **не** читают флаг. Renderer гардит file-side пути pair-log и graph debug; **исключение:** при подключении к broker вызывается `logD("broker_connect", …)` без проверки флага — возможен IPC roundtrip, main по-прежнему не пишет файлы.
+**`chat_logs_enabled`.** SoT: файл конфигурации agent-memory на машине пользователя (`memory.debug.chat_logs_enabled`), чтение и coerce default **только в main** с кэшем по `mtimeMs`; fail-open при ошибке чтения — `true`. Renderer получает значение **один раз** при старте через IPC `ailit:agentMemoryChatLogsRoot` и держит зеркало в `agentMemoryChatLogsFileTargetsEnabledRef` (см. [`glossary.md`](glossary.md)); UI просит перезапуск Desktop при смене yaml (live-refresh в renderer **не** задокументирован как контракт). При `false`: main handlers `ensureChatLogSessionDir` и `appendDesktopGraphPairLog` возвращают `{ ok: true, skipped: true }` **до** FS; trace subscribe, `appendTraceRow`, `brokerRequest`, `ailit:pagGraphSlice` и др. **не** читают флаг (**OR-D5**). Renderer гардит file-side пути pair-log и graph debug: `logD("broker_connect", …)` в `connectToBroker` вызывается **только** если `agentMemoryChatLogsFileTargetsEnabledRef.current === true`; при `null`/`false` этого вызова нет, следовательно нет enqueue pair-log IPC с этого call site. Дальше по `connectToBroker` без ветвления по этому ref выполняются durable trace, merge и live subscribe — trace, broker и PAG остаются активными при выключенных файловых логах (**FR2**, **DNI1**).
 
 **PAG rev warning (дословный шаблон для новых сообщений).** Текст формируется функцией `formatPagGraphRevMismatchWarning` (модуль предупреждений PAG):
 
@@ -190,7 +190,7 @@ PAG: в merged <N> нод (><лимит>). Срез тяжёлый; исполь
 | Длительность `brokerRequest` (IPC roundtrip) | Renderer → main | `duration_ms` (number), `chat_id` или session key (string), `outcome` enum: `ok\|timeout\|error` |
 | Счётчик live trace rows | Renderer | `trace_rows_per_sec` скользящее окно; `rawTraceRows_length` (integer) на событие или раз в секунду |
 | Длительность / размер `pagGraphSlice` | Main (и при необходимости renderer await) | Compact `desktop.pag_slice.requested\|completed\|error`: `duration_ms`, `payload_bytes` **bounded** (без полного JSON в лог); скаляр размера stdout — тип `stdoutByteLength` в `pagGraphBridge`, не тело stdout |
-| Pair-log IPC | Renderer/main | При `chat_logs_enabled: false`: логировать факт `skipped: true` **не** обязательно для каждого вызова; для диагностики `broker_connect` — один счётчик `pairlog_ipc_calls_total` с breakdown `skipped_true` |
+| Pair-log IPC | Renderer/main | При `chat_logs_enabled: false`: логировать факт `skipped: true` **не** обязательно для каждого вызова; событие `broker_connect` с renderer на connect не уходит в IPC, пока зеркало файловых логов не `true` (G19.2). Счётчик `pairlog_ipc_calls_total` (в т.ч. breakdown `skipped_true`) относится к путям, где `appendDesktopGraphPairLog` реально вызывается. |
 | Renderer frame budget | Renderer | `longtask_duration_ms` (если доступно через PerformanceObserver) **или** `raf_gap_ms` p95 за окно во время активного trace |
 
 **Forbidden в compact логах:** полный stdout `pag-slice`; полное содержимое `rawTraceRows`; raw prompts; секреты.
@@ -232,7 +232,7 @@ PAG: в merged <N> нод (><лимит>). Срез тяжёлый; исполь
 
 ### FR5: `broker_connect` pair-log при `false`
 
-**Current fact:** один call site вызывает pair-log writer без проверки флага; main возвращает `skipped: true`, диск не растёт. **Канон:** это **не** доказательство записи логов и **не** опровержение FR2; сокращение лишнего IPC — допустимый slice плана (низкий blast radius), не обязательная часть минимального диагностического набора.
+**Current fact (после G19.2):** в `connectToBroker` вызов `logD("broker_connect", …)` выполняется только при `agentMemoryChatLogsFileTargetsEnabledRef.current === true` (то же зеркало, что и для остальных file-side pair-log путей). При `false`/`null` IPC `ailit:appendDesktopGraphPairLog` с этого события **не** инициируется из renderer. **Канон:** согласовано с **OR-D5** / **FR2**: выключенные файловые логи **не** отключают trace, broker и PAG; отсутствие `broker_connect` pair-log при `false` **не** доказывает и **не** опровергает гипотезу freeze «из-за логов». Сокращение лишнего pair-log IPC на connect при `false` — выполненный слайс плана (низкий blast radius), не замена полного набора OR-D6.
 
 ## Acceptance Criteria
 

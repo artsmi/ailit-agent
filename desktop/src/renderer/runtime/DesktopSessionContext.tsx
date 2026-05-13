@@ -986,11 +986,13 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       return;
     }
     setRuntimeDir(rd1);
-    pairLogWriterRef.current?.logD("broker_connect", {
-      chat_id: cid,
-      session_ui: activeSession.id,
-      runtime_dir: rd1
-    });
+    if (agentMemoryChatLogsFileTargetsEnabledRef.current === true) {
+      pairLogWriterRef.current?.logD("broker_connect", {
+        chat_id: cid,
+        session_ui: activeSession.id,
+        runtime_dir: rd1
+      });
+    }
     const dur1: Awaited<ReturnType<typeof window.ailitDesktop.traceReadDurable>> = await window.ailitDesktop.traceReadDurable({
       runtimeDir: rd1,
       chatId: cid

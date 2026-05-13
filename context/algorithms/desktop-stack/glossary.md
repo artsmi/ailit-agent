@@ -4,7 +4,7 @@
 
 | Термин | Расшифровка |
 |--------|-------------|
-| **SoT** | Source of truth: для `chat_logs_enabled` — разбор yaml в main-процессе Electron; renderer держит зеркало значения при старте сессии. |
+| **SoT** | Source of truth: для `chat_logs_enabled` — разбор yaml в main-процессе Electron; renderer держит зеркало значения при старте сессии (`agentMemoryChatLogsFileTargetsEnabledRef`; pair-log `broker_connect` и др. `logD` — только при `current === true`, см. § Current Reality в [`INDEX.md`](INDEX.md)). |
 | **PAG** | Граф памяти в Desktop; дельты приходят из trace; **rev** ведётся по namespace. |
 | **Rev mismatch** | Нарушение ожидаемой монотонности `last+1` и поля `rev` входящей дельты для того же namespace. |
 | **IPC** | Обмен `ipcRenderer.invoke` / `ipcMain.handle` между renderer и main. |
