@@ -354,3 +354,127 @@ def test_memory_init_orchestrator_os_sigint_guard_cancelled_aborts_130(
     assert "orch_memory_init_phase" in compact_body
     assert "phase=abort" in compact_body
     assert "phase=commit" not in compact_body
+
+
+def test_memory_init_init_soak_partial_without_continuation_then_complete(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Init soak: несколько RPC с partial без continuation, затем complete."""
+    proj = tmp_path / "proj-soak"
+    proj.mkdir()
+    (proj / "m.py").write_text("x = 1\n", encoding="utf-8")
+    logs = tmp_path / "chat_logs_soak"
+    logs.mkdir()
+    monkeypatch.setenv("AILIT_AGENT_MEMORY_CHAT_LOG_DIR", str(logs))
+    am_cfg = tmp_path / "am-soak.yaml"
+    am_cfg.write_text(
+        'schema_version: "1"\n'
+        "memory:\n"
+        "  llm:\n"
+        "    enabled: false\n"
+        "  init:\n"
+        "    max_continuation_rounds: 8\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("AILIT_AGENT_MEMORY_CONFIG", str(am_cfg))
+    jr = tmp_path / "memory-journal-soak.jsonl"
+    monkeypatch.setenv("AILIT_MEMORY_JOURNAL_PATH", str(jr))
+    monkeypatch.setenv("AILIT_PAG_DB_PATH", str(tmp_path / "pag-soak.sqlite3"))
+    monkeypatch.setenv("AILIT_KB_DB_PATH", str(tmp_path / "kb-soak.sqlite3"))
+    rt = tmp_path / "runtime-soak"
+    rt.mkdir()
+    monkeypatch.setenv("AILIT_RUNTIME_DIR", str(rt))
+    paths = MIP(
+        pag_db=tmp_path / "pag-soak.sqlite3",
+        kb_db=tmp_path / "kb-soak.sqlite3",
+        journal_canonical=jr,
+        runtime_dir=rt,
+    )
+    bcid = "soak-chat-1"
+    soak_calls: dict[str, int] = {"n": 0}
+
+    def _handle_soak(
+        self: AgentMemoryWorker,
+        req: RuntimeRequestEnvelope,
+    ) -> dict[str, object]:
+        pl = req.payload if isinstance(req.payload, dict) else {}
+        sp = str(pl.get("memory_init_shadow_journal_path") or "").strip()
+        jstore = MemoryJournalStore(Path(sp)) if sp else self._journal
+        soak_calls["n"] += 1
+        rid = f"soak-req-{soak_calls['n']}"
+        if soak_calls["n"] < 3:
+            jstore.append(
+                MemoryJournalRow(
+                    chat_id=req.chat_id,
+                    request_id=rid,
+                    namespace=str(req.namespace or self._cfg.namespace),
+                    event_name="memory.result.returned",
+                    summary="stub-partial",
+                    payload={
+                        "query_id": "mem-partial",
+                        "status": "partial",
+                        "result_kind_counts": {},
+                        "results_total": 0,
+                    },
+                ),
+            )
+            return {
+                "ok": True,
+                "payload": {
+                    "memory_slice": {"partial": True},
+                    "partial": True,
+                    "decision_summary": "partial",
+                    "recommended_next_step": "continue",
+                    "agent_memory_result": {
+                        "schema_version": "agent_memory_result.v1",
+                        "status": "partial",
+                        "memory_continuation_required": False,
+                    },
+                },
+            }
+        jstore.append(
+            MemoryJournalRow(
+                chat_id=req.chat_id,
+                request_id=rid,
+                namespace=str(req.namespace or self._cfg.namespace),
+                event_name="memory.result.returned",
+                summary="stub-complete",
+                payload={
+                    "query_id": "mem-done",
+                    "status": "complete",
+                    "result_kind_counts": {},
+                    "results_total": 0,
+                },
+            ),
+        )
+        return {
+            "ok": True,
+            "payload": {
+                "memory_slice": {"partial": False},
+                "partial": False,
+                "decision_summary": "done",
+                "recommended_next_step": "none",
+                "agent_memory_result": {
+                    "schema_version": "agent_memory_result.v1",
+                    "status": "complete",
+                    "memory_continuation_required": False,
+                },
+            },
+        }
+
+    invoke, cli_dir = _broker_invoke_for_stub_worker(
+        namespace="ns-soak",
+        broker_chat_id=bcid,
+        monkeypatch=monkeypatch,
+        handle_impl=_handle_soak,
+    )
+    code = MemoryInitOrchestrator(paths=paths).run(
+        proj,
+        "ns-soak",
+        broker_invoke=invoke,
+        broker_chat_id=bcid,
+        cli_session_dir=cli_dir,
+    )
+    assert code == 0
+    assert soak_calls["n"] == 3

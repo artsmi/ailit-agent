@@ -45,6 +45,7 @@ from agent_memory.memory_init_transaction import (
     MemoryInitTransaction,
     resolve_memory_init_paths,
 )
+from agent_memory.agent_memory_result_v1 import FIX_MEMORY_LLM_JSON_STEP
 from ailit_runtime.broker_json_client import (
     BrokerResponseError,
     BrokerTransportError,
@@ -612,6 +613,23 @@ class MemoryInitOrchestrator:
                     amr is not None
                     and amr.get("memory_continuation_required") is True
                 )
+                # Init soak: ``memory_continuation_required`` бывает только при
+                # узком UC-04 (partial + w14_finish + …). Для больших деревьев
+                # частый путь — ``partial`` без continuation; без доп. раундов
+                # журнал не получает ``memory.result.returned``/``complete`` и
+                # VERIFY падает. Продолжаем RPC, пока есть бюджет раундов и
+                # worker не ``blocked``/``complete``.
+                if not cont:
+                    st_am = str((amr or {}).get("status", "")).strip().lower()
+                    rns = str(
+                        (pl or {}).get("recommended_next_step", ""),
+                    ).strip()
+                    if (
+                        st_am not in ("blocked", "complete")
+                        and rns != FIX_MEMORY_LLM_JSON_STEP
+                        and round_idx + 1 < max_continuation_rounds
+                    ):
+                        cont = True
                 if not cont:
                     break
                 round_idx += 1
