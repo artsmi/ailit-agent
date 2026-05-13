@@ -105,6 +105,7 @@ from agent_memory.pag_graph_trace import (
     emit_pag_graph_trace_row,
     emit_memory_w14_graph_highlight_row,
 )
+from agent_memory.pag_indexer import PagIndexer, index_project_to_default_store
 
 MEMORY_CANCEL_QUERY_SERVICE: str = "memory.cancel_query_context"
 _memory_cancel_registry: dict[str, threading.Event] = {}
@@ -1542,6 +1543,115 @@ class AgentMemoryWorker:
             )
         return ok_out
 
+    def _handle_index_project(
+        self,
+        req: RuntimeRequestEnvelope,
+    ) -> Mapping[str, Any]:
+        """G20.4: offline PAG index (как CLI ``ailit memory index``)."""
+        pl = req.payload if isinstance(req.payload, dict) else {}
+        request_id = str(pl.get("request_id", "") or req.message_id)
+        root_raw = str(pl.get("project_root", "") or "").strip()
+        if not root_raw:
+            out = make_response_envelope(
+                request=req,
+                ok=False,
+                payload={},
+                error={
+                    "code": "missing_project_root",
+                    "message": "project_root required",
+                },
+            ).to_dict()
+            self._log_handle_error(
+                req,
+                request_id=request_id,
+                service="memory.index_project",
+                out=out,
+            )
+            return out
+        full = bool(pl.get("full") is True)
+        db_raw = pl.get("db_path")
+        db_path: Path | None = None
+        if db_raw is not None and str(db_raw).strip():
+            db_path = Path(str(db_raw)).expanduser().resolve()
+        try:
+            root = Path(root_raw).expanduser().resolve()
+        except OSError as exc:
+            out = make_response_envelope(
+                request=req,
+                ok=False,
+                payload={},
+                error={
+                    "code": "invalid_project_root",
+                    "message": str(exc),
+                },
+            ).to_dict()
+            self._log_handle_error(
+                req,
+                request_id=request_id,
+                service="memory.index_project",
+                out=out,
+            )
+            return out
+        try:
+            ns = index_project_to_default_store(
+                project_root=root,
+                db_path=db_path,
+                full=full,
+            )
+        except OSError as exc:
+            out = make_response_envelope(
+                request=req,
+                ok=False,
+                payload={},
+                error={"code": "index_os_error", "message": str(exc)[:500]},
+            ).to_dict()
+            self._log_handle_error(
+                req,
+                request_id=request_id,
+                service="memory.index_project",
+                out=out,
+            )
+            return out
+        except Exception as exc:  # noqa: BLE001
+            out = make_response_envelope(
+                request=req,
+                ok=False,
+                payload={},
+                error={"code": "index_failed", "message": str(exc)[:500]},
+            ).to_dict()
+            self._log_handle_error(
+                req,
+                request_id=request_id,
+                service="memory.index_project",
+                out=out,
+            )
+            return out
+        resolved_db = (
+            db_path if db_path is not None else PagIndexer.default_db_path()
+        )
+        ok_out = make_response_envelope(
+            request=req,
+            ok=True,
+            payload={
+                "kind": "ailit_memory_index_result_v1",
+                "ok": True,
+                "namespace": ns,
+                "db_path": str(resolved_db),
+                "project_root": str(root),
+            },
+            error=None,
+        ).to_dict()
+        if self._chat_debug.enabled:
+            self._chat_debug.log_audit(
+                raw_chat_id=req.chat_id,
+                event="memory.response",
+                request_id=request_id,
+                topic="to_client",
+                service="memory.index_project",
+                body={"response": dict(ok_out)},
+            )
+        return ok_out
+
     def _fallback_slice(
         self,
         *,
@@ -1603,6 +1713,8 @@ class AgentMemoryWorker:
                 req.message_id,
             )
             return self._handle_change_feedback(req, request_id=rfc2)
+        if service == "memory.index_project":
+            return self._handle_index_project(req)
         if service and service != "memory.query_context":
             out = make_response_envelope(
                 request=req,

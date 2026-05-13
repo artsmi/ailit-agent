@@ -715,6 +715,33 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Полный re-index (в MVP: без оптимизаций)",
     )
+    p_idx.add_argument(
+        "--broker-chat-id",
+        type=str,
+        default=None,
+        help=(
+            "chat_id запущенного AgentBroker (обязательно; G20 broker path)"
+        ),
+    )
+    p_idx.add_argument(
+        "--broker-socket",
+        type=str,
+        default=None,
+        help=(
+            "Путь к Unix-сокету broker; если не задан — supervisor + "
+            "--memory-runtime-dir"
+        ),
+    )
+    p_idx.add_argument(
+        "--memory-runtime-dir",
+        type=str,
+        default=None,
+        dest="memory_runtime_dir",
+        help=(
+            "Каталог runtime (supervisor.sock); по умолчанию "
+            "AILIT_RUNTIME_DIR или XDG/ ~/.ailit/runtime"
+        ),
+    )
     p_idx.set_defaults(func=cmd_memory_index)
 
     p_init = mem_sub.add_parser(
