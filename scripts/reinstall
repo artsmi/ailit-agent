@@ -15,7 +15,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-export PYTHONPATH="${REPO_ROOT}/tools${PYTHONPATH:+:${PYTHONPATH}}"
+export PYTHONPATH="${REPO_ROOT}/ailit${PYTHONPATH:+:${PYTHONPATH}}"
 
 NO_DESKTOP=0
 INSTALL_ARGS=()
@@ -72,11 +72,11 @@ from __future__ import annotations
 
 import shlex
 
-from agent_core.memory.kb_tools import kb_tools_config_from_env
-from agent_core.runtime.agent_memory_chat_log import default_chat_logs_dir
-from agent_core.runtime.memory_journal import default_memory_journal_path
-from agent_core.runtime.paths import default_runtime_dir
-from ailit.user_paths import GlobalDirResolver
+from agent_memory.agent_memory_chat_log import default_chat_logs_dir
+from agent_memory.kb_tools import kb_tools_config_from_env
+from agent_memory.memory_journal import default_memory_journal_path
+from ailit_cli.user_paths import GlobalDirResolver
+from ailit_runtime.paths import default_runtime_dir
 
 r = GlobalDirResolver()
 paths = {
@@ -112,7 +112,7 @@ _stop_ailit_service
 _log "остановка desktop-процессов (electron / AppImage)"
 _kill_desktop
 
-_log "пути данных (как в agent_core / ailit.user_paths)"
+_log "пути данных (ailit_runtime / agent_memory / ailit_cli.user_paths)"
 # shellcheck disable=SC1090
 eval "$(_emit_paths)"
 

@@ -4,7 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-export PYTHONPATH="${REPO_ROOT}/tools${PYTHONPATH:+:${PYTHONPATH}}"
+export PYTHONPATH="${REPO_ROOT}/ailit${PYTHONPATH:+:${PYTHONPATH}}"
 
 # Путь к БД по умолчанию (как у пользователя). Переопределение: PAG_READ_DB или
 # AILIT_PAG_DB_PATH (приоритет выше константы).
@@ -12,4 +12,4 @@ readonly PAG_READ_DEFAULT_DB="/home/artem/.ailit/pag/store.sqlite3"
 export PAG_READ_DB="${PAG_READ_DB:-${AILIT_PAG_DB_PATH:-${PAG_READ_DEFAULT_DB}}}"
 
 cd "${REPO_ROOT}"
-exec python3 -m agent_core.memory.pag_read_cli "$@"
+exec python3 -m agent_memory.pag_read_cli "$@"
