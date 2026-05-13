@@ -1,6 +1,7 @@
 """Оркестратор ``memory init``.
 
-PREPARE → EXECUTE → worker → VERIFY journal → COMMIT или ABORT.
+PREPARE → EXECUTE → broker RPC (``memory.query_context``) → VERIFY journal
+→ COMMIT или ABORT.
 """
 
 from __future__ import annotations
@@ -9,10 +10,11 @@ import json
 import os
 import signal
 import uuid
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Final, Mapping
+from typing import Any, Final
 
 from agent_memory.agent_memory_chat_log import (
     COMPACT_LOG_FILE_NAME,
@@ -43,14 +45,14 @@ from agent_memory.memory_init_transaction import (
     MemoryInitTransaction,
     resolve_memory_init_paths,
 )
+from ailit_runtime.broker_json_client import (
+    BrokerResponseError,
+    BrokerTransportError,
+)
 from ailit_runtime.models import (
     RuntimeIdentity,
     RuntimeNow,
     make_request_envelope,
-)
-from ailit_runtime.subprocess_agents.memory_agent import (
-    AgentMemoryWorker,
-    MemoryAgentConfig,
 )
 
 _DEFAULT_TAIL_BYTES: Final[int] = 8 * 1024 * 1024
@@ -60,6 +62,8 @@ _EXIT_INTERRUPT: Final[int] = 130
 # UC-06: compact W14 tokens in ``abort_reason=`` (no raw LLM / full envelope).
 _W14_REASON_UNKNOWN_LEGACY: Final[str] = "unknown_legacy_w14_status"
 _W14_REASON_CMD_INVALID: Final[str] = "w14_command_output_invalid"
+
+BrokerInvoke = Callable[[Mapping[str, Any]], dict[str, Any]]
 
 
 def _w14_reason_short_from_worker_ok_envelope(
@@ -281,7 +285,7 @@ class MemoryInitSigintGuard:
 
 
 class MemoryInitOrchestrator:
-    """PREPARE / EXECUTE / AgentMemoryWorker / VERIFY / COMMIT|ABORT."""
+    """PREPARE / EXECUTE / broker RPC → AgentMemory / VERIFY / COMMIT|ABORT."""
 
     def __init__(
         self,
@@ -295,7 +299,9 @@ class MemoryInitOrchestrator:
         project_root: str | Path,
         pag_namespace_key: str,
         *,
-        chat_id: str | None = None,
+        broker_invoke: BrokerInvoke,
+        broker_chat_id: str,
+        cli_session_dir: Path | None = None,
     ) -> int:
         """
         Returns:
@@ -309,14 +315,20 @@ class MemoryInitOrchestrator:
                 "blocked",
                 abort_class="infrastructure",
             )
+        bcid = str(broker_chat_id or "").strip()
+        if not bcid:
+            return memory_init_exit_code(
+                "blocked",
+                abort_class="infrastructure",
+            )
+        cid = bcid
         init_session_id = str(uuid.uuid4())
-        cid = (
-            str(chat_id).strip()
-            if chat_id
-            else f"memory-init-{init_session_id[:8]}"
-        )
         started = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-        cli_dir = create_unique_cli_session_dir()
+        cli_dir = (
+            cli_session_dir
+            if cli_session_dir is not None
+            else create_unique_cli_session_dir()
+        )
         session = MemoryInitSession(
             init_session_id=init_session_id,
             chat_id=cid,
@@ -418,17 +430,6 @@ class MemoryInitOrchestrator:
                 "orch_memory_init_phase",
                 {"phase": "execute_worker"},
             )
-            cfg = MemoryAgentConfig(
-                chat_id=cid,
-                broker_id=f"memory-init-{init_session_id[:8]}",
-                namespace=ns,
-                session_log_mode="cli_init",
-                cli_session_dir=cli_dir,
-                memory_journal_path=shadow,
-                compact_init_session_id=init_session_id,
-                broker_trace_stdout=False,
-            )
-            worker = AgentMemoryWorker(cfg)
             am_file_cfg = load_or_create_agent_memory_config()
             max_continuation_rounds = (
                 am_file_cfg.memory.init.max_continuation_rounds
@@ -436,7 +437,7 @@ class MemoryInitOrchestrator:
             identity = RuntimeIdentity(
                 runtime_id=f"rt-{init_session_id[:8]}",
                 chat_id=cid,
-                broker_id=cfg.broker_id,
+                broker_id=f"broker-{cid}",
                 trace_id=f"tr-{init_session_id[:8]}",
                 goal_id="memory_init",
                 namespace=ns,
@@ -472,14 +473,50 @@ class MemoryInitOrchestrator:
                         ],
                         "memory_init": True,
                         "memory_init_round": int(round_idx),
+                        "memory_init_shadow_journal_path": str(
+                            shadow.resolve(),
+                        ),
                     },
                     now=RuntimeNow(),
                 )
                 last_request_id = request_id
                 try:
-                    out = worker.handle(req)
+                    out = broker_invoke(req.to_dict())
                     if isinstance(out, dict) and out.get("ok") is True:
                         last_ok_worker_envelope = out
+                except (BrokerTransportError, BrokerResponseError) as exc:
+                    self._emit_orch(
+                        orch_sink,
+                        session,
+                        "orch_memory_init_broker_error",
+                        {"error": str(exc)[:400]},
+                    )
+                    self._emit_orchestrator_terminal_marker(
+                        tx=tx,
+                        orch_sink=orch_sink,
+                        session=session,
+                        status="partial",
+                        request_id=last_request_id,
+                    )
+                    try:
+                        tx.phase_abort()
+                    except RuntimeProtocolError:
+                        pass
+                    self._emit_orch(
+                        orch_sink,
+                        session,
+                        "orch_memory_init_phase",
+                        {"phase": "abort"},
+                    )
+                    self._emit_memory_init_user_summary(
+                        compact_path,
+                        "partial",
+                        reason_short="broker_rpc_failed",
+                    )
+                    return memory_init_exit_code(
+                        "partial",
+                        abort_class="infrastructure",
+                    )
                 except KeyboardInterrupt:
                     self._emit_orchestrator_terminal_marker(
                         tx=tx,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import re
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ import pytest
 from agent_memory.agent_memory_chat_log import (
     COMPACT_LOG_FILE_NAME,
     AgentMemoryChatDebugLog,
+    create_unique_cli_session_dir,
 )
 from agent_memory.agent_memory_config import (
     AgentMemoryFileConfig,
@@ -31,9 +33,12 @@ from agent_memory.memory_init_summary import (
     emit_memory_init_user_summary,
 )
 from agent_memory.memory_init_transaction import MemoryInitPaths as MIP
-from agent_memory.memory_journal import MemoryJournalRow
+from agent_memory.memory_journal import MemoryJournalRow, MemoryJournalStore
 from ailit_runtime.models import RuntimeRequestEnvelope
-from ailit_runtime.subprocess_agents.memory_agent import AgentMemoryWorker
+from ailit_runtime.subprocess_agents.memory_agent import (
+    AgentMemoryWorker,
+    MemoryAgentConfig,
+)
 
 
 def _verbose_cfg() -> AgentMemoryFileConfig:
@@ -75,6 +80,45 @@ def _apply_memory_init_isolation(
     monkeypatch.setenv("AILIT_RUNTIME_DIR", str(rt))
 
 
+def _uc_stub_journal_store(
+    worker: AgentMemoryWorker,
+    req: RuntimeRequestEnvelope,
+) -> MemoryJournalStore:
+    """G20.5: append в shadow из payload orchestrator."""
+    pl = req.payload if isinstance(req.payload, dict) else {}
+    sp = str(pl.get("memory_init_shadow_journal_path") or "").strip()
+    if sp:
+        return MemoryJournalStore(Path(sp))
+    return worker._journal
+
+
+def _broker_invoke_worker(
+    worker: AgentMemoryWorker,
+) -> Callable[[Mapping[str, Any]], dict[str, Any]]:
+    def invoke(env: Mapping[str, Any]) -> dict[str, Any]:
+        req = RuntimeRequestEnvelope.from_dict(dict(env))
+        return dict(worker.handle(req))
+
+    return invoke
+
+
+def _memory_init_stub_worker(
+    *,
+    namespace: str,
+    broker_chat_id: str,
+    cli_dir: Path,
+) -> AgentMemoryWorker:
+    cfg = MemoryAgentConfig(
+        chat_id=broker_chat_id,
+        broker_id=f"broker-{broker_chat_id}",
+        namespace=namespace,
+        session_log_mode="cli_init",
+        cli_session_dir=cli_dir,
+        broker_trace_stdout=False,
+    )
+    return AgentMemoryWorker(cfg)
+
+
 def _stub_handle_w14_verify_fail_partial(
     self: AgentMemoryWorker,
     req: RuntimeRequestEnvelope,
@@ -84,7 +128,7 @@ def _stub_handle_w14_verify_fail_partial(
 
     Без stub complete; VERIFY журнала → partial (exit 1).
     """
-    self._journal.append(
+    _uc_stub_journal_store(self, req).append(
         MemoryJournalRow(
             chat_id=req.chat_id,
             request_id="stub-w14-req",
@@ -122,7 +166,7 @@ def _stub_handle_complete(
     req: RuntimeRequestEnvelope,
 ) -> dict[str, object]:
     """Без live LLM: финальный complete (как task_2_2)."""
-    self._journal.append(
+    _uc_stub_journal_store(self, req).append(
         MemoryJournalRow(
             chat_id=req.chat_id,
             request_id="stub-req",
@@ -182,17 +226,33 @@ def test_uc01_memory_init_payload_has_memory_init_true_and_empty_path(
             goal = str(pl.get("goal", "") or "").strip().lower()
             assert goal != "inspect path"
             assert MEMORY_INIT_CANONICAL_GOAL.lower() == goal
+            sh = str(pl.get("memory_init_shadow_journal_path") or "").strip()
+            assert sh.endswith(".journal.shadow.jsonl")
             checked["done"] = True
         return _stub_handle_complete(self, req)
 
+    cli_dir = create_unique_cli_session_dir()
+    bcid = "uc01-payload-chat"
+    worker = _memory_init_stub_worker(
+        namespace="ns-uc01-payload",
+        broker_chat_id=bcid,
+        cli_dir=cli_dir,
+    )
     monkeypatch.setattr(AgentMemoryWorker, "handle", _wrap)
+    invoke = _broker_invoke_worker(worker)
     paths = MIP(
         pag_db=tmp_path / "pag.sqlite3",
         kb_db=tmp_path / "kb.sqlite3",
         journal_canonical=tmp_path / "memory-journal.jsonl",
         runtime_dir=tmp_path / "runtime",
     )
-    code = MemoryInitOrchestrator(paths=paths).run(proj, "ns-uc01-payload")
+    code = MemoryInitOrchestrator(paths=paths).run(
+        proj,
+        "ns-uc01-payload",
+        broker_invoke=invoke,
+        broker_chat_id=bcid,
+        cli_session_dir=cli_dir,
+    )
     assert code == 0
     assert checked.get("done") is True
 
@@ -264,7 +324,7 @@ def test_uc01_continuation_second_round_writes_complete_marker(
         n = call_n["i"]
         rid = f"stub-req-{n}"
         if n == 1:
-            self._journal.append(
+            _uc_stub_journal_store(self, req).append(
                 MemoryJournalRow(
                     chat_id=req.chat_id,
                     request_id=rid,
@@ -295,14 +355,28 @@ def test_uc01_continuation_second_round_writes_complete_marker(
             }
         return _stub_handle_complete(self, req)
 
+    cli_dir = create_unique_cli_session_dir()
+    bcid = "uc01-cont-chat"
+    worker = _memory_init_stub_worker(
+        namespace="ns-uc01-cont",
+        broker_chat_id=bcid,
+        cli_dir=cli_dir,
+    )
     monkeypatch.setattr(AgentMemoryWorker, "handle", _two_rounds)
+    invoke = _broker_invoke_worker(worker)
     paths = MIP(
         pag_db=tmp_path / "pag.sqlite3",
         kb_db=tmp_path / "kb.sqlite3",
         journal_canonical=tmp_path / "memory-journal.jsonl",
         runtime_dir=tmp_path / "runtime",
     )
-    code = MemoryInitOrchestrator(paths=paths).run(proj, "ns-uc01-cont")
+    code = MemoryInitOrchestrator(paths=paths).run(
+        proj,
+        "ns-uc01-cont",
+        broker_invoke=invoke,
+        broker_chat_id=bcid,
+        cli_session_dir=cli_dir,
+    )
     assert code == 0
     assert call_n["i"] == 2
 
@@ -317,14 +391,28 @@ def test_uc02_final_summary_contains_labeled_metrics_and_compact_path(
     proj.mkdir()
     (proj / "f.py").write_text("pass\n", encoding="utf-8")
     _apply_memory_init_isolation(tmp_path, monkeypatch)
+    cli_dir = create_unique_cli_session_dir()
+    bcid = "uc02-sum-chat"
+    worker = _memory_init_stub_worker(
+        namespace="ns-uc02-sum",
+        broker_chat_id=bcid,
+        cli_dir=cli_dir,
+    )
     monkeypatch.setattr(AgentMemoryWorker, "handle", _stub_handle_complete)
+    invoke = _broker_invoke_worker(worker)
     paths = MIP(
         pag_db=tmp_path / "pag.sqlite3",
         kb_db=tmp_path / "kb.sqlite3",
         journal_canonical=tmp_path / "memory-journal.jsonl",
         runtime_dir=tmp_path / "runtime",
     )
-    code = MemoryInitOrchestrator(paths=paths).run(proj, "ns-uc02-sum")
+    code = MemoryInitOrchestrator(paths=paths).run(
+        proj,
+        "ns-uc02-sum",
+        broker_invoke=invoke,
+        broker_chat_id=bcid,
+        cli_session_dir=cli_dir,
+    )
     assert code == 0
     err = capsys.readouterr().err
     assert "compact_log=" in err
@@ -345,18 +433,32 @@ def test_tc_uc06_summary_abort_reason_w14_on_partial_verify(
     proj.mkdir()
     (proj / "f.py").write_text("pass\n", encoding="utf-8")
     _apply_memory_init_isolation(tmp_path, monkeypatch)
+    cli_dir = create_unique_cli_session_dir()
+    bcid = "uc06-w14-chat"
+    worker = _memory_init_stub_worker(
+        namespace="ns-uc06-w14",
+        broker_chat_id=bcid,
+        cli_dir=cli_dir,
+    )
     monkeypatch.setattr(
         AgentMemoryWorker,
         "handle",
         _stub_handle_w14_verify_fail_partial,
     )
+    invoke = _broker_invoke_worker(worker)
     paths = MIP(
         pag_db=tmp_path / "pag.sqlite3",
         kb_db=tmp_path / "kb.sqlite3",
         journal_canonical=tmp_path / "memory-journal.jsonl",
         runtime_dir=tmp_path / "runtime",
     )
-    code = MemoryInitOrchestrator(paths=paths).run(proj, "ns-uc06-w14")
+    code = MemoryInitOrchestrator(paths=paths).run(
+        proj,
+        "ns-uc06-w14",
+        broker_invoke=invoke,
+        broker_chat_id=bcid,
+        cli_session_dir=cli_dir,
+    )
     assert code == 1
     err = capsys.readouterr().err
     assert "status=partial" in err
@@ -373,14 +475,28 @@ def test_uc02_final_summary_no_multiline_json_envelope(
     proj.mkdir()
     (proj / "f.py").write_text("pass\n", encoding="utf-8")
     _apply_memory_init_isolation(tmp_path, monkeypatch)
+    cli_dir = create_unique_cli_session_dir()
+    bcid = "uc02-noml-chat"
+    worker = _memory_init_stub_worker(
+        namespace="ns-uc02-noml",
+        broker_chat_id=bcid,
+        cli_dir=cli_dir,
+    )
     monkeypatch.setattr(AgentMemoryWorker, "handle", _stub_handle_complete)
+    invoke = _broker_invoke_worker(worker)
     paths = MIP(
         pag_db=tmp_path / "pag.sqlite3",
         kb_db=tmp_path / "kb.sqlite3",
         journal_canonical=tmp_path / "memory-journal.jsonl",
         runtime_dir=tmp_path / "runtime",
     )
-    MemoryInitOrchestrator(paths=paths).run(proj, "ns-uc02-noml")
+    MemoryInitOrchestrator(paths=paths).run(
+        proj,
+        "ns-uc02-noml",
+        broker_invoke=invoke,
+        broker_chat_id=bcid,
+        cli_session_dir=cli_dir,
+    )
     err = capsys.readouterr().err
     bad = re.search(r"\{\s*\n\s*\"", err)
     assert bad is None, "multiline JSON envelope proxy should not appear"

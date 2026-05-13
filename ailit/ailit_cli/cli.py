@@ -761,6 +761,34 @@ def main(argv: list[str] | None = None) -> int:
             "каталог должен существовать."
         ),
     )
+    p_init.add_argument(
+        "--broker-chat-id",
+        type=str,
+        default=None,
+        help=(
+            "chat_id запущенного AgentBroker (обязательно; envelope chat_id / "
+            "маршрутизация broker; G20)"
+        ),
+    )
+    p_init.add_argument(
+        "--broker-socket",
+        type=str,
+        default=None,
+        help=(
+            "Путь к Unix-сокету broker; если не задан — разрешение через "
+            "supervisor и --memory-runtime-dir"
+        ),
+    )
+    p_init.add_argument(
+        "--memory-runtime-dir",
+        type=str,
+        default=None,
+        dest="memory_runtime_dir",
+        help=(
+            "Каталог runtime (supervisor.sock); по умолчанию "
+            "AILIT_RUNTIME_DIR или XDG/ ~/.ailit/runtime"
+        ),
+    )
     p_init.set_defaults(func=cmd_memory_init)
 
     p_mq = mem_sub.add_parser(

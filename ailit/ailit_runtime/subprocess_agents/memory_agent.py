@@ -441,6 +441,21 @@ class AgentMemoryWorker:
             body={"response": dict(out)},
         )
 
+    def _journal_store_for_envelope(
+        self,
+        req: RuntimeRequestEnvelope,
+    ) -> MemoryJournalStore:
+        """
+        G20.5: при ``memory_init`` и ``memory_init_shadow_journal_path`` —
+        пишем в shadow CLI (тот же путь, что VERIFY у оркестратора init).
+        """
+        pl = req.payload if isinstance(req.payload, dict) else {}
+        if _payload_memory_init_flag(pl):
+            raw = str(pl.get("memory_init_shadow_journal_path") or "").strip()
+            if raw:
+                return MemoryJournalStore(Path(raw).expanduser().resolve())
+        return self._journal
+
     def _append_journal(
         self,
         *,
@@ -453,7 +468,8 @@ class AgentMemoryWorker:
         payload: Mapping[str, Any] | None = None,
     ) -> None:
         try:
-            self._journal.append(
+            store = self._journal_store_for_envelope(req)
+            store.append(
                 MemoryJournalRow(
                     chat_id=req.chat_id,
                     request_id=request_id,

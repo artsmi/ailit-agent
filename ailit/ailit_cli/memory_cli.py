@@ -13,6 +13,7 @@ from agent_memory.pag_indexer import PagIndexer
 from ailit_runtime.errors import RuntimeProtocolError
 from agent_memory.memory_init_orchestrator import (
     MemoryInitOrchestrator,
+    normalize_memory_init_root,
 )
 from agent_memory.agent_memory_ailit_config import (
     agent_memory_rpc_timeout_s,
@@ -203,7 +204,26 @@ def cmd_memory_init(args: object) -> int:
     if root_raw is None or not str(root_raw).strip():
         sys.stderr.write("memory init: path required\n")
         return 2
-    root = Path(str(root_raw)).expanduser().resolve()
+    try:
+        root = normalize_memory_init_root(
+            Path(str(root_raw)).expanduser().resolve(),
+        )
+    except RuntimeProtocolError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
+    try:
+        pair = memory_cli_resolve_broker_socket(args)
+    except RuntimeProtocolError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
+    if pair is None:
+        sys.stderr.write(
+            "memory init: --broker-chat-id required "
+            "(G20: AgentMemory via broker only; "
+            "see plan/20-memory-cli-broker-viz.md).\n",
+        )
+        return 2
+    sock_path, bcid = pair
     ctx = detect_repo_context(root)
     ns = namespace_for_repo(
         repo_uri=ctx.repo_uri,
@@ -211,7 +231,24 @@ def cmd_memory_init(args: object) -> int:
         branch=ctx.branch,
     )
     try:
-        return int(MemoryInitOrchestrator().run(root, ns))
+        merged = load_merged_ailit_config_for_memory()
+    except Exception:
+        merged = {}
+    timeout_s = max(float(agent_memory_rpc_timeout_s(merged)), 3600.0)
+    client = BrokerJsonRpcClient(sock_path)
+
+    def invoke(env: Mapping[str, Any]) -> dict[str, Any]:
+        return client.call(env, timeout_s=timeout_s)
+
+    try:
+        return int(
+            MemoryInitOrchestrator().run(
+                root,
+                ns,
+                broker_invoke=invoke,
+                broker_chat_id=bcid,
+            ),
+        )
     except RuntimeProtocolError as exc:
         sys.stderr.write(f"{exc}\n")
         return 2

@@ -7,11 +7,16 @@ import signal
 import sys
 import threading
 import time
+from collections.abc import Callable, Mapping
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-from agent_memory.agent_memory_chat_log import COMPACT_LOG_FILE_NAME
+from agent_memory.agent_memory_chat_log import (
+    COMPACT_LOG_FILE_NAME,
+    create_unique_cli_session_dir,
+)
 from agent_memory.memory_init_orchestrator import (
     MemoryInitOrchestrator,
     MemoryInitSigintGuard,
@@ -19,9 +24,12 @@ from agent_memory.memory_init_orchestrator import (
     normalize_memory_init_root,
 )
 from agent_memory.memory_init_transaction import MemoryInitPaths as MIP
-from agent_memory.memory_journal import MemoryJournalRow
+from agent_memory.memory_journal import MemoryJournalRow, MemoryJournalStore
 from ailit_runtime.models import RuntimeRequestEnvelope
-from ailit_runtime.subprocess_agents.memory_agent import AgentMemoryWorker
+from ailit_runtime.subprocess_agents.memory_agent import (
+    AgentMemoryWorker,
+    MemoryAgentConfig,
+)
 
 
 def test_tc_2_2_summary_counts_d4(tmp_path: Path) -> None:
@@ -56,6 +64,34 @@ def test_normalize_memory_init_root_missing(tmp_path: Path) -> None:
         normalize_memory_init_root(tmp_path / "nope")
 
 
+def _broker_invoke_for_stub_worker(
+    *,
+    namespace: str,
+    broker_chat_id: str,
+    monkeypatch: pytest.MonkeyPatch,
+    handle_impl: Any,
+) -> tuple[Callable[[Mapping[str, Any]], dict[str, Any]], Path]:
+    """In-process ``AgentMemoryWorker`` как stand-in для broker RPC (G20.5)."""
+    cli_dir = create_unique_cli_session_dir()
+    cfg = MemoryAgentConfig(
+        chat_id=broker_chat_id,
+        broker_id=f"broker-{broker_chat_id}",
+        namespace=namespace,
+        session_log_mode="cli_init",
+        cli_session_dir=cli_dir,
+        broker_trace_stdout=False,
+    )
+    worker = AgentMemoryWorker(cfg)
+    monkeypatch.setattr(AgentMemoryWorker, "handle", handle_impl)
+
+    def invoke(env: Mapping[str, Any]) -> dict[str, Any]:
+        req = RuntimeRequestEnvelope.from_dict(dict(env))
+        out = worker.handle(req)
+        return dict(out)
+
+    return invoke, cli_dir
+
+
 def _stub_handle_complete(
     self: AgentMemoryWorker,
     req: RuntimeRequestEnvelope,
@@ -65,7 +101,10 @@ def _stub_handle_complete(
     Доп. поля ``agent_memory_result`` (continuation и т.д.) игнорируются —
     см. UC-01 в ``test_memory_init_fix_uc01_uc02.py``.
     """
-    self._journal.append(
+    pl = req.payload if isinstance(req.payload, dict) else {}
+    sp = str(pl.get("memory_init_shadow_journal_path") or "").strip()
+    jstore = MemoryJournalStore(Path(sp)) if sp else self._journal
+    jstore.append(
         MemoryJournalRow(
             chat_id=req.chat_id,
             request_id="stub-req",
@@ -130,18 +169,26 @@ def test_memory_init_orchestrator_end_to_end(
     rt = tmp_path / "runtime"
     rt.mkdir()
     monkeypatch.setenv("AILIT_RUNTIME_DIR", str(rt))
-    monkeypatch.setattr(
-        AgentMemoryWorker,
-        "handle",
-        _stub_handle_complete,
-    )
     paths = MIP(
         pag_db=tmp_path / "pag.sqlite3",
         kb_db=tmp_path / "kb.sqlite3",
         journal_canonical=jr,
         runtime_dir=rt,
     )
-    code = MemoryInitOrchestrator(paths=paths).run(proj, "ns1")
+    bcid = "tc22-e2e-ns1"
+    invoke, cli_dir = _broker_invoke_for_stub_worker(
+        namespace="ns1",
+        broker_chat_id=bcid,
+        monkeypatch=monkeypatch,
+        handle_impl=_stub_handle_complete,
+    )
+    code = MemoryInitOrchestrator(paths=paths).run(
+        proj,
+        "ns1",
+        broker_invoke=invoke,
+        broker_chat_id=bcid,
+        cli_session_dir=cli_dir,
+    )
     assert code == 0
     assert jr.is_file()
     body = jr.read_text(encoding="utf-8")
@@ -160,7 +207,6 @@ def test_memory_init_orchestrator_keyboard_interrupt_aborts(
     ) -> dict[str, object]:
         raise KeyboardInterrupt()
 
-    monkeypatch.setattr(AgentMemoryWorker, "handle", _boom)
     proj = tmp_path / "p"
     proj.mkdir()
     (proj / "a.py").write_text("x=1\n", encoding="utf-8")
@@ -186,7 +232,20 @@ def test_memory_init_orchestrator_keyboard_interrupt_aborts(
         journal_canonical=jr,
         runtime_dir=rt,
     )
-    code = MemoryInitOrchestrator(paths=paths).run(proj, "ns2")
+    bcid = "tc22-kb-ns2"
+    invoke, cli_dir = _broker_invoke_for_stub_worker(
+        namespace="ns2",
+        broker_chat_id=bcid,
+        monkeypatch=monkeypatch,
+        handle_impl=_boom,
+    )
+    code = MemoryInitOrchestrator(paths=paths).run(
+        proj,
+        "ns2",
+        broker_invoke=invoke,
+        broker_chat_id=bcid,
+        cli_session_dir=cli_dir,
+    )
     assert code == _EXIT_INTERRUPT
 
 
@@ -249,11 +308,6 @@ def test_memory_init_orchestrator_os_sigint_guard_cancelled_aborts_130(
 ) -> None:
     from agent_memory.memory_init_orchestrator import _EXIT_INTERRUPT
 
-    monkeypatch.setattr(
-        AgentMemoryWorker,
-        "handle",
-        _handle_cooperative_sleep_then_ok_sigint_path,
-    )
     proj = tmp_path / "p"
     proj.mkdir()
     (proj / "a.py").write_text("x=1\n", encoding="utf-8")
@@ -279,7 +333,20 @@ def test_memory_init_orchestrator_os_sigint_guard_cancelled_aborts_130(
         journal_canonical=jr,
         runtime_dir=rt,
     )
-    code = MemoryInitOrchestrator(paths=paths).run(proj, "ns-sigint-guard")
+    bcid = "tc22-sigint-guard"
+    invoke, cli_dir = _broker_invoke_for_stub_worker(
+        namespace="ns-sigint-guard",
+        broker_chat_id=bcid,
+        monkeypatch=monkeypatch,
+        handle_impl=_handle_cooperative_sleep_then_ok_sigint_path,
+    )
+    code = MemoryInitOrchestrator(paths=paths).run(
+        proj,
+        "ns-sigint-guard",
+        broker_invoke=invoke,
+        broker_chat_id=bcid,
+        cli_session_dir=cli_dir,
+    )
     assert code == _EXIT_INTERRUPT
     compact_paths = list(logs.rglob(COMPACT_LOG_FILE_NAME))
     assert len(compact_paths) == 1

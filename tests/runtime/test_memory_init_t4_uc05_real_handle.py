@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Final
 
@@ -25,8 +26,14 @@ from agent_memory.memory_init_orchestrator import (
     verify_memory_init_journal_complete_marker,
 )
 from agent_memory.memory_init_transaction import MemoryInitPaths as MIP
+from agent_memory.agent_memory_chat_log import create_unique_cli_session_dir
+from ailit_runtime.models import RuntimeRequestEnvelope
 from ailit_runtime.subprocess_agents import (
     memory_agent as memory_agent_mod,
+)
+from ailit_runtime.subprocess_agents.memory_agent import (
+    AgentMemoryWorker,
+    MemoryAgentConfig,
 )
 
 
@@ -253,11 +260,28 @@ def test_t4_memory_init_orchestrator_exit0_real_handle_sequential_provider(
         runtime_dir=tmp_path / "runtime",
     )
     cid = "chat-t4-orchestrator"
+    cli_dir = create_unique_cli_session_dir()
+    cfg = MemoryAgentConfig(
+        chat_id=cid,
+        broker_id=f"broker-{cid}",
+        namespace=ns,
+        session_log_mode="cli_init",
+        cli_session_dir=cli_dir,
+        broker_trace_stdout=False,
+    )
+    worker = AgentMemoryWorker(cfg)
+
+    def invoke(env: Mapping[str, Any]) -> dict[str, Any]:
+        req = RuntimeRequestEnvelope.from_dict(dict(env))
+        return dict(worker.handle(req))
+
     journal_main = tmp_path / "memory-journal.jsonl"
     code = MemoryInitOrchestrator(paths=paths).run(
         proj,
         ns,
-        chat_id=cid,
+        broker_invoke=invoke,
+        broker_chat_id=cid,
+        cli_session_dir=cli_dir,
     )
     assert code == 0
     assert prov.planner_passes == 2
