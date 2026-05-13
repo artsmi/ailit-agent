@@ -27,7 +27,7 @@
 | **OR-009** | Целевое поведение согласовано с проверяемой current reality (см. разделы в [`graph-3dmvc.md`](graph-3dmvc.md) и [`realtime-graph-client.md`](realtime-graph-client.md)). |
 | **OR-010** | Лимиты узлов/рёбер в каноне = SoT кода: **100 000** узлов / **200 000** рёбер (`pagGraphLimits`, `pag_slice_caps`, pytest выравнивания). |
 | **OR-011** | Ключ данных графа согласован с `computeMemoryGraphDataKey` (**без** `graphRevByNamespace` в сериализации ключа); регрессия **`TC-3D-UC04-03`**. |
-| **OR-012** | Единый контроллер подсветки для 2D и 3D — target; arch [`../../arch/desktop-pag-graph-snapshot.md`](../../arch/desktop-pag-graph-snapshot.md) не должен расходиться с фактом 3D (snapshot SoT). |
+| **OR-012** | Единый контроллер подсветки для 2D и 3D: на View обе панели читают `searchHighlightsByNamespace` снимка (**G3** для 2D); arch [`../../arch/desktop-pag-graph-snapshot.md`](../../arch/desktop-pag-graph-snapshot.md) согласован с кодом `MemoryGraphPage` / `MemoryGraph3DPage`. |
 
 ## Scope
 

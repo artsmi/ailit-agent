@@ -4,6 +4,7 @@ Index-first: краткие заголовки; полные заметки — 
 
 | ID / файл | Задача | Ссылка |
 |-----------|--------|--------|
+| `feature_plan18_g3_or012_2d_highlight_2026-05-13` | Plan 18 G3: OR-012 — 2D live glow из `searchHighlightsByNamespace[ns0]` как 3D; shallow helper для diagnostics; канон arch + `graph-3dmvc.md` | [`feature_plan18_g3_or012_2d_highlight_2026-05-13.md`](feature_plan18_g3_or012_2d_highlight_2026-05-13.md) |
 | `feature_plan18_g1_d_orphan_b_2026-05-12` | Plan 18 G1: `filterDegreeZeroNodesDOrphanB` в `project`, merged супerset vs **N_scene**, 3D highlight из `searchHighlightsByNamespace`; канон `graph-3dmvc.md` + arch snapshot | [`feature_plan18_g1_d_orphan_b_2026-05-12.md`](feature_plan18_g1_d_orphan_b_2026-05-12.md) |
 | `feature_agentmemory_s1_s5_canon_context_2026-05-05` | S1–S5: канон algorithms + proto (external events, CLI exit OR-011, OR-013 `no_progress`, тест mapping); см. также `feature_agentmemory_w14_links_journal_context_2026-05-04` | [`feature_agentmemory_s1_s5_canon_context_2026-05-05.md`](feature_agentmemory_s1_s5_canon_context_2026-05-05.md) |
 | `feature_agentmemory_w14_links_journal_context_2026-05-04` | Канон: W14 `propose_links`, PAG write, `memory.external_event`, durability журнала, OR-013; обновлены `system-elements`, `broker-memory-work-inject`, `runtime-event-contract` | [`feature_agentmemory_w14_links_journal_context_2026-05-04.md`](feature_agentmemory_w14_links_journal_context_2026-05-04.md) |

@@ -7,6 +7,7 @@ import {
   lastPagSearchHighlightFromTraceAfterMerge,
   type PagSearchHighlightV1
 } from "./pagHighlightFromTrace";
+import { pagSearchHighlightShallowEqualForGlow } from "./pagSearchHighlightShallowEqual";
 import {
   ensureHighlightNodes,
   linkFromPag,
@@ -386,12 +387,7 @@ function emitHighlightChangeDiagnostics(
     if (b === null) {
       continue;
     }
-    const fa: string =
-      a === null
-        ? ""
-        : `${a.reason}\t${a.nodeIds.join(",")}\t${a.edgeIds.join(",")}\t${String(a.ttlMs)}\t${String(a.queryId ?? "")}`;
-    const fb: string = `${b.reason}\t${b.nodeIds.join(",")}\t${b.edgeIds.join(",")}\t${String(b.ttlMs)}\t${String(b.queryId ?? "")}`;
-    if (fa === fb) {
+    if (pagSearchHighlightShallowEqualForGlow(a, b)) {
       continue;
     }
     const highlightSource: string = mapPagSearchHighlightReasonToDiagnosticSource(b.reason);

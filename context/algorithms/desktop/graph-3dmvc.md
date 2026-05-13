@@ -29,11 +29,11 @@
 **Required:**
 
 - View-компонент графа принимает **scene graph**: узлы и рёбра для layout плюс **отдельно** сигнал подсветки, если она не сводится к полям узла в списке сцены.
-- Любое изменение merged/slice/highlight для 3D проходит через M/C (store → проекция → props графа).
+- Любое изменение merged/slice/highlight для Memory graph (2D/3D) проходит через M/C (store → при необходимости проекция → props графа).
 
-**Forbidden (целевой 3D):**
+**Forbidden (целевой 3D и 2D Memory graph):**
 
-- View читает «истину» подсветки из полного потока trace / `rawTraceRows`, минуя единый контроллер highlight.
+- View читает «истину» подсветки из полного потока trace / `rawTraceRows`, минуя единый контроллер highlight и снимок `searchHighlightsByNamespace`.
 
 **Default:**
 
@@ -76,16 +76,18 @@
 
 ## Highlight policy (**OR-012**, **D-HI-OWN-1**)
 
-**3D (зафиксировано кодом G1):** источник истины подсветки на странице — **`snap.searchHighlightsByNamespace`** (снимок сессии), а не параллельный разбор полного trace / `rawTraceRows` в React для решения «кого подсветить».
+**3D (G1):** источник истины подсветки на странице — **`snap.searchHighlightsByNamespace`** (снимок сессии), а не параллельный разбор полного trace / `rawTraceRows` в React для решения «кого подсветить».
 
-**OR-012 (target):** один highlight controller в M/C для 2D и 3D без дублирования семантики в двух ветках View; до полного выравнивания 2D может отличаться по пути данных — проверять факт кода при изменениях 2D-панели.
+**2D (G3):** то же правило для live glow: `MemoryGraphPage` читает **`snap.searchHighlightsByNamespace[ns0]`**, а не полный trace на View как SoT.
 
-**Связь с arch:** [`../../arch/desktop-pag-graph-snapshot.md`](../../arch/desktop-pag-graph-snapshot.md) описывает снимок и merge; формулировки про 3D должны совпадать с правилом side-channel выше.
+**OR-012:** один highlight controller в M/C для 2D и 3D: обе панели берут подсветку из **`searchHighlightsByNamespace`** снимка на View; семантика trace→DTO остаётся в store / `pagHighlightFromTrace` / merge, без второй ветки парсинга trace только для 2D.
+
+**Связь с arch:** [`../../arch/desktop-pag-graph-snapshot.md`](../../arch/desktop-pag-graph-snapshot.md) описывает снимок и merge; правило side-channel для подсветки совпадает для 2D и 3D.
 
 | Потребитель | Required source | Forbidden drift |
 |-------------|-----------------|-----------------|
 | 3D View | `searchHighlightsByNamespace` + согласованный M/C (`pagHighlightFromTrace` / W14 gating пишут в снимок) | Прямой разбор полного trace в странице для highlight |
-| 2D View | Target: тот же controller output, что и 3D | Долгосрочно: уникальная логика только в 2D |
+| 2D View | `searchHighlightsByNamespace` (по активному namespace) + тот же M/C | Прямой разбор полного trace в странице для highlight |
 
 ---
 
@@ -107,7 +109,7 @@
 
 ## Anti-patterns (Do Not Implement This As)
 
-1. View читает trace напрямую для 3D-подсветки или merged, минуя store/controller (**D-MVC-1**, **D-HI-OWN-1**).
+1. View читает trace напрямую для подсветки (2D/3D) или merged, минуя store/controller (**D-MVC-1**, **D-HI-OWN-1**).
 2. Remount `ForceGraph3D` на каждый monotonic **`graphRev`** или включение rev в React-key (**D-KEY-1**, **OR-011**).
 3. Полный graph reload как единственный путь для мелких дельт при стабильном ключе монтирования.
 4. **D-ORPHAN-C** как default при **OR-003** без named waiver.

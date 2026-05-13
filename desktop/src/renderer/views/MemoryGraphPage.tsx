@@ -1,6 +1,7 @@
 import React from "react";
 
-import { lastPagSearchHighlightFromTrace, type PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
+import type { PagSearchHighlightV1 } from "../runtime/pagHighlightFromTrace";
+import { pagSearchHighlightShallowEqualForGlow } from "../runtime/pagSearchHighlightShallowEqual";
 import { useDesktopSession } from "../runtime/DesktopSessionContext";
 import { PagGraph2dListBuilder, type LevelFilter2d } from "../runtime/pagGraph2dSlice";
 import type { MemoryGraphNode } from "../runtime/memoryGraphState";
@@ -33,6 +34,7 @@ export function MemoryGraphPage(): React.JSX.Element {
   const [, setTick] = React.useState(0);
   const [mockHighlight, setMockHighlight] = React.useState<LiveHighlight | null>(null);
   const [hi, setHi] = React.useState<LiveHighlight | null>(null);
+  const lastSnapshotHighlightRef = React.useRef<PagSearchHighlightV1 | null>(null);
 
   const ns0: string | null =
     s.selectedProjectIds.length > 0
@@ -60,26 +62,34 @@ export function MemoryGraphPage(): React.JSX.Element {
 
   React.useEffect((): void => {
     if (!ns0) {
+      lastSnapshotHighlightRef.current = null;
+      setHi(null);
       return;
     }
-    if (s.rawTraceRows.length === 0) {
+    if (!snap || snap.loadState === "error") {
+      lastSnapshotHighlightRef.current = null;
+      setHi(null);
       return;
     }
-    const ev: PagSearchHighlightV1 | null = lastPagSearchHighlightFromTrace(
-      s.rawTraceRows as readonly Record<string, unknown>[],
-      ns0 ?? "default",
-      s.chatId
-    );
-    if (ev) {
-      setHi({ event: ev, startedAtMs: nowMs() });
+    const ev: PagSearchHighlightV1 | null = snap.searchHighlightsByNamespace[ns0] ?? null;
+    if (ev === null) {
+      lastSnapshotHighlightRef.current = null;
+      setHi(null);
+      return;
     }
-  }, [ns0, s.rawTraceRows, s.chatId]);
+    const prevDto: PagSearchHighlightV1 | null = lastSnapshotHighlightRef.current;
+    if (prevDto !== null && pagSearchHighlightShallowEqualForGlow(prevDto, ev)) {
+      return;
+    }
+    lastSnapshotHighlightRef.current = ev;
+    setHi({ event: ev, startedAtMs: nowMs() });
+  }, [ns0, snap]);
 
   const at: number = nowMs();
   const useMock: boolean = !ns0;
   const atPagNodeCap2d: boolean = displayLive != null && displayLive.atNamespaceNodeCap;
 
-  const useLive: boolean = Boolean(ns0) && s.rawTraceRows.length > 0;
+  const useLive: boolean = Boolean(ns0) && hi != null;
   const liveGlow: number =
     useLive && hi && isAlive(hi, at) ? intensity01(hi, at) : 0;
   const liveIds: Set<string> =
