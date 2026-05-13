@@ -93,11 +93,18 @@ export function formatDesktopSessionTraceMergeLine(p: {
   readonly isoTimestamp: string;
   readonly rawTraceRowsLength: number;
   readonly traceRowsPerSec: number;
+  /** Scalar ≥1; только для flush батча из >1 строки (G19.4). */
+  readonly batch_size?: number;
 }): string {
+  const bs: string =
+    p.batch_size != null && p.batch_size > 1
+      ? `\tbatch_size=${String(Math.max(1, Math.min(Math.round(p.batch_size), 10_000)))}`
+      : "";
   return (
     `timestamp=${p.isoTimestamp}\tevent=${DESKTOP_SESSION_TRACE_MERGE_EVENT}\t` +
     `rawTraceRows_length=${String(Math.max(0, Math.round(p.rawTraceRowsLength)))}\t` +
-    `trace_rows_per_sec=${formatTraceRowsPerSecForDiagnostic(p.traceRowsPerSec)}`
+    `trace_rows_per_sec=${formatTraceRowsPerSecForDiagnostic(p.traceRowsPerSec)}` +
+    bs
   );
 }
 

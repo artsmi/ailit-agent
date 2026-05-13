@@ -120,6 +120,15 @@ cd desktop && npx vitest run \
 
 Прогон: `cd desktop && npm run test` (или целевой `npx vitest run` по этим файлам). Финальный gate слайса G19.1 по артефакту **11**: `npm run test`, `npm run typecheck`, `npm run lint` в `desktop/` — см. `context/artifacts/test_report.md`.
 
+### План 19 / G19.4 — ingress coalesce live trace (Vitest)
+
+| Путь | Содержание |
+|------|------------|
+| `desktop/src/renderer/runtime/traceIngressCoalesce.test.ts` | Инварианты C-G19.4-2, F3 / terminal-aware flush, backpressure `DESKTOP_TRACE_COALESCE_MAX_BUFFER_ROWS`, паритет с последовательным `mergeRows`. |
+| `desktop/src/renderer/runtime/chatTraceProjector.test.ts` | Регрессия `projectChatTraceRows`; терминальные виды — тот же SoT `traceTerminalKinds`, что и coalesce. |
+
+Минимальный gate слайса G19.4 по отчёту **11** (сводка — `context/artifacts/test_report.md`): `npx vitest run` по двум файлам выше, затем `npm run typecheck` в `desktop/`; якорные grep-проверки call sites — в том же отчёте. Полный `npm run test` desktop шире и **не** заменяет явный список для приёмки слайса без обновления таблицы.
+
 Другие Vitest-файлы в пакете `desktop` (ledger, shell, state и т.д.) **не входят** в этот gate; при изменении контрактов §5.0 gate расширяют осознанно и обновляют эту таблицу и команду.
 
 **Связанные разделы:** [`../INDEX.md`](../INDEX.md), [`../start/INDEX.md`](../start/INDEX.md), [`../proto/INDEX.md`](../proto/INDEX.md), [`../arch/INDEX.md`](../arch/INDEX.md), [`../modules/INDEX.md`](../modules/INDEX.md).

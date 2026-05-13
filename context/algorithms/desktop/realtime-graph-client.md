@@ -18,6 +18,7 @@
 4. **Full load / merge:** модули full load / merge обновляют `PagGraphSessionSnapshot.merged` и фазы в store.
 5. **Trace replay (если журнал не пуст):** проход durable trace; целевое поведение — **bounded** по времени/строкам с observability, без dump сырого журнала в UI.
 6. **Инкремент дельт:** типы вроде `pag.node.upsert` / `pag.edge.upsert`; monotonic `graphRev` обновляет состояние, но **не** обязан менять React-mount key графа (**OR-011**).
+6b. **Live trace на границе IPC→renderer (G19.4):** строки журнала по-прежнему приходят по тому же IPC; renderer **может** батчить запись в `rawTraceRows` в `DesktopSessionContext` через **`enqueueTraceRows`** / flush → единый **`mergeRows`**, с **terminal-aware flush** (классификация — `traceTerminalKinds.ts`) и bound буфера — `traceIngressCoalesce.ts` / **`DESKTOP_TRACE_COALESCE_MAX_BUFFER_ROWS`**. Не добавлять второй параллельный writer в `rawTraceRows`; схема JSON trace-row на main не меняется. Деталь и compact `batch_size` на `desktop.session.trace_merge` — [`../../arch/desktop-pag-graph-snapshot.md`](../../arch/desktop-pag-graph-snapshot.md#live-trace-ingress-coalesce).
 7. **Подсветка (3D):** через контроллер и snapshot `searchHighlightsByNamespace` с gating W14; выравнивание 2D — тот же контроллер (backlog).
 8. **Scene graph DTO:** M/C формирует узлы/рёбра с лимитами **100 000 / 200 000** (**OR-010**); применяется predicate **OR-003** с default **D-ORPHAN-B** (см. [`graph-3dmvc.md`](graph-3dmvc.md)).
 9. **Передача во View:** страница 3D получает DTO + side-channel; ключ данных совместим с `computeMemoryGraphDataKey`.
@@ -65,6 +66,7 @@
 | `desktop.trace.replay.start/end` | replay | `row_count`, `duration_ms`, `rows_processed` | массив строк trace |
 | `desktop.graph.scene_built` | DTO передан | `phase`, компактный fingerprint схемы ключа | полный DTO |
 | `desktop.graph.refresh` | агрегированный throttled refresh (`Mem3dGraphRefreshGate`) | `reason` ∈ `highlight` \| `resize` \| `layout` \| `scene`; `refresh_calls` (положительный int); `skipped_calls` (nullable); `window_ms` (nullable). **C2:** `skipped_calls != null` ⇒ `window_ms != null` (тот же emission). | частота выше политики без агрегата; повтор `fg.refresh` без gate |
+| `desktop.session.trace_merge` (compact session log) | после merge одной или нескольких trace-строк в `rawTraceRows` | при merge **>1** строки за один батч допускается scalar **`batch_size`** (положительный int); иначе поле отсутствует | произвольный dump массива строк trace; расширение полей вне утверждённого whitelist OR-D6 |
 | `desktop.pairlog.append` | успех IPC `appendDesktopGraphPairLog` (после batch) | `chat_id`, `batch_size` (положительный int), `bytes` (nullable) | сырые `entries` / `fullRecord`; повтор полного графа |
 
 **Default:** недоступные числа — `null`, не выдуманные значения.

@@ -75,6 +75,8 @@ import {
 import { RendererBudgetTelemetry } from "./desktopSessionRendererBudgetTelemetry";
 import { TraceRowsPerSecondSlidingWindow } from "./desktopSessionTraceThroughputWindow";
 import { dedupKeyForRow, type NormalizedTraceProjection } from "./traceNormalize";
+import { DESKTOP_TRACE_COALESCE_MAX_BUFFER_ROWS } from "./traceIngressCoalesce";
+import { isTerminalTraceRowForAgentTurn } from "./traceTerminalKinds";
 import { newMessageId } from "./uuid";
 import { BrokerTraceUserTurnResolver } from "./userTurnIdFromTrace";
 
@@ -358,6 +360,10 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const [optimisticChatLines, setOptimisticChatLines] = React.useState<ChatLine[]>([]);
   const [reconnectAttempt, setReconnectAttempt] = React.useState(0);
   const seenRowKeys: React.MutableRefObject<Set<string>> = React.useRef<Set<string>>(new Set());
+  const traceCoalesceBufferRef: React.MutableRefObject<Record<string, unknown>[]> = React.useRef<
+    Record<string, unknown>[]
+  >([]);
+  const traceCoalesceFlushMicrotaskScheduledRef: React.MutableRefObject<boolean> = React.useRef<boolean>(false);
   const registryWasEmpty: React.MutableRefObject<boolean> = React.useRef(true);
   const subChatIdRef: React.MutableRefObject<string | null> = React.useRef(null);
   const activeChatIdRef: React.MutableRefObject<string> = React.useRef("");
@@ -813,6 +819,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       traceRowsLengthObsRef.current = next.length;
       const snapLen: number = next.length;
       const snapAppended: number = appended;
+      const batchLenForLog: number = rows.length;
       queueMicrotask((): void => {
         const nowMs: number = performance.now();
         const rate: number = traceRateWindowRef.current.recordMerge(snapAppended, nowMs);
@@ -822,7 +829,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
             formatDesktopSessionTraceMergeLine({
               isoTimestamp: new Date().toISOString(),
               rawTraceRowsLength: snapLen,
-              traceRowsPerSec: rate
+              traceRowsPerSec: rate,
+              ...(batchLenForLog > 1 ? { batch_size: batchLenForLog } : {})
             })
           );
         }
@@ -830,6 +838,48 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       return next;
     });
   }, []);
+
+  const flushCoalescedToMergeRows: () => void = React.useCallback((): void => {
+    const buf: Record<string, unknown>[] = traceCoalesceBufferRef.current;
+    if (buf.length === 0) {
+      return;
+    }
+    traceCoalesceBufferRef.current = [];
+    mergeRows(buf);
+  }, [mergeRows]);
+
+  const scheduleTraceCoalesceFlush: () => void = React.useCallback((): void => {
+    if (traceCoalesceFlushMicrotaskScheduledRef.current) {
+      return;
+    }
+    traceCoalesceFlushMicrotaskScheduledRef.current = true;
+    queueMicrotask((): void => {
+      traceCoalesceFlushMicrotaskScheduledRef.current = false;
+      flushCoalescedToMergeRows();
+    });
+  }, [flushCoalescedToMergeRows]);
+
+  const enqueueTraceRows: (
+    rowOrRows: Record<string, unknown> | readonly Record<string, unknown>[]
+  ) => void = React.useCallback(
+    (rowOrRows: Record<string, unknown> | readonly Record<string, unknown>[]): void => {
+      const asArr: readonly Record<string, unknown>[] = Array.isArray(rowOrRows) ? rowOrRows : [rowOrRows];
+      for (const row of asArr) {
+        if (isTerminalTraceRowForAgentTurn(row)) {
+          flushCoalescedToMergeRows();
+          mergeRows([row]);
+        } else {
+          traceCoalesceBufferRef.current.push(row);
+          if (traceCoalesceBufferRef.current.length >= DESKTOP_TRACE_COALESCE_MAX_BUFFER_ROWS) {
+            flushCoalescedToMergeRows();
+          } else {
+            scheduleTraceCoalesceFlush();
+          }
+        }
+      }
+    },
+    [flushCoalescedToMergeRows, mergeRows, scheduleTraceCoalesceFlush]
+  );
 
   const selectedProjectIds: readonly string[] = activeSession.projectIds;
 
@@ -929,7 +979,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       chatId: cid
     });
     if (dur.ok) {
-      mergeRows(dur.rows);
+      enqueueTraceRows(dur.rows);
     }
     const sub: { readonly ok: true } | { readonly ok: false; readonly error: string } = await window.ailitDesktop.traceSubscribe({
       chatId: cid,
@@ -941,7 +991,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     } else {
       setConnection("ready");
     }
-  }, [brokerEndpoint, mergeRows, runtimeDir]);
+  }, [brokerEndpoint, enqueueTraceRows, runtimeDir]);
 
   const connectToBroker: () => Promise<void> = React.useCallback(async () => {
     const cid: string = activeSession.chatId;
@@ -1000,7 +1050,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       chatId: cid
     });
     if (dur1.ok) {
-      mergeRows(dur1.rows);
+      enqueueTraceRows(dur1.rows);
     }
     const sub1: { readonly ok: true } | { readonly ok: false; readonly error: string } = await window.ailitDesktop.traceSubscribe({
       chatId: cid,
@@ -1017,7 +1067,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     activeSession.chatId,
     activeSession.id,
     desktopConfig?.highlight_namespace_policy,
-    mergeRows,
+    enqueueTraceRows,
     refreshStatus,
     registry,
     selectedProjectIds
@@ -1095,6 +1145,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
       return;
     }
     seenRowKeys.current = new Set();
+    traceCoalesceBufferRef.current = [];
+    traceCoalesceFlushMicrotaskScheduledRef.current = false;
     setRawTraceRows([]);
     setOptimisticChatLines([]);
     setSuppressedToolApprovalCallId(null);
@@ -1304,7 +1356,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         namespace: ws0?.namespace ?? "",
         userTurnId: userTurnId.length > 0 ? userTurnId : undefined
       });
-      mergeRows([stopRow]);
+      enqueueTraceRows([stopRow]);
       if (rd) {
         const appended: Awaited<ReturnType<typeof window.ailitDesktop.appendTraceRow>> =
           await window.ailitDesktop.appendTraceRow({
@@ -1331,14 +1383,14 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     } finally {
       stopAgentInFlightRef.current = false;
     }
-  }, [activeSession.chatId, brokerEndpoint, connectToBroker, invokeBrokerRequestObserved, mergeRows, pickWorkspace, rawTraceRows, runtimeDir]);
+  }, [activeSession.chatId, brokerEndpoint, connectToBroker, enqueueTraceRows, invokeBrokerRequestObserved, pickWorkspace, rawTraceRows, runtimeDir]);
 
   React.useEffect(() => {
     const offRow: (() => void) | void = window.ailitDesktop.onTraceRow((evt) => {
       if (evt.chatId !== activeChatIdRef.current) {
         return;
       }
-      mergeRows([evt.row]);
+      enqueueTraceRows([evt.row]);
     });
     const offCh: (() => void) | void = window.ailitDesktop.onTraceChannel((ch) => {
       if (ch.chatId !== activeChatIdRef.current) {
@@ -1373,7 +1425,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         offCh();
       }
     };
-  }, [desktopConfig?.trace_reconnect_min_ms, logDesktopGraphDebug, mergeRows, resubscribeTrace]);
+  }, [desktopConfig?.trace_reconnect_min_ms, logDesktopGraphDebug, enqueueTraceRows, resubscribeTrace]);
 
   const refreshPagGraph: () => void = React.useCallback((): void => {
     pagGraphRefreshIntentRef.current = "user";

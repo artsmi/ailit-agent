@@ -8,6 +8,6 @@
 | `tools/ailit/` | CLI (`cli.py`), подкоманды chat/tui/desktop/runtime. |
 | `tools/workflow_engine/` | Загрузка и исполнение workflow YAML. |
 | `tools/project_layer/` | Модели и бутстрап слоя проекта. |
-| `desktop/` | Пакет **ailit-desktop** (Electron + renderer): dev через `npm run dev`, typecheck и vitest — см. [`../tests/INDEX.md`](../tests/INDEX.md). Компакт-наблюдаемость сессии (OR-D6, план 19 / G19.1): `renderer/runtime/desktopSessionDiagnosticLog.ts`, `desktopSessionTraceThroughputWindow.ts`, `desktopSessionRendererBudgetTelemetry.ts`; main — `registerIpc.ts` (pag slice), `pagGraphBridge.ts`. |
+| `desktop/` | Пакет **ailit-desktop** (Electron + renderer): dev через `npm run dev`, typecheck и vitest — см. [`../tests/INDEX.md`](../tests/INDEX.md). **Trace ingress (G19.4):** `renderer/runtime/traceIngressCoalesce.ts`, `traceTerminalKinds.ts`, wiring в `DesktopSessionContext.tsx` — см. [`../arch/desktop-pag-graph-snapshot.md`](../arch/desktop-pag-graph-snapshot.md#live-trace-ingress-coalesce). Компакт-наблюдаемость сессии (OR-D6, план 19 / G19.1): `renderer/runtime/desktopSessionDiagnosticLog.ts`, `desktopSessionTraceThroughputWindow.ts`, `desktopSessionRendererBudgetTelemetry.ts`; main — `registerIpc.ts` (pag slice), `pagGraphBridge.ts`. |
 
 **Связанные разделы:** [`../INDEX.md`](../INDEX.md), [`../arch/INDEX.md`](../arch/INDEX.md), [`../start/INDEX.md`](../start/INDEX.md), [`../files/INDEX.md`](../files/INDEX.md).

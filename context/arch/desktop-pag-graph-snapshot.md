@@ -60,6 +60,17 @@
 - **3D:** страница читает подсветку из **`searchHighlightsByNamespace`** снимка, а не из полного trace как SoT на View.
 - **2D (G3 / OR-012):** `MemoryGraphPage.tsx` для live glow активного workspace namespace читает **`snap.searchHighlightsByNamespace[ns0]`** (`PagSearchHighlightV1 | null`), тем же side-channel, что и 3D; View **не** использует полный parse `rawTraceRows` как SoT для glow. Запись highlight в снимок по-прежнему в `pagHighlightFromTrace` / `PagGraphSessionTraceMerge.applyHighlightFromTraceRows`.
 
+<a id="live-trace-ingress-coalesce"></a>
+
+### Live trace: ingress coalesce (G19.4)
+
+- **Назначение:** реже коммитить React-состояние `rawTraceRows` при частых IPC-строках, **не** вводя второй параллельный writer в `rawTraceRows` и **не** меняя JSON-схему trace-row на границе main→renderer (слайс G19.4).
+- **Единый путь записи:** `desktop/src/renderer/runtime/DesktopSessionContext.tsx` — **`enqueueTraceRows`** (и явный **`flushCoalescedToMergeRows`**) вызывают тот же **`mergeRows`**, что и прямые одиночные апдейты; перечисленные production call sites (в т.ч. broker/trace IPC и resubscribe) должны вести в этот API.
+- **Чистая логика:** `traceIngressCoalesce.ts` — `computeTraceIngressMergeBatches`, `applyTraceRowsMergeBatch`, верхняя граница буфера **`DESKTOP_TRACE_COALESCE_MAX_BUFFER_ROWS`** (`48` в коде на момент слайса).
+- **Terminal-aware flush:** перед слиянием строки, классифицируемой как «терминальная» для снятия хода агента (F3), буфер сбрасывается в том же порядке, что последовательные одиночные `mergeRows`. Классификация с **fail-open** на безопасный flush — **`traceTerminalKinds.ts`** (SoT shared с `chatTraceProjector`).
+- **Проекция чата:** `chatTraceProjector` не дублирует список терминальных видов; импортирует правила из `traceTerminalKinds`.
+- **Compact OR-D6:** при merge **нескольких** строк подряд `desktop.session.trace_merge` может включать scalar **`batch_size`** — `desktopSessionDiagnosticLog.ts` (bounded; не расширяет whitelist иных полей).
+
 <a id="live-trace-incremental-deltas"></a>
 
 ### Live trace: инкрементальные дельты PAG (G19.3 / S-D3)

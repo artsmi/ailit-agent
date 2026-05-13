@@ -5,6 +5,7 @@ import {
   formatToolEventForConsole,
   isBashEventName
 } from "../components/chat/shellEventFormat";
+import { isTerminalNormalizedTraceKind, readApprovalResolve } from "./traceTerminalKinds";
 import { RuntimeTraceNormalizer, type NormalizedTraceProjection } from "./traceNormalize";
 
 export type ChatLine = {
@@ -136,22 +137,6 @@ function shouldMarkTurnActive(eventName: string): boolean {
     eventName === "tool.batch" ||
     eventName.startsWith("bash.")
   );
-}
-
-function readApprovalResolve(row: Record<string, unknown>): { readonly callId: string; readonly ok: boolean | null } | null {
-  if (row["type"] !== "service.request") {
-    return null;
-  }
-  const payload: Record<string, unknown> | null = asDict(row["payload"]);
-  if (!payload || payload["action"] !== "work.approval_resolve") {
-    return null;
-  }
-  const callId: unknown = payload["call_id"];
-  if (typeof callId !== "string" || callId.length === 0) {
-    return null;
-  }
-  const ok: unknown = row["ok"];
-  return { callId, ok: typeof ok === "boolean" ? ok : null };
 }
 
 function num(v: unknown): number | null {
@@ -372,26 +357,50 @@ export function projectChatTraceRows(
         lineKind: "reasoning",
         order
       });
-    } else if (n.kind === "assistant_final") {
-      closeReasoningSegment();
-      agentTurnInProgress = false;
-      const messageId: string = n.messageId;
-      const asstId: string = chatLineId("assistant", messageId);
-      const removed: ChatLine[] = [...lines.values()].filter(
-        (c) => c.id === asstId || c.id.startsWith(`asst-frag:${messageId}:`)
-      );
-      for (const c of removed) {
-        lines.delete(c.id);
+    } else if (isTerminalNormalizedTraceKind(n.kind)) {
+      if (n.kind === "assistant_final") {
+        closeReasoningSegment();
+        agentTurnInProgress = false;
+        const messageId: string = n.messageId;
+        const asstId: string = chatLineId("assistant", messageId);
+        const removed: ChatLine[] = [...lines.values()].filter(
+          (c) => c.id === asstId || c.id.startsWith(`asst-frag:${messageId}:`)
+        );
+        for (const c of removed) {
+          lines.delete(c.id);
+        }
+        const orderFinal: number = removed.length > 0 ? Math.min(...removed.map((c) => c.order)) : order;
+        lines.set(asstId, {
+          id: asstId,
+          from: "assistant",
+          text: nfc(n.humanLine),
+          atIso: n.createdAt || new Date(0).toISOString(),
+          order: orderFinal
+        });
+        asstPartByMsg.set(messageId, 0);
+      } else if (n.kind === "turn_completed") {
+        agentTurnInProgress = false;
+      } else if (n.kind === "turn_failed") {
+        agentTurnInProgress = false;
+        closeReasoningSegment();
+        appendLine(lines, {
+          id: chatLineId("system", `failed-${n.messageId}`),
+          from: "system",
+          text: n.humanLine,
+          atIso: n.createdAt || new Date(0).toISOString(),
+          order
+        });
+      } else {
+        agentTurnInProgress = false;
+        closeReasoningSegment();
+        appendLine(lines, {
+          id: chatLineId("system", n.messageId),
+          from: "system",
+          text: n.humanLine,
+          atIso: n.createdAt || new Date(0).toISOString(),
+          order
+        });
       }
-      const orderFinal: number = removed.length > 0 ? Math.min(...removed.map((c) => c.order)) : order;
-      lines.set(asstId, {
-        id: asstId,
-        from: "assistant",
-        text: nfc(n.humanLine),
-        atIso: n.createdAt || new Date(0).toISOString(),
-        order: orderFinal
-      });
-      asstPartByMsg.set(messageId, 0);
     } else if (n.kind === "micro_plan" || n.kind === "verify_result") {
       closeReasoningSegment();
       if (n.kind === "micro_plan") {
@@ -403,28 +412,6 @@ export function projectChatTraceRows(
         text: n.humanLine,
         atIso: n.createdAt || new Date(0).toISOString(),
         lineKind: "plan",
-        order
-      });
-    } else if (n.kind === "turn_completed") {
-      agentTurnInProgress = false;
-    } else if (n.kind === "turn_failed") {
-      agentTurnInProgress = false;
-      closeReasoningSegment();
-      appendLine(lines, {
-        id: chatLineId("system", `failed-${n.messageId}`),
-        from: "system",
-        text: n.humanLine,
-        atIso: n.createdAt || new Date(0).toISOString(),
-        order
-      });
-    } else if (n.kind === "error_row") {
-      agentTurnInProgress = false;
-      closeReasoningSegment();
-      appendLine(lines, {
-        id: chatLineId("system", n.messageId),
-        from: "system",
-        text: n.humanLine,
-        atIso: n.createdAt || new Date(0).toISOString(),
         order
       });
     } else if (n.kind === "tool_event") {

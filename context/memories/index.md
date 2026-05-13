@@ -4,6 +4,7 @@ Index-first: краткие заголовки; полные заметки — 
 
 | ID / файл | Задача | Ссылка |
 |-----------|--------|--------|
+| `feature_plan19_g19_4_trace_ingress_coalesce_2026-05-13` | G19.4: coalesce ingress live trace (`enqueueTraceRows`, `traceIngressCoalesce`, `traceTerminalKinds`), без расширения IPC; канон arch + algorithms desktop + tests/modules INDEX; gate Vitest по `test_report.md` | [`feature_plan19_g19_4_trace_ingress_coalesce_2026-05-13.md`](feature_plan19_g19_4_trace_ingress_coalesce_2026-05-13.md) |
 | `feature_plan19_g19_1_or_d6_desktop_2026-05-13` | План 19 G19.1: OR-D6 compact в `desktop/` (broker_request, trace_merge, pag_slice, stdoutByteLength); канон `desktop-stack/INDEX.md`; Vitest вне §5.0 gate; gaps smoke / pytest в `test_report.md` | [`feature_plan19_g19_1_or_d6_desktop_2026-05-13.md`](feature_plan19_g19_1_or_d6_desktop_2026-05-13.md) |
 | `feature_plan18_g3_or012_2d_highlight_2026-05-13` | Plan 18 G3: OR-012 — 2D live glow из `searchHighlightsByNamespace[ns0]` как 3D; shallow helper для diagnostics; канон arch + `graph-3dmvc.md` | [`feature_plan18_g3_or012_2d_highlight_2026-05-13.md`](feature_plan18_g3_or012_2d_highlight_2026-05-13.md) |
 | `feature_plan18_g1_d_orphan_b_2026-05-12` | Plan 18 G1: `filterDegreeZeroNodesDOrphanB` в `project`, merged супerset vs **N_scene**, 3D highlight из `searchHighlightsByNamespace`; канон `graph-3dmvc.md` + arch snapshot | [`feature_plan18_g1_d_orphan_b_2026-05-12.md`](feature_plan18_g1_d_orphan_b_2026-05-12.md) |

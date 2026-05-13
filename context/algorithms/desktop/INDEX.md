@@ -46,8 +46,8 @@
 
 | Файл | Для кого | Содержание |
 |------|-----------|------------|
-| [`graph-3dmvc.md`](graph-3dmvc.md) | Автор фичи по 3D/графу | Роли M/C/View, DTO сцены, OR-003 (D-ORPHAN-A/B/C), highlight policy, performance, anti-patterns. |
-| [`realtime-graph-client.md`](realtime-graph-client.md) | Автор IPC/trace/slice | Поток от сессии до сцены, фазы state lifecycle, события observability, примеры, команды, acceptance. |
+| [`graph-3dmvc.md`](graph-3dmvc.md) | Автор фичи по 3D/графу | Роли M/C/View, DTO сцены, OR-003 (D-ORPHAN-A/B/C), highlight policy, performance (**D-PERF-1**, класс G19.4 ingress), anti-patterns. |
+| [`realtime-graph-client.md`](realtime-graph-client.md) | Автор IPC/trace/slice | Поток от сессии до сцены, фазы state lifecycle, события observability (в т.ч. `desktop.session.trace_merge` + `batch_size` при батче), шаг **6b** G19.4 ingress coalesce, примеры, команды, acceptance. |
 | [`glossary.md`](glossary.md) | Все читатели пакета | Минимум терминов и сокращений. |
 | [`donors/INDEX.md`](donors/INDEX.md) | Авторы target-doc и фич | Taken / Rejected / Not researched по внешним идеям (без pipeline-артефактов). |
 

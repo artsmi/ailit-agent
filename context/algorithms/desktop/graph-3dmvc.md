@@ -19,7 +19,7 @@
 | Слой | Назначение | Якорные зоны в коде (ориентиры для плана) |
 |------|------------|-------------------------------------------|
 | **Model** | Устойчивое состояние сессии: merged PAG + память, снимки для UI (`PagGraphSessionSnapshot.merged`), фазы загрузки. | `pagGraphSessionStore`, `loadPagGraphMerged`, `PagGraphSessionFullLoad`, `mergeMemoryGraph`. |
-| **Controller** | IPC/trace, политики slice, highlight из trace vs snapshot, решения «что передать в проекцию», throttle бюджетов refresh. | `memoryGraphState`, `applyHighlightFromTraceRows`, `ensureHighlightNodes`, `pagHighlightFromTrace`, gating W14. |
+| **Controller** | IPC/trace, политики slice, highlight из trace vs snapshot, решения «что передать в проекцию», throttle бюджетов refresh; live trace в `rawTraceRows` может **батчиться на ingress** (G19.4, `enqueueTraceRows` / flush → `mergeRows`) без второго writer в `rawTraceRows`. | `memoryGraphState`, `applyHighlightFromTraceRows`, `ensureHighlightNodes`, `pagHighlightFromTrace`, gating W14, `DesktopSessionContext.tsx` + `traceIngressCoalesce.ts`. |
 | **View** | Рендер и ввод: **scene graph** + явные side-channel данные; View **не** пересобирает merged из сырого trace для 3D. | `MemoryGraph3DPage`, `MemoryGraphForceGraphProjector`, ref на `ForceGraph3D`, throttled `fg.refresh()`. |
 
 **D-MVC-1:** вход trace и PAG по IPC обрабатывается в renderer store / контексте сессии — это **Model/Controller** относительно страницы 3D как **View**.
@@ -93,17 +93,19 @@
 
 ## Performance (**D-PERF-1**)
 
-Три проверяемых класса причин симптома «виснет»:
+Четыре проверяемых класса причин симптома «виснет»:
 
 1. **Линейный trace replay** после full load — кандидат на CPU spikes; benchmark в репо может отсутствовать — измерения как backlog.
 2. **Частые `fg.refresh()`** — нагрузка WebGL; обязателен throttle и верхняя частота.
 3. **Main IPC и логирование** — `pagGraphSlice`, append pair log и т.д.; не «лечится» перерисовкой View.
+4. **Частые коммиты `rawTraceRows` на live IPC** — лишняя работа React при отсутствии ingress coalesce; **G19.4** батчит запись в том же `DesktopSessionContext`, не меняя границу M/C→View и не требуя отдельного прохода проектора на каждую IPC-строку, если батч семантически эквивалентен последовательным одиночным `mergeRows` (см. [`../../arch/desktop-pag-graph-snapshot.md`](../../arch/desktop-pag-graph-snapshot.md#live-trace-ingress-coalesce)).
 
 | Класс | Минимальная проверка (канон) |
 |-------|------------------------------|
 | Trace replay | Счётчик строк / длительность стадии (когда появится instrument) |
 | `fg.refresh` | Частота относительно порогов в конфиге |
 | IPC / slice | Время round-trip `pag-slice`, размер payload (без логирования полного JSON в канон-лог) |
+| `rawTraceRows` commits | Vitest `traceIngressCoalesce.test.ts`; при регрессии — сравнить частоту и порядок merge относительно эталона sequential `mergeRows` |
 
 ---
 
