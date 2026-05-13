@@ -53,6 +53,7 @@
 
 ## Связанные каноны и планы
 
+- Чат, trace, PAG rev, freeze и диагностика (отдельный пакет): [`../desktop-stack/INDEX.md`](../desktop-stack/INDEX.md).
 - Память на границе агента: [`../agent-memory/external-protocol.md`](../agent-memory/external-protocol.md).
 - Снимок PAG для Desktop: [`../../arch/desktop-pag-graph-snapshot.md`](../../arch/desktop-pag-graph-snapshot.md).
 - План внедрения (не часть канона SoT): [`../../../plan/18-desktop-memory-graph-3dmvc.md`](../../../plan/18-desktop-memory-graph-3dmvc.md).
