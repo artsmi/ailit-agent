@@ -750,6 +750,34 @@ def main(argv: list[str] | None = None) -> int:
         help="Корень проекта (по умолчанию текущий каталог)",
     )
     p_mq.add_argument(
+        "--broker-chat-id",
+        type=str,
+        default=None,
+        help=(
+            "chat_id запущенного AgentBroker (обязательно; envelope chat_id / "
+            "маршрутизация broker)"
+        ),
+    )
+    p_mq.add_argument(
+        "--broker-socket",
+        type=str,
+        default=None,
+        help=(
+            "Путь к Unix-сокету broker; если не задан — разрешение через "
+            "supervisor и --memory-runtime-dir"
+        ),
+    )
+    p_mq.add_argument(
+        "--memory-runtime-dir",
+        type=str,
+        default=None,
+        dest="memory_runtime_dir",
+        help=(
+            "Каталог runtime (supervisor.sock); по умолчанию "
+            "AILIT_RUNTIME_DIR или XDG/ ~/.ailit/runtime"
+        ),
+    )
+    p_mq.add_argument(
         "query_text",
         type=str,
         help="Текст запроса (позиционный аргумент в конце команды)",

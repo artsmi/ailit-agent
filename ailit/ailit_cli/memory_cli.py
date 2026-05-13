@@ -7,7 +7,7 @@ import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from agent_memory.pag_indexer import (
     PagIndexer,
@@ -17,9 +17,18 @@ from ailit_runtime.errors import RuntimeProtocolError
 from agent_memory.memory_init_orchestrator import (
     MemoryInitOrchestrator,
 )
+from agent_memory.agent_memory_ailit_config import (
+    agent_memory_rpc_timeout_s,
+    load_merged_ailit_config_for_memory,
+)
 from agent_memory.memory_query_orchestrator import (
     MemoryQueryOrchestrator,
 )
+from ailit_cli.broker_json_client import (
+    BrokerJsonRpcClient,
+    resolve_broker_socket_for_cli,
+)
+from ailit_runtime.paths import default_runtime_dir
 from agent_work.session.repo_context import (
     detect_repo_context,
     namespace_for_repo,
@@ -124,10 +133,18 @@ def cmd_memory_init(args: object) -> int:
 
 
 def cmd_memory_query(args: object) -> int:
-    """Раунды ``memory.query_context``; итоговый summary на stderr."""
+    """Раунды ``memory.query_context`` через broker; summary на stderr."""
     text = str(getattr(args, "query_text", "") or "").strip()
     if not text:
         sys.stderr.write("memory query: non-empty text required\n")
+        return 2
+    bcid = str(getattr(args, "broker_chat_id", "") or "").strip()
+    if not bcid:
+        sys.stderr.write(
+            "memory query: --broker-chat-id required "
+            "(G20: AgentMemory via broker only; "
+            "see plan/20-memory-cli-broker-viz.md).\n",
+        )
         return 2
     proj = getattr(args, "project", None)
     root = (
@@ -135,8 +152,46 @@ def cmd_memory_query(args: object) -> int:
         if proj and str(proj).strip()
         else Path.cwd().resolve()
     )
+    bs_raw = getattr(args, "broker_socket", None)
+    rt_raw = getattr(args, "memory_runtime_dir", None)
     try:
-        return int(MemoryQueryOrchestrator().run(root, text))
+        explicit = (
+            Path(str(bs_raw)).expanduser().resolve()
+            if bs_raw and str(bs_raw).strip()
+            else None
+        )
+        rd = (
+            Path(str(rt_raw)).expanduser().resolve()
+            if rt_raw and str(rt_raw).strip()
+            else default_runtime_dir()
+        )
+        sock_path = resolve_broker_socket_for_cli(
+            explicit_socket=explicit,
+            runtime_dir=rd,
+            broker_chat_id=bcid,
+        )
+    except RuntimeProtocolError as exc:
+        sys.stderr.write(f"{exc}\n")
+        return 2
+    try:
+        merged = load_merged_ailit_config_for_memory()
+    except Exception:
+        merged = {}
+    timeout_s = float(agent_memory_rpc_timeout_s(merged))
+    client = BrokerJsonRpcClient(sock_path)
+
+    def invoke(env: Mapping[str, Any]) -> dict[str, Any]:
+        return client.call(env, timeout_s=timeout_s)
+
+    try:
+        return int(
+            MemoryQueryOrchestrator().run(
+                root,
+                text,
+                broker_invoke=invoke,
+                broker_chat_id=bcid,
+            ),
+        )
     except RuntimeProtocolError as exc:
         sys.stderr.write(f"{exc}\n")
         return 2

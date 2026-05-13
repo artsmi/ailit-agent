@@ -4,7 +4,7 @@ import multiprocessing
 import time
 from pathlib import Path
 
-from ailit_cli.broker_json_client import call_on_trace_capture
+from ailit_runtime.broker_json_client import call_on_trace_capture
 from ailit_runtime.broker import BrokerConfig, run_broker_server
 from ailit_runtime.broker_workspace_config import BrokerWorkspaceEntry
 from ailit_runtime.models import CONTRACT_VERSION

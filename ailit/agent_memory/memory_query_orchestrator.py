@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, Final, Mapping
+from typing import Any, Final
 
 from agent_memory.pag_runtime import PagRuntimeConfig
 from agent_memory.sqlite_pag import SqlitePagStore
@@ -29,14 +30,14 @@ from agent_memory.memory_init_orchestrator import (
     normalize_memory_init_root,
 )
 from agent_memory.memory_init_summary import emit_memory_cli_user_summary
+from ailit_runtime.broker_json_client import (
+    BrokerResponseError,
+    BrokerTransportError,
+)
 from ailit_runtime.models import (
     RuntimeIdentity,
     RuntimeNow,
     make_request_envelope,
-)
-from ailit_runtime.subprocess_agents.memory_agent import (
-    AgentMemoryWorker,
-    MemoryAgentConfig,
 )
 from agent_work.session.repo_context import (
     detect_repo_context,
@@ -45,6 +46,8 @@ from agent_work.session.repo_context import (
 
 _RESUME_MAX_NODES: Final[int] = 20
 _RESUME_SUMMARY_CAP: Final[int] = 140
+
+BrokerInvoke = Callable[[Mapping[str, Any]], dict[str, Any]]
 
 
 def build_memory_query_resume_lines(
@@ -118,7 +121,8 @@ class MemoryQueryOrchestrator:
         project_root: str | Path,
         query_text: str,
         *,
-        chat_id: str | None = None,
+        broker_invoke: BrokerInvoke,
+        broker_chat_id: str,
     ) -> int:
         """
         Returns:
@@ -145,13 +149,14 @@ class MemoryQueryOrchestrator:
             )
 
         session_id = str(uuid.uuid4())
-        if chat_id and str(chat_id).strip():
-            cid = str(chat_id).strip()
-        else:
-            cid = f"memory-query-{session_id[:8]}"
+        cid = str(broker_chat_id or "").strip()
+        if not cid:
+            return memory_init_exit_code(
+                "blocked",
+                abort_class="infrastructure",
+            )
         cli_dir = create_unique_cli_session_dir()
         compact_path = cli_dir / COMPACT_LOG_FILE_NAME
-        journal_path = cli_dir / "memory_query_journal.jsonl"
 
         orch_sink = CompactObservabilitySink(
             compact_file=compact_path,
@@ -165,27 +170,17 @@ class MemoryQueryOrchestrator:
             fields={
                 "namespace": str(ns)[:200],
                 "project_root": str(root)[:240],
+                "transport": "broker_rpc",
             },
         )
 
-        cfg = MemoryAgentConfig(
-            chat_id=cid,
-            broker_id=f"memory-query-{session_id[:8]}",
-            namespace=str(ns),
-            session_log_mode="cli_init",
-            cli_session_dir=cli_dir,
-            memory_journal_path=journal_path,
-            compact_init_session_id=session_id,
-            broker_trace_stdout=False,
-        )
-        worker = AgentMemoryWorker(cfg)
         am_file_cfg = load_or_create_agent_memory_config()
         max_rounds = int(am_file_cfg.memory.init.max_continuation_rounds)
 
         identity = RuntimeIdentity(
             runtime_id=f"rt-{session_id[:8]}",
             chat_id=cid,
-            broker_id=cfg.broker_id,
+            broker_id=f"broker-{cid}",
             trace_id=f"tr-{session_id[:8]}",
             goal_id="memory_query",
             namespace=str(ns),
@@ -201,7 +196,7 @@ class MemoryQueryOrchestrator:
                 req=None,
                 chat_id=cid,
                 event="orch_memory_query_phase",
-                fields={"phase": "execute_worker"},
+                fields={"phase": "execute_broker_rpc"},
             )
             while True:
                 if round_idx >= max_rounds:
@@ -234,7 +229,25 @@ class MemoryQueryOrchestrator:
                     now=RuntimeNow(),
                 )
                 try:
-                    out = worker.handle(req)
+                    out = broker_invoke(req.to_dict())
+                except (BrokerTransportError, BrokerResponseError) as exc:
+                    orch_sink.emit(
+                        req=None,
+                        chat_id=cid,
+                        event="orch_memory_query_broker_error",
+                        fields={"error": str(exc)[:400]},
+                    )
+                    self._finish_summary(
+                        compact_path,
+                        "partial",
+                        reason_short="broker_rpc_failed",
+                        last_ok=None,
+                        namespace=str(ns),
+                    )
+                    return memory_init_exit_code(
+                        "partial",
+                        abort_class="infrastructure",
+                    )
                 except KeyboardInterrupt:
                     self._finish_summary(
                         compact_path,
