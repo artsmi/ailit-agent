@@ -47,6 +47,7 @@
 | [`killer-features.md`](killer-features.md) | Проверяемые отличия **OR-004** и связанные анти-паттерны. | **Готов** (`u_compare_ux`) |
 | [`user-story-handoff.md`](user-story-handoff.md) | **OR-006**: минимальная схема полей, дерево решений, примеры. | **Готов** (`u_compare_ux`) |
 | [`anti-patterns.md`](anti-patterns.md) | Запреты в духе «не реализовывать как…», включая смешение путей плана и подмену гейтов. | **Готов** (`u_compare_ux`) |
+| [`donors/INDEX.md`](donors/INDEX.md) | Taken / Rejected / Not researched по внешним репозиториям (без pipeline-артефактов). | **Stub** (gate `donors/` для пакета) |
 
 ## Точки входа и использование канона
 

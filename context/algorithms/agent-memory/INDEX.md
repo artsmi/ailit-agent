@@ -26,6 +26,7 @@
 | [`external-protocol.md`](external-protocol.md) | Инициаторы (оболочка агента, CLI, клиент брокера), формат запроса, события на границе, команда `ailit memory init`. |
 | [`desktop-realtime-graph-protocol.md`](desktop-realtime-graph-protocol.md) | **Redirect:** нормативный текст перенесён в пакет [`../desktop/INDEX.md`](../desktop/INDEX.md) (approved **2026-05-12**); этот путь — stub для старых ссылок. |
 | [`failure-retry-observability.md`](failure-retry-observability.md) | Ошибки и повторы, лимиты и partial, журнал и компактные логи, критерии приёмки и имена тестов pytest. |
+| [`donors/INDEX.md`](donors/INDEX.md) | Идеи из donor-research (Taken / Rejected / Not researched) без ссылок на `context/artifacts/`. |
 | План внедрения | Отдельный markdown под `plan/*` для AgentMemory **не** используется (файл `plan/17-agent-memory-start-feature.md` удалён владельцем после утверждения канона 2026-05-12). Нарезка для `start-feature` / `start-fix` — из разделов этого пакета и постановки задачи; при необходимости см. исторические планы `plan/14-agent-memory-*.md`. **Не** часть канона SoT. |
 
 ## Исходная постановка (полная матрица OR-001…OR-015)
