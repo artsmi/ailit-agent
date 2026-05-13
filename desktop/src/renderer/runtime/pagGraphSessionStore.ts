@@ -551,15 +551,24 @@ type ReplayRollbackSnap = {
 };
 
 /**
- * Bounded replay после full load: чанки по строкам + при превышении wall budget рекурсивное
- * деление окна (откат через snapshot). Семантика как у одного `applyDeltasInRange(0, lastRow)`.
+ * Shared bounded contour для применения PAG-дельт к диапазону `[lo..hi]` строк trace
+ * (D-ARCH-1, S-D3): чанки по строкам + при превышении wall budget рекурсивное деление
+ * окна (откат через snapshot). Семантика на полном диапазоне совпадает с одним
+ * `applyDeltasInRange(mergedIn, revsIn, rows, lo, hi, ns, prevWarnings, useInitialTraceCatchup)`.
+ *
+ * Используется `afterFullLoad` (lo=0, hi=lastRow, useInitialTraceCatchup=true) и
+ * `applyIncrementalBounded` (lo=cur.lastAppliedTraceIndex+1, hi=rows.length-1).
+ * Экспорт для эталона TC-G19.3 (S-D3) в vitest.
  */
-async function applyAfterFullLoadReplayDeltasBounded(
+export async function applyPagGraphTraceDeltasBoundedInRange(
   merged0: MemoryGraphData,
   revs0: RevRec,
+  prevWarnings: readonly string[],
   rows: readonly Record<string, unknown>[],
-  lastRow: number,
+  lo: number,
+  hi: number,
   namespaces: Readonly<Set<string>>,
+  useInitialTraceCatchup: boolean,
   emitDesktopGraphDebug?: (event: string, detail: Record<string, unknown>) => void
 ): Promise<{
   readonly merged: MemoryGraphData;
@@ -567,10 +576,12 @@ async function applyAfterFullLoadReplayDeltasBounded(
   readonly warnings: readonly string[];
   readonly namespacesDeltaTouched: ReadonlySet<string>;
 }> {
-  const revsInFullCatchUp: RevRec = buildRevsInForDeltas(revs0, rows, 0, lastRow, namespaces, true);
+  const revsInFirstWindow: RevRec = useInitialTraceCatchup
+    ? buildRevsInForDeltas(revs0, rows, lo, hi, namespaces, true)
+    : { ...revs0 };
   let mergedAcc: MemoryGraphData = merged0;
   let revsAcc: RevRec = { ...revs0 };
-  let warningsAcc: readonly string[] = [];
+  let warningsAcc: readonly string[] = prevWarnings;
   const namespacesDeltaUnion: Set<string> = new Set();
 
   const takeReplaySnap = (): ReplayRollbackSnap => ({
@@ -593,49 +604,49 @@ async function applyAfterFullLoadReplayDeltasBounded(
     }
   };
 
-  async function replayWindow(cur: number, hi: number): Promise<void> {
-    if (cur > hi) {
+  async function replayWindow(curStart: number, curHi: number): Promise<void> {
+    if (curStart > curHi) {
       return;
     }
-    const windowStartsAtTraceOrigin: boolean = cur === 0;
-    const skipStale: boolean = cur > 0;
+    const windowStartsAtRangeOrigin: boolean = curStart === lo;
+    const skipStale: boolean = !windowStartsAtRangeOrigin;
     const snapBeforeTry: ReplayRollbackSnap = takeReplaySnap();
     const t0: number = replayWallNowMs();
     const apChunk: ReturnType<typeof applyDeltasInRange> = applyDeltasInRange(
       mergedAcc,
       revsAcc,
       rows,
-      cur,
-      hi,
+      curStart,
+      curHi,
       namespaces,
       warningsAcc,
       false,
       emitDesktopGraphDebug,
       {
-        initialRevsInOverride: windowStartsAtTraceOrigin ? revsInFullCatchUp : undefined,
+        initialRevsInOverride: windowStartsAtRangeOrigin ? revsInFirstWindow : undefined,
         skipStalePagGraphRevReconcile: skipStale
       }
     );
     const dt: number = replayWallNowMs() - t0;
-    const span: number = hi - cur + 1;
-    if (dt <= PAG_GRAPH_REPLAY_CHUNK_MAX_MS || cur >= hi) {
+    const span: number = curHi - curStart + 1;
+    if (dt <= PAG_GRAPH_REPLAY_CHUNK_MAX_MS || curStart >= curHi) {
       commitChunk(apChunk);
       return;
     }
     restoreReplaySnap(snapBeforeTry);
-    const mid: number = cur + Math.floor(span / 2) - 1;
+    const mid: number = curStart + Math.floor(span / 2) - 1;
     await yieldReplayChunkBound();
-    await replayWindow(cur, mid);
+    await replayWindow(curStart, mid);
     await yieldReplayChunkBound();
-    await replayWindow(mid + 1, hi);
+    await replayWindow(mid + 1, curHi);
   }
 
-  let outerCur: number = 0;
-  while (outerCur <= lastRow) {
-    const outerHi: number = Math.min(outerCur + PAG_GRAPH_REPLAY_CHUNK_MAX_ROWS - 1, lastRow);
+  let outerCur: number = lo;
+  while (outerCur <= hi) {
+    const outerHi: number = Math.min(outerCur + PAG_GRAPH_REPLAY_CHUNK_MAX_ROWS - 1, hi);
     await replayWindow(outerCur, outerHi);
     outerCur = outerHi + 1;
-    if (outerCur <= lastRow) {
+    if (outerCur <= hi) {
       await yieldReplayChunkBound();
     }
   }
@@ -646,6 +657,37 @@ async function applyAfterFullLoadReplayDeltasBounded(
     warnings: warningsAcc,
     namespacesDeltaTouched: namespacesDeltaUnion
   };
+}
+
+/**
+ * Bounded replay после full load: тонкая обёртка над shared bounded-контуром
+ * `applyPagGraphTraceDeltasBoundedInRange` для диапазона `[0..lastRow]` с
+ * `useInitialTraceCatchup=true` (F-D14) и пустыми входными warnings.
+ */
+async function applyAfterFullLoadReplayDeltasBounded(
+  merged0: MemoryGraphData,
+  revs0: RevRec,
+  rows: readonly Record<string, unknown>[],
+  lastRow: number,
+  namespaces: Readonly<Set<string>>,
+  emitDesktopGraphDebug?: (event: string, detail: Record<string, unknown>) => void
+): Promise<{
+  readonly merged: MemoryGraphData;
+  readonly revs: RevRec;
+  readonly warnings: readonly string[];
+  readonly namespacesDeltaTouched: ReadonlySet<string>;
+}> {
+  return applyPagGraphTraceDeltasBoundedInRange(
+    merged0,
+    revs0,
+    [],
+    rows,
+    0,
+    lastRow,
+    namespaces,
+    true,
+    emitDesktopGraphDebug
+  );
 }
 
 function emitKeyReconciled(sessionId: string, namespace: string): string {
@@ -962,6 +1004,99 @@ export class PagGraphSessionTraceMerge {
       end,
       ns,
       cur.warnings,
+      useInitialTraceCatchup,
+      diagInc
+    );
+    const hi3: {
+      readonly merged: MemoryGraphData;
+      readonly highlights: Readonly<Record<string, PagSearchHighlightV1 | null>>;
+    } = this.applyHighlightFromTraceRows(
+      ap.merged,
+      rows,
+      namespaces,
+      defaultNamespace,
+      cur.lastAppliedTraceIndex,
+      gate
+    );
+    const nxt: PagGraphSessionSnapshot = buildSnapshotFromReconcile(
+      hi3.merged,
+      ap.revs,
+      end,
+      ap.warnings,
+      "ready",
+      null,
+      cur.pagDatabasePresent,
+      hi3.highlights
+    );
+    emitHighlightChangeDiagnostics(cur.searchHighlightsByNamespace, hi3.highlights, diagInc);
+    emitTraceOnlyPagModeDiagnostics(cur.pagDatabasePresent, namespaces, hooks);
+    emitPagGraphObservability({
+      hooks,
+      namespaces,
+      graphRevAfterByNs: ap.revs,
+      namespacesDeltaTouched: ap.namespacesDeltaTouched,
+      isAfterFullLoad: false
+    });
+    if (hooks?.emitDesktopGraphDebug !== undefined && nxt !== cur) {
+      hooks.emitDesktopGraphDebug("merge_after_incremental", {
+        last_applied_trace_index: nxt.lastAppliedTraceIndex,
+        merged_node_count: nxt.merged.nodes.length,
+        merged_link_count: nxt.merged.links.length,
+        graph_rev_by_namespace: nxt.graphRevByNamespace,
+        warnings_count: nxt.warnings.length,
+        pag_database_present: nxt.pagDatabasePresent
+      });
+    }
+    return nxt;
+  }
+
+  /**
+   * S-D3 / C-SD3 / D-ARCH-1: bounded инкремент с теми же chunk/yield, что и
+   * `afterFullLoad` (через shared `applyPagGraphTraceDeltasBoundedInRange`).
+   *
+   * Контракт результата идентичен `applyIncremental` для тех же входов: после
+   * полного догона хвоста `(cur.lastAppliedTraceIndex+1)..(rows.length-1)`
+   * `merged` / `graphRevByNamespace` / `warnings` / `lastAppliedTraceIndex`
+   * совпадают с эталоном `afterFullLoad` на том же наборе дельт и стартовом
+   * состоянии (F-D14 catch-up, F-D7 dedupe/collapse — внутри `applyDeltasInRange`).
+   *
+   * Highlight (D-ARCH-3): один вызов `applyHighlightFromTraceRows` после полного
+   * хвоста с корректным `lastConsumedTraceIndex === cur.lastAppliedTraceIndex`.
+   */
+  static async applyIncrementalBounded(
+    cur: PagGraphSessionSnapshot,
+    rows: readonly Record<string, unknown>[],
+    namespaces: readonly string[],
+    defaultNamespace: string,
+    hooks?: PagGraphTraceMergeEmitHooks,
+    highlightGatingChatId?: string
+  ): Promise<PagGraphSessionSnapshot> {
+    const gate: string | undefined = resolveHighlightGatingChatId(highlightGatingChatId, hooks);
+    const start: number = cur.lastAppliedTraceIndex + 1;
+    if (rows.length === 0) {
+      return cur;
+    }
+    const end: number = rows.length - 1;
+    const ns: Set<string> = new Set(namespaces);
+    if (start > end) {
+      return cur;
+    }
+    const useInitialTraceCatchup: boolean = cur.lastAppliedTraceIndex === -1 && start === 0;
+    const diagInc: ((event: string, detail: Record<string, unknown>) => void) | undefined =
+      hooks?.emitDesktopGraphDebug;
+    const ap: {
+      readonly merged: MemoryGraphData;
+      readonly revs: RevRec;
+      readonly warnings: readonly string[];
+      readonly namespacesDeltaTouched: ReadonlySet<string>;
+    } = await applyPagGraphTraceDeltasBoundedInRange(
+      cur.merged,
+      { ...cur.graphRevByNamespace } as RevRec,
+      cur.warnings,
+      rows,
+      start,
+      end,
+      ns,
       useInitialTraceCatchup,
       diagInc
     );

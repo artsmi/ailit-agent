@@ -20,6 +20,7 @@ import {
 } from "./pagGraphRevWarningFormat";
 import {
   applyDeltasInRange,
+  applyPagGraphTraceDeltasBoundedInRange,
   buildSnapshotFromReconcile,
   createEmptyPagGraphSessionSnapshot,
   PagGraphBySessionMap,
@@ -1040,6 +1041,88 @@ describe("pagGraphSessionStore", () => {
       }
     });
 
+    it("TC-G19.3-ApplyIncrementalSnapshotMatchesBoundedReplay", async () => {
+      // S-D3 / C-SD3: bounded incremental по тому же диапазону дельт даёт snapshot,
+      // эквивалентный bounded replay (`afterFullLoad`/`applyAfterFullLoadReplayDeltasBounded`).
+      // Регрессия падает, если incremental пишет другой merged / revs / warnings /
+      // lastAppliedTraceIndex (или ломает catch-up F-D14, dedupe F-D7).
+      const ns: string = "ns-g19-3";
+      const merged0: MemoryGraphData = {
+        nodes: [nodeFromPag({ node_id: "A:1", level: "A", path: ".", title: "p", namespace: ns })!],
+        links: []
+      };
+      const revs0: Record<string, number> = { [ns]: 0 };
+      const rows: Record<string, unknown>[] = [];
+      for (let r: number = 1; r <= 1200; r += 1) {
+        rows.push(
+          rowPagNodeUpsert(ns, r, {
+            node_id: `B:n${String(r)}.py`,
+            level: "B",
+            path: `n${String(r)}.py`,
+            title: "f",
+            kind: "file"
+          })
+        );
+      }
+      const refSnap: PagGraphSessionSnapshot = await PagGraphSessionTraceMerge.afterFullLoad(
+        merged0,
+        revs0,
+        rows,
+        [ns],
+        ns,
+        true,
+        undefined,
+        undefined,
+        undefined
+      );
+      const startSnap: PagGraphSessionSnapshot = buildSnapshotFromReconcile(
+        merged0,
+        { ...revs0 },
+        -1,
+        [],
+        "ready",
+        null,
+        true,
+        {}
+      );
+      const incOneShot: PagGraphSessionSnapshot = await PagGraphSessionTraceMerge.applyIncrementalBounded(
+        startSnap,
+        rows,
+        [ns],
+        ns
+      );
+      expect(incOneShot.lastAppliedTraceIndex).toBe(refSnap.lastAppliedTraceIndex);
+      expect(incOneShot.merged).toEqual(refSnap.merged);
+      expect(incOneShot.graphRevByNamespace).toEqual(refSnap.graphRevByNamespace);
+      // architecture §10 assumption 2: warnings сравниваем в нормализованном
+      // (sorted) виде — порядок между bounded путями не гарантирован при
+      // эквивалентной семантике (dedupe+collapse одинаковы внутри `applyDeltasInRange`).
+      const normWarn = (w: readonly string[]): readonly string[] => [...w].slice().sort();
+      expect(normWarn(incOneShot.warnings)).toEqual(normWarn(refSnap.warnings));
+      expect(incOneShot.searchHighlightsByNamespace).toEqual(refSnap.searchHighlightsByNamespace);
+      expect(incOneShot.atLargeGraphWarning).toBe(refSnap.atLargeGraphWarning);
+      expect(incOneShot.pagDatabasePresent).toBe(refSnap.pagDatabasePresent);
+      // Live-сценарий DesktopSessionContext: серия bounded incremental по растущему хвосту;
+      // финальный snapshot обязан совпадать с эталоном afterFullLoad на полном наборе.
+      const batches: readonly number[] = [300, 700, 1100, 1200];
+      let curSnap: PagGraphSessionSnapshot = startSnap;
+      for (const batchEnd of batches) {
+        const slice: readonly Record<string, unknown>[] = rows.slice(0, batchEnd);
+        curSnap = await PagGraphSessionTraceMerge.applyIncrementalBounded(
+          curSnap,
+          slice,
+          [ns],
+          ns
+        );
+        expect(curSnap.lastAppliedTraceIndex).toBe(batchEnd - 1);
+      }
+      expect(curSnap.lastAppliedTraceIndex).toBe(refSnap.lastAppliedTraceIndex);
+      expect(curSnap.merged).toEqual(refSnap.merged);
+      expect(curSnap.graphRevByNamespace).toEqual(refSnap.graphRevByNamespace);
+      expect(normWarn(curSnap.warnings)).toEqual(normWarn(refSnap.warnings));
+      expect(curSnap.searchHighlightsByNamespace).toEqual(refSnap.searchHighlightsByNamespace);
+    });
+
     it("TC-G4-REPLAY-ChunkedSnapshotMatchesSinglePass", async () => {
       const ns: string = "ns-g4-chunk";
       const merged0: MemoryGraphData = {
@@ -1104,6 +1187,166 @@ describe("pagGraphSessionStore", () => {
       );
       expect(chunked).toEqual(refSnap);
     });
+  });
+
+  it("TC-G19.3-ApplyIncrementalSnapshotMatchesBoundedReplay", async () => {
+    const ns: string = "ns-g19-parity";
+    const merged0: MemoryGraphData = {
+      nodes: [nodeFromPag({ node_id: "A:1", level: "A", path: ".", title: "p", namespace: ns })!],
+      links: []
+    };
+    const revs0: Record<string, number> = { [ns]: 0 };
+    const rows: Record<string, unknown>[] = [];
+    for (let r: number = 1; r <= 1200; r += 1) {
+      rows.push(
+        rowPagNodeUpsert(ns, r, {
+          node_id: `B:n${String(r)}.py`,
+          level: "B",
+          path: `n${String(r)}.py`,
+          title: "f",
+          kind: "file"
+        })
+      );
+    }
+    const nsSet: Set<string> = new Set([ns]);
+    const pre: ReturnType<typeof applyDeltasInRange> = applyDeltasInRange(
+      merged0,
+      revs0,
+      rows,
+      0,
+      599,
+      nsSet,
+      [],
+      true,
+      undefined
+    );
+    const hiPre: ReturnType<typeof PagGraphSessionTraceMerge.applyHighlightFromTraceRows> =
+      PagGraphSessionTraceMerge.applyHighlightFromTraceRows(
+        pre.merged,
+        rows,
+        [ns],
+        ns,
+        599,
+        undefined
+      );
+    const cur: PagGraphSessionSnapshot = buildSnapshotFromReconcile(
+      hiPre.merged,
+      pre.revs,
+      599,
+      pre.warnings,
+      "ready",
+      null,
+      true,
+      hiPre.highlights
+    );
+    const start: number = 600;
+    const end: number = rows.length - 1;
+    const boundedRef: Awaited<ReturnType<typeof applyPagGraphTraceDeltasBoundedInRange>> =
+      await applyPagGraphTraceDeltasBoundedInRange(
+        pre.merged,
+        pre.revs,
+        pre.warnings,
+        rows,
+        start,
+        end,
+        nsSet,
+        false,
+        undefined
+      );
+    const hiRef: ReturnType<typeof PagGraphSessionTraceMerge.applyHighlightFromTraceRows> =
+      PagGraphSessionTraceMerge.applyHighlightFromTraceRows(
+        boundedRef.merged,
+        rows,
+        [ns],
+        ns,
+        599,
+        undefined
+      );
+    const refSnap: PagGraphSessionSnapshot = buildSnapshotFromReconcile(
+      hiRef.merged,
+      boundedRef.revs,
+      end,
+      boundedRef.warnings,
+      "ready",
+      null,
+      true,
+      hiRef.highlights
+    );
+    const incAsync: PagGraphSessionSnapshot = await PagGraphSessionTraceMerge.applyIncrementalBounded(
+      cur,
+      rows,
+      [ns],
+      ns
+    );
+    const incSync: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.applyIncremental(cur, rows, [ns], ns);
+    expect(incAsync).toEqual(refSnap);
+    expect(incSync).toEqual(refSnap);
+
+    const mergedCatch: MemoryGraphData = { nodes: [], links: [] };
+    const revsCatch: Record<string, number> = { [ns]: 5 };
+    const rowsCatch: Record<string, unknown>[] = [
+      rowPagNodeUpsert(ns, 1, {
+        node_id: "B:c.py",
+        level: "B",
+        path: "c.py",
+        title: "c",
+        kind: "file"
+      })
+    ];
+    const curCatch: PagGraphSessionSnapshot = {
+      ...createEmptyPagGraphSessionSnapshot({ loadState: "ready" }),
+      merged: mergedCatch,
+      graphRevByNamespace: revsCatch,
+      lastAppliedTraceIndex: -1,
+      warnings: [],
+      pagDatabasePresent: true,
+      searchHighlightsByNamespace: {}
+    };
+    const boundedCatch: Awaited<ReturnType<typeof applyPagGraphTraceDeltasBoundedInRange>> =
+      await applyPagGraphTraceDeltasBoundedInRange(
+        mergedCatch,
+        revsCatch,
+        [],
+        rowsCatch,
+        0,
+        0,
+        nsSet,
+        true,
+        undefined
+      );
+    const hiCatch: ReturnType<typeof PagGraphSessionTraceMerge.applyHighlightFromTraceRows> =
+      PagGraphSessionTraceMerge.applyHighlightFromTraceRows(
+        boundedCatch.merged,
+        rowsCatch,
+        [ns],
+        ns,
+        -1,
+        undefined
+      );
+    const refCatch: PagGraphSessionSnapshot = buildSnapshotFromReconcile(
+      hiCatch.merged,
+      boundedCatch.revs,
+      0,
+      boundedCatch.warnings,
+      "ready",
+      null,
+      true,
+      hiCatch.highlights
+    );
+    const incCatchAsync: PagGraphSessionSnapshot = await PagGraphSessionTraceMerge.applyIncrementalBounded(
+      curCatch,
+      rowsCatch,
+      [ns],
+      ns
+    );
+    const incCatchSync: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.applyIncremental(
+      curCatch,
+      rowsCatch,
+      [ns],
+      ns
+    );
+    expect(incCatchAsync).toEqual(refCatch);
+    expect(incCatchSync).toEqual(refCatch);
   });
 
   it("loadPagGraphMergedPropagatesSliceErrorCode", async () => {

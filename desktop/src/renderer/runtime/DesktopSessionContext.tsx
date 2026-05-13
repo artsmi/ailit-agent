@@ -351,6 +351,8 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
   const pagGraphLastEmittedReconcileRevRef: React.MutableRefObject<Map<string, number>> = React.useRef<
     Map<string, number>
   >(new Map());
+  /** G19.3 / D-ARCH-4: отмена stale completion при быстром повторном входе в incremental merge. */
+  const pagGraphIncrementalMergeGenerationRef: React.MutableRefObject<number> = React.useRef<number>(0);
   const traceOnlyPagModeSentKeysRef: React.MutableRefObject<Set<string>> = React.useRef<Set<string>>(new Set());
   const [pagLoadTick, setPagLoadTick] = React.useState(0);
   const [optimisticChatLines, setOptimisticChatLines] = React.useState<ChatLine[]>([]);
@@ -1599,15 +1601,21 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
     runtimeDir
   ]);
 
-  React.useEffect((): void => {
+  React.useEffect((): (() => void) | void => {
     const sessionId: string = activeSession.id;
     const chatIdInc: string = activeSession.chatId;
     const rdInc: string | null = runtimeDir;
-    setPagGraphBySession((prev) => {
-      const cur: PagGraphSessionSnapshot | undefined = prev[sessionId];
-      if (!cur || cur.loadState !== "ready") {
-        return prev;
-      }
+    const cur: PagGraphSessionSnapshot | undefined = pagGraphBySessionRef.current[sessionId];
+    if (!cur || cur.loadState !== "ready") {
+      return;
+    }
+    const start: number = cur.lastAppliedTraceIndex + 1;
+    if (rawTraceRows.length === 0 || start > rawTraceRows.length - 1) {
+      return;
+    }
+    const myMergeGen: number = ++pagGraphIncrementalMergeGenerationRef.current;
+    let cancelled: boolean = false;
+    void (async (): Promise<void> => {
       const hooksInc: PagGraphTraceMergeEmitHooks | undefined =
         rdInc != null
           ? buildPagGraphTraceMergeHooks({
@@ -1622,7 +1630,7 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
               pairLogWritesEnabled: agentMemoryChatLogsFileTargetsEnabled === true
             })
           : undefined;
-      const nxt: PagGraphSessionSnapshot = PagGraphSessionTraceMerge.applyIncremental(
+      const nxt: PagGraphSessionSnapshot = await PagGraphSessionTraceMerge.applyIncrementalBounded(
         cur,
         rawTraceRows,
         pagNamespaces,
@@ -1630,11 +1638,23 @@ export function DesktopSessionProvider({ children }: { readonly children: React.
         hooksInc,
         chatIdInc
       );
-      if (nxt === cur) {
-        return prev;
+      if (cancelled || myMergeGen !== pagGraphIncrementalMergeGenerationRef.current) {
+        return;
       }
-      return { ...prev, [sessionId]: nxt };
-    });
+      setPagGraphBySession((prev) => {
+        const latest: PagGraphSessionSnapshot | undefined = prev[sessionId];
+        if (latest !== cur) {
+          return prev;
+        }
+        if (nxt === cur) {
+          return prev;
+        }
+        return { ...prev, [sessionId]: nxt };
+      });
+    })();
+    return (): void => {
+      cancelled = true;
+    };
   }, [
     activeSession.chatId,
     activeSession.id,

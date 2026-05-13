@@ -74,6 +74,8 @@ Subset gate **11** `memory_init_fix` (pytest + flake8, см. отчёт): вкл
 
 **Канон прогона (Wave 5, task 4_1):** **12 test files**, **80 tests** — см. `context/artifacts/reports/test_report_task_4_1.md`.
 
+**Полный пакет `desktop`:** `cd desktop && npm run test` (скрипт Vitest по всему дереву) — больше файлов/тестов, чем таблица §5.0; финальный **11** после G19.3: **28** files, **182** tests по `context/artifacts/test_report.md` (не путать с явным списком §5.0 ниже).
+
 | Путь | Содержание |
 |------|------------|
 | `desktop/src/renderer/runtime/memoryGraphDataKey.test.ts` | Ключ `computeMemoryGraphDataKey` без `n{nodes.length}`; смена при `loadState`, `graphRevByNamespace`, `pagDatabasePresent`. |

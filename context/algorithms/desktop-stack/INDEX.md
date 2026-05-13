@@ -49,7 +49,7 @@
 ### In scope
 
 - Путь отправки сообщения: синхронный optimistic update, затем `await brokerRequest` (IPC, таймаут до 30 s на main).
-- Live trace: построчные события → `mergeRows` → рост `rawTraceRows` → полная проекция чата O(N) на изменение и инкрементальный PAG merge без chunk budget (контраст с `afterFullLoad` replay).
+- Live trace: построчные события → `mergeRows` → рост `rawTraceRows` → полная проекция чата O(N) на изменение и **async** инкрементальный PAG merge через `PagGraphSessionTraceMerge.applyIncrementalBounded` (тот же bounded/yield контур, что `afterFullLoad`: `applyPagGraphTraceDeltasBoundedInRange` → `yieldReplayChunkBound` в `pagGraphSessionStore.ts`). Синхронный однопроходный `PagGraphSessionTraceMerge.applyIncremental` остаётся в API store и в тестах паритета **S-D3** с bounded replay.
 - Ветка `chat_logs_enabled: false`: что отключается на диске, что остаётся активным; pair-log `broker_connect` из renderer на connect к broker **не** эмитится (нет `logD` с этого call site), если зеркало файловых логов в renderer не `true` (слайс G19.2, см. § Current Reality).
 - PAG: rev mismatch warning (дословный шаблон), «тяжёлый merged» warning, `loadState` остаётся не `error` для rev mismatch.
 - Main IPC hotspots: `pag-slice`, полное чтение durable trace, полное чтение memory journal, частый `JSON.parse` на live trace, `brokerJsonRequest`.
@@ -70,7 +70,7 @@
 
 **Отличие «gated input» от «freeze окна».** Повторная отправка с клавиатуры блокируется при активном ходе; кнопка отправки меняется на Stop. Это **не** то же самое, что полная неотзывчивость окна: последняя требует либо долгого await IPC, либо долгой синхронной работы на main thread renderer или перегрузки main process Electron.
 
-**Live trace и renderer.** Main рассылает **по одной** строке trace на окно. Renderer: `mergeRows` синхронно дедуплицирует и копирует массив; на каждое изменение `rawTraceRows` в render-фазе `useMemo` заново прогоняет `projectChatTraceRows` по **всему N** (O(N) на каждое добавление). При готовом PAG snapshot `useEffect` на `rawTraceRows` вызывает **`PagGraphSessionTraceMerge.applyIncremental`** синхронно, **без** chunk/microtask budget, в отличие от `afterFullLoad` replay (`applyAfterFullLoadReplayDeltasBounded` + `yieldReplayChunkBound`). Общий фактор нагрузки — **общий main thread renderer** и общий state trace/PAG для смонтированных виджетов; отдельного флага «freeze чата» из 3D `freezeGraphAtCenteredCoordinates` для submit нет.
+**Live trace и renderer.** Main рассылает **по одной** строке trace на окно. Renderer: `mergeRows` синхронно дедуплицирует и копирует массив; на каждое изменение `rawTraceRows` в render-фазе `useMemo` заново прогоняет `projectChatTraceRows` по **всему N** (O(N) на каждое добавление). При готовом PAG snapshot (`loadState === "ready"`) `useEffect` на `rawTraceRows` в `DesktopSessionContext.tsx` запускает **async** IIFE: инкремент — `await PagGraphSessionTraceMerge.applyIncrementalBounded` (тот же bounded/yield путь, что полный реплей после load, см. `pagGraphSessionStore.ts`); перед `setPagGraphBySession` сравнивается **поколение** `pagGraphIncrementalMergeGenerationRef` (новый эффект инкрементирует ref и отбрасывает устаревший результат); cleanup эффекта выставляет `cancelled`. Паритет результата с однопроходным `applyIncremental` для того же хвоста trace — тест **S-D3** (`pagGraphSessionStore.test.ts`). Общий фактор нагрузки — **общий main thread renderer** (в т.ч. O(N) проекция) и работа merge по мере чанков; отдельного флага «freeze чата» из 3D `freezeGraphAtCenteredCoordinates` для submit нет.
 
 **`chat_logs_enabled`.** SoT: файл конфигурации agent-memory на машине пользователя (`memory.debug.chat_logs_enabled`), чтение и coerce default **только в main** с кэшем по `mtimeMs`; fail-open при ошибке чтения — `true`. Renderer получает значение **один раз** при старте через IPC `ailit:agentMemoryChatLogsRoot` и держит зеркало в `agentMemoryChatLogsFileTargetsEnabledRef` (см. [`glossary.md`](glossary.md)); UI просит перезапуск Desktop при смене yaml (live-refresh в renderer **не** задокументирован как контракт). При `false`: main handlers `ensureChatLogSessionDir` и `appendDesktopGraphPairLog` возвращают `{ ok: true, skipped: true }` **до** FS; trace subscribe, `appendTraceRow`, `brokerRequest`, `ailit:pagGraphSlice` и др. **не** читают флаг (**OR-D5**). Renderer гардит file-side пути pair-log и graph debug: `logD("broker_connect", …)` в `connectToBroker` вызывается **только** если `agentMemoryChatLogsFileTargetsEnabledRef.current === true`; при `null`/`false` этого вызова нет, следовательно нет enqueue pair-log IPC с этого call site. Дальше по `connectToBroker` без ветвления по этому ref выполняются durable trace, merge и live subscribe — trace, broker и PAG остаются активными при выключенных файловых логах (**FR2**, **DNI1**).
 
@@ -104,11 +104,11 @@ PAG: в merged <N> нод (><лимит>). Срез тяжёлый; исполь
 ## Target Flow
 
 1. Пользователь отправляет сообщение в чат. Renderer выполняет валидацию, optimistic update, затем ожидает ACK от broker через IPC (`brokerRequest`).
-2. Параллельно (независимо от ветки `chat_logs_enabled`) main и renderer обрабатывают live trace: строки попадают в `rawTraceRows`, пересчитывается проекция чата, при готовом PAG — инкрементальный merge.
+2. Параллельно (независимо от ветки `chat_logs_enabled`) main и renderer обрабатывают live trace: строки попадают в `rawTraceRows`, пересчитывается проекция чата, при готовом PAG — инкрементальный merge (**async bounded**, см. Current Reality).
 3. Если граф PAG загружается или обновляется срезом, renderer инициирует серию `pagGraphSlice` IPC; main запускает subprocess `ailit memory pag-slice` и парсит JSON ответа.
 4. При применении дельт PAG из trace store сравнивается ожидаемый следующий rev и `rev` дельты; при нарушении монотонности добавляется warning с каноническим текстом; UI показывает жёлтую полосу, `loadState` для rev mismatch **не** обязан становиться `error`.
 5. Завершение «хода агента» в UI наступает по финальным событиям trace, после чего снимается блокировка повторной отправки (если не включена другая фаза).
-6. При подозрении на freeze оператор собирает минимальный набор метрик из раздела Observability (счётчики, длительности, размеры) и сопоставляет с ветками «renderer O(N) + incremental merge», «main pag-slice / journal / durable trace», «broker await».
+6. При подозрении на freeze оператор собирает минимальный набор метрик из раздела Observability (счётчики, длительности, размеры) и сопоставляет с ветками «renderer O(N) + bounded async incremental merge», «main pag-slice / journal / durable trace», «broker await».
 
 ## Examples
 
@@ -228,7 +228,7 @@ PAG: в merged <N> нод (><лимит>). Срез тяжёлый; исполь
 
 ### FR4: Broker await vs renderer jank
 
-**Required:** в любом incident write-up разделять «await `brokerRequest` до 30 s» и «длинный синхронный кадр renderer из-за O(N) projection / `applyIncremental`».
+**Required:** в любом incident write-up разделять «await `brokerRequest` до 30 s» и «длинные кадры renderer из-за O(N) projection и/или работы PAG merge» (после G19.3 live merge — **async** `applyIncrementalBounded` с chunk/yield; синхронный однопроходный `applyIncremental` не вызывается из `DesktopSessionContext`, но остаётся эталоном паритета в тестах).
 
 ### FR5: `broker_connect` pair-log при `false`
 
@@ -262,7 +262,7 @@ PAG: в merged <N> нод (><лимит>). Срез тяжёлый; исполь
 | Было | Стало |
 |------|--------|
 | «Ключевой алгоритм обеспечивает прозрачную синхронизацию и устойчивую деградацию.» | «При расхождении rev UI показывает строку `PAG: несоответствие graph rev …`; `loadState` не переходит в `error` только из-за rev mismatch (код PAG UI).» |
-| «Система корректно обрабатывает ошибки и избегает зависаний.» | «Единственный обязательный await в submit-path — `brokerRequest` до 30 s; длинный кадр renderer идёт от O(N) `projectChatTraceRows` и синхронного `applyIncremental`; причина freeze не доказывается без метрик OR-D6.» |
+| «Система корректно обрабатывает ошибки и избегает зависаний.» | «Единственный обязательный await в submit-path — `brokerRequest` до 30 s; длинные кадры renderer идут от O(N) `projectChatTraceRows` и от PAG merge (live — async bounded `applyIncrementalBounded`); причина freeze не доказывается без метрик OR-D6.» |
 
 ## Что проверить человеку
 
