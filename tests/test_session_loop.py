@@ -29,9 +29,9 @@ from agent_work.tool_runtime.permission import (
 )
 from agent_work.tool_runtime.bash_tools import bash_tool_registry
 from agent_work.tool_runtime.registry import default_builtin_registry
-from agent_memory.kb_tools import KbToolsConfig, build_kb_tool_registry
-from agent_memory.pag_indexer import index_project_to_default_store
-from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.kb.kb_tools import KbToolsConfig, build_kb_tool_registry
+from agent_memory.pag.pag_indexer import index_project_to_default_store
+from agent_memory.storage.sqlite_pag import SqlitePagStore
 
 
 class ScriptedProvider:

@@ -10,23 +10,23 @@ from typing import Any, Final
 import pytest
 
 from ailit_base.capabilities import Capability, capability_set_for
-from agent_memory.pag_runtime import PagRuntimeConfig
-from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.storage.pag_runtime import PagRuntimeConfig
+from agent_memory.storage.sqlite_pag import SqlitePagStore
 from ailit_base.models import (
     ChatRequest,
     FinishReason,
     NormalizedChatResponse,
     NormalizedUsage,
 )
-from agent_memory.agent_memory_runtime_contract import (
+from agent_memory.contracts.agent_memory_runtime_contract import (
     AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
 )
-from agent_memory.memory_init_orchestrator import (
+from agent_memory.init.memory_init_orchestrator import (
     MemoryInitOrchestrator,
     verify_memory_init_journal_complete_marker,
 )
-from agent_memory.memory_init_transaction import MemoryInitPaths as MIP
-from agent_memory.agent_memory_chat_log import create_unique_cli_session_dir
+from agent_memory.init.memory_init_transaction import MemoryInitPaths as MIP
+from agent_memory.observability.agent_memory_chat_log import create_unique_cli_session_dir
 from ailit_runtime.models import RuntimeRequestEnvelope
 from ailit_runtime.subprocess_agents import (
     memory_agent as memory_agent_mod,

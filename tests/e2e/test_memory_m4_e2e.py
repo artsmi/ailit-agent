@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_memory.kb_tools import KbToolsConfig, build_kb_tool_registry
+from agent_memory.kb.kb_tools import KbToolsConfig, build_kb_tool_registry
 from ailit_base.models import (
     ChatMessage,
     FinishReason,

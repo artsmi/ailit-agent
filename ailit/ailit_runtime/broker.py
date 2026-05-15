@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from agent_memory.agent_memory_ailit_config import (
+from agent_memory.config.agent_memory_ailit_config import (
     agent_memory_rpc_timeout_s,
     load_merged_ailit_config_for_memory,
 )

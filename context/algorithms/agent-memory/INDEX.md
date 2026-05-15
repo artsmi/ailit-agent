@@ -75,7 +75,7 @@
 | OR-001…OR-005, OR-007, OR-009…OR-016 | [`../desktop/realtime-graph-client.md`](../desktop/realtime-graph-client.md), [`../desktop/graph-3dmvc.md`](../desktop/graph-3dmvc.md), [`../desktop/INDEX.md`](../desktop/INDEX.md) |
 | OR-006 (брендбук) | [`../../../docs/web-ui-book/INDEX.md`](../../../docs/web-ui-book/INDEX.md) |
 | OR-008 (связь с agent-memory) | Этот `INDEX.md`, [`external-protocol.md`](external-protocol.md), пакет [`../desktop/`](../desktop/INDEX.md) |
-| OR-017 (лимиты yaml vs caps) | [`../desktop/realtime-graph-client.md`](../desktop/realtime-graph-client.md) (**OR-010**), pytest `tests/test_pag_slice_caps_alignment.py` |
+| OR-017 (лимиты yaml vs caps) | [`../desktop/realtime-graph-client.md`](../desktop/realtime-graph-client.md) (**OR-010**), pytest `ailit/agent_memory/tests/test_pag_slice_caps_alignment.py` |
 
 ## Трассировка OR → файлы пакета
 

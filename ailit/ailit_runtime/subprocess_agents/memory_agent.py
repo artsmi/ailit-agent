@@ -18,64 +18,64 @@ from pathlib import Path
 from typing import Any, Callable, Literal, Mapping
 
 from ailit_base.models import ChatRequest, NormalizedChatResponse
-from agent_memory.agent_memory_config import (
+from agent_memory.config.agent_memory_config import (
     SourceBoundaryFilter,
     build_compact_query_journal,
     load_or_create_agent_memory_config,
 )
-from agent_memory.agent_memory_ailit_config import (
+from agent_memory.config.agent_memory_ailit_config import (
     build_chat_provider_for_agent_memory,
     load_merged_ailit_config_for_memory,
     resolve_memory_llm_optimization,
 )
-from agent_memory.agent_memory_chat_log import (
+from agent_memory.observability.agent_memory_chat_log import (
     AgentMemoryChatDebugLog,
     COMPACT_LOG_FILE_NAME,
     MEMORY_AUDIT_WHY,
     audit_jsonable,
 )
-from agent_memory.compact_observability_sink import (
+from agent_memory.observability.compact_observability_sink import (
     CompactObservabilitySink,
 )
-from agent_memory.d_creation_policy import (
+from agent_memory.pag.d_creation_policy import (
     DCreationPolicy,
     am_result_digest_goal_text,
     enrich_memory_slice_tiered,
     linked_abc_from_am_explicit_results,
     merge_d_into_node_ids,
 )
-from agent_memory.memory_journal import (
+from agent_memory.storage.memory_journal import (
     MemoryJournalRow,
     MemoryJournalStore,
     journal_durability_for_internal_event,
 )
-from agent_memory.pag_runtime import PagRuntimeConfig
-from agent_memory.sqlite_pag import SqlitePagStore
-from agent_memory.agent_memory_query_pipeline import (
+from agent_memory.storage.pag_runtime import PagRuntimeConfig
+from agent_memory.storage.sqlite_pag import SqlitePagStore
+from agent_memory.query.agent_memory_query_pipeline import (
     AgentMemoryQueryPipeline,
     MemoryQueryCancelledError,
     _memory_pipeline_begin_cancel,
     _memory_pipeline_end_cancel,
 )
-from agent_memory.pag_graph_write_service import PagGraphWriteService
-from agent_memory.memory_growth import (
+from agent_memory.pag.pag_graph_write_service import PagGraphWriteService
+from agent_memory.services.memory_growth import (
     PATH_SEL_ENTRYPOINT,
     PATH_SEL_GOAL_TERMS,
     QueryDrivenGrowthResult,
     QueryDrivenPagGrowth,
 )
-from agent_memory.memory_change_update_service import (
+from agent_memory.services.memory_change_update_service import (
     ChangeFeedbackIdempotencyStore,
     MemoryChangeUpdateService,
 )
-from agent_memory.agent_work_change_feedback import (
+from agent_memory.services.agent_work_change_feedback import (
     AgentWorkChangeFeedback,
 )
-from agent_memory.agent_memory_result_v1 import (
+from agent_memory.contracts.agent_memory_result_v1 import (
     build_agent_memory_result_v1,
     resolve_memory_continuation_required,
 )
-from agent_memory.agent_memory_w14_observability import (
+from agent_memory.observability.agent_memory_w14_observability import (
     AGENT_MEMORY_EXTERNAL_EVENT_V1,
     count_am_v1_result_kinds,
 )
@@ -94,19 +94,19 @@ from ailit_runtime.models import (
     make_response_envelope,
     parse_agent_work_memory_query_v1,
 )
-from agent_memory.w14_clean_replacement import (
+from agent_memory.services.w14_clean_replacement import (
     W14_CLEAN_REPLACEMENT_REQUESTED_READS_IN_CLIENT_PAYLOAD_REJECTED,
 )
-from agent_memory.memory_c_remap import (
+from agent_memory.services.memory_c_remap import (
     CRemapBatchResult,
     SemanticCRemapService,
 )
-from agent_memory.pag_graph_trace import (
+from agent_memory.pag.pag_graph_trace import (
     MEMORY_W14_GRAPH_HIGHLIGHT_SCHEMA,
     emit_pag_graph_trace_row,
     emit_memory_w14_graph_highlight_row,
 )
-from agent_memory.pag_indexer import PagIndexer, index_project_to_default_store
+from agent_memory.pag.pag_indexer import PagIndexer, index_project_to_default_store
 
 MEMORY_CANCEL_QUERY_SERVICE: str = "memory.cancel_query_context"
 _memory_cancel_registry: dict[str, threading.Event] = {}
@@ -1274,7 +1274,7 @@ class AgentMemoryWorker:
         if not project_root.strip():
             return None
         try:
-            from agent_memory.pag_runtime import (  # noqa: WPS433
+            from agent_memory.storage.pag_runtime import (  # noqa: WPS433
                 PagRuntimeAgentMemory,
                 PagRuntimeConfig,
             )

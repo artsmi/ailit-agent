@@ -642,7 +642,7 @@ Unix socket в `AILIT_RUNTIME_DIR`.
 - `.venv/bin/python -m pytest tests/e2e/test_runtime_cli.py` — CLI readiness and isolated env.
 
 ## Isolation
-- `tests/conftest.py` sets `AILIT_RUNTIME_DIR`, `AILIT_CONFIG_DIR`, `AILIT_STATE_DIR`.
+- `conftest.py` в корне репозитория sets `AILIT_RUNTIME_DIR`, `AILIT_CONFIG_DIR`, `AILIT_STATE_DIR`.
 ```
 
 ### Хорошая memory entry
@@ -737,7 +737,7 @@ Generated/cache/vendor files are documented in `generated-and-ignored.md`.
 | `status` | string | yes | `complete` / `partial` / `blocked` |
 
 ## Producers
-- `ailit/agent_memory/agent_memory_result_v1.py`
+- `ailit/agent_memory/contracts/agent_memory_result_v1.py`
 
 ## Consumers
 - `ailit/ailit_runtime/subprocess_agents/work_agent.py`

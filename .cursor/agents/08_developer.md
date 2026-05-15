@@ -476,7 +476,7 @@ class DiscountService:
 Хорошо:
 
 ```markdown
-Причина: parser сохранял `in_progress` как top-level W14 status. Изменение: canonicalize only `plan_traversal + is_final=false`. Проверка: `.venv/bin/python -m pytest tests/test_g14r2_agent_memory_runtime_contract.py::test_plan_traversal_in_progress_canonicalizes_to_ok`.
+Причина: parser сохранял `in_progress` как top-level W14 status. Изменение: canonicalize only `plan_traversal + is_final=false`. Проверка: `.venv/bin/python -m pytest ailit/agent_memory/tests/test_g14r2_agent_memory_runtime_contract.py::test_plan_traversal_in_progress_canonicalizes_to_ok`.
 ```
 
 Developer report должен иметь цепочку: cause → change → check.

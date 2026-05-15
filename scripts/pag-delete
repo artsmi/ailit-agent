@@ -54,8 +54,8 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from agent_memory.pag_runtime import PagRuntimeConfig
-from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.storage.pag_runtime import PagRuntimeConfig
+from agent_memory.storage.sqlite_pag import SqlitePagStore
 
 cfg = PagRuntimeConfig.from_env()
 db_path: Path = cfg.db_path

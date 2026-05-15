@@ -6,7 +6,7 @@ import json
 from dataclasses import asdict, dataclass
 from typing import Any
 
-from agent_memory.sqlite_pag import PagEdge, PagNode, SqlitePagStore
+from agent_memory.storage.sqlite_pag import PagEdge, PagNode, SqlitePagStore
 
 
 @dataclass(frozen=True, slots=True)

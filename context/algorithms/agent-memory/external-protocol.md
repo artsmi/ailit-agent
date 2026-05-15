@@ -74,7 +74,7 @@
 
 ### CLI: коды выхода `ailit memory init`
 
-- Модуль **`ailit/agent_memory/memory_init_cli_outcome.py`**: терминальный статус сессии **`complete` \| `partial` \| `blocked`**; приоритет класса прерывания: **SIGINT → exit 130**; **инфраструктурный сбой → 2**; **`complete` → 0**; **`partial` / `blocked` без аварии инфраструктуры → 1** (и иные не-complete без interrupt — по политике оркестратора).
+- Модуль **`ailit/agent_memory/cli/memory_init_cli_outcome.py`**: терминальный статус сессии **`complete` \| `partial` \| `blocked`**; приоритет класса прерывания: **SIGINT → exit 130**; **инфраструктурный сбой → 2**; **`complete` → 0**; **`partial` / `blocked` без аварии инфраструктуры → 1** (и иные не-complete без interrupt — по политике оркестратора).
 - **Пустой path** в CLI даёт **exit 2** до оркестратора (ошибка использования).
 - Сводка на stderr строится с **`exit_kind`** из того же трёхзначного набора (`memory_init_summary.py`).
 
@@ -86,7 +86,7 @@
 ### Корреляция и логи
 
 - В журнале строки связываются с запросом брокера через **`request_id`**; внутри payload шагов W14 фигурирует **`query_id`**.
-- Имена compact-событий и golden map stdout→compact — SoT в `ailit/agent_memory/agent_memory_external_events.py`; детали маркеров и OR-013 — в [`failure-retry-observability.md`](failure-retry-observability.md).
+- Имена compact-событий и golden map stdout→compact — SoT в `ailit/agent_memory/contracts/agent_memory_external_events.py`; детали маркеров и OR-013 — в [`failure-retry-observability.md`](failure-retry-observability.md).
 
 ### Внешние события OR-010: каталог vs production journal
 
@@ -97,7 +97,7 @@
 - **Required emitters (production path `memory.query_context` + propose_links):** `link_candidates`, `links_updated` (когда ветка выполняется).
 - **Default для прочих типов из enum:** не ожидать строку `memory.external_event` в journal как доказательство жизни сессии без отдельного call site.
 
-Форма envelope (поля `schema_version`, `event_type`, `query_id`, `timestamp`, `payload`, …) остаётся общей для типов; для result-type событий в политике запрещены сырой промпт и CoT — см. журнал и redaction в `ailit/agent_memory/memory_journal.py`.
+Форма envelope (поля `schema_version`, `event_type`, `query_id`, `timestamp`, `payload`, …) остаётся общей для типов; для result-type событий в политике запрещены сырой промпт и CoT — см. журнал и redaction в `ailit/agent_memory/storage/memory_journal.py`.
 
 ## Целевое поведение
 
@@ -235,7 +235,7 @@
 
 ```bash
 cd /home/artem/reps/ailit-agent
-.venv/bin/python -m pytest tests/test_g14_agent_memory_external_event_mapping.py -q
+.venv/bin/python -m pytest ailit/agent_memory/tests/test_g14_agent_memory_external_event_mapping.py -q
 .venv/bin/python -m pytest tests/runtime/test_memory_init_orchestrator_task_2_2.py -q
 .venv/bin/python -m pytest tests/runtime/test_memory_init_fix_uc01_uc02.py -q
 ```

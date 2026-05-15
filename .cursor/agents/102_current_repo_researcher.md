@@ -227,7 +227,7 @@ Evidence слабое:
 
 **Fact:** `MemoryInitOrchestrator.run` повторяет worker rounds, пока journal не содержит `memory.result.returned` с `status=complete` или `agent_memory_result.memory_continuation_required` перестаёт быть `true`.
 
-**Evidence:** `ailit/agent_memory/memory_init_orchestrator.py` / `MemoryInitOrchestrator.run`.
+**Evidence:** `ailit/agent_memory/init/memory_init_orchestrator.py` / `MemoryInitOrchestrator.run`.
 
 **Target-doc relevance:** Целевой документ должен определить progress rules и запретить бесконечный повтор одного batch без новых candidates.
 
@@ -357,7 +357,7 @@ JSON должен идти первым:
 7. Orchestrator verifies latest journal marker with `status=complete`.
 
 Evidence:
-- `ailit/agent_memory/memory_init_orchestrator.py` / `MemoryInitOrchestrator.run`
+- `ailit/agent_memory/init/memory_init_orchestrator.py` / `MemoryInitOrchestrator.run`
 - `ailit/ailit_runtime/subprocess_agents/memory_agent.py` / `handle`
 ```
 
@@ -443,8 +443,8 @@ Output focus:
 ```markdown
 | Evidence ID | Path | Symbol / Area | Used By |
 |-------------|------|---------------|---------|
-| E1 | `tools/.../memory_init_orchestrator.py` | `MemoryInitOrchestrator.run` | F1, F3 |
-| E2 | `tools/.../agent_memory_result_v1.py` | `resolve_memory_continuation_required` | F4 |
+| E1 | `ailit/agent_memory/init/memory_init_orchestrator.py` | `MemoryInitOrchestrator.run` | F1, F3 |
+| E2 | `ailit/agent_memory/contracts/agent_memory_result_v1.py` | `resolve_memory_continuation_required` | F4 |
 | E3 | `tests/runtime/test_memory_init_t4_uc05_real_handle.py` | no-stub orchestrator test | T1 |
 ```
 

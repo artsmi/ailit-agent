@@ -11,7 +11,7 @@ from agent_memory.legacy.semantic_c_extraction import (
     C_NODE_FULL_B_MAX_CHARS,
     clamp_b_text_for_policy,
 )
-from agent_memory.memory_llm_optimization_policy import (
+from agent_memory.services.memory_llm_optimization_policy import (
     MemoryLlmOptimizationPolicy,
 )
 

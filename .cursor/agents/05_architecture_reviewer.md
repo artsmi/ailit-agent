@@ -458,7 +458,7 @@ BLOCKING: Architecture moves `memory.result.returned` writing into CLI, but targ
 
 Impact: CLI can fake completion without PAG/Journals being consistent.
 Required fix: Keep result assembly in AgentMemory or return to target-doc/architecture decision with user approval.
-Evidence: `context/algorithms/agent-memory.md` / Target Flow, `memory_init_orchestrator.py`.
+Evidence: `context/algorithms/agent-memory.md` / Target Flow, `ailit/agent_memory/init/memory_init_orchestrator.py`.
 ```
 
 ### Хороший MAJOR

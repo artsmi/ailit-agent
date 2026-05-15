@@ -13,7 +13,7 @@
 
 ## Текущая реализация
 
-- Планер: для первого раунда используется константа **`W14_PLAN_TRAVERSAL_SYSTEM`** в `agent_memory_query_pipeline.py` (роль «только JSON, `plan_traversal`, whitelist действий»); это соответствует строке таблицы ниже для фазы `planner_round`, а не отдельному файлу `agent_memory.system` с именем фазы `intake`.
+- Планер: для первого раунда используется константа **`W14_PLAN_TRAVERSAL_SYSTEM`** в `ailit/agent_memory/query/agent_memory_query_pipeline.py` (роль «только JSON, `plan_traversal`, whitelist действий»); это соответствует строке таблицы ниже для фазы `planner_round`, а не отдельному файлу `agent_memory.system` с именем фазы `intake`.
 - Сводки C/B: отдельные вызовы LLM через `AgentMemorySummaryService` со строгой схемой `agent_memory_command_output.v1` и внутренними фазами repair (`summarize_c_repair` / `summarize_b_repair` в журнале).
 - Repair планера: `_w14_repair_system_message` / `_w14_repair_user_instruction`, в т.ч. спец-ветка UC-03 для legacy top-level `in_progress` → канонизация в `ok` при валидном payload.
 - Режим отладки с подробным логом чата (`AgentMemoryChatDebugLog`) может содержать полные сообщения LLM — это **не** компактный канал для внешних потребителей.

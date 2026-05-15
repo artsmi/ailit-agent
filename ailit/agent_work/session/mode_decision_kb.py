@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from collections.abc import Mapping
 from typing import Any
 
-from agent_memory.sqlite_kb import SqliteKb
+from agent_memory.storage.sqlite_kb import SqliteKb
 
 
 MODE_DECISION_KIND = "mode_decision"

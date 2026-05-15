@@ -42,7 +42,7 @@
 | [`glossary.md`](glossary.md) | Роли, гейты, разводка **`plan/`** и плана **06**, исследование для канона только **`start-research`**, сокращения контура target-doc. | **Готов** (unit `u_pack_index`) |
 | [`pipeline-topology.md`](pipeline-topology.md) | Маршруты **feature** / **fix** / **learn**, волны **08→09→11**, хвост **11→12→13**; **без** роли **10**; контракт **launcher** (**01** / **100**); сводная таблица терминальных состояний сессии. | **Готов** (unit `u_pipeline_core`) |
 | [`roles-and-artifacts.md`](roles-and-artifacts.md) | Матрица **02–09** и **11–13**: JSON-first handoff, markdown-артефакты, потребители, запрет **Subagents** для этих ролей, граница **12→13** и **`context/**`**. | **Готов** (unit `u_pipeline_core`) |
-| [`observability-and-tests.md`](observability-and-tests.md) | Статус сессии (**01**), JSON **`stage_status`**, отчёт **11 → 01**, изоляция **`pytest`** (**`AILIT_*`**, **`tests/conftest.py`**), зазор **G1** (CI). | **Готов** (unit `u_tail_learn`) |
+| [`observability-and-tests.md`](observability-and-tests.md) | Статус сессии (**01**), JSON **`stage_status`**, отчёт **11 → 01**, изоляция **`pytest`** (**`AILIT_*`**, корневой **`conftest.py`**), зазор **G1** (CI). | **Готов** (unit `u_tail_learn`) |
 | [`donor-comparison.md`](donor-comparison.md) | Матрица измерений «донор vs ailit» и решения migrate / do-not-migrate. | **Готов** (`u_compare_ux`) |
 | [`killer-features.md`](killer-features.md) | Проверяемые отличия **OR-004** и связанные анти-паттерны. | **Готов** (`u_compare_ux`) |
 | [`user-story-handoff.md`](user-story-handoff.md) | **OR-006**: минимальная схема полей, дерево решений, примеры. | **Готов** (`u_compare_ux`) |

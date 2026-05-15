@@ -508,7 +508,7 @@ class SessionRunner:
         Returns:
             (namespace, target_file_paths, fallback_reason)
         """
-        from agent_memory.pag_runtime import (  # noqa: WPS433
+        from agent_memory.storage.pag_runtime import (  # noqa: WPS433
             PagRuntimeAgentMemory,
             PagRuntimeConfig,
             safe_event_payload_for_slice,
@@ -602,7 +602,7 @@ class SessionRunner:
         diag_sink: Callable[[dict[str, Any]], None] | None,
         event_sink: SessionEventSink | None,
     ) -> None:
-        from agent_memory.pag_runtime import (  # noqa: WPS433
+        from agent_memory.storage.pag_runtime import (  # noqa: WPS433
             PagRuntimeAgentMemory,
             PagRuntimeConfig,
             changed_ranges_from_write,

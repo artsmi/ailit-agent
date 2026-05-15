@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from agent_memory.kb_tools import kb_tools_config_from_env
-from agent_memory.sqlite_kb import SqliteKb
+from agent_memory.kb.kb_tools import kb_tools_config_from_env
+from agent_memory.storage.sqlite_kb import SqliteKb
 from ailit_base.providers.protocol import ChatProvider
 from agent_work.session.repo_context import (
     detect_repo_context,

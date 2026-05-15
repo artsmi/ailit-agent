@@ -41,7 +41,7 @@ from agent_work.session.repo_context import (
     detect_repo_context,
     namespace_for_repo,
 )
-from agent_memory.agent_memory_ailit_config import (
+from agent_memory.config.agent_memory_ailit_config import (
     agent_memory_rpc_timeout_s,
     load_merged_ailit_config_for_memory,
     max_memory_queries_per_user_turn,
@@ -50,7 +50,7 @@ from ailit_runtime.broker_workspace_config import (
     BrokerWorkspaceFile,
     read_broker_workspace_file,
 )
-from agent_memory.agent_memory_result_v1 import FIX_MEMORY_LLM_JSON_STEP
+from agent_memory.contracts.agent_memory_result_v1 import FIX_MEMORY_LLM_JSON_STEP
 from ailit_runtime.models import (
     AGENT_WORK_MEMORY_QUERY_V1,
     CONTRACT_VERSION,
@@ -338,7 +338,7 @@ class _RegistryAssembler:
         if isinstance(mem, dict) and bool(mem.get("enabled", False)):
             ns = str(mem.get("namespace") or "").strip() or "default"
             os.environ["AILIT_KB_NAMESPACE"] = ns
-            from agent_memory.kb_tools import (  # local import
+            from agent_memory.kb.kb_tools import (  # local import
                 build_kb_tool_registry,
                 kb_tools_config_from_env,
             )

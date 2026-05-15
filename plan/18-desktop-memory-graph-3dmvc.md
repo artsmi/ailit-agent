@@ -99,7 +99,7 @@ Produced by: 106_implementation_plan_author
 | **OR-001 … OR-012** | Как в draft §Связь с исходной постановкой / Acceptance criteria. | Таблица OR в draft + команды ниже. |
 | **D-ORPHAN-B** | **Единственный default:** фильтр узлов степени 0 на **проекции** перед View; highlight — side-channel, не phantom node-list. | Сцена без изолированных узлов в node-data для `ForceGraph3D` при отсутствии waiver; тесты/снимки по слайсу G1. |
 | **D-KEY-1** | Ключ монтирования графа не сериализует monotonic `graphRev`. | `TC-3D-UC04-03` зелёный. |
-| **D-CAP-1** | Лимиты 100 000 / 200 000 из кода, не 20k/40k. | `tests/test_pag_slice_caps_alignment.py` зелёный. |
+| **D-CAP-1** | Лимиты 100 000 / 200 000 из кода, не 20k/40k. | `ailit/agent_memory/tests/test_pag_slice_caps_alignment.py` зелёный. |
 | **D-HI-OWN-1** | 3D highlight SoT — snapshot/controller; цель — единый контроллер для 2D/3D (**S3**). | Код после G3: отсутствие ad-hoc parse `rawTraceRows` в 2D для решения highlight (или явный tech debt с задачей). |
 | **D-PERF-1** | Три класса: trace replay, `fg.refresh`, main IPC — observability + bounded policy по слайсу G4. | Compact events из draft §Observability; отсутствие неограниченного шторма. |
 
@@ -137,7 +137,7 @@ Produced by: 106_implementation_plan_author
 | **Цель** | Гарантировать совпадение канона и кода OR-010/OR-011; убрать устаревшие комментарии в TS, если противоречат `computeMemoryGraphDataKey`. |
 | **Implementation anchors** | `desktop/src/renderer/runtime/pagGraphLimits.ts` (или актуальный путь лимитов); `desktop/src/renderer/runtime/memoryGraphDataKey.ts`; `tools/agent_core/.../pag_slice_caps.py` — **только чтение/синхронизация констант**, без смены семантики slice без gate. |
 | **Трассировка draft** | draft §Current reality (F6, F12), §Commands. |
-| **Приёмка** | `tests/test_pag_slice_caps_alignment.py` — exit 0; vitest `TC-3D-UC04-03` — exit 0 (команда ниже). |
+| **Приёмка** | `ailit/agent_memory/tests/test_pag_slice_caps_alignment.py` — exit 0; vitest `TC-3D-UC04-03` — exit 0 (команда ниже). |
 
 ### G3 (S3) — Единый highlight controller (D-HI-OWN-1)
 
@@ -169,7 +169,7 @@ Produced by: 106_implementation_plan_author
 
 | Проверка | Команда | Ожидаемый результат |
 |----------|---------|---------------------|
-| **OR-010 alignment** | `.venv/bin/python -m pytest tests/test_pag_slice_caps_alignment.py` | Exit code **0**. |
+| **OR-010 alignment** | `.venv/bin/python -m pytest ailit/agent_memory/tests/test_pag_slice_caps_alignment.py` | Exit code **0**. |
 | **OR-011 / UC-04 key stability** | `npm --prefix desktop test -- src/renderer/views/MemoryGraph3DPage.test.tsx -t "TC-3D-UC04-03"` | Exit code **0**; в выводе vitest тест **`TC-3D-UC04-03`** **passed** (`desktop/package.json`: `"test": "vitest run"`). |
 | **flake8** | По затронутым `.py` **только если** этап меняет Python (по умолчанию G1–G4 — нет). | 0 ошибок. |
 | **Регресс renderer store** | `npm --prefix desktop test -- src/renderer/runtime/pagGraphSessionStore.test.ts` (и соседние `*.test.ts` по диффу этапа) | Зелёный, если файлы затронуты. |

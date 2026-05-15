@@ -320,7 +320,7 @@ G19.1 (диагностика) ─────────┬──► G19.5
 | Ключ / настройка | SoT | Примечание |
 |------------------|-----|------------|
 | `memory.debug.chat_logs_enabled` | `~/.ailit/agent-memory/config.yaml` (чтение в main `readAgentMemoryChatLogsEnabled`) | Renderer — зеркало при старте через `ailit:agentMemoryChatLogsRoot`; live-refresh не контракт |
-| Env overrides тестов | `tests/conftest.py` autouse | Не использовать реальный `~/.ailit` в pytest |
+| Env overrides тестов | корневой `conftest.py` autouse | Не использовать реальный `~/.ailit` в pytest |
 
 ---
 

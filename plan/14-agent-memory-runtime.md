@@ -806,7 +806,7 @@ list_frontier
 | `memory.runtime.strict_command_json` | `true` | Parser отклоняет не-JSON или неизвестные поля с journal event. |
 | `memory.runtime.allow_parallel_action_batches` | `false` | По умолчанию действия внутри одного AM query исполняются строго последовательно; включение требует тестов из C14R.9. |
 
-Тестовая изоляция должна использовать существующую изоляцию `tests/conftest.py` (`AILIT_*`, временный HOME, временные PAG/KB/journal). Subprocess tests обязаны явно передавать тот же env.
+Тестовая изоляция должна использовать существующую изоляцию корневого `conftest.py` (`AILIT_*`, временный HOME, временные PAG/KB/journal). Subprocess tests обязаны явно передавать тот же env.
 
 ### C14R.11 Контракт observability и обновления AgentMemory logs
 
@@ -1051,7 +1051,7 @@ AM никогда не возвращает сырой B content.
 - `tools/agent_core/runtime/memory_c_extractor_prompt.py`
 - `tools/agent_core/runtime/agent_memory_summary_service.py`
 - `tools/agent_core/runtime/agent_memory_query_pipeline.py`
-- `tests/test_g14_agent_memory_runtime_contract.py` или новый `tests/test_g14_agent_memory_legacy_quarantine.py`
+- `tests/test_g14_agent_memory_runtime_contract.py` или новый `ailit/agent_memory/tests/test_g14_agent_memory_legacy_quarantine.py`
 
 Критерии приемки:
 
@@ -1118,7 +1118,7 @@ AM никогда не возвращает сырой B content.
 - `tools/agent_core/runtime/memory_journal.py`
 - `tools/agent_core/runtime/agent_memory_chat_log.py`
 - `tools/agent_core/runtime/subprocess_agents/memory_agent.py`
-- `tests/test_g13_agent_memory_llm_pipeline.py` или новый `tests/test_g14_agent_memory_runtime_logs.py`
+- `ailit/agent_memory/tests/test_g13_agent_memory_llm_pipeline.py` или новый `ailit/agent_memory/tests/test_g14_agent_memory_runtime_logs.py`
 
 Критерии приемки:
 

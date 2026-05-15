@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 import ailit_runtime.broker as broker_mod
-from agent_memory.agent_memory_result_v1 import AGENT_MEMORY_RESULT_V1
+from agent_memory.contracts.agent_memory_result_v1 import AGENT_MEMORY_RESULT_V1
 from ailit_runtime.broker import BrokerConfig, run_broker_server
 from ailit_runtime.broker_workspace_config import BrokerWorkspaceEntry
 from ailit_runtime.models import CONTRACT_VERSION

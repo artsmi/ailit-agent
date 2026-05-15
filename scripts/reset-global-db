@@ -9,7 +9,7 @@ export PYTHONPATH="${REPO_ROOT}/ailit${PYTHONPATH:+:${PYTHONPATH}}"
 
 cd "${REPO_ROOT}"
 DB_PATH="$(
-  python3 -c "from agent_memory.kb_tools import kb_tools_config_from_env; print(kb_tools_config_from_env().db_path)"
+  python3 -c "from agent_memory.kb.kb_tools import kb_tools_config_from_env; print(kb_tools_config_from_env().db_path)"
 )"
 removed=0
 for f in "${DB_PATH}" "${DB_PATH}-wal" "${DB_PATH}-shm"; do

@@ -286,8 +286,8 @@ def _make_handler(
                     eoff = 0
                 try:
                     from ailit_cli.memory_cli import _pag_slice_payload
-                    from agent_memory.pag_indexer import PagIndexer
-                    from agent_memory.pag_slice_caps import (
+                    from agent_memory.pag.pag_indexer import PagIndexer
+                    from agent_memory.pag.pag_slice_caps import (
                         PAG_SLICE_MAX_EDGES,
                         PAG_SLICE_MAX_NODES,
                     )

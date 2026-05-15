@@ -9,17 +9,17 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Final
 
-from agent_memory.agent_memory_contracts import (
+from agent_memory.contracts.agent_memory_contracts import (
     EXTRACTION_CONTRACT_VERSION,
     MemoryLineHintV1,
     MemorySemanticLocatorV1,
 )
-from agent_memory.memory_c_size_limits import (
+from agent_memory.services.memory_c_size_limits import (
     C_NODE_EXCERPT_MAX_CHARS,
     C_NODE_FULL_B_MAX_CHARS,
     C_NODE_REMAP_MAX_EXCERPT_CHARS,
 )
-from agent_memory.memory_llm_optimization_policy import (
+from agent_memory.services.memory_llm_optimization_policy import (
     MemoryLlmOptimizationPolicy,
 )
 

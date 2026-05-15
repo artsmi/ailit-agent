@@ -107,7 +107,7 @@
 | `planner.max_inventory_files` | то же | `2000` | **Жёсткий** кап `repo_inventory` (согласован с `max_walk_files` в `MemoryExplorationPlanner.__init__`). |
 | `planner.strict_json_schema` | policy LLM | из существующей политики | При `true` — провайдеру передаётся `response_format` под C14.1, если backend поддерживает. |
 
-**Тестовая изоляция:** override через env/`AILIT_CONFIG_DIR` в `tests/conftest` — как в правилах workflow.
+**Тестовая изоляция:** override через env/`AILIT_CONFIG_DIR` в корневом `conftest.py` — как в правилах workflow.
 
 ### 3.5 C14.5: Ownership
 
@@ -188,7 +188,7 @@
 ### G14.4 — Регресс G13: `memory.query_context` + slice
 
 - **Обязательные выводы:** A14.3 (partial semantics документированы = advisory).  
-- **Реализация anchors:** существующие `tests/test_g13_agent_memory_llm_pipeline.py`, `tests/test_g13_agent_memory_contract_integration.py` — **зелёны**; добавить **ровно** интеграционный сценарий `test_query_context_happy_path_with_v1_planner` (mock provider с телом v1).  
+- **Реализация anchors:** существующие `ailit/agent_memory/tests/test_g13_agent_memory_llm_pipeline.py`, `tests/test_g13_agent_memory_contract_integration.py` — **зелёны**; добавить **ровно** интеграционный сценарий `test_query_context_happy_path_with_v1_planner` (mock provider с телом v1).  
 - **Exact test:** `test_query_context_happy_path_with_v1_planner` (обязательное имя; новый тест **или** расширение существующего с `mock` provider — выбрать в PR G14.4, не оставлять дубли).  
 
 ### G14.5 — Канон `context/*` (кратко)

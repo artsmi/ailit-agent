@@ -50,9 +50,9 @@ alwaysApply: true
 
 ## Тесты: изоляция от глобального ailit на машине
 
-Цель: юнит- и интеграционные тесты в `tests/` **не должны** по умолчанию писать в `~/.ailit`, `~/.config` пользователя, в `XDG_RUNTIME_DIR/…` (кроме явно спроектированных e2e), не должны «подхватывать» установленный PAG/KB/журналы/рантайм.
+Цель: юнит- и интеграционные тесты в `tests/` и `ailit/agent_memory/tests/` **не должны** по умолчанию писать в `~/.ailit`, `~/.config` пользователя, в `XDG_RUNTIME_DIR/…` (кроме явно спроектированных e2e), не должны «подхватывать» установленный PAG/KB/журналы/рантайм.
 
-- **База:** в [`tests/conftest.py`](../../tests/conftest.py) действует autouse-фикстура **`isolate_ailit_test_artifacts`**: для каждого теста под `tmp_path` создаётся отдельное дерево и через `monkeypatch.setenv` выставляются:
+- **База:** в корневом [`conftest.py`](../../../conftest.py) действует autouse-фикстура **`isolate_ailit_test_artifacts`**: для каждого теста под `tmp_path` создаётся отдельное дерево и через `monkeypatch.setenv` выставляются:
   - `HOME` — чтобы `Path.home()/.ailit` и пути вида `~/.ailit/…` в коде указывали **в tmp**, а не в домашний каталог пользователя;
   - `AILIT_RUNTIME_DIR` — сокеты и state рантайма;
   - `AILIT_PAG_DB_PATH` — sqlite PAG (вместо `~/.ailit/pag/store.sqlite3` по умолчанию);

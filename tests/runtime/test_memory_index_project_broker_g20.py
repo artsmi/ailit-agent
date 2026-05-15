@@ -6,7 +6,7 @@ import multiprocessing
 import time
 from pathlib import Path
 
-from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.storage.sqlite_pag import SqlitePagStore
 from ailit_runtime.broker import BrokerConfig, run_broker_server
 from ailit_runtime.broker_json_client import BrokerJsonRpcClient
 from ailit_runtime.broker_workspace_config import BrokerWorkspaceEntry

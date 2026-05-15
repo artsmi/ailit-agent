@@ -41,6 +41,6 @@
 ## Связь с репозиторием
 
 - Исходники пакетов: каталог `ailit/` в корне репозитория (`ailit_base`, `agent_work`, `agent_memory`, `ailit_runtime`, `ailit_cli`, …).
-- Тесты подставляют свой `HOME` и `AILIT_*`, чтобы не трогать пользовательский `~/.ailit` (`tests/conftest.py`).
+- Тесты подставляют свой `HOME` и `AILIT_*`, чтобы не трогать пользовательский `~/.ailit` (корневой `conftest.py`).
 
 Produced by: assistant (рефакторинг структуры пакетов).

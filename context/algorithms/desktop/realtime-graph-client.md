@@ -89,7 +89,7 @@
 
 | Проверка | Команда | Expected |
 |----------|---------|----------|
-| Caps Python / OR-010 | `.venv/bin/python -m pytest tests/test_pag_slice_caps_alignment.py` | exit 0 |
+| Caps Python / OR-010 | `.venv/bin/python -m pytest ailit/agent_memory/tests/test_pag_slice_caps_alignment.py` | exit 0 |
 | Ключ 3D / OR-011 | `npm --prefix desktop test -- src/renderer/views/MemoryGraph3DPage.test.tsx -t "TC-3D-UC04-03"` | exit 0; тест **passed** |
 | Smoke | Сборка/запуск Electron `desktop`, открыть 3D memory graph | граф виден; нет полного remount на каждый rev; ошибка slice — blocked UI |
 

@@ -1,35 +1,35 @@
 # Тесты — индекс
 
-Общий контур: изоляция `HOME` / `AILIT_*` в `tests/conftest.py`, маркеры и `addopts` в `pyproject.toml`, запуск из venv репозитория — см. [`../start/repository-launch.md`](../start/repository-launch.md).
+Общий контур: изоляция `HOME` / `AILIT_*` в корневом `conftest.py`, маркеры и `addopts` в `pyproject.toml`, запуск из venv репозитория — см. [`../start/repository-launch.md`](../start/repository-launch.md).
 
-## Python (`tests/`)
+## Python (`tests/` и `ailit/agent_memory/tests/`)
 
-Изоляция артефактов, pytest, e2e — в проектных правилах workflow и в `tests/conftest.py`. Не путать с vitest desktop.
+Изоляция артефактов, pytest, e2e — в проектных правилах workflow и в корневом `conftest.py`. Не путать с vitest desktop.
 
 ### Agent Memory CLI — `memory init` (orchestrator / transaction / compact)
 
 | Путь / смысл | Содержание |
 |----------------|------------|
-| `tests/test_memory_init_cli_layout.py` | CLI: layout каталога сессии, VERIFY журнала. |
+| `ailit/agent_memory/tests/test_memory_init_cli_layout.py` | CLI: layout каталога сессии, VERIFY журнала. |
 | `tests/test_memory_cli_init_task_3_1.py` | CLI: help, путь, базовый сценарий `memory init`. |
-| `tests/runtime/test_memory_init_transaction_task_2_1.py` | Транзакция PAG/KB, lock, фазы `NEW`…`ABORTED`. |
+| `ailit/agent_memory/tests/test_memory_init_transaction_task_2_1.py` | Транзакция PAG/KB, lock, фазы `NEW`…`ABORTED`. |
 | `tests/runtime/test_memory_init_orchestrator_task_2_2.py` | Оркестратор init, shadow journal → merge в канонический journal; stub `agent_memory_result` с `memory_continuation_required`. |
 | `tests/runtime/test_memory_init_fix_uc01_uc02.py` | UC-01/UC-02: payload init, VERIFY/summary; gate **11** `memory_init_fix` — [`../artifacts/reports/test_report_final_11_memory_init_fix.md`](../artifacts/reports/test_report_final_11_memory_init_fix.md). |
-| `tests/runtime/test_compact_observability_sink.py` | Формат строк `compact.log`, tee stderr. |
-| `tests/test_agent_memory_session_log_layout_task_1_1.py` | Режимы лога сессии: `desktop` vs `cli_init` (`ailit-cli-*`, `legacy.log` / `compact.log`). |
+| `ailit/agent_memory/tests/test_compact_observability_sink.py` | Формат строк `compact.log`, tee stderr. |
+| `ailit/agent_memory/tests/test_agent_memory_session_log_layout_task_1_1.py` | Режимы лога сессии: `desktop` vs `cli_init` (`ailit-cli-*`, `legacy.log` / `compact.log`). |
 
 **Команда (как в финальном `11` v2, pytest batch2):**
 
 ```bash
 ./.venv/bin/python -m pytest \
-  tests/test_memory_init_cli_layout.py \
+  ailit/agent_memory/tests/test_memory_init_cli_layout.py \
   tests/test_memory_cli_init_task_3_1.py \
-  tests/runtime/test_memory_init_transaction_task_2_1.py \
+  ailit/agent_memory/tests/test_memory_init_transaction_task_2_1.py \
   tests/runtime/test_memory_init_orchestrator_task_2_2.py \
   -q
 ```
 
-Subset gate **11** `memory_init_fix` (pytest + flake8, см. отчёт): включает в т.ч. `tests/runtime/test_memory_init_fix_uc01_uc02.py`, `tests/test_g14r0_w14_clean_replacement.py`, `tests/test_g14r8_d_summary_after_am_result.py` — в последних у `_fake_run` добавлен keyword-only `memory_init` под сигнатуру `AgentMemoryQueryPipeline.run`.
+Subset gate **11** `memory_init_fix` (pytest + flake8, см. отчёт): включает в т.ч. `tests/runtime/test_memory_init_fix_uc01_uc02.py`, `ailit/agent_memory/tests/test_g14r0_w14_clean_replacement.py`, `tests/test_g14r8_d_summary_after_am_result.py` — в последних у `_fake_run` добавлен keyword-only `memory_init` под сигнатуру `AgentMemoryQueryPipeline.run`.
 
 Расширенный список путей для flake8 SoT и полный прогон **11** v2 — [`../artifacts/reports/test_runner_final_11.md`](../artifacts/reports/test_runner_final_11.md).
 
@@ -47,24 +47,24 @@ Subset gate **11** `memory_init_fix` (pytest + flake8, см. отчёт): вкл
 
 | Путь / смысл | Содержание |
 |----------------|------------|
-| `tests/test_g14_agent_memory_external_event_mapping.py` | Golden map stdout→compact и форма `build_external_event_v1` (`agent_memory.external_event.v1`). |
+| `ailit/agent_memory/tests/test_g14_agent_memory_external_event_mapping.py` | Golden map stdout→compact и форма `build_external_event_v1` (`agent_memory.external_event.v1`). |
 
 ### Broker UC 2.4 (pathless `memory.query_context`, инжект) — G4 task 2.1
 
 | Путь / смысл | Содержание |
 |----------------|------------|
 | `tests/runtime/test_broker_work_memory_routing.py` | Регрессия trace-тройки и `seen_memory_pair` после `work.handle_user_prompt`. |
-| Связанные проверки W14 / PAG (фиксация причин и контрактов) | `tests/test_g14r11_w14_integration.py::test_w14_schema_repair_failure_returns_empty_results`; `tests/runtime/test_memory_agent_global.py::test_agent_memory_query_updates_pag_without_full_repo`; `tests/test_g13_pag_graph_write_service.py::test_rg_upsert_call_sites_match_plan_whitelist`; `tests/test_g14r11_w14_integration.py::test_w14_all_files_processes_multiple_b_not_only_readme`; `tests/test_g14r11_w14_integration.py::test_w14_normal_path_does_not_call_query_driven_pag_growth` (перечень из `change_inventory` / отчёт **11**). |
+| Связанные проверки W14 / PAG (фиксация причин и контрактов) | `tests/test_g14r11_w14_integration.py::test_w14_schema_repair_failure_returns_empty_results`; `tests/runtime/test_memory_agent_global.py::test_agent_memory_query_updates_pag_without_full_repo`; `ailit/agent_memory/tests/test_g13_pag_graph_write_service.py::test_rg_upsert_call_sites_match_plan_whitelist`; `tests/test_g14r11_w14_integration.py::test_w14_all_files_processes_multiple_b_not_only_readme`; `tests/test_g14r11_w14_integration.py::test_w14_normal_path_does_not_call_query_driven_pag_growth` (перечень из `change_inventory` / отчёт **11**). |
 
 ### W14 graph highlight (M1) — feature 1.2
 
 | Путь / команда | Содержание |
 |----------------|------------|
-| `tests/runtime/test_w14_graph_highlight_path.py` | M1: upwalk, BFS tie-break, union без дублирования нод. |
-| `tests/runtime/test_pag_graph_trace_w14_highlight.py` | Trace/shape W14 row, путь не «один лист» только, пустой `end` не даёт пустой payload в эмите; **`test_python_forbids_pag_graph_rev_reconciled_literal`** — в `memory_agent.py` и `pag_graph_trace.py` нет строки `pag_graph_rev_reconciled` (**D-PROD-1**, dual-write с renderer запрещён). |
-| `pytest tests/runtime/test_w14_graph_highlight_path.py tests/runtime/test_pag_graph_trace_w14_highlight.py -q` | Gate W14 для итерации Memory 3D: **7** тестов (M1 + trace + запрет literal в Python); исторический отчёт 1.2 — `context/artifacts/reports/test_report_pipeline_task_1_2.md` (6 passed). |
+| `ailit/agent_memory/tests/test_w14_graph_highlight_path.py` | M1: upwalk, BFS tie-break, union без дублирования нод. |
+| `tests/runtime/test_pag_graph_trace_w14_highlight.py` | Trace/shape W14 row, путь не «один лист» только, пустой `end` не даёт пустой payload в эмите; **`test_python_forbids_pag_graph_rev_reconciled_literal`** — в `memory_agent.py` и `ailit/agent_memory/pag/pag_graph_trace.py` нет строки `pag_graph_rev_reconciled` (**D-PROD-1**, dual-write с renderer запрещён). |
+| `pytest ailit/agent_memory/tests/test_w14_graph_highlight_path.py tests/runtime/test_pag_graph_trace_w14_highlight.py -q` | Gate W14 для итерации Memory 3D: **7** тестов (M1 + trace + запрет literal в Python); исторический отчёт 1.2 — `context/artifacts/reports/test_report_pipeline_task_1_2.md` (6 passed). |
 
-**Flake8:** `w14_graph_highlight_path.py`, `agent_memory_query_pipeline.py`, оба тест-файла (см. тот же отчёт).
+**Flake8:** `ailit/agent_memory/pag/w14_graph_highlight_path.py`, `ailit/agent_memory/query/agent_memory_query_pipeline.py`, оба тест-файла (см. тот же отчёт).
 
 ## Desktop (Vitest)
 
@@ -109,7 +109,7 @@ cd desktop && npx vitest run \
   src/renderer/views/MemoryGraph3DPage.test.tsx
 ```
 
-**Связь с Python:** `tests/test_pag_slice_caps_alignment.py` — выравнивание чисел с `ailit/agent_memory/pag_slice_caps.py` и `desktop/.../pagGraphLimits.ts`. W14 / broker UC 2.4 — строки выше в разделе pytest.
+**Связь с Python:** `ailit/agent_memory/tests/test_pag_slice_caps_alignment.py` — выравнивание чисел с `ailit/agent_memory/pag/pag_slice_caps.py` и `desktop/.../pagGraphLimits.ts`. W14 / broker UC 2.4 — строки выше в разделе pytest.
 
 ### План 19 / OR-D6 (Vitest, вне обязательного gate §5.0)
 

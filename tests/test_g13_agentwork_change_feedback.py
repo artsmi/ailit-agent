@@ -8,13 +8,13 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.storage.sqlite_pag import SqlitePagStore
 from ailit_base.providers.mock_provider import MockProvider
 from ailit_runtime.models import (
     CONTRACT_VERSION,
     RuntimeRequestEnvelope,
 )
-from agent_memory.pag_graph_write_service import PagGraphWriteService
+from agent_memory.pag.pag_graph_write_service import PagGraphWriteService
 from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,

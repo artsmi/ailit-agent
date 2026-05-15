@@ -378,7 +378,7 @@ DesktopSessionContext
 | `G13.4` | `tools/agent_core/runtime/memory_c_segmentation.py`, `tools/agent_core/runtime/memory_c_remap.py`, `tools/agent_core/memory/sqlite_pag.py::PagNode`, `tools/agent_core/runtime/agent_memory_config.py` |
 | `G13.5` | `tools/agent_core/runtime/link_claim_resolver.py`, `tools/agent_core/runtime/memory_c_remap.py`, `tools/agent_core/memory/sqlite_pag.py::upsert_edge`, `tools/agent_core/runtime/pag_graph_trace.py` |
 | `G13.6` | `desktop/src/renderer/runtime/DesktopSessionContext.tsx`, `desktop/src/renderer/runtime/pagGraphTraceDeltas.ts`, `desktop/src/renderer/runtime/loadPagGraphMerged.ts`, `desktop/src/renderer/views/MemoryGraphPage.tsx`, `desktop/src/renderer/views/MemoryGraph3DPage.tsx`, `desktop/src/shared/ipc.ts` |
-| `G13.7` | all anchors from `G13.1`–`G13.6`, plus `tests/conftest.py`, `desktop/src/renderer/runtime/*.test.ts`, `tests/test_memory_pag_slice.py` |
+| `G13.7` | all anchors from `G13.1`–`G13.6`, plus корневой `conftest.py`, `desktop/src/renderer/runtime/*.test.ts`, `ailit/agent_memory/tests/test_memory_pag_slice.py` |
 
 #### Anti-patterns: Do not implement this as
 
@@ -517,7 +517,7 @@ DesktopSessionContext
 | Этап | Tests / checks |
 |------|----------------|
 | `G13.1` | `tests/test_g13_pag_graph_write_service.py::test_runtime_write_emits_trace_delta`; `tests/test_g13_pag_graph_write_service.py::test_offline_writer_bumps_rev_without_trace`; `tests/test_g13_pag_graph_write_service.py::test_runtime_direct_upsert_is_guarded` |
-| `G13.2` | `tests/test_g13_agent_memory_llm_pipeline.py::test_query_context_creates_c_node_via_structured_llm`; `tests/test_g13_agent_memory_llm_pipeline.py::test_llm_requests_use_optimization_policy`; `tests/test_g13_agent_memory_llm_pipeline.py::test_disabled_llm_fallback_does_not_create_validated_c` |
+| `G13.2` | `ailit/agent_memory/tests/test_g13_agent_memory_llm_pipeline.py::test_query_context_creates_c_node_via_structured_llm`; `ailit/agent_memory/tests/test_g13_agent_memory_llm_pipeline.py::test_llm_requests_use_optimization_policy`; `ailit/agent_memory/tests/test_g13_agent_memory_llm_pipeline.py::test_disabled_llm_fallback_does_not_create_validated_c` |
 | `G13.3` | `tests/test_g13_agentwork_change_feedback.py::test_successful_write_sends_change_feedback`; `tests/test_g13_agentwork_change_feedback.py::test_failed_or_rejected_tool_sends_no_feedback`; `tests/test_g13_agentwork_change_feedback.py::test_mechanical_remap_does_not_call_provider` |
 | `G13.4` | `tests/test_g13_semantic_c_identity.py::test_line_hint_is_not_identity`; `tests/test_g13_semantic_c_identity.py::test_lookup_expands_100_200_500_then_llm`; `tests/test_g13_semantic_c_identity.py::test_full_b_above_cap_is_not_sent_to_llm` |
 | `G13.5` | `tests/test_g13_link_claims.py::test_pending_claim_not_graph_edge`; `tests/test_g13_link_claims.py::test_resolved_claim_emits_edge_delta`; `tests/test_g13_link_claims.py::test_relation_type_enum_enforced` |

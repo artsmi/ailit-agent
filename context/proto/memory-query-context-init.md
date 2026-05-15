@@ -4,7 +4,7 @@
 
 ## Payload init (`memory_init: true`)
 
-Источник правды по полям и отказам: `ailit/ailit_runtime/subprocess_agents/memory_agent.py` (ветка `memory.query_context`), оркестратор — `ailit/agent_memory/memory_init_orchestrator.py`, выбор файлов при init — `memory_init` в `ailit/agent_memory/agent_memory_query_pipeline.py` (`run` / `_select_b_paths_for_w14`).
+Источник правды по полям и отказам: `ailit/ailit_runtime/subprocess_agents/memory_agent.py` (ветка `memory.query_context`), оркестратор — `ailit/agent_memory/init/memory_init_orchestrator.py`, выбор файлов при init — `memory_init` в `ailit/agent_memory/query/agent_memory_query_pipeline.py` (`run` / `_select_b_paths_for_w14`).
 
 | Поле | Правило |
 |------|---------|
@@ -29,23 +29,23 @@
 
 Реализация (SoT по разбору и каноникализации, без пересказа `plan/14-…`):
 
-- текст планера и явный whitelist статусов: константа **`W14_PLAN_TRAVERSAL_SYSTEM`** в `ailit/agent_memory/agent_memory_query_pipeline.py`;
-- парсинг envelope, whitelist top-level **`status`**, проверка **`payload.actions`** / **`payload.is_final`**: `validate_or_canonicalize_w14_command_envelope_object`, `validate_w14_command_envelope_object`, `_validate_plan_traversal_payload`, набор **`_W14_CANON_STATUSES`** в `ailit/agent_memory/agent_memory_runtime_contract.py`.
+- текст планера и явный whitelist статусов: константа **`W14_PLAN_TRAVERSAL_SYSTEM`** в `ailit/agent_memory/query/agent_memory_query_pipeline.py`;
+- парсинг envelope, whitelist top-level **`status`**, проверка **`payload.actions`** / **`payload.is_final`**: `validate_or_canonicalize_w14_command_envelope_object`, `validate_w14_command_envelope_object`, `_validate_plan_traversal_payload`, набор **`_W14_CANON_STATUSES`** в `ailit/agent_memory/contracts/agent_memory_runtime_contract.py`.
 
 **Как читать ответ:** верхний **`status`** — итог команды по контракту; «ещё не финальный план» и следующие шаги — из **`payload`** (`is_final`, `actions`), а не из недопустимого top-level статуса.
 
 ## Коды выхода CLI (OR-011)
 
-Источник правды: `ailit/agent_memory/memory_init_cli_outcome.py` — `memory_init_exit_code(status, abort_class=...)`: **`complete` → 0**; **`partial` / `blocked`** (без interrupt/infra) → **1**; **`interrupt`** → **130**; **`infrastructure`** → **2**. Нормализация строкового статуса и ветки `ok: false` от worker — функции в том же модуле.
+Источник правды: `ailit/agent_memory/cli/memory_init_cli_outcome.py` — `memory_init_exit_code(status, abort_class=...)`: **`complete` → 0**; **`partial` / `blocked`** (без interrupt/infra) → **1**; **`interrupt`** → **130**; **`infrastructure`** → **2**. Нормализация строкового статуса и ветки `ok: false` от worker — функции в том же модуле.
 
 ## VERIFY по journal
 
-Функция `verify_memory_init_journal_complete_marker` в `memory_init_orchestrator.py` (bounded tail read JSONL):
+Функция `verify_memory_init_journal_complete_marker` в `ailit/agent_memory/init/memory_init_orchestrator.py` (bounded tail read JSONL):
 
 - ищет по журналу последнюю по `created_at` запись с `event_name == "memory.result.returned"` и совпадением `chat_id`;
 - требует `payload` — объект и `payload.status == "complete"`.
 
-Событие **`memory.result.returned`** пишется из `memory_agent.py` (`log_memory_w14_result_returned`): компактный payload (`query_id`, `status`, `result_kind_counts`, `results_total`), без сырых `results[].summary`. Для **статуса `complete`** при `session_log_mode == "cli_init"` дополнительно эмитится grep-маркер в compact sink (`CompactObservabilitySink.emit_memory_result_complete_marker` — см. `compact_observability_sink.py`).
+Событие **`memory.result.returned`** пишется из `memory_agent.py` (`log_memory_w14_result_returned`): компактный payload (`query_id`, `status`, `result_kind_counts`, `results_total`), без сырых `results[].summary`. Для **статуса `complete`** при `session_log_mode == "cli_init"` дополнительно эмитится grep-маркер в compact sink (`CompactObservabilitySink.emit_memory_result_complete_marker` — см. `ailit/agent_memory/observability/compact_observability_sink.py`).
 
 ## Логи: CLI init vs desktop
 

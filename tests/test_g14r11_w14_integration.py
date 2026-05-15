@@ -12,27 +12,27 @@ from pathlib import Path
 
 import pytest
 
-from agent_memory.pag_runtime import PagRuntimeConfig
-from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.storage.pag_runtime import PagRuntimeConfig
+from agent_memory.storage.sqlite_pag import SqlitePagStore
 from ailit_base.models import (
     ChatRequest,
     FinishReason,
     NormalizedChatResponse,
     NormalizedUsage,
 )
-from agent_memory.agent_memory_runtime_contract import (
+from agent_memory.contracts.agent_memory_runtime_contract import (
     AGENT_MEMORY_COMMAND_OUTPUT_SCHEMA,
 )
-from agent_memory.agent_memory_result_v1 import (
+from agent_memory.contracts.agent_memory_result_v1 import (
     AGENT_MEMORY_RESULT_V1,
     build_agent_memory_result_v1,
 )
-from agent_memory.agent_memory_config import (
+from agent_memory.config.agent_memory_config import (
     load_or_create_agent_memory_config,
 )
 from ailit_runtime.models import RuntimeIdentity, make_request_envelope
-from agent_memory.pag_graph_trace import MEMORY_W14_GRAPH_HIGHLIGHT_EVENT
-from agent_memory.pag_graph_write_service import PagGraphWriteService
+from agent_memory.pag.pag_graph_trace import MEMORY_W14_GRAPH_HIGHLIGHT_EVENT
+from agent_memory.pag.pag_graph_write_service import PagGraphWriteService
 from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,

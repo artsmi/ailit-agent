@@ -72,9 +72,9 @@ from __future__ import annotations
 
 import shlex
 
-from agent_memory.agent_memory_chat_log import default_chat_logs_dir
-from agent_memory.kb_tools import kb_tools_config_from_env
-from agent_memory.memory_journal import default_memory_journal_path
+from agent_memory.observability.agent_memory_chat_log import default_chat_logs_dir
+from agent_memory.kb.kb_tools import kb_tools_config_from_env
+from agent_memory.storage.memory_journal import default_memory_journal_path
 from ailit_cli.user_paths import GlobalDirResolver
 from ailit_runtime.paths import default_runtime_dir
 

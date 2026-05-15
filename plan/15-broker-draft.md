@@ -131,7 +131,7 @@ ailit runtime supervisor
 
 ## 12. Тесты и изоляция
 
-- `tests/conftest.py` — `isolate_ailit_test_artifacts`: `AILIT_RUNTIME_DIR` в `tmp_path`, плюс PAG/KB/journal/config — чтобы не трогать `~/.ailit` и `/run/user/...`.
+- Корневой `conftest.py` — `isolate_ailit_test_artifacts`: `AILIT_RUNTIME_DIR` в `tmp_path`, плюс PAG/KB/journal/config — чтобы не трогать `~/.ailit` и `/run/user/...`.
 
 ---
 

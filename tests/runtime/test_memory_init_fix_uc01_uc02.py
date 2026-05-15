@@ -12,28 +12,28 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from agent_memory.agent_memory_chat_log import (
+from agent_memory.observability.agent_memory_chat_log import (
     COMPACT_LOG_FILE_NAME,
     AgentMemoryChatDebugLog,
     create_unique_cli_session_dir,
 )
-from agent_memory.agent_memory_config import (
+from agent_memory.config.agent_memory_config import (
     AgentMemoryFileConfig,
     MemoryDebugSubConfig,
 )
-from agent_memory.agent_memory_query_pipeline import (
+from agent_memory.query.agent_memory_query_pipeline import (
     AgentMemoryQueryPipeline,
     W14RuntimeLimits,
 )
-from agent_memory.memory_init_orchestrator import (
+from agent_memory.init.memory_init_orchestrator import (
     MEMORY_INIT_CANONICAL_GOAL,
     MemoryInitOrchestrator,
 )
-from agent_memory.memory_init_summary import (
+from agent_memory.init.memory_init_summary import (
     emit_memory_init_user_summary,
 )
-from agent_memory.memory_init_transaction import MemoryInitPaths as MIP
-from agent_memory.memory_journal import MemoryJournalRow, MemoryJournalStore
+from agent_memory.init.memory_init_transaction import MemoryInitPaths as MIP
+from agent_memory.storage.memory_journal import MemoryJournalRow, MemoryJournalStore
 from ailit_runtime.models import RuntimeRequestEnvelope
 from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,

@@ -7,6 +7,9 @@ Whitelist (``AgentMemoryWorker(`` allowed outside these two files):
 ``ailit/ailit_runtime/subprocess_agents/memory_agent.py``,
 other ``tests/**``, broker subprocess.
 
+Orchestrator sources: ``ailit/agent_memory/init/memory_init_orchestrator.py``,
+``ailit/agent_memory/query/memory_query_orchestrator.py``.
+
 See ``plan/20-memory-cli-broker-viz.md`` §5 G20.7.
 """
 
@@ -21,7 +24,7 @@ _WORKER_CTOR = re.compile(r"AgentMemoryWorker\s*\(")
 
 
 def test_g20_7_memory_init_orchestrator_no_inprocess_worker_ctor() -> None:
-    path = _AGENT_MEMORY / "memory_init_orchestrator.py"
+    path = _AGENT_MEMORY / "init" / "memory_init_orchestrator.py"
     text = path.read_text(encoding="utf-8")
     assert _WORKER_CTOR.search(text) is None, (
         "G20 D1: memory_init_orchestrator must not call AgentMemoryWorker( — "
@@ -30,7 +33,7 @@ def test_g20_7_memory_init_orchestrator_no_inprocess_worker_ctor() -> None:
 
 
 def test_g20_7_memory_query_orchestrator_no_inprocess_worker_ctor() -> None:
-    path = _AGENT_MEMORY / "memory_query_orchestrator.py"
+    path = _AGENT_MEMORY / "query" / "memory_query_orchestrator.py"
     text = path.read_text(encoding="utf-8")
     assert _WORKER_CTOR.search(text) is None, (
         "G20 D1: memory_query_orchestrator must not call AgentMemoryWorker( — "

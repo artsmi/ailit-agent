@@ -11,7 +11,7 @@
 
 ### AgentMemory: поле `memory_continuation_required` в SoT
 
-Вычисление и встраивание в объект **`agent_memory_result.v1`** — `resolve_memory_continuation_required` и `build_agent_memory_result_v1` в `ailit/agent_memory/agent_memory_result_v1.py`; итоговый объект отдаётся в broker-поток из `ailit/ailit_runtime/subprocess_agents/memory_agent.py`. Правила UC-03/UC-04 для поля — в docstring `resolve_memory_continuation_required` (источник правды рядом с кодом).
+Вычисление и встраивание в объект **`agent_memory_result.v1`** — `resolve_memory_continuation_required` и `build_agent_memory_result_v1` в `ailit/agent_memory/contracts/agent_memory_result_v1.py`; итоговый объект отдаётся в broker-поток из `ailit/ailit_runtime/subprocess_agents/memory_agent.py`. Правила UC-03/UC-04 для поля — в docstring `resolve_memory_continuation_required` (источник правды рядом с кодом).
 
 ### Cooperative cancel (UC-05)
 
@@ -57,19 +57,19 @@ Work публикует `context.memory_injected` **только** если от
 
 ### W14 planner: каноникализация envelope до repair
 
-Перед repair-LLM `AgentMemoryQueryPipeline` механически нормализует ответ планера к `agent_memory_command_output.v1` (`validate_or_canonicalize_w14_command_envelope_object` в `agent_memory_runtime_contract.py`): канонический `schema_version`, таблица легаси `status` → только `ok` \| `partial` \| `refuse`, восстановление пустого/`null` `command_id` из доверенного runtime id шага планера (trace), если он известен; иначе — явный отказ с `reason` (в т.ч. `w14_command_id_not_recoverable:no_runtime_command_id`), без маскировки под «только schema_version».
+Перед repair-LLM `AgentMemoryQueryPipeline` механически нормализует ответ планера к `agent_memory_command_output.v1` (`validate_or_canonicalize_w14_command_envelope_object` в `ailit/agent_memory/contracts/agent_memory_runtime_contract.py`): канонический `schema_version`, таблица легаси `status` → только `ok` \| `partial` \| `refuse`, восстановление пустого/`null` `command_id` из доверенного runtime id шага планера (trace), если он известен; иначе — явный отказ с `reason` (в т.ч. `w14_command_id_not_recoverable:no_runtime_command_id`), без маскировки под «только schema_version».
 
 Компактные события журнала AgentMemory (см. [`runtime-event-contract.md`](runtime-event-contract.md)): `memory.command.normalized` (в т.ч. `from_schema_version`, `to_schema_version`, `from_status`, `command_id_restored`), при фактическом восстановлении id — `memory.w14.command_id_restored`.
 
 ### W14 `propose_links`, PAG write и внешние события
 
-- Команда планера **`propose_links`** обрабатывается в `AgentMemoryQueryPipeline`: wire **`agent_memory_link_candidate.v1`** → **`AgentMemoryLinkCandidateValidator`** (отклонения с компактным `reason`, напр. `invalid_source_path`) → применимые рёбра через **`PagGraphWriteService`** (`pag_graph_write_service.py`). Подробности типов связей и политики — [`../algorithms/agent-memory/memory-graph-links.md`](../algorithms/agent-memory/memory-graph-links.md).
-- Каталог внешних событий **`agent_memory.external_event.v1`** (`event_type`: heartbeat, progress, link_candidates, links_updated, nodes_updated, partial_result, complete_result, blocked_result, …), правила durable/ephemeral для конверта и golden map stdout→compact — **SoT в коде** `agent_memory_external_events.py` (обёртки в `agent_memory_w14_observability.py`). В JSONL журнале AgentMemory строка с **`event_name`** = **`memory.external_event`** несёт envelope внешнего протокола; это **не** таблица D-OBS-1 (зона AW↔AM compact), но связано с наблюдаемостью W14 — см. [`runtime-event-contract.md`](runtime-event-contract.md) §Связанные документы.
-- **OR-013:** компактные причины частичного исхода и маппинг assembly→наблюдаемость — `agent_memory_terminal_outcomes.py`; нормативная матрица — [`../algorithms/agent-memory/failure-retry-observability.md`](../algorithms/agent-memory/failure-retry-observability.md).
+- Команда планера **`propose_links`** обрабатывается в `AgentMemoryQueryPipeline`: wire **`agent_memory_link_candidate.v1`** → **`AgentMemoryLinkCandidateValidator`** (отклонения с компактным `reason`, напр. `invalid_source_path`) → применимые рёбра через **`PagGraphWriteService`** (`ailit/agent_memory/pag/pag_graph_write_service.py`). Подробности типов связей и политики — [`../algorithms/agent-memory/memory-graph-links.md`](../algorithms/agent-memory/memory-graph-links.md).
+- Каталог внешних событий **`agent_memory.external_event.v1`** (`event_type`: heartbeat, progress, link_candidates, links_updated, nodes_updated, partial_result, complete_result, blocked_result, …), правила durable/ephemeral для конверта и golden map stdout→compact — **SoT в коде** `ailit/agent_memory/contracts/agent_memory_external_events.py` (обёртки в `ailit/agent_memory/observability/agent_memory_w14_observability.py`). В JSONL журнале AgentMemory строка с **`event_name`** = **`memory.external_event`** несёт envelope внешнего протокола; это **не** таблица D-OBS-1 (зона AW↔AM compact), но связано с наблюдаемостью W14 — см. [`runtime-event-contract.md`](runtime-event-contract.md) §Связанные документы.
+- **OR-013:** компактные причины частичного исхода и маппинг assembly→наблюдаемость — `ailit/agent_memory/contracts/agent_memory_terminal_outcomes.py`; нормативная матрица — [`../algorithms/agent-memory/failure-retry-observability.md`](../algorithms/agent-memory/failure-retry-observability.md).
 
 ### Журнал: durability строки
 
-`MemoryJournalStore.append` (`memory_journal.py`) пропускает запись JSONL для строк с **`durability: ephemeral`** (классификация internal-событий — `journal_durability_for_internal_event`, напр. `memory.index.partial`); durable шаги (`memory.runtime.step` и др.) остаются в файле журнала. Слияние shadow init → канонический путь — `append_rows_from_jsonl_file` (сценарий init).
+`MemoryJournalStore.append` (`ailit/agent_memory/storage/memory_journal.py`) пропускает запись JSONL для строк с **`durability: ephemeral`** (классификация internal-событий — `journal_durability_for_internal_event`, напр. `memory.index.partial`); durable шаги (`memory.runtime.step` и др.) остаются в файле журнала. Слияние shadow init → канонический путь — `append_rows_from_jsonl_file` (сценарий init).
 
 ## Post-pipeline в AgentMemory (`memory.query_context`)
 
@@ -86,7 +86,7 @@ Work публикует `context.memory_injected` **только** если от
 - `need_fb`: нет непустого `injected_text` и нет «финиша» W14 в смысле поля `am_v1_explicit_results` у результата pipeline (`not w14_finish`).
 - Полная замена на `_fallback_slice` выполняется, если `need_fb` и при этом либо нет `w14_contract_failure` в слайсе, либо разрешён **path-fallback**: есть непустой `want_path` и **`reason` слайса не равен** `w14_command_output_invalid`.
 
-Исключение (**G4 / task 2.1**): при `w14_contract_failure` и **`reason == w14_command_output_invalid`** (телеметрия невалидного command output после schema repair в pipeline — см. `agent_memory_query_pipeline.py`, присвоение `reason`) **полная** подмена слайса path-based `_fallback_slice` **не** выполняется, чтобы не затирать метаданные pipeline.
+Исключение (**G4 / task 2.1**): при `w14_contract_failure` и **`reason == w14_command_output_invalid`** (телеметрия невалидного command output после schema repair в pipeline — см. `ailit/agent_memory/query/agent_memory_query_pipeline.py`, присвоение `reason`) **полная** подмена слайса path-based `_fallback_slice` **не** выполняется, чтобы не затирать метаданные pipeline.
 
 При остальных `w14_contract_failure` с непустым путём path-fallback по-прежнему даёт слайс с `reason: path_hint_fallback` и `node_ids` по пути.
 
@@ -107,9 +107,9 @@ Work публикует `context.memory_injected` **только** если от
 - `ailit/ailit_runtime/subprocess_agents/work_agent.py` — `_request_memory_slice` (payload pathless v1), `_memory_slice_message`, `_memory_injected_payload` (строки порядка ~290–517).
 - `ailit/agent_work/session/context_ledger.py` — `memory_injected_v2_payload` (`usage_state: "estimated"` в возвращаемом dict, ~267–297).
 - `ailit/ailit_runtime/subprocess_agents/memory_agent.py` — `_fallback_slice` (~1284–1316), `handle` / ветка `memory.query_context` и пост-pipeline (~1496–1564); cancel path и публикация SoT.
-- `ailit/agent_memory/agent_memory_result_v1.py` — `resolve_memory_continuation_required`, `build_agent_memory_result_v1`.
+- `ailit/agent_memory/contracts/agent_memory_result_v1.py` — `resolve_memory_continuation_required`, `build_agent_memory_result_v1`.
 - `ailit/ailit_runtime/broker.py` — ветка `runtime.cancel_active_turn` на `service.request`.
-- `ailit/agent_memory/agent_memory_query_pipeline.py` — W14 pipeline, `propose_links`, выставление `reason: w14_command_output_invalid` (согласование с п.2 выше).
-- `ailit/agent_memory/agent_memory_link_candidate_validator.py`, `ailit/agent_memory/pag_graph_write_service.py` — валидация кандидатов связей и запись PAG.
-- `ailit/agent_memory/agent_memory_external_events.py`, `ailit/agent_memory/agent_memory_terminal_outcomes.py` — внешние события и OR-013.
-- `ailit/agent_memory/memory_journal.py` — JSONL store, `durability`, merge init-журналов.
+- `ailit/agent_memory/query/agent_memory_query_pipeline.py` — W14 pipeline, `propose_links`, выставление `reason: w14_command_output_invalid` (согласование с п.2 выше).
+- `ailit/agent_memory/services/agent_memory_link_candidate_validator.py`, `ailit/agent_memory/pag/pag_graph_write_service.py` — валидация кандидатов связей и запись PAG.
+- `ailit/agent_memory/contracts/agent_memory_external_events.py`, `ailit/agent_memory/contracts/agent_memory_terminal_outcomes.py` — внешние события и OR-013.
+- `ailit/agent_memory/storage/memory_journal.py` — JSONL store, `durability`, merge init-журналов.

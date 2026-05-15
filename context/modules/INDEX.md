@@ -6,7 +6,7 @@
 |--------------------|------------|
 | `ailit/ailit_base/` | Модели чата, провайдеры LLM, нормализация потоков, HTTP-транспорт, загрузка конфига, shell-security утилиты. |
 | `ailit/agent_work/` | Session loop, perm-режимы, инструменты агента (`tool_runtime`), bash-runner и shell session. |
-| `ailit/agent_memory/` | PAG/KB SQLite, индексация, пайплайн AgentMemory, журналы инициализации, W14 graph highlight; каталог `legacy/` — карантин старых C-extraction модулей. |
+| `ailit/agent_memory/` | PAG/KB SQLite, индексация, пайплайн AgentMemory, журналы инициализации, W14 graph highlight. Подпакеты: `cli/`, `config/`, `contracts/`, `storage/`, `pag/`, `init/`, `query/`, `services/`, `observability/`, `kb/`; каталог `legacy/` — карантин старых C-extraction модулей. Юнит-тесты подсистемы: `ailit/agent_memory/tests/`. |
 | `ailit/ailit_runtime/` | Broker, supervisor, Unix-socket IPC, модели runtime-конвертов, subprocess-агенты (AgentWork / AgentMemory worker). |
 | `ailit/ailit_cli/` | CLI `ailit` (`cli.py`), подкоманды memory/kb/runtime/desktop/project и merge пользовательского конфига. |
 | `ailit/workflow_engine/` | Загрузка и исполнение workflow YAML. |

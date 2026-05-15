@@ -12,4 +12,4 @@ readonly PAG_READ_DEFAULT_DB="/home/artem/.ailit/pag/store.sqlite3"
 export PAG_READ_DB="${PAG_READ_DB:-${AILIT_PAG_DB_PATH:-${PAG_READ_DEFAULT_DB}}}"
 
 cd "${REPO_ROOT}"
-exec python3 -m agent_memory.pag_read_cli "$@"
+exec python3 -m agent_memory.cli.pag_read_cli "$@"

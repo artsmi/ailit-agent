@@ -17,8 +17,8 @@
 
 - Repair планера: **один** дополнительный вызов LLM при части ошибок; политика `_should_repair_w14_error` отклоняет repair для некоторых текстов ошибки (например явное «должен быть только json» / «invalid json»).
 - Отмена: `memory.cancel_query_context` → `MemoryQueryCancelledError` внутри pipeline → ответ с `memory_query_cancelled` (без полноценного `agent_memory_result` в успешном теле того же round — см. обработчик в `memory_agent.py`).
-- **Верхний `status` и `partial_reasons` — разные поля:** `ailit/agent_memory/agent_memory_terminal_outcomes.py` поставляет строки для `AgentMemoryQueryPipelineResult.runtime_partial_reasons`, которые попадают в `agent_memory_result.v1` как `runtime_trace.partial_reasons`. Итоговое поле `status` в конверте собирает `build_agent_memory_result_v1` с приоритетом `explicit_status` (`am_v1_status` из pipeline) и whitelist-нормализацией; причины из terminal outcomes **не** подменяют верхний `status` напрямую.
-- **Семантика `blocked` в коде шире целевой формулировки OR-002:** помимо сценариев «LLM недоступен / нет валидного ответа после repair», `blocked` выставляется в ветках finish-decision и assembly при пустых `selected_results`, отсутствии валидных `results` и полном отказе assembly по путям (см. `agent_memory_query_pipeline.py`). Неперехваченное исключение из `pl.run` при `memory init` может дать пользовательский `blocked` с `reason_short=runtime_error` и non-zero exit **вне** успешного envelope с полным `agent_memory_result` в том же round.
+- **Верхний `status` и `partial_reasons` — разные поля:** `ailit/agent_memory/contracts/agent_memory_terminal_outcomes.py` поставляет строки для `AgentMemoryQueryPipelineResult.runtime_partial_reasons`, которые попадают в `agent_memory_result.v1` как `runtime_trace.partial_reasons`. Итоговое поле `status` в конверте собирает `build_agent_memory_result_v1` с приоритетом `explicit_status` (`am_v1_status` из pipeline) и whitelist-нормализацией; причины из terminal outcomes **не** подменяют верхний `status` напрямую.
+- **Семантика `blocked` в коде шире целевой формулировки OR-002:** помимо сценариев «LLM недоступен / нет валидного ответа после repair», `blocked` выставляется в ветках finish-decision и assembly при пустых `selected_results`, отсутствии валидных `results` и полном отказе assembly по путям (см. `ailit/agent_memory/query/agent_memory_query_pipeline.py`). Неперехваченное исключение из `pl.run` при `memory init` может дать пользовательский `blocked` с `reason_short=runtime_error` и non-zero exit **вне** успешного envelope с полным `agent_memory_result` в том же round.
 - **Внешние события в JSONL как `memory.external_event`:** в production с envelope `agent_memory.external_event.v1` пишутся только **`link_candidates`** и **`links_updated`** (ветка `propose_links` в `AgentMemoryQueryPipeline`). Остальные значения `ExternalEventType` заданы типом и модульным docstringом в `agent_memory_external_events.py`; production-вызовов `build_external_event_v1` для них нет, кроме unit-теста формы envelope (например `heartbeat`).
 - **`build_external_event_v1`** не валидирует `payload` по `event_type`; запрет raw/CoT для result-type событий в docstring — политика; для durable JSONL действует `redact_journal_value` / `_SENSITIVE_KEY_PARTS` в `memory_journal.py` и отсутствие raw prompt в `log_memory_w14_command_requested`.
 - **Различать:** wire `event_type` в envelope внешнего события; имена compact-событий `memory.link_candidates`, `memory.links_updated`; маркер `memory.result.returned` со whitelist статусов через `emit_memory_result_returned_marker` в `compact_observability_sink.py` (не-whitelist статус в маркере принудительно отображается как `blocked`).
@@ -38,11 +38,11 @@
 
 **Цель (OR-002):** трактовать `blocked` как недоступность API LLM или невозможность получить валидный ответ после ограниченного repair для обязательной фазы с участием LLM.
 
-**Факт в реализации (синхронизация с pipeline):** `blocked` в `am_v1_status` также используется при пустой finish-сборке и отказе assembly, не только при недоступности LLM. Читатель канона обязан сверять ветки статуса с `agent_memory_query_pipeline.py` и `build_agent_memory_result_v1`, а не только с OR-002.
+**Факт в реализации (синхронизация с pipeline):** `blocked` в `am_v1_status` также используется при пустой finish-сборке и отказе assembly, не только при недоступности LLM. Читатель канона обязан сверять ветки статуса с `ailit/agent_memory/query/agent_memory_query_pipeline.py` и `build_agent_memory_result_v1`, а не только с OR-002.
 
 ### Матрица OR-013: условие → верхний статус (типично) → наблюдаемая причина → retry
 
-Колонка **«Причина (`runtime_trace.partial_reasons`)»** перечисляет строки, которые попадают в компактный trace; **полный** перечень строк матрицы в коде не дублируется в `agent_memory_terminal_outcomes.py` (см. docstring модуля: часть кодов подключается в других ветках). **SoT для подключённых кодов и маппинга assembly:** `ailit/agent_memory/agent_memory_terminal_outcomes.py` (`REASON_*`, `w14_intermediate_runtime_partial_reasons`, `or013_reasons_from_assembly_reject_codes` — сейчас маппятся только `c_node_not_found` → `unknown_node_id`, `read_lines_file_not_found` → `file_missing`).
+Колонка **«Причина (`runtime_trace.partial_reasons`)»** перечисляет строки, которые попадают в компактный trace; **полный** перечень строк матрицы в коде не дублируется в `agent_memory_terminal_outcomes.py` (см. docstring модуля: часть кодов подключается в других ветках). **SoT для подключённых кодов и маппинга assembly:** `ailit/agent_memory/contracts/agent_memory_terminal_outcomes.py` (`REASON_*`, `w14_intermediate_runtime_partial_reasons`, `or013_reasons_from_assembly_reject_codes` — сейчас маппятся только `c_node_not_found` → `unknown_node_id`, `read_lines_file_not_found` → `file_missing`).
 
 | Условие | Типичный верхний `status` | `runtime_trace.partial_reasons` (OR-013 строки, если применимо) | Retry/repair |
 |---------|---------------------------|---------------------------------------------------------------------|----------------|
@@ -62,7 +62,7 @@
 
 ### FR-no-progress (целевое правило)
 
-Если раунд выбрал тот же набор файлов или узлов и не добавил пригодных кандидатов, следующий раунд **запрещён** без смены входа, прогресса, лимитов или исправления ответа провайдера; иначе `partial` с причиной наблюдаемости **`no_progress`**. Подключение в рантайме: `w14_intermediate_runtime_partial_reasons` в `ailit/agent_memory/agent_memory_terminal_outcomes.py`.
+Если раунд выбрал тот же набор файлов или узлов и не добавил пригодных кандидатов, следующий раунд **запрещён** без смены входа, прогресса, лимитов или исправления ответа провайдера; иначе `partial` с причиной наблюдаемости **`no_progress`**. Подключение в рантайме: `w14_intermediate_runtime_partial_reasons` в `ailit/agent_memory/contracts/agent_memory_terminal_outcomes.py`.
 
 ### `agent_memory_result.v1` (OR-012) — каркас схемы
 
@@ -93,7 +93,7 @@
 
 ### Маппинг stdout → compact (внутренние имена, не wire `event_type` внешнего события)
 
-SoT: `STDOUT_INTERNAL_TO_COMPACT_EVENT` в `ailit/agent_memory/agent_memory_external_events.py`; регрессия имени и формы `build_external_event_v1` — `tests/test_g14_agent_memory_external_event_mapping.py` (`test_stdout_to_compact_golden_mapping_table`, `test_build_external_event_v1_shape`).
+SoT: `STDOUT_INTERNAL_TO_COMPACT_EVENT` в `ailit/agent_memory/contracts/agent_memory_external_events.py`; регрессия имени и формы `build_external_event_v1` — `ailit/agent_memory/tests/test_g14_agent_memory_external_event_mapping.py` (`test_stdout_to_compact_golden_mapping_table`, `test_build_external_event_v1_shape`).
 
 | stdout `event_name` | compact `event` |
 |---------------------|-----------------|
@@ -103,7 +103,7 @@ SoT: `STDOUT_INTERNAL_TO_COMPACT_EVENT` в `ailit/agent_memory/agent_memory_exte
 
 ### Приёмка: инвентарь pytest (OR-015)
 
-Использовать только существующие тесты в дереве `tests/`. **Изоляция по умолчанию:** autouse `isolate_ailit_test_artifacts` в `tests/conftest.py`; тесты `memory init` часто дополнительно задают `AILIT_AGENT_MEMORY_*`, пути журнала и PAG через `monkeypatch`.
+Использовать только существующие тесты в дереве `tests/` и `ailit/agent_memory/tests/`. **Изоляция по умолчанию:** autouse `isolate_ailit_test_artifacts` в корневом `conftest.py`; тесты `memory init` часто дополнительно задают `AILIT_AGENT_MEMORY_*`, пути журнала и PAG через `monkeypatch`.
 
 #### CLI `ailit memory init`, оркестратор, журнал VERIFY
 
@@ -111,32 +111,32 @@ SoT: `STDOUT_INTERNAL_TO_COMPACT_EVENT` в `ailit/agent_memory/agent_memory_exte
 |------|-----------------------------------|
 | `tests/runtime/test_memory_init_orchestrator_task_2_2.py` | `test_memory_init_orchestrator_end_to_end`; прерывание → exit **130** |
 | `tests/runtime/test_memory_init_fix_uc01_uc02.py` | continuation, `partial` + exit **1**, stderr summary |
-| `tests/test_memory_init_cli_layout.py` | `test_memory_init_journal_verify_requires_complete_marker` (VERIFY) |
+| `ailit/agent_memory/tests/test_memory_init_cli_layout.py` | `test_memory_init_journal_verify_requires_complete_marker` (VERIFY) |
 | `tests/runtime/test_memory_init_t4_uc05_real_handle.py` | `test_t4_memory_init_orchestrator_exit0_real_handle_sequential_provider` |
 | `tests/test_memory_cli_init_task_3_1.py` | subprocess / help / invalid path |
-| `tests/runtime/test_memory_init_transaction_task_2_1.py` | фазы транзакции init |
+| `ailit/agent_memory/tests/test_memory_init_transaction_task_2_1.py` | фазы транзакции init |
 
 #### Регрессии G14 / broker / runtime памяти
 
 | Путь | Примеры имён функций |
 |------|----------------------|
-| `tests/test_g14r0_w14_clean_replacement.py` | `test_query_context_returns_agent_memory_result_next_to_memory_slice`, `test_legacy_requested_reads_rejected_after_clean_replacement` |
-| `tests/test_g14r2_agent_memory_runtime_contract.py` | `test_plan_traversal_in_progress_canonicalizes_to_ok`, `test_command_output_rejects_prose_around_json` |
+| `ailit/agent_memory/tests/test_g14r0_w14_clean_replacement.py` | `test_query_context_returns_agent_memory_result_next_to_memory_slice`, `test_legacy_requested_reads_rejected_after_clean_replacement` |
+| `ailit/agent_memory/tests/test_g14r2_agent_memory_runtime_contract.py` | `test_plan_traversal_in_progress_canonicalizes_to_ok`, `test_command_output_rejects_prose_around_json` |
 | `tests/test_g14r7_agent_memory_result_assembly.py` | `test_memory_result_contains_c_summary_without_raw_b_content`, `test_memory_result_read_lines_are_granted_ranges` |
 | `tests/test_g14r11_w14_integration.py` | `test_w14_pipeline_emits_terminal_agent_memory_result_per_query`, `test_w14_invalid_json_does_not_grow_pag` |
 | `tests/test_g14r1_agent_work_memory_query.py` | `test_memory_query_requires_subgoal_and_stop_condition`, `test_agentwork_memory_query_loop_stops_at_config_cap` |
 | `tests/test_g14r_agentwork_memory_continuation.py` | `test_uc01_partial_continuation_two_memory_queries_before_tools` |
-| `tests/test_g14_agent_memory_runtime_logs.py` | `test_memory_runtime_step_journal_has_compact_payload`, `test_agent_memory_chat_log_records_command_requested_without_raw_prompt` |
-| `tests/test_g14_agent_memory_external_event_mapping.py` | stdout→compact, форма `agent_memory.external_event.v1` |
+| `ailit/agent_memory/tests/test_g14_agent_memory_runtime_logs.py` | `test_memory_runtime_step_journal_has_compact_payload`, `test_agent_memory_chat_log_records_command_requested_without_raw_prompt` |
+| `ailit/agent_memory/tests/test_g14_agent_memory_external_event_mapping.py` | stdout→compact, форма `agent_memory.external_event.v1` |
 | `tests/runtime/test_broker_work_memory_routing.py` | broker + `_w14_trace_contract_ok` |
-| `tests/test_g14_agent_memory_legacy_quarantine.py` | quarantine legacy C extractor |
-| `tests/runtime/test_memory_journal.py` | redaction / durable journal (см. отчёт и grep по `redact_journal_value`) |
+| `ailit/agent_memory/tests/test_g14_agent_memory_legacy_quarantine.py` | quarantine legacy C extractor |
+| `ailit/agent_memory/tests/test_memory_journal.py` | redaction / durable journal (см. отчёт и grep по `redact_journal_value`) |
 
 **Историческая заметка:** имена вроде `test_plan_traversal_prompt_contains_required_output_schema` из старых планов в репозитории **не** существуют; на них не опираться.
 
 ## Сводка implementation_backlog (см. глоссарий)
 
-- Полная машинная трассировка **каждой** строки матрицы OR-013 к активному `REASON_*` или ветке pipeline: либо расширить `agent_memory_terminal_outcomes.py` и тесты, либо явно пометить непокрытые строки как `verification_gap` до построчного grep по коду.
+- Полная машинная трассировка **каждой** строки матрицы OR-013 к активному `REASON_*` или ветке pipeline: либо расширить `ailit/agent_memory/contracts/agent_memory_terminal_outcomes.py` и тесты, либо явно пометить непокрытые строки как `verification_gap` до построчного grep по коду.
 - AgentWork / цикл инструментов: передать `grants` из ответа памяти в `MemoryGrantChecker` при создании `ToolExecutor` (сейчас checker в типичном loop не задаётся).
 - Единый id узла A (см. [`memory-graph-links.md`](memory-graph-links.md)).
 - Расширение D-OBS или второй каталог внутреннего журнала.

@@ -9,19 +9,19 @@ from typing import Any
 
 import pytest
 
-from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.storage.sqlite_pag import SqlitePagStore
 from ailit_runtime.models import (
     RuntimeRequestEnvelope,
     make_request_envelope,
     RuntimeIdentity,
 )
-from agent_memory.pag_graph_trace import (
+from agent_memory.pag.pag_graph_trace import (
     MEMORY_W14_GRAPH_HIGHLIGHT_EVENT,
     MEMORY_W14_GRAPH_HIGHLIGHT_SCHEMA,
     emit_memory_w14_graph_highlight_row,
 )
-from agent_memory.pag_graph_write_service import PagGraphWriteService
-from agent_memory.w14_graph_highlight_path import (
+from agent_memory.pag.pag_graph_write_service import PagGraphWriteService
+from agent_memory.pag.w14_graph_highlight_path import (
     W14GraphHighlightPathBuilder,
     a_node_id,
 )
@@ -176,7 +176,7 @@ def test_python_forbids_pag_graph_rev_reconciled_literal() -> None:
     root = Path(__file__).resolve().parents[2]
     paths = (
         root / "ailit/ailit_runtime/subprocess_agents/memory_agent.py",
-        root / "ailit/agent_memory/pag_graph_trace.py",
+        root / "ailit/agent_memory/pag/pag_graph_trace.py",
     )
     needle = "pag_graph_rev_reconciled"
     for path in paths:

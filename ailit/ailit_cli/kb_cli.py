@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from agent_memory.kb_tools import kb_tools_config_from_env
-from agent_memory.sqlite_kb import SqliteKb
+from agent_memory.kb.kb_tools import kb_tools_config_from_env
+from agent_memory.storage.sqlite_kb import SqliteKb
 
 
 def _utc_now_iso() -> str:

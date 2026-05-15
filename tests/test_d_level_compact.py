@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.storage.sqlite_pag import SqlitePagStore
 from ailit_base.models import (
     ChatMessage,
     FinishReason,

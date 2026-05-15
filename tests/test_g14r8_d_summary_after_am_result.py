@@ -10,12 +10,12 @@ from pathlib import Path
 
 import pytest
 
-from agent_memory.sqlite_pag import SqlitePagStore
-from agent_memory.agent_memory_query_pipeline import (
+from agent_memory.storage.sqlite_pag import SqlitePagStore
+from agent_memory.query.agent_memory_query_pipeline import (
     AgentMemoryQueryPipeline,
     AgentMemoryQueryPipelineResult,
 )
-from agent_memory.d_creation_policy import (
+from agent_memory.pag.d_creation_policy import (
     am_result_digest_goal_text,
     linked_abc_from_am_explicit_results,
 )

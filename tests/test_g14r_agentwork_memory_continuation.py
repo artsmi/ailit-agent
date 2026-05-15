@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 import pytest
 
-from agent_memory.agent_memory_result_v1 import (
+from agent_memory.contracts.agent_memory_result_v1 import (
     build_agent_memory_result_v1,
 )
 from agent_work.tool_runtime.registry import ToolRegistry
@@ -484,7 +484,7 @@ def test_agentwork_uc03_fix_memory_llm_json_terminal_no_second_memory_query(
     """UC-03: ``fix_memory_llm_json`` — терминально для memory-loop."""
     from ailit_runtime.subprocess_agents import work_agent as wa
     import ailit_runtime.subprocess_agents.work_agent as wam
-    from agent_memory.agent_memory_result_v1 import (
+    from agent_memory.contracts.agent_memory_result_v1 import (
         FIX_MEMORY_LLM_JSON_STEP,
     )
 

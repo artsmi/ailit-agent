@@ -12,8 +12,8 @@ from unittest.mock import patch
 
 import pytest
 
-from agent_memory.pag_runtime import PagRuntimeConfig
-from agent_memory.sqlite_pag import SqlitePagStore
+from agent_memory.storage.pag_runtime import PagRuntimeConfig
+from agent_memory.storage.sqlite_pag import SqlitePagStore
 from ailit_base.models import (
     ChatRequest,
     FinishReason,
@@ -21,12 +21,12 @@ from ailit_base.models import (
     NormalizedUsage,
 )
 from ailit_base.providers.protocol import ChatProvider
-from agent_memory.link_claim_resolver import LinkClaimResolver
+from agent_memory.pag.link_claim_resolver import LinkClaimResolver
 from ailit_runtime.models import (
     RuntimeIdentity,
     make_request_envelope,
 )
-from agent_memory.pag_graph_write_service import PagGraphWriteService
+from agent_memory.pag.pag_graph_write_service import PagGraphWriteService
 from ailit_runtime.subprocess_agents.memory_agent import (
     AgentMemoryWorker,
     MemoryAgentConfig,

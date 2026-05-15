@@ -14,7 +14,7 @@
 
 ## Текущая реализация
 
-Источник проверки при расхождении с нормативом: модули под `ailit/agent_memory/` — `subprocess_agents/memory_agent.py`, `agent_memory_query_pipeline.py`, `memory_init_orchestrator.py`, `agent_memory_result_v1.py`, `agent_memory_result_assembly.py`, `agent_memory_terminal_outcomes.py`.
+Источник проверки при расхождении с нормативом: модули под `ailit/agent_memory/` и worker — `ailit/ailit_runtime/subprocess_agents/memory_agent.py`, `ailit/agent_memory/query/agent_memory_query_pipeline.py`, `ailit/agent_memory/init/memory_init_orchestrator.py`, `ailit/agent_memory/contracts/agent_memory_result_v1.py`, `ailit/agent_memory/services/agent_memory_result_assembly.py`, `ailit/agent_memory/contracts/agent_memory_terminal_outcomes.py`.
 
 ### Entrypoints и один `run()` на RPC (F-P1, F-P2)
 
@@ -43,7 +43,7 @@
 
 - **F-P7:** `build_agent_memory_result_v1` в worker получает `explicit_status` / `explicit_results` из результата pipeline; при отсутствии explicit finish используется проекция из `memory_slice` (ветка с `node_ids` / путями / `injected_text` по коду).
 - **`runtime_trace` в v1:** в коде задаются **фиксированные** `steps_executed: 1` и `final_step: "finish"` плюс `partial_reasons` (в т.ч. из `runtime_partial_reasons`). Это **не** счётчик реальных шагов W14 и **не** полный граф исполнения. OR-012 следует читать как «согласованный компактный конверт», а не как пошаговую трассировку каждого внутреннего шага.
-- **F-P8:** Состав `results[]` для finish задаёт `FinishDecisionResultAssembler`; маппинг части кодов отказа assembly в строки OR-013 — функция `or013_reasons_from_assembly_reject_codes` в `agent_memory_terminal_outcomes.py` (полная построчная матрица — см. оговорку `verification_gap` в пакете observability, когда тот файл синхронизирован).
+- **F-P8:** Состав `results[]` для finish задаёт `FinishDecisionResultAssembler`; маппинг части кодов отказа assembly в строки OR-013 — функция `or013_reasons_from_assembly_reject_codes` в `ailit/agent_memory/contracts/agent_memory_terminal_outcomes.py` (полная построчная матрица — см. оговорку `verification_gap` в пакете observability, когда тот файл синхронизирован).
 
 ### Продолжение init после partial (F-P9)
 
@@ -53,7 +53,7 @@
 ### Прочее (ранее зафиксированные факты)
 
 - Два способа дойти до того же worker: **брокер** → subprocess `memory_agent` и **CLI** `ailit memory init` (тот же конвейер при корректном envelope).
-- Основной планер **W14**: `AgentMemoryQueryPipeline.run` в `agent_memory_query_pipeline.py` — mechanical slice, один раунд планера, ветки `finish_decision`, **`propose_links`**, промежуточный `plan_traversal` с `_run_w14_action_runtime`, материализация B, indexer, **`summarize_c` / `summarize_b`**, сборка slice и explicit results где предусмотрено.
+- Основной планер **W14**: `AgentMemoryQueryPipeline.run` в `ailit/agent_memory/query/agent_memory_query_pipeline.py` — mechanical slice, один раунд планера, ветки `finish_decision`, **`propose_links`**, промежуточный `plan_traversal` с `_run_w14_action_runtime`, материализация B, indexer, **`summarize_c` / `summarize_b`**, сборка slice и explicit results где предусмотрено.
 - Устаревший **G13** / `AgentMemoryLLMLoop` для `memory.query_context` **не** подключается.
 - **Без LLM** (`memory.llm` выключен политикой): `_fallback_without_llm` → `_grow_pag_for_query`, затем slice или fallback-slice.
 - Журнал шагов W14: `log_memory_w14_runtime_step` — **операционные** имена `state` / `next_state` из кода, не полный целевой граф ниже.

@@ -33,13 +33,14 @@ include = [
     "workflow_engine*",
     "project_layer*",
 ]
+exclude = ["agent_memory.tests*"]
 
 [tool.setuptools.package-data]
 ailit_cli = ["static/**/*.html"]
 
 [tool.pytest.ini_options]
 pythonpath = ["ailit", "tests/e2e"]
-testpaths = ["tests"]
+testpaths = ["tests", "ailit/agent_memory/tests"]
 asyncio_mode = "auto"
 addopts = "-m 'not integration and not manual_model_e2e'"
 markers = [

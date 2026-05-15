@@ -9,17 +9,17 @@ import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
-from agent_memory.pag_indexer import PagIndexer
+from agent_memory.pag.pag_indexer import PagIndexer
 from ailit_runtime.errors import RuntimeProtocolError
-from agent_memory.memory_init_orchestrator import (
+from agent_memory.init.memory_init_orchestrator import (
     MemoryInitOrchestrator,
     normalize_memory_init_root,
 )
-from agent_memory.agent_memory_ailit_config import (
+from agent_memory.config.agent_memory_ailit_config import (
     agent_memory_rpc_timeout_s,
     load_merged_ailit_config_for_memory,
 )
-from agent_memory.memory_query_orchestrator import (
+from agent_memory.query.memory_query_orchestrator import (
     MemoryQueryOrchestrator,
 )
 from ailit_runtime.broker_json_client import (
@@ -38,11 +38,11 @@ from agent_work.session.repo_context import (
     detect_repo_context,
     namespace_for_repo,
 )
-from agent_memory.pag_slice_caps import (
+from agent_memory.pag.pag_slice_caps import (
     PAG_SLICE_MAX_EDGES,
     PAG_SLICE_MAX_NODES,
 )
-from agent_memory.sqlite_pag import PagEdge, PagNode, SqlitePagStore
+from agent_memory.storage.sqlite_pag import PagEdge, PagNode, SqlitePagStore
 from ailit_cli.memory_viz_runtime import (
     maybe_start_memory_viz,
     memory_viz_finalize,

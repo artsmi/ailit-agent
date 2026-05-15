@@ -13,10 +13,10 @@ from ailit_runtime.models import (
     AGENT_WORK_MEMORY_QUERY_V1,
     parse_agent_work_memory_query_v1,
 )
-from agent_memory.agent_memory_ailit_config import (
+from agent_memory.config.agent_memory_ailit_config import (
     max_memory_queries_per_user_turn,
 )
-from agent_memory.agent_memory_result_v1 import (
+from agent_memory.contracts.agent_memory_result_v1 import (
     build_agent_memory_result_v1,
 )
 from ailit_cli.merged_config import load_merged_ailit_config

@@ -9,11 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from agent_memory.sqlite_pag import SqlitePagStore
-from agent_memory.agent_memory_result_assembly import (
+from agent_memory.storage.sqlite_pag import SqlitePagStore
+from agent_memory.services.agent_memory_result_assembly import (
     FinishDecisionResultAssembler,
 )
-from agent_memory.agent_memory_result_v1 import (
+from agent_memory.contracts.agent_memory_result_v1 import (
     FIX_MEMORY_LLM_JSON_STEP,
     build_agent_memory_result_v1,
     resolve_memory_continuation_required,
@@ -22,7 +22,7 @@ from ailit_runtime.models import (
     MemoryGrant,
     MemoryGrantRange,
 )
-from agent_memory.pag_graph_write_service import PagGraphWriteService
+from agent_memory.pag.pag_graph_write_service import PagGraphWriteService
 from agent_work.tool_runtime.memory_grants import MemoryGrantChecker
 from agent_work.tool_runtime.multi_root_paths import (
     validate_agent_memory_relative_path,
